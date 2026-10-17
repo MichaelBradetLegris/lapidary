@@ -11,6 +11,7 @@ import { proPlanNote } from '../../shared/ai/claudeModels';
 import { claudeUpdateAdvice } from '../../shared/ai/claudeStatus';
 import { chapterStats } from '../../shared/text/stats';
 import { historyCounts, historyWhen } from '../../shared/ui/history';
+import { reviewStartLabels, reviewStartNote } from '../../shared/ui/save';
 import {
   EFFORT_LEVELS,
   PROVIDERS,
@@ -40,9 +41,12 @@ interface Props {
   reviewPath: string | null;
   /** decisions on the page that the chapter file does not contain yet */
   unsavedDecisions: number;
+  /** a Save to chapter is under way */
   saving: boolean;
-  /** Save to chapter, leaving the dialog open */
-  onSaveFirst: () => void;
+  /** "Save N changes, then review": save, then start once the file reads like the page (apply.20) */
+  onSaveThenStart: () => void;
+  /** "Review without them": ask, then start from the chapter file as it is (apply.20) */
+  onStartWithout: () => void;
   onApplySettings: (next: Settings) => void;
   /** fetch a provider's model list the first time it is shown */
   onNeedModels: (provider: Provider) => void;
@@ -73,7 +77,8 @@ export function ReviewDialog({
   reviewPath,
   unsavedDecisions,
   saving,
-  onSaveFirst,
+  onSaveThenStart,
+  onStartWithout,
   onApplySettings,
   onNeedModels,
   onOpenSettings,
@@ -96,6 +101,8 @@ export function ReviewDialog({
   const hasKey = keyStatus?.configured === true;
   const runtime = runtimes[provider];
   const canStart = isOpenAi ? hasKey && current !== '' : true;
+  const labels = reviewStartLabels(unsavedDecisions);
+  const note = reviewStartNote(unsavedDecisions);
   const planNote = isOpenAi ? null : proPlanNote(runtime?.subscriptionType, current);
   const updateAdvice = isOpenAi
     ? null
@@ -282,34 +289,41 @@ export function ReviewDialog({
         </p>
 
         {/* The model reads the chapter file, not the page, and its result
-            replaces the working set. Accepted changes that never reached the
-            file would drop out of view (they stay in History), and the model
-            would suggest fixes for text the author already fixed. */}
-        {unsavedDecisions > 0 ? (
+            replaces the working set. Changes that never reached the file
+            would stay behind in the old review, out of sight in History, and
+            the model would suggest fixes for text the author already fixed.
+            So the blue button saves them first, and starting without them
+            asks (apply.20). */}
+        {note ? (
           <div className="modal__warn" role="alert">
-            <span>
-              {unsavedDecisions} decision{unsavedDecisions === 1 ? ' is' : 's are'} not saved to the chapter
-              yet. The review reads the chapter file, so save first to have{' '}
-              {unsavedDecisions === 1 ? 'it' : 'them'} included.
-            </span>
-            <button type="button" disabled={saving} onClick={onSaveFirst}>
-              {saving ? 'Saving…' : 'Save to chapter'}
-            </button>
+            <span>{note}</span>
           </div>
         ) : null}
 
-        <div className="modal__actions">
+        {/* Labels never break inside a button; zoomed in, the last buttons
+            move to a second row, as in the confirm dialog. */}
+        <div className="modal__actions modal__actions--confirm">
           {isOpenAi && !hasKey ? (
             <span className="modal__hint" style={{ margin: 0 }}>
-              Start is disabled until an OpenAI key is available.
+              The review cannot start until an OpenAI key is available.
             </span>
           ) : null}
           <span className="spacer" />
           <button type="button" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" className="primary" disabled={!canStart} onClick={onStart}>
-            Start review
+          {labels.secondary ? (
+            <button type="button" disabled={!canStart || saving} onClick={onStartWithout}>
+              {labels.secondary}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="primary"
+            disabled={!canStart || saving}
+            onClick={unsavedDecisions > 0 ? onSaveThenStart : onStart}
+          >
+            {saving ? 'Saving…' : labels.primary}
           </button>
         </div>
       </div>

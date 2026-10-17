@@ -30,6 +30,7 @@ import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state
 import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { useKeyboardBindings } from './state/keyboard';
 import { useProgressLabel } from './state/progress';
+import { reviewWithoutSaving, saveThenReview } from './state/reviewStart';
 import { useApp } from './state/store';
 import {
   flushReviewWrites,
@@ -447,7 +448,10 @@ export function App(): React.JSX.Element {
    * meantime would vanish when it landed. Other chapters stay open to browse.
    */
   const startReview = useCallback(() => {
-    const current = useApp.getState().review;
+    // Read when it starts, which after "Save N changes, then review" is once
+    // the save has ended: the review on screen then stands on the saved text,
+    // and a model or effort chosen meanwhile counts (apply.20).
+    const { review: current, settings } = useApp.getState();
     if (!current?.sourcePath || !settings) return;
     setReviewDialogOpen(false);
     const name = PROVIDER_NAMES[settings.provider];
@@ -514,7 +518,21 @@ export function App(): React.JSX.Element {
         fail(err);
       })
       .finally(() => useApp.getState().setAiBusy(null));
-  }, [settings, ai, adoptReview, notify, setReviewDialogOpen, fail, refreshFiles, setSetupOpen]);
+  }, [ai, adoptReview, notify, setReviewDialogOpen, fail, refreshFiles, setSetupOpen]);
+
+  /* No stranded decisions (apply.20, state/reviewStart.ts): with changes not
+     saved to the chapter, the dialog's blue button saves them and starts the
+     review only once the file reads like the page, and "Review without them"
+     asks first. Neither starts once the dialog has been closed. */
+  const reviewDialogStillOpen = useCallback(() => useApp.getState().reviewDialogOpen, []);
+  const saveThenStartReview = useCallback(
+    () => void saveThenReview({ save, start: startReview, stillWanted: reviewDialogStillOpen }),
+    [save, startReview, reviewDialogStillOpen]
+  );
+  const startReviewWithoutSaving = useCallback(
+    () => void reviewWithoutSaving({ start: startReview, stillWanted: reviewDialogStillOpen }),
+    [startReview, reviewDialogStillOpen]
+  );
 
   const activeProvider = settings?.provider ?? 'claude';
   const activeRuntime = ai.runtimes[activeProvider];
@@ -659,6 +677,7 @@ export function App(): React.JSX.Element {
             review={review}
             onClose={() => setManualReviewOpen(false)}
             onLoadCorrected={loadCorrectedFromFile}
+            onSave={save}
             onCreated={(next) => {
               adoptReview(next);
               notify(
@@ -680,7 +699,8 @@ export function App(): React.JSX.Element {
             reviewPath={reviewPath}
             unsavedDecisions={unsavedDecisionCount(review.hunks)}
             saving={chapterSaving}
-            onSaveFirst={saveChapter}
+            onSaveThenStart={saveThenStartReview}
+            onStartWithout={startReviewWithoutSaving}
             onApplySettings={setSettings}
             onNeedModels={ai.ensureModels}
             onOpenSettings={openSettings}

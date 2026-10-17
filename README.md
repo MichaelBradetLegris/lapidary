@@ -93,7 +93,7 @@ Alternatively, set `OPENAI_API_KEY` as an environment variable, the same way as 
 
 1. Pick a chapter on the left.
 2. Click **Review with AI**. The dialog shows the chapter's size, the provider, model and effort, your guidelines file, and what happened last time. For OpenAI it also shows where the key comes from; **Start review** stays disabled until there is one.
-3. While it runs, a card at the bottom of the page shows progress and a **Cancel review** button. A review usually takes a minute or two. The chapter is read-only until it finishes, because the result replaces the current set of suggestions; you can open other chapters meanwhile. If the page has changes that are not saved to the chapter yet, the dialog says so first: the review reads the chapter file, so save before starting.
+3. While it runs, a card at the bottom of the page shows progress and a **Cancel review** button. A review usually takes a minute or two. The chapter is read-only until it finishes, because the result replaces the current set of suggestions; you can open other chapters meanwhile. If the page has changes that are not saved to the chapter yet, the dialog says so, because the review reads the chapter file: **Save 3 changes, then review** writes them into the chapter and then starts, so the review sees them, and **Review without them** asks first, then leaves them in the old review, which you can reopen from History.
 4. When it finishes, each suggestion appears in the text:
    - **Pending**: your original, underlined in the category colour, with the suggestion above it.
    - **Accepted**: the suggestion, with a plain grey underline; your original floats above it after "was".
@@ -108,7 +108,7 @@ Alternatively, set `OPENAI_API_KEY` as an environment variable, the same way as 
 
 The status bar shows which provider and model answered and what it cost. Claude's figure is Claude Code's own estimate at API prices; on a Claude plan it is not what you pay. OpenAI's is marked "estimate": it is this app's arithmetic from a price table, and it is left out for models the table does not know. Every review is kept in **History** in the side panel, labelled with its provider and model.
 
-**Submit manual review** turns a corrected copy of the chapter (pasted, or loaded from a file) into the same kind of suggestions, so you can review someone else's edits the same way.
+**Submit manual review** turns a corrected copy of the chapter (pasted, or loaded from a file) into the same kind of suggestions, so you can review someone else's edits the same way. The copy is compared with the chapter file, so when the page has changes the file does not have yet, Build review asks first: save them, then build; build without them; or cancel.
 
 ## Editing in the app
 

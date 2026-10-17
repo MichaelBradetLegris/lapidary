@@ -6,6 +6,7 @@ import { APP_NAME } from '../../src/shared/branding';
 import type { CloseGuardState } from '../../src/shared/ipc';
 import { createDiffReview } from '../../src/shared/review';
 import type { Review } from '../../src/shared/types';
+import { confirmButtons, focusedChoice } from '../../src/shared/ui/confirm';
 import {
   CHAPTER_MATCHES_PAGE,
   changeCount,
@@ -15,9 +16,14 @@ import {
   KEPT_TOOLTIP,
   keptPhrase,
   leavePrompt,
+  manualBuildPrompt,
   needsAttention,
   PRESS_DONE_FIRST,
   PRESS_EDITOR_SAVE_FIRST,
+  replaceReviewPrompt,
+  reviewStartLabels,
+  reviewStartNote,
+  reviewWithoutPrompt,
   saveButtonInput,
   saveButtonState,
   saveShortcutAction,
@@ -754,6 +760,117 @@ describe('saveShortcutAction', () => {
   });
 });
 
+describe('a new review over changes not saved (apply.20)', () => {
+  const FROM = '17/10/2026, 13:04:50';
+
+  it('labels the Review with AI buttons by the count, singular at one, plain with none', () => {
+    expect(reviewStartLabels(0)).toEqual({ primary: 'Start review', secondary: '' });
+    expect(reviewStartLabels(-1)).toEqual({ primary: 'Start review', secondary: '' });
+    expect(reviewStartLabels(1)).toEqual({
+      primary: 'Save 1 change, then review',
+      secondary: 'Review without it'
+    });
+    expect(reviewStartLabels(3)).toEqual({
+      primary: 'Save 3 changes, then review',
+      secondary: 'Review without them'
+    });
+    // The count is changeCount's, the toolbar's own noun.
+    expect(reviewStartLabels(12).primary).toBe(`Save ${changeCount(12)}, then review`);
+  });
+
+  it('warns above the buttons only when something is unsaved', () => {
+    expect(reviewStartNote(0)).toBe('');
+    expect(reviewStartNote(1)).toBe(
+      '1 change is not saved to the chapter yet. The review reads the chapter file, so save it first to have it included.'
+    );
+    expect(reviewStartNote(4)).toBe(
+      '4 changes are not saved to the chapter yet. The review reads the chapter file, so save them first to have them included.'
+    );
+    expect(reviewStartNote(4).startsWith(unsavedDotLabel(4))).toBe(true);
+  });
+
+  it('asks before reviewing without them, with Cancel focused, and says where they stay', () => {
+    expect(reviewWithoutPrompt(3, FROM)).toEqual({
+      title: 'Review without saving?',
+      body: [
+        '3 changes are not saved to the chapter yet.',
+        'The review reads the chapter file, so it will not see these changes and may suggest some of them again.',
+        `They stay in the review from ${FROM}. When the new review comes back, the chapter opens with it, so reopen that one from History to save them later.`
+      ].join('\n'),
+      confirmLabel: 'Review without them',
+      altLabel: '',
+      cancelLabel: 'Cancel',
+      defaultButton: 'cancel'
+    });
+    const one = reviewWithoutPrompt(1, FROM);
+    expect(one.body.split('\n')).toEqual([
+      '1 change is not saved to the chapter yet.',
+      'The review reads the chapter file, so it will not see this change and may suggest it again.',
+      `It stays in the review from ${FROM}. When the new review comes back, the chapter opens with it, so reopen that one from History to save it later.`
+    ]);
+    expect(one.confirmLabel).toBe('Review without it');
+    // Without a date it points at the review on screen.
+    expect(reviewWithoutPrompt(2, null).body).toContain(
+      'They stay in this review. When the new review comes back, the chapter opens with it, so reopen this one from History to save them later.'
+    );
+  });
+
+  it("offers the manual review's three answers, Save then build focused", () => {
+    expect(manualBuildPrompt(3, FROM)).toEqual({
+      title: 'Replace the open review?',
+      body: [
+        '3 changes are not saved to the chapter yet.',
+        'Your text is compared with the chapter file. Save first, and the new review starts from the chapter with these changes in it; where your text does not have them, the review suggests putting the old words back.',
+        `Build without them, and they stay in the review from ${FROM}. The chapter then opens with the new review, so reopen that one from History to save them later.`
+      ].join('\n'),
+      confirmLabel: 'Save 3 changes, then build',
+      altLabel: 'Build without them',
+      cancelLabel: 'Cancel',
+      defaultButton: 'confirm'
+    });
+    const one = manualBuildPrompt(1, null);
+    expect(one.confirmLabel).toBe('Save 1 change, then build');
+    expect(one.altLabel).toBe('Build without it');
+    expect(one.body.split('\n')).toEqual([
+      '1 change is not saved to the chapter yet.',
+      'Your text is compared with the chapter file. Save first, and the new review starts from the chapter with this change in it; if your text does not have it, the review suggests putting the old words back.',
+      'Build without it, and it stays in this review. The chapter then opens with the new review, so reopen this one from History to save it later.'
+    ]);
+  });
+
+  it('shows every answer it names in the confirm dialog, the focused one included', () => {
+    for (const n of [1, 2, 12]) {
+      for (const prompt of [reviewWithoutPrompt(n, FROM), manualBuildPrompt(n, FROM)]) {
+        const shown = confirmButtons(prompt).map((b) => b.choice);
+        expect(shown).toContain(focusedChoice(prompt));
+        expect(focusedChoice(prompt)).toBe(prompt.defaultButton);
+        // Enter never leaves the changes behind: it cancels or saves.
+        expect(['cancel', 'confirm']).toContain(focusedChoice(prompt));
+      }
+      expect(confirmButtons(reviewWithoutPrompt(n, FROM)).map((b) => b.choice)).toEqual([
+        'cancel',
+        'confirm'
+      ]);
+      expect(confirmButtons(manualBuildPrompt(n, FROM)).map((b) => b.choice)).toEqual([
+        'cancel',
+        'alt',
+        'confirm'
+      ]);
+    }
+  });
+
+  it('keeps the older Replace question for decisions that are all in the file', () => {
+    expect(replaceReviewPrompt(1)).toMatchObject({
+      title: 'Replace the open review?',
+      body: 'You have decided 1 suggestion in the review that is open. Building a review from this text replaces the working set. The old review stays in History.',
+      confirmLabel: 'Replace',
+      defaultButton: 'confirm'
+    });
+    expect(replaceReviewPrompt(4).body).toContain('You have decided 4 suggestions');
+    expect(confirmButtons(replaceReviewPrompt(4)).map((b) => b.label)).toEqual(['Cancel', 'Replace']);
+  });
+});
+
 describe('wording rules', () => {
   /** Every string the module can produce, over a grid of states. */
   function everyString(): string[] {
@@ -770,7 +887,15 @@ describe('wording rules', () => {
       for (const value of Object.values(prompt)) if (typeof value === 'string') out.push(value);
     };
     for (const n of [0, 1, 4]) {
-      out.push(changeCount(n), unsavedPhrase(n), unsavedDotLabel(n));
+      out.push(changeCount(n), unsavedPhrase(n), unsavedDotLabel(n), reviewStartNote(n));
+      add(reviewStartLabels(n));
+      add(replaceReviewPrompt(n));
+      if (n > 0) {
+        for (const from of ['14/10/2026', null]) {
+          add(reviewWithoutPrompt(n, from));
+          add(manualBuildPrompt(n, from));
+        }
+      }
       for (const p of [0, 1, 2]) {
         for (const flag of [false, true]) {
           const state = guard({

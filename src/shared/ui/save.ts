@@ -1,10 +1,13 @@
 /**
  * What Save to chapter, Ctrl+S, leaving a chapter and closing the window say
- * and do, decided without React or Electron (apply.2, PLAN 11.3 i).
+ * and do, decided without React or Electron (apply.2, PLAN 11.3 i), and what
+ * the two review dialogs offer when the page has changes the chapter file does
+ * not (apply.20).
  *
  * The toolbar button, the status bar, the Ctrl+S key, the leave prompt, the
- * close prompt and main's native fallback boxes all take their words and their
- * rules from here, so every state has a test. One count drives them all:
+ * close prompt, the review dialogs' save-first choices and main's native
+ * fallback boxes all take their words and their rules from here, so every
+ * state has a test. One count drives them all:
  * `unsavedDecisionCount`, the decisions the chapter file does not contain yet.
  * That count includes a saved change the author has since turned back, so
  * nothing here calls them "accepted changes"; they are changes not saved to the
@@ -409,6 +412,138 @@ export function leavePrompt(
     altLabel: 'Keep for later',
     cancelLabel: 'Cancel',
     defaultButton: 'alt'
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* A new review over changes not saved to the chapter (apply.20)         */
+/* ------------------------------------------------------------------ */
+
+/*
+ * A new review, from Review with AI or Submit manual review, starts from the
+ * chapter file and replaces the review on screen. Changes the file does not
+ * have yet would stay behind in the old review, out of sight in History, and
+ * the dot in the chapter list would go, since it follows the review the
+ * chapter opens with. So both dialogs lead with saving them first, and
+ * starting without them takes an answer to a question that says where they
+ * stay. Enter never leaves them behind: the question about reviewing without
+ * them focuses Cancel, and the manual review's question focuses Save.
+ */
+
+/** "them", or "it" for one change. */
+function them(n: number): string {
+  return n === 1 ? 'it' : 'them';
+}
+
+/**
+ * Where the changes stay when a new review replaces the one they are in:
+ * "they stay in the review from <date>", and how to get back to it. `opens`
+ * says when the chapter starts opening with the new review.
+ */
+function stayLines(n: number, reviewFrom: string | null, opens: string): { stay: string; back: string } {
+  const where = reviewFrom ? `the review from ${reviewFrom}` : 'this review';
+  return {
+    stay: `${n === 1 ? 'it stays' : 'they stay'} in ${where}.`,
+    back: `${opens}, so reopen ${reviewFrom ? 'that one' : 'this one'} from History to save ${them(n)} later.`
+  };
+}
+
+function capitalised(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** The Review with AI dialog's buttons for `n` changes not saved to the chapter. */
+export interface ReviewStartLabels {
+  /** the blue button: "Save 3 changes, then review", or "Start review" when nothing is unsaved */
+  primary: string;
+  /** "Review without them" (or "it"), which asks first; empty when nothing is unsaved */
+  secondary: string;
+}
+
+export function reviewStartLabels(n: number): ReviewStartLabels {
+  if (n <= 0) return { primary: 'Start review', secondary: '' };
+  return { primary: `Save ${changeCount(n)}, then review`, secondary: `Review without ${them(n)}` };
+}
+
+/**
+ * The warning above those buttons in the Review with AI dialog, or empty when
+ * nothing is unsaved: the model reads the chapter file, not the page.
+ */
+export function reviewStartNote(n: number): string {
+  if (n <= 0) return '';
+  return `${countLine(n)} The review reads the chapter file, so save ${them(n)} first to have ${them(n)} included.`;
+}
+
+/**
+ * The question "Review without them" asks (apply.20): reviewing the chapter
+ * file as it is leaves the changes in the review on screen, `reviewFrom`
+ * (History's date for it), which the chapter stops opening with. Cancel is
+ * focused, so Enter does not leave them behind.
+ */
+export function reviewWithoutPrompt(n: number, reviewFrom: string | null): SavePrompt {
+  const { stay, back } = stayLines(
+    n,
+    reviewFrom,
+    'When the new review comes back, the chapter opens with it'
+  );
+  return {
+    title: 'Review without saving?',
+    body: [
+      countLine(n),
+      n === 1
+        ? 'The review reads the chapter file, so it will not see this change and may suggest it again.'
+        : 'The review reads the chapter file, so it will not see these changes and may suggest some of them again.',
+      `${capitalised(stay)} ${back}`
+    ].join('\n'),
+    confirmLabel: `Review without ${them(n)}`,
+    altLabel: '',
+    cancelLabel: 'Cancel',
+    defaultButton: 'cancel'
+  };
+}
+
+/**
+ * The question Build review asks in Submit manual review when the page has
+ * changes not saved to the chapter (apply.20): Save then build (focused),
+ * Build without them, or Cancel. The pasted text is compared with the chapter
+ * file, so saving first puts the changes in what it is compared with, and
+ * where the pasted text was made from the chapter without them, the new review
+ * offers their old words back (seen in the window: a saved "lose" came back as
+ * "lose → loose"), which the question says.
+ */
+export function manualBuildPrompt(n: number, reviewFrom: string | null): SavePrompt {
+  const { stay, back } = stayLines(n, reviewFrom, 'The chapter then opens with the new review');
+  return {
+    title: 'Replace the open review?',
+    body: [
+      countLine(n),
+      n === 1
+        ? 'Your text is compared with the chapter file. Save first, and the new review starts from the chapter with this change in it; if your text does not have it, the review suggests putting the old words back.'
+        : 'Your text is compared with the chapter file. Save first, and the new review starts from the chapter with these changes in it; where your text does not have them, the review suggests putting the old words back.',
+      `Build without ${them(n)}, and ${stay} ${back}`
+    ].join('\n'),
+    confirmLabel: `Save ${changeCount(n)}, then build`,
+    altLabel: `Build without ${them(n)}`,
+    cancelLabel: 'Cancel',
+    defaultButton: 'confirm'
+  };
+}
+
+/**
+ * Build review's question when everything decided is already in the chapter
+ * file, or only dismissed: nothing would be left unsaved, but the decisions
+ * leave the screen with the review. Worded as before apply.20.
+ */
+export function replaceReviewPrompt(decided: number): SavePrompt {
+  return {
+    title: 'Replace the open review?',
+    body: `You have decided ${decided} suggestion${
+      decided === 1 ? '' : 's'
+    } in the review that is open. Building a review from this text replaces the working set. The old review stays in History.`,
+    confirmLabel: 'Replace',
+    altLabel: '',
+    cancelLabel: 'Cancel',
+    defaultButton: 'confirm'
   };
 }
 
