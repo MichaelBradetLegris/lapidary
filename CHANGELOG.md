@@ -27,6 +27,7 @@ Work towards 1.0.
 
 ### Changed
 
+- Opening another chapter, or a review from History, while the page has changes not saved to the chapter, or a paragraph box you have typed in, asks first: "Save 3 changes first", Keep for later or Cancel, with Keep for later as the answer Enter gives. Keep for later keeps your decisions in the review and the paragraphs you are editing, which open again when you come back to the chapter; leaving used to offer only to throw open paragraph boxes away. A chapter you make with New chapter asks the same before it opens. Nothing is asked when everything is saved, and clicking the chapter or review already open no longer reloads it.
 - Escape or Cancel in a paragraph box you have typed in asks before your text is thrown away, with Keep editing as the answer Enter gives. A box you have not changed still closes at once.
 - Save to chapter with nothing to save says "The chapter already matches the page." and leaves the file untouched, its modified time included; it used to write the same text again. It no longer asks about paragraph boxes you opened but did not change.
 - The card shown when the chapter changed on disk now also says how many decisions changed to match the file, as when you made or undid a suggested change in Obsidian. So does the card Save to chapter shows when it finds the chapter changed.

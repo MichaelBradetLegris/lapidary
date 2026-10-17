@@ -11,6 +11,7 @@ import {
   changeCount,
   closePrompt,
   currentReviewId,
+  isOpenTarget,
   KEPT_TOOLTIP,
   keptPhrase,
   leavePrompt,
@@ -37,6 +38,10 @@ const OTHER = 'D:\\Writing\\Novel\\Chapter 4.md';
 
 const KEPT =
   'Your decisions are kept in this review. The chapter file changes only when you press Save to chapter.';
+
+/* Boxes belong to the chapter (C.53), so they come back with it, whichever review is on screen then (apply.7). */
+const BOX_KEPT =
+  'The paragraph you are editing is kept as you left it and opens for editing again when you come back to this chapter.';
 
 function guard(patch: Partial<CloseGuardState> = {}): CloseGuardState {
   return {
@@ -342,11 +347,11 @@ describe('closePrompt', () => {
     expect(prompt?.body.split('\n')[0]).toBe('3 changes are not saved to the chapter yet.');
   });
 
-  it('applies open paragraph boxes before saving, and says they come back', () => {
+  it('applies open paragraph boxes before saving, and says they come back with the chapter', () => {
     const one = closePrompt(guard({ changedParagraphs: 1 }));
     expect(one).toEqual({
       title: `Close ${APP_NAME}?`,
-      body: 'The paragraph you are editing is kept as you left it and comes back with this review.',
+      body: BOX_KEPT,
       confirmLabel: 'Apply, save and close',
       altLabel: 'Close, keep for later',
       cancelLabel: 'Cancel',
@@ -357,7 +362,7 @@ describe('closePrompt', () => {
     expect(both?.body.split('\n')).toEqual([
       '2 changes are not saved to the chapter yet.',
       KEPT,
-      'The 3 paragraphs you are editing are kept as you left them and come back with this review.'
+      'The 3 paragraphs you are editing are kept as you left them and open for editing again when you come back to this chapter.'
     ]);
   });
 
@@ -400,7 +405,7 @@ describe('closePrompt', () => {
     expect(prompt?.body.split('\n')).toEqual([
       '1 change is not saved to the chapter yet.',
       KEPT,
-      'The paragraph you are editing is kept as you left it and comes back with this review.',
+      BOX_KEPT,
       'The review that is running will stop, and its result will be lost.',
       'The text you typed in the open dialog will be lost.'
     ]);
@@ -481,7 +486,7 @@ describe('leavePrompt', () => {
   it('applies open paragraph boxes first, singular and plural', () => {
     expect(leavePrompt(leaving({ changedParagraphs: 1 }), toOther)).toEqual({
       title: 'Leave Chapter 3?',
-      body: 'The paragraph you are editing is kept as you left it and comes back with this review.',
+      body: BOX_KEPT,
       confirmLabel: 'Apply and save first',
       altLabel: 'Keep for later',
       cancelLabel: 'Cancel',
@@ -492,7 +497,7 @@ describe('leavePrompt', () => {
     ).toEqual([
       '1 change is not saved to the chapter yet.',
       KEPT,
-      'The 2 paragraphs you are editing are kept as you left them and come back with this review.'
+      'The 2 paragraphs you are editing are kept as you left them and open for editing again when you come back to this chapter.'
     ]);
   });
 
@@ -504,6 +509,28 @@ describe('leavePrompt', () => {
     });
     expect(prompt?.title).toBe('Open the review from 01/10/2026, 10:00:00?');
     expect(prompt?.confirmLabel).toBe('Save 2 changes first');
+  });
+
+  it('says open boxes go with the author to a History review where their paragraph reads the same', () => {
+    // Boxes belong to the chapter (C.53): the review opened from History is
+    // where they are put back at once, or set aside when they cannot be.
+    const toReview = {
+      kind: 'review',
+      id: 'chapter-3--2026-10-01T09:00:00.000Z',
+      when: '01/10/2026'
+    } as const;
+    const one = leavePrompt(leaving({ changedParagraphs: 1 }), toReview);
+    expect(one?.body).toBe(
+      'The paragraph you are editing is kept as you left it. It opens for editing again in the review you are opening if the paragraph reads the same there; if not, what you typed is set aside in a text file you can open.'
+    );
+    expect(one?.confirmLabel).toBe('Apply and save first');
+    expect(
+      leavePrompt(leaving({ changedParagraphs: 3, unsavedDecisions: 1 }), toReview)?.body.split('\n')
+    ).toEqual([
+      '1 change is not saved to the chapter yet.',
+      KEPT,
+      'The 3 paragraphs you are editing are kept as you left them. Each opens for editing again in the review you are opening if its paragraph reads the same there; if not, what you typed in it is set aside in a text file you can open.'
+    ]);
   });
 
   it('says where to find decisions kept in an older review', () => {
@@ -520,6 +547,43 @@ describe('leavePrompt', () => {
     const prompt = leavePrompt(leaving({ chapter: null, unsavedDecisions: 1 }), toOther);
     expect(prompt?.title).toBe('Leave this chapter?');
     expect(prompt?.confirmLabel).toBe('');
+  });
+});
+
+describe('isOpenTarget (apply.7)', () => {
+  const on = leaving({ unsavedDecisions: 2 });
+
+  it('is the open chapter, spelled with either separator, or the review on screen', () => {
+    expect(isOpenTarget(on, { kind: 'chapter', path: CHAPTER })).toBe(true);
+    expect(isOpenTarget(on, { kind: 'chapter', path: 'D:/Writing/Novel/Chapter 3.md' })).toBe(true);
+    expect(isOpenTarget(on, { kind: 'review', id: 'chapter-3--2026-10-14T16:04:33.000Z', when: 'x' })).toBe(
+      true
+    );
+  });
+
+  it('is not another chapter, another review, a path that differs in case, or anything with nothing open', () => {
+    expect(isOpenTarget(on, { kind: 'chapter', path: OTHER })).toBe(false);
+    expect(isOpenTarget(on, { kind: 'chapter', path: CHAPTER.toLowerCase() })).toBe(false);
+    expect(isOpenTarget(on, { kind: 'review', id: 'chapter-3--2026-10-01T09:00:00.000Z', when: 'x' })).toBe(
+      false
+    );
+    const nothing = leaving({ chapter: null, reviewId: null });
+    expect(isOpenTarget(nothing, { kind: 'chapter', path: CHAPTER })).toBe(false);
+    expect(isOpenTarget(nothing, { kind: 'review', id: '', when: 'x' })).toBe(false);
+  });
+
+  it('is exactly where leavePrompt asks nothing whatever is unsaved', () => {
+    const targets = [
+      { kind: 'chapter', path: CHAPTER },
+      { kind: 'chapter', path: OTHER },
+      { kind: 'chapter', path: CHAPTER.toLowerCase() },
+      { kind: 'review', id: 'chapter-3--2026-10-14T16:04:33.000Z', when: 'x' },
+      { kind: 'review', id: 'chapter-3--2026-10-01T09:00:00.000Z', when: 'x' }
+    ] as const;
+    for (const target of targets) {
+      const asked = leavePrompt(leaving({ unsavedDecisions: 1, changedParagraphs: 1 }), target) !== null;
+      expect(asked).toBe(!isOpenTarget(on, target));
+    }
   });
 });
 

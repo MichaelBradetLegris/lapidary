@@ -383,7 +383,6 @@ export interface AppState {
   commitDraft: (key: number) => DraftOutcome;
   /** commit every open paragraph, first to last; the messages of any that could not be */
   commitAllDrafts: () => { applied: number; blocked: string[] };
-  discardDrafts: () => void;
 
   setAiBusy: (sourcePath: string | null) => void;
 }
@@ -811,8 +810,6 @@ export const useApp = create<AppState>()((set, get) => ({
     }
     return { applied, blocked };
   },
-
-  discardDrafts: () => set({ drafts: {} }),
 
   setAiBusy: (aiBusyPath) => set({ aiBusyPath }),
 

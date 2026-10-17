@@ -15,6 +15,17 @@ import { decisionCounts } from '../diff/compose';
 import type { ReviewSummary } from '../ipc';
 import type { Review } from '../types';
 
+/**
+ * A review's date as History shows it: the computer's own date and time
+ * format, or the stored text when it is not a readable time. The leave prompt
+ * names reviews by the same words (`LeaveTarget.when`, `olderReviewFrom`), so
+ * the author can find the one it means in the list.
+ */
+export function historyWhen(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+}
+
 export interface HistoryCounts {
   /** this entry is the review on screen: the row History highlights */
   onScreen: boolean;

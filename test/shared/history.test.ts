@@ -4,7 +4,7 @@ import type { ReviewSummary } from '../../src/shared/ipc';
 import { createDiffReview } from '../../src/shared/review';
 import type { Hunk, Review } from '../../src/shared/types';
 import { chapterListMarks } from '../../src/shared/ui/chapterList';
-import { historyCounts } from '../../src/shared/ui/history';
+import { historyCounts, historyWhen } from '../../src/shared/ui/history';
 
 /* apply.5: the numbers History and the Review with AI dialog's "Last reviewed"
    line give a review, live for the review on screen. */
@@ -112,5 +112,17 @@ describe('historyCounts (apply.5)', () => {
       expect(history).toBe(list);
       expect(history).toBe(decisionCounts(open.hunks).pending);
     }
+  });
+});
+
+describe('historyWhen (apply.7)', () => {
+  it("reads a stored time in the computer's own format, as History and the leave prompt show it", () => {
+    const iso = '2026-10-14T16:04:33.000Z';
+    expect(historyWhen(iso)).toBe(new Date(iso).toLocaleString());
+  });
+
+  it('keeps text that is not a readable time as it is', () => {
+    expect(historyWhen('not a time')).toBe('not a time');
+    expect(historyWhen('')).toBe('');
   });
 });

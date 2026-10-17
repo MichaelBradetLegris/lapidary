@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { composeReview, unsavedDecisionCount } from '../shared/diff/compose';
 import { rebaseReview } from '../shared/diff/rebase';
 import { proPreselection } from '../shared/ai/claudeModels';
+import { historyWhen } from '../shared/ui/history';
 import { rebaseCardText } from '../shared/ui/rebase';
 import { runtimeLabel as labelForRuntime } from '../shared/ui/setup';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
@@ -26,6 +27,7 @@ import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
 import { ApiError, call, errorMessage } from './state/client';
 import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state/drafts';
+import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { useKeyboardBindings } from './state/keyboard';
 import { useProgressLabel } from './state/progress';
 import { useApp } from './state/store';
@@ -35,7 +37,7 @@ import {
   markReviewPersistedState,
   writeReviewNow
 } from './state/reviewPersistence';
-import { baseFrom, pendingSave, useSaveChapter, type SaveDeps } from './state/saveChapter';
+import { baseFrom, useSaveChapter, type SaveDeps } from './state/saveChapter';
 import { useAi } from './state/useAi';
 
 /** How kept paragraph boxes reach main (apply.16, state/drafts.ts). */
@@ -67,7 +69,6 @@ export function App(): React.JSX.Element {
   const setManualReviewOpen = useApp((s) => s.setManualReviewOpen);
   const setReviewDialogOpen = useApp((s) => s.setReviewDialogOpen);
   const setCommentStatus = useApp((s) => s.setCommentStatus);
-  const askConfirm = useApp((s) => s.askConfirm);
   const findOpen = useApp((s) => s.find.open);
   const settingsOpen = useApp((s) => s.settingsOpen);
   const setSettingsOpen = useApp((s) => s.setSettingsOpen);
@@ -142,47 +143,52 @@ export function App(): React.JSX.Element {
       });
   }, []);
 
-  /**
-   * Paragraphs open for editing live only on screen until Done. Before anything
-   * replaces the review on screen, ask rather than drop them (Phase 5d).
-   */
-  const confirmLeaveDrafts = useCallback(async (): Promise<boolean> => {
-    const open = Object.keys(useApp.getState().drafts).length;
-    if (open === 0) return true;
-    const ok = await askConfirm({
-      title: 'Discard paragraph edits?',
-      body: `${open} paragraph${open === 1 ? ' is' : 's are'} open for editing. ${
-        open === 1 ? 'Its changes have' : 'Their changes have'
-      } not been applied and will be lost.`,
-      confirmLabel: 'Discard'
-    });
-    if (ok) useApp.getState().discardDrafts();
-    return ok;
-  }, [askConfirm]);
+  /* ---------------- saving (apply.3, state/saveChapter.ts) ---------------- */
+
+  const saveDeps = useMemo<SaveDeps>(
+    () => ({
+      saveFile: (request) => call('files:save', request),
+      writeReview: writeReviewNow,
+      onSaved: (saved, onScreen) => {
+        if (onScreen) refreshHistory(saved.sourcePath);
+        refreshFiles();
+      }
+    }),
+    [refreshHistory, refreshFiles]
+  );
+  const { save } = useSaveChapter(saveDeps);
+  const saveChapter = useCallback(() => void save({ applyDrafts: 'ask' }), [save]);
+
+  useKeyboardBindings(save);
+
+  /* ---------------- leaving (apply.7, state/leave.ts) ---------------- */
+
+  /* The leave prompt dates a review the chapter will not open with as History
+     does, from History as last read. */
+  const historyRef = useRef<ReviewSummary[]>([]);
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
+  const leaveDeps = useMemo<LeaveDeps>(() => ({ save, history: () => historyRef.current }), [save]);
 
   /* ---------------- opening a chapter ---------------- */
 
-  /* Opening a chapter or a History entry lets a save under way end first, so
-     its review is not read back in the middle of being recorded (apply.3).
-     Of several clicks made meanwhile, only the last goes ahead. */
-  const openSeq = useRef(0);
-  const waitForSave = useCallback(async (): Promise<boolean> => {
-    const ticket = ++openSeq.current;
-    await pendingSave();
-    return ticket === openSeq.current;
-  }, []);
-
+  /* Opening a chapter or a History entry lets a save under way end first, then
+     asks when something on screen is not saved to the chapter: Save first,
+     Keep for later or Cancel (`beforeLeaving`). Clicking what is already open
+     asks nothing and only writes what is waiting (PLAN 11.3 i). */
   const openChapter = useCallback(
     (file: ChapterFile) => {
       void (async () => {
-        if (!(await waitForSave())) return;
-        if (!(await confirmLeaveDrafts())) return;
+        const decision = await beforeLeaving({ kind: 'chapter', path: file.path }, leaveDeps);
+        if (decision === 'stay') return;
         try {
           // A decision still waiting to be written must be on disk before
           // its review file is read back (apply.1), and so must the paragraph
           // boxes of the chapter being left (apply.16).
           await flushReviewWrites();
           await flushDraftWrites();
+          if (decision === 'here') return;
           // Once another chapter is open, the one being left is marked in the
           // list from its review as now written, so read the marks again
           // alongside the chapter, and have them in before it shows (apply.5).
@@ -229,17 +235,21 @@ export function App(): React.JSX.Element {
         }
       })();
     },
-    [setReview, notify, refreshHistory, refreshFiles, refreshIndex, fail, confirmLeaveDrafts, waitForSave]
+    [setReview, notify, refreshHistory, refreshFiles, refreshIndex, fail, leaveDeps]
   );
 
   const openHistoryEntry = useCallback(
     (summary: ReviewSummary) => {
       void (async () => {
-        if (!(await waitForSave())) return;
-        if (!(await confirmLeaveDrafts())) return;
+        const decision = await beforeLeaving(
+          { kind: 'review', id: summary.id, when: historyWhen(summary.createdAt) },
+          leaveDeps
+        );
+        if (decision === 'stay') return;
         try {
           await flushReviewWrites();
           await flushDraftWrites();
+          if (decision === 'here') return;
           const loaded = await call('reviews:load', { path: summary.path });
           // History lists only the open chapter's reviews; read that chapter,
           // under the path it is open as.
@@ -263,7 +273,7 @@ export function App(): React.JSX.Element {
         }
       })();
     },
-    [setReview, notify, fail, confirmLeaveDrafts, waitForSave, refreshHistory]
+    [setReview, notify, fail, leaveDeps, refreshHistory]
   );
 
   /* ---------------- external changes ---------------- */
@@ -313,24 +323,6 @@ export function App(): React.JSX.Element {
       offNotice();
     };
   }, [setReview, notify, refreshFiles, fail]);
-
-  /* ---------------- saving (apply.3, state/saveChapter.ts) ---------------- */
-
-  const saveDeps = useMemo<SaveDeps>(
-    () => ({
-      saveFile: (request) => call('files:save', request),
-      writeReview: writeReviewNow,
-      onSaved: (saved, onScreen) => {
-        if (onScreen) refreshHistory(saved.sourcePath);
-        refreshFiles();
-      }
-    }),
-    [refreshHistory, refreshFiles]
-  );
-  const { save } = useSaveChapter(saveDeps);
-  const saveChapter = useCallback(() => void save({ applyDrafts: 'ask' }), [save]);
-
-  useKeyboardBindings(save);
 
   /* ---------------- review persistence (apply.1) ---------------- */
 

@@ -17,15 +17,15 @@ import { useApp } from './store';
  *
  * Every box open in a chapter is written to that chapter's drafts file 700 ms
  * after the last keystroke, by a writer with one queue per chapter
- * (`draftWriter`), so a box survives closing the app, an update or a crash.
- * (Leaving the chapter still asks to discard open boxes until `apply.7`'s Keep
- * for later, and Discard empties the file.) Closing the last box deletes the
- * file. Whenever another chapter or another review comes on screen, what was
- * kept for its chapter comes back (`restore`): a box goes back where its block
- * still reads as it did when the box opened (`placeDrafts`), and one holding
- * typed text that cannot go back is set aside as a .txt, with a card whose
- * Show the text opens it. Until the .txt is written, such a box stays in the
- * chapter's file ("carried"), so a failure never loses what was typed.
+ * (`draftWriter`), so a box survives leaving the chapter (the leave prompt's
+ * Keep for later, apply.7), closing the app, an update or a crash. Closing the
+ * last box deletes the file. Whenever another chapter or another review comes
+ * on screen, what was kept for its chapter comes back (`restore`): a box goes
+ * back where its block still reads as it did when the box opened
+ * (`placeDrafts`), and one holding typed text that cannot go back is set aside
+ * as a .txt, with a card whose Show the text opens it. Until the .txt is
+ * written, such a box stays in the chapter's file ("carried"), so a failure
+ * never loses what was typed.
  *
  * A file that could not be read back is never written over unread: every
  * write for its chapter reads it first and writes nothing while it still

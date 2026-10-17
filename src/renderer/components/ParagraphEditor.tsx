@@ -18,8 +18,9 @@ interface Props {
  * written to the chapter until Done: then the changed words become
  * suggestions, already accepted, and go through Save to chapter like
  * everything else. Meanwhile the box is kept on disk as it is typed in, and
- * comes back if the app closes (apply.16, `state/drafts.ts`). Escape or
- * Cancel on a box whose text changed asks before throwing the text away.
+ * comes back after the author leaves the chapter or the app closes (apply.16,
+ * apply.7, `state/drafts.ts`). Escape or Cancel on a box whose text changed
+ * asks before throwing the text away.
  */
 export function ParagraphEditor({ draft, label, onDone }: Props): React.JSX.Element {
   const setText = useApp((s) => s.setDraftText);

@@ -3,7 +3,7 @@ import { isAuthored } from '../../shared/edit';
 import type { ReviewSummary } from '../../shared/ipc';
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import { groupComments } from '../../shared/ui/comments';
-import { historyCounts } from '../../shared/ui/history';
+import { historyCounts, historyWhen } from '../../shared/ui/history';
 import { groupSuggestions, summaryLine } from '../../shared/ui/suggestions';
 import { PROVIDER_NAMES, type Hunk, type Review, type ReviewComment } from '../../shared/types';
 import { editFromComment, editHunk } from '../state/edit';
@@ -17,11 +17,6 @@ interface Props {
   activeReviewPath?: string | null;
   onSetCommentStatus: (id: string, status: ReviewComment['status']) => void;
   onOpenHistory?: (summary: ReviewSummary) => void;
-}
-
-function shortTime(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
 }
 
 const STATUS_MARK: Record<Hunk['status'], string> = {
@@ -319,7 +314,7 @@ export function SidePanel({
                         onClick={() => onOpenHistory(entry)}
                         title={entry.path}
                       >
-                        <span className="history__when">{shortTime(entry.createdAt)}</span>
+                        <span className="history__when">{historyWhen(entry.createdAt)}</span>
                         {/* A model-written review names its provider and model; a
                         manual or file review keeps its kind (Phase 5c). */}
                         <span className="badge" title={entry.model ?? ''}>

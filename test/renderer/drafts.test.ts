@@ -476,19 +476,19 @@ describe('bringing boxes back', () => {
     ]);
   });
 
-  it('does not let a leave that discards the boxes delete a file it could not read', async () => {
+  it('does not let closing every box delete a file it could not read', async () => {
     f.files.set(ONE, kept(ONE, [rainBox()]));
     f.failLoad = 'it is locked';
     await show(chapter(ONE));
     state().openDraft(0);
     state().setDraftText(0, 'Mara waited.');
-    // What App's leave question does on Discard, then the flush before the next chapter.
-    state().discardDrafts();
+    // The last box closed (Cancel, then Discard), then the flush before the next chapter.
+    state().cancelDraft(0);
     await persistence.flush();
     expect(f.files.get(ONE)?.drafts).toEqual([rainBox()]);
     f.failLoad = null;
     state().openDraft(2);
-    state().discardDrafts();
+    state().cancelDraft(2);
     await persistence.flush();
     expect(f.files.get(ONE)?.drafts).toEqual([rainBox()]);
   });

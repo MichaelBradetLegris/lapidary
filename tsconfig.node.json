@@ -15,6 +15,7 @@
     "src/renderer/state/persist.ts",
     "src/renderer/state/saveChapter.ts",
     "src/renderer/state/drafts.ts",
+    "src/renderer/state/leave.ts",
     "scripts/**/*.ts",
     "test/**/*.ts",
     "electron.vite.config.ts",

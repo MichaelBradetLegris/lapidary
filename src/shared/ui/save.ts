@@ -65,10 +65,23 @@ function keptLine(olderReviewFrom: string | null | undefined): string {
   return `Your decisions are kept in this review. ${SAVE_ONLY}`;
 }
 
-function paragraphLine(p: number): string {
+/**
+ * Where open paragraph boxes come back (apply.7). Boxes belong to the chapter,
+ * not to a review (C.53): after a close or a move to another chapter they open
+ * again when the chapter does, on whichever of its reviews is on screen. A
+ * review opened from History is that review, so they open there at once, each
+ * where its paragraph reads as it did, and a box whose paragraph does not has
+ * its text set aside in a .txt (`placeDrafts`, apply.16).
+ */
+function paragraphLine(p: number, intoReview = false): string {
+  if (intoReview) {
+    return p === 1
+      ? 'The paragraph you are editing is kept as you left it. It opens for editing again in the review you are opening if the paragraph reads the same there; if not, what you typed is set aside in a text file you can open.'
+      : `The ${p} paragraphs you are editing are kept as you left them. Each opens for editing again in the review you are opening if its paragraph reads the same there; if not, what you typed in it is set aside in a text file you can open.`;
+  }
   return p === 1
-    ? 'The paragraph you are editing is kept as you left it and comes back with this review.'
-    : `The ${p} paragraphs you are editing are kept as you left them and come back with this review.`;
+    ? 'The paragraph you are editing is kept as you left it and opens for editing again when you come back to this chapter.'
+    : `The ${p} paragraphs you are editing are kept as you left them and open for editing again when you come back to this chapter.`;
 }
 
 const RUNNING_LINE = 'The review that is running will stop, and its result will be lost.';
@@ -348,22 +361,30 @@ export interface LeaveState extends Pick<
 }
 
 /**
+ * Whether `target` is what is already on screen (PLAN 11.3 i): the open
+ * chapter, or the review on screen. Opening it again asks nothing and only
+ * writes what is waiting (apply.7). The chapter is compared exactly, apart
+ * from separators and Unicode form: a path that differs only in case counts as
+ * another, which costs a question and loses nothing.
+ */
+export function isOpenTarget(state: Pick<LeaveState, 'chapter' | 'reviewId'>, target: LeaveTarget): boolean {
+  if (target.kind === 'chapter') return state.chapter !== null && samePath(target.path, state.chapter, false);
+  return state.reviewId !== null && target.id === state.reviewId;
+}
+
+/**
  * The question before another chapter or another review replaces the one on
  * screen, or null when nothing needs asking (PLAN 11.3 i): nothing unsaved, a
  * review of this chapter running (the page is read-only and its decisions are
- * already written), or the target is what is already open, which only flushes.
- * The open chapter is compared exactly, apart from separators and Unicode form:
- * a path that differs only in case asks, which costs a click and loses nothing.
+ * already written), or the target is what is already open (`isOpenTarget`),
+ * which only flushes.
  */
 export function leavePrompt(
   state: LeaveState,
   target: LeaveTarget,
   context: PromptContext = {}
 ): SavePrompt | null {
-  if (target.kind === 'chapter' && state.chapter !== null && samePath(target.path, state.chapter, false)) {
-    return null;
-  }
-  if (target.kind === 'review' && target.id === state.reviewId) return null;
+  if (isOpenTarget(state, target)) return null;
   if (state.locked) return null;
   const n = state.unsavedDecisions;
   const p = state.changedParagraphs;
@@ -371,7 +392,7 @@ export function leavePrompt(
 
   const lines: string[] = [];
   if (n > 0) lines.push(countLine(n), keptLine(context.olderReviewFrom));
-  if (p > 0) lines.push(paragraphLine(p));
+  if (p > 0) lines.push(paragraphLine(p, target.kind === 'review'));
 
   let confirmLabel = '';
   if (state.chapter !== null) confirmLabel = p > 0 ? 'Apply and save first' : `Save ${changeCount(n)} first`;

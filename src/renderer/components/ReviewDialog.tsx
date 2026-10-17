@@ -10,7 +10,7 @@ import type {
 import { proPlanNote } from '../../shared/ai/claudeModels';
 import { claudeUpdateAdvice } from '../../shared/ai/claudeStatus';
 import { chapterStats } from '../../shared/text/stats';
-import { historyCounts } from '../../shared/ui/history';
+import { historyCounts, historyWhen } from '../../shared/ui/history';
 import {
   EFFORT_LEVELS,
   PROVIDERS,
@@ -53,11 +53,6 @@ interface Props {
   checking: boolean;
   onStart: () => void;
   onClose: () => void;
-}
-
-function when(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
 }
 
 /**
@@ -280,7 +275,7 @@ export function ReviewDialog({
 
         <p className="modal__note">
           {previous && previousCounts
-            ? `Last reviewed ${when(previous.createdAt)}: ${previousCounts.hunkCount} suggestion${
+            ? `Last reviewed ${historyWhen(previous.createdAt)}:${previousCounts.hunkCount} suggestion${
                 previousCounts.hunkCount === 1 ? '' : 's'
               }, ${previousCounts.pendingCount} still pending. A new review replaces the working set; the old one stays in History.`
             : 'This chapter has not been reviewed yet.'}
