@@ -278,6 +278,8 @@ input[type='text'] {
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
+  /* The first-use hint hangs from it (apply.12, .save-hint). */
+  position: relative;
 }
 
 /* The chapter name takes the room the buttons leave and is what gives way
@@ -316,6 +318,62 @@ input[type='text'] {
   height: 8px;
   border-radius: 50%;
   background: var(--unsaved);
+}
+
+/* The first-use hint (apply.12): a note under the toolbar with its arrow on
+   Save to chapter. It hangs below the toolbar's last row, so it never covers
+   one of its buttons whichever row Save has wrapped onto; SaveHint.tsx sets
+   `left` and the arrow's place from `saveHintPlacement`, and it stays hidden
+   until then, like the hover card. Above the notification cards (12), which it
+   may meet at its left end, and under every dialog's backdrop (20), the menus
+   (30) and the hover card (40). */
+.save-hint {
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 0;
+  z-index: 14;
+  visibility: hidden;
+  /* where the arrow points, from the card's left edge; SaveHint.tsx sets it */
+  --save-hint-arrow: 24px;
+  width: min(300px, calc(100% - 16px));
+  padding: 9px 10px 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-weight: normal;
+  white-space: normal;
+  box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / 20%);
+  animation: note-in 120ms ease-out;
+}
+
+/* The arrow: a square turned on its corner, its top half showing above the
+   card, in the card's own border and background. `--save-hint-arrow` counts
+   from the card's outer left edge and `left` from inside its 3 px border, so
+   8 px back puts the 10 px square's middle on it. */
+.save-hint::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: calc(var(--save-hint-arrow) - 8px);
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  transform: rotate(45deg);
+}
+
+.save-hint__text {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.save-hint__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
 }
 
 .toolbar__group {

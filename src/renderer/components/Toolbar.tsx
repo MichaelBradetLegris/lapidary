@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { chapterName } from '../../shared/review';
 import type { Review } from '../../shared/types';
 import { saveButtonInput, saveButtonState, unsavedDotLabel } from '../../shared/ui/save';
+import { SAVE_HINT_ID, saveHintText, saveHintVisible } from '../../shared/ui/saveHint';
 import { useBulkAction } from '../state/bulk';
+import { hintDismissedThisSession } from '../state/hints';
 import { changedParagraphCount, isLocked, useApp } from '../state/store';
 import { IconChevronDown } from './icons';
+import { SaveHint } from './SaveHint';
 
 interface Props {
   review: Review | null;
@@ -17,6 +20,8 @@ interface Props {
   onSaveChapter: () => void;
   onCopyResult: () => void;
   onSettings: () => void;
+  /** Got it on the first-use hint: put it away for good (apply.12) */
+  onSaveHintDone: () => void;
 }
 
 /**
@@ -91,6 +96,10 @@ function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): R
  * `saveButtonState` (apply.4), fed by `saveButtonInput` and counted by
  * `unsavedDecisionCount`: the changes the chapter file does not have yet, not
  * every decision made since the review opened.
+ *
+ * The first time one of those changes is waiting, a hint hangs under the
+ * toolbar with its arrow on Save to chapter, until Got it or a save puts it
+ * away for good (apply.12, `saveHintVisible`).
  */
 export function Toolbar({
   review,
@@ -102,7 +111,8 @@ export function Toolbar({
   onManualReview,
   onSaveChapter,
   onCopyResult,
-  onSettings
+  onSettings,
+  onSaveHintDone
 }: Props): React.JSX.Element {
   // Read-only while a review of this chapter runs (round 3, item 3).
   const locked = useApp(isLocked);
@@ -112,6 +122,17 @@ export function Toolbar({
   const input = saveButtonInput({ review, changedParagraphs, saving, locked });
   const save = saveButtonState(input);
   const dotLabel = unsavedDotLabel(input.unsavedDecisions);
+
+  const dismissedHints = useApp((s) => s.settings?.dismissedHints ?? null);
+  const saveRef = useRef<HTMLButtonElement>(null);
+  const hint = saveHintVisible({
+    dismissedHints,
+    dismissedThisSession: hintDismissedThisSession(SAVE_HINT_ID),
+    hasChapter: input.hasChapter,
+    unsavedDecisions: input.unsavedDecisions,
+    locked,
+    saving
+  });
 
   const title = review
     ? review.sourcePath
@@ -158,6 +179,7 @@ export function Toolbar({
       />
 
       <button
+        ref={saveRef}
         type="button"
         className="primary"
         disabled={save.disabled}
@@ -174,6 +196,10 @@ export function Toolbar({
       <button type="button" onClick={onSettings}>
         Settings
       </button>
+
+      {hint && review ? (
+        <SaveHint anchor={saveRef} text={saveHintText(review.sourcePath)} onGotIt={onSaveHintDone} />
+      ) : null}
     </header>
   );
 }

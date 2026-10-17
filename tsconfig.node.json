@@ -18,6 +18,7 @@
     "src/renderer/state/leave.ts",
     "src/renderer/state/reviewStart.ts",
     "src/renderer/state/closeGuard.ts",
+    "src/renderer/state/hints.ts",
     "scripts/**/*.ts",
     "test/**/*.ts",
     "electron.vite.config.ts",

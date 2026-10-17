@@ -833,7 +833,10 @@ describe('the wiring (apply.9)', () => {
     expect(app).toContain("call('app:close-decision', { close })");
     expect(app).toContain("onMain('app:close-requested'");
     expect(app).toContain("onMain('app:flush'");
-    expect(app).toMatch(/Promise\.all\(\[flushReviewWrites\(\), flushDraftWrites\(\)\]\)/);
+    // apply.12 adds the hint writes, so a hint Save and close puts away is on disk first.
+    expect(app).toMatch(
+      /Promise\.all\(\[flushReviewWrites\(\), flushDraftWrites\(\), flushHintWrites\(\)\]\)/
+    );
     expect(app).toContain('retryReviewWrites();');
     expect(app).toContain('retryDraftWrites();');
     expect(app).toContain('[...reviewWriteFailures(), ...draftWriteFailures()]');

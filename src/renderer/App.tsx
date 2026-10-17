@@ -5,6 +5,7 @@ import { proPreselection } from '../shared/ai/claudeModels';
 import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
 import { historyWhen } from '../shared/ui/history';
 import { rebaseCardText } from '../shared/ui/rebase';
+import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
 import { runtimeLabel as labelForRuntime } from '../shared/ui/setup';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
 import type { ApiEventMap, ChapterFile, ReviewSummary } from '../shared/ipc';
@@ -40,6 +41,7 @@ import {
   retryDraftWrites,
   type DraftIo
 } from './state/drafts';
+import { dismissHint, flushHintWrites, type HintIo } from './state/hints';
 import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { useKeyboardBindings } from './state/keyboard';
 import { useProgressLabel } from './state/progress';
@@ -84,10 +86,20 @@ const CLOSE_GUARD_IO: CloseGuardIo = {
   onFlush: (listener) => onMain('app:flush', ({ reason }) => listener(reason))
 };
 
-/** The review and paragraph writers, which a close and the end of a session write out (apply.9). */
+/** How a one-time hint is put away for good (apply.12, state/hints.ts). */
+const HINT_IO: HintIo = {
+  setSettings: (patch) => call('settings:set', patch)
+};
+
+/**
+ * The review and paragraph writers, which a close and the end of a session
+ * write out (apply.9), and a hint put away just before, such as the Save hint
+ * that Save and close puts away (apply.12). A hint that cannot be written is
+ * not reported: it only shows again at the next start.
+ */
 const PAGE_WRITES: PageWrites = {
   flush: async () => {
-    await Promise.all([flushReviewWrites(), flushDraftWrites()]);
+    await Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites()]);
   },
   retry: () => {
     retryReviewWrites();
@@ -201,6 +213,9 @@ export function App(): React.JSX.Element {
       saveFile: (request) => call('files:save', request),
       writeReview: writeReviewNow,
       onSaved: (saved, onScreen) => {
+        // The first Save to chapter that reaches the file puts the Save hint
+        // away for good, whether or not it was showing (apply.12).
+        void dismissHint(SAVE_HINT_ID, HINT_IO);
         if (onScreen) refreshHistory(saved.sourcePath);
         refreshFiles();
       }
@@ -642,6 +657,7 @@ export function App(): React.JSX.Element {
       onSaveChapter={saveChapter}
       onCopyResult={copyResult}
       onSettings={() => setSettingsOpen(true)}
+      onSaveHintDone={() => void dismissHint(SAVE_HINT_ID, HINT_IO)}
     />
   );
 
@@ -702,6 +718,7 @@ export function App(): React.JSX.Element {
                   <p>
                     Pick a chapter on the left, or start one with the + beside Chapters. Review with AI asks
                     for suggestions; Submit manual review turns a corrected copy into the same kind of list.
+                    You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
                   </p>
                 </div>
               )}
