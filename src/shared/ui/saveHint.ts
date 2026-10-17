@@ -84,6 +84,12 @@ export function withHint(hints: readonly string[], id: string): string[] {
   return hints.includes(id) ? [...hints] : [...hints, id];
 }
 
+/** A stretch across the toolbar, in CSS pixels from its left edge. */
+export interface Span {
+  left: number;
+  right: number;
+}
+
 /** What the hint's placement is worked out from, in CSS pixels, relative to the toolbar. */
 export interface SaveHintMeasure {
   /** the toolbar's width */
@@ -91,35 +97,102 @@ export interface SaveHintMeasure {
   /** the Save button's left edge, from the toolbar's left edge */
   buttonLeft: number;
   buttonWidth: number;
-  /** the hint's own width */
-  hintWidth: number;
+  /**
+   * The side panel's column, which the hint stays inside, so it never meets the
+   * notification cards, the find bar or the chapter's text in the column beside
+   * it. Null when the page has no side panel (the Setup screen), and then the
+   * hint may use the toolbar's whole width.
+   */
+  column: Span | null;
+  /** the toolbar's items on rows below Save to chapter's, which the arrow must not point at */
+  below: readonly Span[];
 }
 
 export interface SaveHintPlacement {
   /** the hint's left edge, from the toolbar's left edge */
   left: number;
-  /** where its arrow points, from the hint's left edge */
-  arrow: number;
+  width: number;
+  /**
+   * Where its arrow points, from the hint's left edge. Null when every part of
+   * Save to chapter the hint can reach has a toolbar item under it: an arrow
+   * there would point at that item, so the hint has none and its words name the
+   * button.
+   */
+  arrow: number | null;
 }
 
-/** Room kept between the hint and the window's edges. */
+/** The hint's width when its column has room for it. */
+export const SAVE_HINT_WIDTH = 300;
+/** Room kept between the hint and the sides of the column it hangs in. */
 export const SAVE_HINT_MARGIN = 8;
 /** The arrow keeps this far from either end of the hint, clear of its rounded corners. */
 export const SAVE_HINT_ARROW_INSET = 16;
+/**
+ * The arrow's tip keeps this far inside Save to chapter's ends and from the
+ * sides of every toolbar item under the button. The arrow is about 14 px wide,
+ * so a few pixels stay clear either side of it, and it never sits in the gap
+ * between two buttons.
+ */
+export const SAVE_HINT_ARROW_CLEAR = 12;
+
+/**
+ * `span` less the inside of every stretch in `cuts`, as the pieces left over;
+ * none when `span` is empty. A cut's own ends stay allowed, so a piece can be a
+ * single point: exactly the clearance away from an item is far enough.
+ */
+function subtract(span: Span, cuts: readonly Span[]): Span[] {
+  let pieces: Span[] = span.left <= span.right ? [span] : [];
+  for (const cut of cuts) {
+    pieces = pieces.flatMap((piece) => {
+      if (cut.right <= piece.left || cut.left >= piece.right) return [piece];
+      const rest: Span[] = [];
+      if (cut.left >= piece.left) rest.push({ left: piece.left, right: cut.left });
+      if (cut.right <= piece.right) rest.push({ left: cut.right, right: piece.right });
+      return rest;
+    });
+  }
+  return pieces;
+}
 
 /**
  * Where the hint sits under the toolbar. It hangs below the whole toolbar, so
- * it never covers a button of it, whichever row Save to chapter is on. It
- * lines up with the toolbar's right edge, where the side panel is, so at
- * normal sizes it leaves the chapter's text alone; when Save to chapter is
- * further left than the arrow can reach, it moves left to keep the arrow on
- * the button's middle. It never runs out of the toolbar at either end.
+ * it never covers a button of it, whichever row Save to chapter is on, and it
+ * stays inside the side panel's column, 300 px wide or the column less its
+ * margins, so it never meets the notification cards, the find bar or the
+ * chapter's text. It lines up with the column's right edge and moves left,
+ * within the column, to bring its arrow over Save to chapter: to the button's
+ * middle when it can, else to the nearest point of the button it can reach.
+ * The arrow points only at a part of the button that has no toolbar item under
+ * it, since the hint hangs below the last row and an arrow under Copy result
+ * would point at Copy result; when no such part is in reach, the hint has no
+ * arrow.
  */
 export function saveHintPlacement(m: SaveHintMeasure): SaveHintPlacement {
+  const area = m.column ?? { left: 0, right: m.barWidth };
+  const lo = area.left + SAVE_HINT_MARGIN;
+  const hi = Math.max(lo, area.right - SAVE_HINT_MARGIN);
+  const width = Math.min(SAVE_HINT_WIDTH, hi - lo);
+  const rightmost = hi - width;
+  if (width < 2 * SAVE_HINT_ARROW_INSET) return { left: rightmost, width, arrow: null };
+
+  // Where the tip may go: on the button, clear of its ends and of everything
+  // under it, and where the hint can bring its arrow without leaving the column.
+  const onButton: Span = {
+    left: Math.max(m.buttonLeft + SAVE_HINT_ARROW_CLEAR, lo + SAVE_HINT_ARROW_INSET),
+    right: Math.min(m.buttonLeft + m.buttonWidth - SAVE_HINT_ARROW_CLEAR, hi - SAVE_HINT_ARROW_INSET)
+  };
+  const cuts = m.below.map((item) => ({
+    left: item.left - SAVE_HINT_ARROW_CLEAR,
+    right: item.right + SAVE_HINT_ARROW_CLEAR
+  }));
   const centre = m.buttonLeft + m.buttonWidth / 2;
-  const maxLeft = Math.max(SAVE_HINT_MARGIN, m.barWidth - SAVE_HINT_MARGIN - m.hintWidth);
-  const reach = centre - SAVE_HINT_ARROW_INSET;
-  const left = Math.max(SAVE_HINT_MARGIN, Math.min(maxLeft, reach));
-  const arrow = Math.max(SAVE_HINT_ARROW_INSET, Math.min(m.hintWidth - SAVE_HINT_ARROW_INSET, centre - left));
-  return { left, arrow };
+  let tip: number | null = null;
+  for (const piece of subtract(onButton, cuts)) {
+    const nearest = Math.min(piece.right, Math.max(piece.left, centre));
+    if (tip === null || Math.abs(nearest - centre) < Math.abs(tip - centre)) tip = nearest;
+  }
+  if (tip === null) return { left: rightmost, width, arrow: null };
+
+  const left = Math.max(lo, Math.min(rightmost, tip - SAVE_HINT_ARROW_INSET));
+  return { left, width, arrow: tip - left };
 }

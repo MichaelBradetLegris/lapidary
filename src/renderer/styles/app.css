@@ -322,19 +322,25 @@ input[type='text'] {
 
 /* The first-use hint (apply.12): a note under the toolbar with its arrow on
    Save to chapter. It hangs below the toolbar's last row, so it never covers
-   one of its buttons whichever row Save has wrapped onto; SaveHint.tsx sets
-   `left` and the arrow's place from `saveHintPlacement`, and it stays hidden
-   until then, like the hover card. Above the notification cards (12), which it
-   may meet at its left end, and under every dialog's backdrop (20), the menus
-   (30) and the hover card (40). */
+   one of its buttons whichever row Save has wrapped onto, and keeps to the
+   side panel's column, so it never meets the notification cards or the find
+   bar beside it; it may cover the top of the side panel, the chips at that end
+   of their strip, and the find bar's last buttons where a narrow centre column
+   lets them spill into the side panel's (PLAN 7). Got it is the way out.
+   SaveHint.tsx sets `left`, `width` and the arrow's place from
+   `saveHintPlacement`, and it stays hidden until then, like the hover card.
+   Under the notification cards (12), so a card wins should the two ever meet,
+   above the page's unpositioned content, and under every dialog's backdrop
+   (20), the menus (30) and the hover card (40). */
 .save-hint {
   position: absolute;
   top: calc(100% + 9px);
   left: 0;
-  z-index: 14;
+  z-index: 11;
   visibility: hidden;
   /* where the arrow points, from the card's left edge; SaveHint.tsx sets it */
   --save-hint-arrow: 24px;
+  /* until SaveHint.tsx sets the width its column leaves */
   width: min(300px, calc(100% - 16px));
   padding: 9px 10px 8px 12px;
   border: 1px solid var(--border);
@@ -363,6 +369,13 @@ input[type='text'] {
   border-left: 1px solid var(--border);
   background: var(--panel);
   transform: rotate(45deg);
+}
+
+/* No part of Save to chapter in reach has nothing under it: wrapped onto a row
+   above Copy result and Settings, an arrow would point at one of them, so the
+   hint has none and its words name the button (`saveHintPlacement`). */
+.save-hint[data-arrow='none']::before {
+  display: none;
 }
 
 .save-hint__text {
