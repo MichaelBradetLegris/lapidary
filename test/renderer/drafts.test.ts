@@ -66,6 +66,8 @@ interface Fake {
   failSetAside: string | null;
   failSave: string | null;
   failLoad: string | null;
+  /** when set, only this many more loads fail */
+  failLoads: number | null;
 }
 
 function fake(): Fake {
@@ -79,13 +81,17 @@ function fake(): Fake {
     release: () => undefined,
     failSetAside: null,
     failSave: null,
-    failLoad: null
+    failLoad: null,
+    failLoads: null
   };
   f.io = {
     load: async (sourcePath) => {
       f.loads.push(sourcePath);
       if (f.holdLoad) await new Promise<void>((resolve) => (f.release = resolve));
-      if (f.failLoad) throw new Error(f.failLoad);
+      if (f.failLoad && f.failLoads !== 0) {
+        if (f.failLoads !== null) f.failLoads -= 1;
+        throw new Error(f.failLoad);
+      }
       return f.files.get(sourcePath) ?? null;
     },
     save: (request) => {
@@ -238,6 +244,21 @@ describe('bringing boxes back', () => {
     expect(f.files.get(ONE)?.reviewId).toBe('a-newer-review');
   });
 
+  it('writes what is waiting before it reads back, so a box closed just before a new review stays closed', async () => {
+    await show(chapter(ONE));
+    state().openDraft(1);
+    state().setDraftText(1, 'The rain came hard, and harder.');
+    await persistence.flush();
+    expect(f.files.get(ONE)?.drafts).toEqual([rainBox()]);
+    // Closed, and within the debounce a new review of the chapter comes on
+    // screen without a leave (Submit manual review, or a model's result).
+    state().cancelDraft(1);
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS - 100);
+    await show(chapter(ONE, TEXT, 'a-new-review'));
+    expect(state().drafts).toEqual({});
+    expect(f.files.has(ONE)).toBe(false);
+  });
+
   it('does not read the file again when the same review is reloaded after a change on disk', async () => {
     await show(chapter(ONE));
     state().openDraft(1);
@@ -329,12 +350,147 @@ describe('bringing boxes back', () => {
     expect(cards()).toEqual([
       {
         tone: 'error',
-        text: 'The paragraphs you left open in this chapter could not be read back: it is locked.',
+        text: 'The paragraphs you left open in this chapter could not be read back: it is locked. Nothing is written over them, so what you type in this chapter is kept only once they can be read.',
         key: DRAFTS_SAVE_CARD,
         action: undefined,
         arg: undefined
       }
     ]);
+  });
+
+  it('writes nothing over a file it could not read, and keeps both sets once it can', async () => {
+    f.files.set(ONE, kept(ONE, [rainBox()]));
+    f.failLoad = 'it is locked';
+    await show(chapter(ONE));
+    const unreadCard = state().notifications;
+    expect(unreadCard).toHaveLength(1);
+
+    // Typed in while the file still cannot be read: it is read again, and nothing is written.
+    state().openDraft(0);
+    state().setDraftText(0, 'Mara waited.');
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS);
+    expect(f.loads).toEqual([ONE, ONE]);
+    expect(f.saves).toEqual([]);
+    expect(f.files.get(ONE)?.drafts).toEqual([rainBox()]);
+    // The same failure again leaves the card as it was, not a new one per pause in typing.
+    expect(state().notifications).toEqual(unreadCard);
+
+    // Readable again: the next write reads it first and keeps what it held after the box on screen.
+    f.failLoad = null;
+    state().setDraftText(0, 'Mara waited there.');
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS);
+    const typed = {
+      key: 0,
+      paragraphs: [0],
+      initial: 'Mara waited by the gate.',
+      text: 'Mara waited there.'
+    };
+    expect(f.files.get(ONE)?.drafts).toEqual([typed, rainBox()]);
+    expect(cards()).toEqual([
+      {
+        tone: 'info',
+        text: 'The paragraphs you left open in this chapter could be read back after all. They are kept, and open for editing again the next time you come back to this chapter.',
+        key: DRAFTS_RESTORED_CARD,
+        action: undefined,
+        arg: undefined
+      }
+    ]);
+    // Read once, so later writes go straight to disk, still with what it held.
+    state().cancelDraft(0);
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS);
+    expect(f.loads).toHaveLength(3);
+    expect(f.files.get(ONE)?.drafts).toEqual([rainBox()]);
+
+    // And it comes back when the chapter does, its card replacing that one.
+    await show(chapter(TWO));
+    await show(chapter(ONE));
+    expect(state().drafts).toEqual({ 1: rainBox() });
+    expect(cards().map((card) => card.text)).toEqual([
+      'Paragraph 2 is open for editing again, as you left it.'
+    ]);
+  });
+
+  it('keeps a box typed in while the read was failing, without writing over the file', async () => {
+    f.files.set(ONE, kept(ONE, [rainBox()]));
+    f.failLoad = 'it is locked';
+    f.holdLoad = true;
+    state().setReview(chapter(ONE), null);
+    await vi.advanceTimersByTimeAsync(0);
+    state().openDraft(0);
+    state().setDraftText(0, 'Mara waited.');
+    f.holdLoad = false;
+    f.release();
+    await persistence.settled();
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS * 2);
+    expect(f.saves).toEqual([]);
+    expect(f.files.get(ONE)?.drafts).toEqual([rainBox()]);
+    // Held, not dropped: it still counts as waiting to be written.
+    expect(persistence.pending(ONE)).toBe(true);
+    expect(state().draftWritesPending).toBe(true);
+    await persistence.flush();
+    expect(f.saves).toEqual([]);
+
+    // Leaving flushes: the file is read first, then written with both.
+    f.failLoad = null;
+    await persistence.flush();
+    expect(f.files.get(ONE)?.drafts).toEqual([
+      { key: 0, paragraphs: [0], initial: 'Mara waited by the gate.', text: 'Mara waited.' },
+      rainBox()
+    ]);
+    expect(persistence.pending()).toBe(false);
+    expect(state().draftWritesPending).toBe(false);
+  });
+
+  it('dismisses the card about an unreadable file once a later open reads it', async () => {
+    f.files.set(ONE, kept(ONE, [rainBox()]));
+    f.failLoad = 'it is locked';
+    await show(chapter(ONE));
+    await show(chapter(TWO));
+    f.failLoad = null;
+    await show(chapter(ONE));
+    expect(state().drafts).toEqual({ 1: rainBox() });
+    expect(cards().map((card) => card.key)).toEqual([DRAFTS_RESTORED_CARD]);
+  });
+
+  it('does not read the file back while a write for it is held', async () => {
+    f.files.set(ONE, kept(ONE, [rainBox()]));
+    f.failLoad = 'it is locked';
+    await show(chapter(ONE));
+    state().openDraft(0);
+    state().setDraftText(0, 'Mara waited.');
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS);
+    expect(persistence.pending(ONE)).toBe(true);
+    // A new review of the chapter: the held write is tried again and fails,
+    // and the read just after it would have worked.
+    f.failLoads = 1;
+    const loads = f.loads.length;
+    await show(chapter(ONE, TEXT, 'a-new-review'));
+    expect(f.loads).toHaveLength(loads + 1);
+    expect(state().drafts).toEqual({});
+    expect(f.files.get(ONE)?.drafts).toEqual([rainBox()]);
+    // The next flush reads it, and writes the held box with what it held.
+    await persistence.flush();
+    expect(f.files.get(ONE)?.drafts).toEqual([
+      { key: 0, paragraphs: [0], initial: 'Mara waited by the gate.', text: 'Mara waited.' },
+      rainBox()
+    ]);
+  });
+
+  it('does not let a leave that discards the boxes delete a file it could not read', async () => {
+    f.files.set(ONE, kept(ONE, [rainBox()]));
+    f.failLoad = 'it is locked';
+    await show(chapter(ONE));
+    state().openDraft(0);
+    state().setDraftText(0, 'Mara waited.');
+    // What App's leave question does on Discard, then the flush before the next chapter.
+    state().discardDrafts();
+    await persistence.flush();
+    expect(f.files.get(ONE)?.drafts).toEqual([rainBox()]);
+    f.failLoad = null;
+    state().openDraft(2);
+    state().discardDrafts();
+    await persistence.flush();
+    expect(f.files.get(ONE)?.drafts).toEqual([rainBox()]);
   });
 
   it('leaves the file for next time when the author has moved on before it was read', async () => {

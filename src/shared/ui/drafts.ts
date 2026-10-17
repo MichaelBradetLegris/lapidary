@@ -266,9 +266,23 @@ export function setAsideFailedCardText(setAside: readonly StoredDraft[], message
   } open for editing, and what you typed could not be set aside: ${asSentence(message)} It is still kept, and is tried again the next time you open this chapter.`;
 }
 
-/** The card when the boxes kept for a chapter could not be read. */
+/**
+ * The card when the boxes kept for a chapter could not be read. Nothing is
+ * written to the file until it has been read, so boxes typed in meanwhile are
+ * not kept yet.
+ */
 export function draftsUnreadableCardText(message: string): string {
-  return `The paragraphs you left open in this chapter could not be read back: ${asSentence(message)}`;
+  return `The paragraphs you left open in this chapter could not be read back: ${asSentence(
+    message
+  )} Nothing is written over them, so what you type in this chapter is kept only once they can be read.`;
+}
+
+/**
+ * The card when that file could be read at a later write: what it held is
+ * kept with the boxes on screen, and goes back on the page at the next open.
+ */
+export function draftsReadLaterCardText(): string {
+  return 'The paragraphs you left open in this chapter could be read back after all. They are kept, and open for editing again the next time you come back to this chapter.';
 }
 
 /**

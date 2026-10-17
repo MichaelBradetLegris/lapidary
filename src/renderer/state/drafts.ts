@@ -1,6 +1,7 @@
 import type { DraftFile, DraftSaveRequest, SetAsideRequest, StoredDraft } from '../../shared/ipc';
 import type { Review } from '../../shared/types';
 import {
+  draftsReadLaterCardText,
   draftsUnreadableCardText,
   placeDrafts,
   restoredCardText,
@@ -16,14 +17,19 @@ import { useApp } from './store';
  *
  * Every box open in a chapter is written to that chapter's drafts file 700 ms
  * after the last keystroke, by a writer with one queue per chapter
- * (`draftWriter`), so a box survives leaving the chapter, closing the app, an
- * update or a crash. Closing the last box deletes the file. Whenever another
- * chapter or another review comes on screen, what was kept for its chapter
- * comes back (`restore`): a box goes back where its block still reads as it
- * did when the box opened (`placeDrafts`), and one holding typed text that
- * cannot go back is set aside as a .txt, with a card whose Show the text
- * opens it. Until the .txt is written, such a box stays in the chapter's file
- * ("carried"), so a failure never loses what was typed.
+ * (`draftWriter`), so a box survives closing the app, an update or a crash.
+ * (Leaving the chapter still asks to discard open boxes until `apply.7`'s Keep
+ * for later, and Discard empties the file.) Closing the last box deletes the
+ * file. Whenever another chapter or another review comes on screen, what was
+ * kept for its chapter comes back (`restore`): a box goes back where its block
+ * still reads as it did when the box opened (`placeDrafts`), and one holding
+ * typed text that cannot go back is set aside as a .txt, with a card whose
+ * Show the text opens it. Until the .txt is written, such a box stays in the
+ * chapter's file ("carried"), so a failure never loses what was typed.
+ *
+ * A file that could not be read back is never written over unread: every
+ * write for its chapter reads it first and writes nothing while it still
+ * cannot be read, and once it can, what it held is carried (C.53).
  *
  * It reaches main only through `DraftIo`, which App fills with the IPC calls
  * when it installs this, so the module needs neither the DOM nor the preload
@@ -51,9 +57,9 @@ export interface DraftIo {
 export interface DraftPersistence {
   /** watch the store: write boxes as they change, bring them back as reviews come on screen; returns the unsubscribe */
   install: () => () => void;
-  /** write what is waiting, for one chapter or for every chapter, and wait for it */
+  /** write what is waiting, for one chapter or for every chapter, and wait for it; a held write is tried again */
   flush: (sourcePath?: string) => Promise<void>;
-  /** a write is waiting or under way, for one chapter or any */
+  /** a write is waiting, under way or held (its file could not be read), for one chapter or any */
   pending: (sourcePath?: string) => boolean;
   /** bring back what was kept for the chapter of `review`; resolves when done, never rejects */
   restore: (review: Review) => Promise<void>;
@@ -69,39 +75,124 @@ function sameReview(a: Review | null, b: Review | null): boolean {
   return a !== null && b !== null && a.id === b.id && a.sourcePath === b.sourcePath;
 }
 
+/** A write waiting for a chapter: the boxes on screen, and the review they are open in. */
+interface PendingDrafts {
+  reviewId: string;
+  drafts: StoredDraft[];
+}
+
 export function createDraftPersistence(io: DraftIo, options: { delayMs?: number } = {}): DraftPersistence {
-  /** boxes in a chapter's file that are not on screen, because setting them aside failed */
+  /**
+   * Boxes in a chapter's file that are not on screen: setting them aside
+   * failed, or the file could be read only after the chapter came on screen.
+   */
   const carried = new Map<string, StoredDraft[]>();
   /** the boxes last written for each chapter, so a write can be repeated without them on screen */
-  const latest = new Map<string, { reviewId: string; drafts: StoredDraft[] }>();
+  const latest = new Map<string, PendingDrafts>();
   /** chapters whose file is being read back: writes wait, so none replaces it unread */
   const loading = new Set<string>();
   /** chapters whose boxes changed while their file was being read back */
   const changedWhileLoading = new Set<string>();
+  /**
+   * Chapters whose file could not be read back, with the reason last shown:
+   * nothing is written to the file until it has been read.
+   */
+  const unread = new Map<string, string>();
+  /**
+   * Writes not made because the file still could not be read, by chapter: the
+   * next flush tries each again, unless a newer write for it is waiting.
+   */
+  const held = new Map<string, PendingDrafts>();
   /** restores under way, by chapter; a second for the same chapter runs after the first */
   const restores = new Map<string, Promise<void>>();
 
   const notify = (...args: Parameters<ReturnType<typeof useApp.getState>['notify']>): void =>
     void useApp.getState().notify(...args);
 
-  const draftWriter = createKeyedWriter<DraftSaveRequest>({
+  /** The store's flag: a write is waiting, under way, or held. */
+  let writerBusy = false;
+  function reportPending(): void {
+    const pending = writerBusy || held.size > 0;
+    if (useApp.getState().draftWritesPending !== pending) useApp.setState({ draftWritesPending: pending });
+  }
+
+  const draftWriter = createKeyedWriter<PendingDrafts>({
     delayMs: options.delayMs ?? DRAFT_WRITE_DELAY_MS,
     describeError: messageOf,
-    write: (_sourcePath, request) => io.save(request),
+    write: (sourcePath, pending) => save(sourcePath, pending),
     // Said once per distinct failure; a card per keystroke would be noise.
     onError: (message) =>
       notify('error', `The paragraphs you are editing could not be kept: ${message}`, DRAFTS_SAVE_CARD),
-    onPendingChange: (pending) => useApp.setState({ draftWritesPending: pending })
+    onPendingChange: (busy) => {
+      writerBusy = busy;
+      reportPending();
+    }
   });
 
-  /** Queue a write of these boxes for the chapter, with any it still carries after them. */
-  function write(sourcePath: string, reviewId: string, onScreen: StoredDraft[]): void {
-    latest.set(sourcePath, { reviewId, drafts: onScreen });
-    draftWriter.schedule(sourcePath, {
+  /**
+   * Write a chapter's boxes: those on screen, then any it carries, as they are
+   * when the write starts. A file that could not be read back is read first,
+   * and while it still cannot be, nothing is written and the write is held.
+   */
+  async function save(sourcePath: string, pending: PendingDrafts): Promise<void> {
+    if (unread.has(sourcePath) && !(await readUnread(sourcePath))) {
+      held.set(sourcePath, pending);
+      reportPending();
+      return;
+    }
+    if (held.delete(sourcePath)) reportPending();
+    await io.save({
       sourcePath,
-      reviewId,
-      drafts: [...onScreen, ...(carried.get(sourcePath) ?? [])]
+      reviewId: pending.reviewId,
+      drafts: [...pending.drafts, ...(carried.get(sourcePath) ?? [])]
     });
+  }
+
+  /** Write what is waiting for a chapter, or for every chapter, trying held writes again. */
+  async function flush(sourcePath?: string): Promise<void> {
+    for (const [chapter, pending] of held) {
+      if (sourcePath !== undefined && chapter !== sourcePath) continue;
+      // A newer write for the chapter replaces the held one.
+      if (!draftWriter.pending(chapter)) draftWriter.schedule(chapter, pending);
+    }
+    await draftWriter.flush(sourcePath);
+  }
+
+  /**
+   * Read again a file that could not be read back when its chapter came on
+   * screen. Its boxes never went back on the page, so they are carried: kept
+   * after the boxes on screen, and placed the next time a review of the
+   * chapter comes on screen. False when it still cannot be read; the card says
+   * so once per reason, not once per pause in typing.
+   */
+  async function readUnread(sourcePath: string): Promise<boolean> {
+    let kept: DraftFile | null;
+    try {
+      kept = await io.load(sourcePath);
+    } catch (err) {
+      const message = messageOf(err);
+      if (unread.get(sourcePath) !== message) {
+        unread.set(sourcePath, message);
+        notify('error', draftsUnreadableCardText(message), DRAFTS_SAVE_CARD);
+      }
+      return false;
+    }
+    unread.delete(sourcePath);
+    useApp.getState().dismissNotificationsByKey(DRAFTS_SAVE_CARD);
+    // The file holds whatever this chapter carried, as at a restore. The card
+    // goes when the boxes come back and say so.
+    if (kept && kept.drafts.length > 0) {
+      carried.set(sourcePath, kept.drafts);
+      notify('info', draftsReadLaterCardText(), DRAFTS_RESTORED_CARD);
+    }
+    return true;
+  }
+
+  /** Queue a write of these boxes for the chapter; any it carries are added when it is written. */
+  function write(sourcePath: string, reviewId: string, onScreen: StoredDraft[]): void {
+    const pending = { reviewId, drafts: onScreen };
+    latest.set(sourcePath, pending);
+    draftWriter.schedule(sourcePath, pending);
   }
 
   function writeOnScreen(sourcePath: string): boolean {
@@ -114,14 +205,28 @@ export function createDraftPersistence(io: DraftIo, options: { delayMs?: number 
   async function restoreNow(sourcePath: string): Promise<void> {
     let kept: DraftFile | null = null;
     let failed = false;
+    const wasUnread = unread.has(sourcePath);
     loading.add(sourcePath);
     try {
       // A write still waiting for this chapter lands first, so the newest is read back.
-      await draftWriter.flush(sourcePath);
+      await flush(sourcePath);
+      // Still held: the file could not be read a moment ago, and the held
+      // boxes must reach it before it is read back, or they would be lost.
+      if (held.has(sourcePath)) throw new Error(unread.get(sourcePath) ?? 'it could not be read');
       kept = await io.load(sourcePath);
+      unread.delete(sourcePath);
+      // Read at last: a card saying it could not be, or that it was read
+      // since, is out of date; what comes back now has a card of its own.
+      if (wasUnread) {
+        useApp.getState().dismissNotificationsByKey(DRAFTS_SAVE_CARD);
+        useApp.getState().dismissNotificationsByKey(DRAFTS_RESTORED_CARD);
+      }
     } catch (err) {
       failed = true;
-      notify('error', draftsUnreadableCardText(messageOf(err)), DRAFTS_SAVE_CARD);
+      // Until it has been read, every write reads it first (`save`).
+      const message = messageOf(err);
+      unread.set(sourcePath, message);
+      notify('error', draftsUnreadableCardText(message), DRAFTS_SAVE_CARD);
     } finally {
       loading.delete(sourcePath);
     }
@@ -132,8 +237,9 @@ export function createDraftPersistence(io: DraftIo, options: { delayMs?: number 
     // The author has left the chapter already: the file stays as it is for next time.
     if (!review || review.sourcePath !== sourcePath) return;
     if (failed || !kept || kept.drafts.length === 0) {
-      // Boxes opened while the file was read are written now; with nothing
-      // read and nothing typed, the file is left as it is.
+      // Boxes opened while the file was read are written now (`save` reads a
+      // file that could not be read first); with nothing typed, the file is
+      // left as it is.
       if (typedMeanwhile) writeOnScreen(sourcePath);
       return;
     }
@@ -192,8 +298,9 @@ export function createDraftPersistence(io: DraftIo, options: { delayMs?: number 
         if (loading.has(review.sourcePath)) changedWhileLoading.add(review.sourcePath);
         else write(review.sourcePath, review.id, toStoredDrafts(state.drafts));
       }),
-    flush: (sourcePath) => draftWriter.flush(sourcePath),
-    pending: (sourcePath) => draftWriter.pending(sourcePath),
+    flush,
+    pending: (sourcePath) =>
+      draftWriter.pending(sourcePath) || (sourcePath === undefined ? held.size > 0 : held.has(sourcePath)),
     restore,
     settled: async () => {
       while (restores.size > 0) await Promise.all([...restores.values()]);

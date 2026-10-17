@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DRAFTS_DIRNAME,
   SET_ASIDE_DIRNAME,
@@ -172,6 +172,40 @@ describe('saving and loading', () => {
       expect(await fs.readFile(aside, 'utf8')).toBe(content);
       await fs.rm(aside);
     }
+  });
+
+  it('fails with words of its own when the file cannot be read at all, and leaves it there', async () => {
+    // A folder where the file should be: reading it fails, as a locked file does.
+    const file = draftFileFor(draftsRoot, chapter, true);
+    await fs.mkdir(file, { recursive: true });
+    const { lines, log } = logger();
+    const err = await failure(loadDrafts(draftsRoot, chapter, true, { log }));
+    expect(err.code).toBe('io');
+    const code = /^the file could not be opened \((E[A-Z]+)\)$/.exec(err.message)?.[1];
+    expect(code).toBeDefined();
+    expect(err.message).not.toMatch(/replace|save again/);
+    expect(lines).toEqual([['warn', 'drafts.read-failed', { code }]]);
+    expect((await fs.stat(file)).isDirectory()).toBe(true);
+    expect(await fs.readdir(draftsRoot)).toEqual([path.basename(file)]);
+  });
+
+  it('says another program may hold a locked file', async () => {
+    const file = draftFileFor(draftsRoot, chapter, true);
+    await fs.mkdir(draftsRoot, { recursive: true });
+    await fs.writeFile(file, '{}');
+    const busy = Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' });
+    const { lines, log } = logger();
+    const read = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(busy);
+    try {
+      const err = await failure(loadDrafts(draftsRoot, chapter, true, { log }));
+      expect(err.message).toBe(
+        'another program may have the file open, or Lapidary may not be allowed to read it (EBUSY)'
+      );
+      expect(lines).toEqual([['warn', 'drafts.read-failed', { code: 'EBUSY' }]]);
+    } finally {
+      read.mockRestore();
+    }
+    expect(await fs.readFile(file, 'utf8')).toBe('{}');
   });
 
   it('leaves alone a file that names another chapter', async () => {

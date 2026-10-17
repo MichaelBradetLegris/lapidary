@@ -13,6 +13,7 @@ import {
   discardDraftPrompt,
   draftLabel,
   draftSetProblem,
+  draftsReadLaterCardText,
   draftsUnreadableCardText,
   isStoredDraft,
   parseDraftFile,
@@ -361,7 +362,10 @@ describe('the words', () => {
       /^Paragraphs 2 and 3 no longer read as they did when you left them open for editing, and what you typed could not be set aside: No space\. It is/
     );
     expect(draftsUnreadableCardText('locked')).toBe(
-      'The paragraphs you left open in this chapter could not be read back: locked.'
+      'The paragraphs you left open in this chapter could not be read back: locked. Nothing is written over them, so what you type in this chapter is kept only once they can be read.'
+    );
+    expect(draftsReadLaterCardText()).toBe(
+      'The paragraphs you left open in this chapter could be read back after all. They are kept, and open for editing again the next time you come back to this chapter.'
     );
   });
 

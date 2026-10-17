@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { formatLocalStamp } from '../shared/backups';
+import { APP_NAME } from '../shared/branding';
 import type { DraftFile, DraftSaveRequest, SetAsideRequest } from '../shared/ipc';
 import { pathKey, samePath } from '../shared/paths';
 import {
@@ -75,11 +76,27 @@ function requirePath(sourcePath: unknown): string {
 }
 
 /**
+ * Why the file could not be read, in words of its own. Left to `toAppError`,
+ * a refused read would be explained as a refused write ("would not let ...
+ * replace", "save again"). The message names no path.
+ */
+function readFailure(code: string | undefined): Error {
+  const reason =
+    code === 'EBUSY' || code === 'EPERM' || code === 'EACCES'
+      ? `another program may have the file open, or ${APP_NAME} may not be allowed to read it`
+      : 'the file could not be opened';
+  return fail('io', `${reason} (${code ?? 'no error code'})`);
+}
+
+/**
  * The boxes kept for this chapter, or null when there are none. A file that
  * cannot be read as one this app wrote is moved aside within the drafts
  * folder, as `<hash>.unreadable-<time>.json`, so the next write cannot replace
- * whatever it holds, and null is returned. A file that names another chapter,
- * which only a hash collision could cause, is left alone.
+ * whatever it holds, and null is returned. A file that cannot be read at all
+ * (locked, or not allowed) is left where it is and the read fails; on Windows
+ * a file another program holds open cannot be renamed either. A file that
+ * names another chapter, which only a hash collision could cause, is left
+ * alone.
  */
 export async function loadDrafts(
   draftsRoot: string,
@@ -93,8 +110,11 @@ export async function loadDrafts(
   try {
     raw = await fs.readFile(file, 'utf8');
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw err;
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return null;
+    // The renderer writes nothing over the file until it can be read (C.53).
+    log('warn', 'drafts.read-failed', { code: code ?? null });
+    throw readFailure(code);
   }
   let parsed: DraftFile | null;
   try {
