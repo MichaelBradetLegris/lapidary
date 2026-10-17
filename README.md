@@ -1,5 +1,7 @@
 # Lapidary
 
+[![CI](https://github.com/MichaelBradetLegris/lapidary/actions/workflows/ci.yml/badge.svg)](https://github.com/MichaelBradetLegris/lapidary/actions/workflows/ci.yml)
+
 A Windows desktop app for reviewing AI-suggested copyedits to novel chapters kept as Markdown (`.md`) or plain text (`.txt`), for example in an Obsidian vault.
 
 You open a chapter, ask for a review, and every suggested change floats above the words it would replace. You accept or dismiss each one, in either direction, as often as you like. Larger issues (continuity, pacing, point of view) arrive as comments in the margin. Nothing is written to your chapter until you press **Save to chapter**.
