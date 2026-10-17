@@ -22,6 +22,7 @@ Work towards 1.0.
 - Ctrl+S saves to the chapter, as Save to chapter does. It does nothing while a dialog, a question or Settings is open, or when there is nothing to save. In a paragraph box it says to press Done first, and with the suggestion editor open it says to press the editor's Save first.
 - Backups. Before every Save to chapter, the version of the chapter it replaces is copied to the app's data folder, into `backups`, in a folder of that chapter's own, named by the time of the save. For each chapter, the copies from the last 20 saves are kept, plus the first of each day for 30 days. If the copy cannot be made, nothing is written and a card says why. Backups never go into your manuscript folder.
 - The status bar counts the changes the chapter file does not have yet, as in "3 not saved to chapter", in orange, beside the pending, accepted and dismissed counts.
+- The chapter list puts the same orange dot before every chapter with changes its file does not have yet, so you can see which chapters still need Save to chapter. The dot stays when you open another chapter or restart the app, and goes once the chapter is saved. Point at it to see how many changes are waiting.
 
 ### Changed
 
@@ -43,11 +44,12 @@ Work towards 1.0.
 - OpenAI requests always go to api.openai.com. The `OPENAI_BASE_URL`, `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID` environment variables are ignored.
 - Save to chapter shows how many changes it will write, as in "Save 3 changes to chapter", and its tooltip says what pressing it does. The dot that says something is not saved to the chapter is now orange and sits before the chapter name, and it shows only while there is something to save: it used to show after any decision, even one you turned back, or a comment you resolved. A long chapter name ends in "…" so the toolbar stays on one row; the full name is in its tooltip. Zoomed in, or while a review runs in a narrow window, the last toolbar buttons move to a second row, where their labels used to break onto two lines.
 - The status bar says "Decisions kept" and the time in hours and minutes where it said "Review saved", which read as if the chapter had been saved. Its tooltip says the chapter file changes only when you press Save to chapter. The time is the open review's own: a chapter with no review yet shows none, where "Review saved" showed the time of whichever review was saved last.
-- The legend behind the status bar's ? button explains the orange dot, says the e key rewrites the focused suggestion, and no longer mentions editing selected words with e, which the pen beside each paragraph replaced. It scrolls when the window is too short to show it whole.
+- The legend behind the status bar's ? button explains the orange dot, at the top of the window and in the chapter list, says the e key rewrites the focused suggestion, and no longer mentions editing selected words with e, which the pen beside each paragraph replaced. It scrolls when the window is too short to show it whole.
 
 ### Fixed
 
 - The legend behind the status bar's ? button wraps its text inside its box instead of running across the chapter.
+- The number beside the open chapter in the chapter list counts the suggestions still pending as you decide them. It kept the count from when the list was last read, so it could say 12 with 6 left, until you saved. A chapter you leave is counted again too.
 - Comments and suggestion labels stay beside their quotes after a Save that splits, joins or deletes a paragraph. Comments that had already shifted move back beside their quotes when the review opens.
 - Chapters with the same name in different folders no longer share reviews, and a Save in one can no longer write the other's accepted changes.
 - A decision made just before opening another chapter or a History entry is no longer lost.

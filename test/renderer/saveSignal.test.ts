@@ -16,6 +16,8 @@ const read = (file: string): string => withoutComments(readFileSync(path.join(RE
 
 const TOOLBAR = read('components/Toolbar.tsx');
 const STATUS_BAR = read('components/StatusBar.tsx');
+const FILE_LIST = read('components/FileList.tsx');
+const APP = read('App.tsx');
 const STORE = read('state/store.ts');
 const PERSIST = read('state/reviewPersistence.ts');
 const CSS = read('styles/app.css');
@@ -121,6 +123,8 @@ describe('the status bar (apply.4)', () => {
   it('has a legend that explains the dot and no longer offers the removed selection edit', () => {
     expect(STATUS_BAR).toContain('legend__swatch--unsaved');
     expect(STATUS_BAR).toContain('Not saved to chapter.');
+    // Both places the dot is drawn (apply.5).
+    expect(STATUS_BAR).toMatch(/at the top of the window or under\s+Chapters/);
     expect(STATUS_BAR).not.toMatch(/selecting words/i);
     expect(STATUS_BAR).not.toMatch(/pressing e\b/i);
     expect(STATUS_BAR).toContain('or the e key, lets you rewrite it');
@@ -135,6 +139,56 @@ describe('the status bar (apply.4)', () => {
     });
     // The gap above the last paragraph, which `.legend p` used to take away.
     expect(declsFor('.legend .legend__foot').get('margin')).toBe('9px 0 0');
+  });
+});
+
+/* apply.5: the same dot before each chapter in the chapter list that has changes
+   its file does not have yet. `chapterListMarks` decides it (its tests are in
+   test/shared/chapterList.test.ts, and test/main/reviews.test.ts checks that
+   main's summary marks a chapter as it was marked while open); these check the
+   wiring. */
+describe('the chapter list (apply.5)', () => {
+  it('marks each row with chapterListMarks, live for the open chapter only', () => {
+    expect(FILE_LIST).toContain("import { chapterListMarks } from '../../shared/ui/chapterList';");
+    expect(FILE_LIST).toContain('const activePath = review?.sourcePath ?? null;');
+    expect(FILE_LIST).toContain('const open = file.path === activePath;');
+    expect(FILE_LIST).toContain(
+      'const marks = chapterListMarks(byPath.get(indexKey(file.path)), open ? review : null);'
+    );
+    expect(FILE_LIST).toContain("className={`filelist__item ${open ? 'filelist__item--active' : ''}`}");
+    expect(APP).toMatch(/<FileList\s+files=\{files\}\s+index=\{index\}\s+review=\{review\}/);
+  });
+
+  it('puts the labelled dot before the name, and takes the badge from the same marks', () => {
+    const dot = FILE_LIST.indexOf('className="unsaved-dot"');
+    const name = FILE_LIST.indexOf('className="filelist__name"');
+    expect(dot).toBeGreaterThan(0);
+    expect(name).toBeGreaterThan(dot);
+    expect(FILE_LIST).toMatch(/\{marks\.unsaved > 0 \? \(\s*<span\s+className="unsaved-dot"\s+role="img"/);
+    expect(FILE_LIST).toContain('aria-label={marks.dotLabel}');
+    expect(FILE_LIST).toContain('title={marks.dotLabel}');
+    expect(FILE_LIST).toContain('{marks.pending}');
+    expect(FILE_LIST).not.toContain('summary.pendingCount');
+    // The toolbar's dot, so the two look and read alike.
+    expect(TOOLBAR).toContain('className="unsaved-dot"');
+  });
+
+  it('reads the marks again when a chapter opens, after the one left is written, and before it shows', () => {
+    const open = APP.slice(
+      APP.indexOf('const openChapter = useCallback('),
+      APP.indexOf('const openHistoryEntry')
+    );
+    const flush = open.indexOf('await flushReviewWrites();');
+    const read = open.indexOf('const marked = refreshIndex();');
+    const wait = open.indexOf('await marked;');
+    const shown = open.indexOf('setReview(');
+    expect(flush).toBeGreaterThan(0);
+    expect(read).toBeGreaterThan(flush);
+    expect(open.indexOf("call('files:read'")).toBeGreaterThan(read);
+    expect(wait).toBeGreaterThan(read);
+    expect(shown).toBeGreaterThan(wait);
+    // Only the newest answer counts, and a failure leaves no stale marks.
+    expect(APP).toContain('if (ticket === indexSeq.current) setIndex(next);');
   });
 });
 

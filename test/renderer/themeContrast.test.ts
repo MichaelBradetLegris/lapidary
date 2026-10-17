@@ -141,7 +141,13 @@ const FAINT_PAIRS: Pair[] = [
     min: 3,
     why: 'a category as a mark: underline, dot, caret'
   })),
-  { ink: '--unsaved', on: '--panel', min: 3, why: 'the unsaved dot before the chapter name (apply.4)' }
+  { ink: '--unsaved', on: '--panel', min: 3, why: 'the unsaved dot before the chapter name (apply.4)' },
+  ...['--panel-alt', '--selected-bg'].map((on) => ({
+    ink: '--unsaved',
+    on,
+    min: 3,
+    why: 'the unsaved dot on a hovered or the open row of the chapter list (apply.5)'
+  }))
 ];
 
 function failures(scheme: Scheme, pairs: Pair[]): string[] {
@@ -163,7 +169,7 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
         expect(() => paint(scheme, pair.on)).not.toThrow();
       }
     }
-    expect([TEXT_PAIRS.length, FAINT_PAIRS.length]).toEqual([137, 59]);
+    expect([TEXT_PAIRS.length, FAINT_PAIRS.length]).toEqual([137, 61]);
   });
 
   it('paints a tint the way color-mix() does, so the tinted pairs mean something', () => {

@@ -17,6 +17,7 @@ import {
 import { rebaseReview } from '../../src/shared/diff/rebase';
 import { createReview } from '../../src/shared/review';
 import type { Review } from '../../src/shared/types';
+import { chapterListMarks } from '../../src/shared/ui/chapterList';
 
 let root: string;
 
@@ -243,6 +244,46 @@ describe('the current review', () => {
     await saveReview(root, make(source, T1, [{ ...pendingHunk, status: 'accepted' }]));
     const [summary] = await listReviews(root, source);
     expect(summary).toMatchObject({ unsavedCount: 1, pendingCount: 0, sourcePath: source });
+  });
+
+  it('marks a chapter in the list as it was marked while open (apply.5)', async () => {
+    // A saved change, one accepted since, one turned back after a save, a
+    // dismissed and a lost one, and one still pending: once written, the list
+    // must mark the chapter it has just left exactly as it marked it open.
+    const source = 'C:/vault/Chapter 12.md';
+    const hunk = (
+      id: string,
+      start: number,
+      patch: Partial<Review['hunks'][number]>
+    ): Review['hunks'][number] => ({
+      ...pendingHunk,
+      id,
+      start,
+      end: start + 1,
+      original: 'a',
+      replacement: 'b',
+      ...patch
+    });
+    const review: Review = {
+      ...make(source, T1),
+      base: { text: 'abcdefghij', hash: 'h', eol: 'lf', bom: false, trailingNewline: true },
+      hunks: [
+        hunk('saved', 0, { status: 'accepted', baseSide: 'replacement' }),
+        hunk('accepted', 2, { status: 'accepted' }),
+        hunk('turned-back', 4, { status: 'pending', baseSide: 'replacement' }),
+        hunk('dismissed', 6, { status: 'dismissed' }),
+        hunk('lost', 8, { anchor: 'stale' }),
+        hunk('pending', 9, {})
+      ]
+    };
+    await saveReview(root, review);
+    const summary = (await reviewIndex(root, [source]))[source];
+    expect(chapterListMarks(summary, null)).toEqual(chapterListMarks(undefined, review));
+    expect(chapterListMarks(summary, null)).toEqual({
+      unsaved: 2,
+      dotLabel: '2 changes are not saved to the chapter yet.',
+      pending: 2
+    });
   });
 });
 

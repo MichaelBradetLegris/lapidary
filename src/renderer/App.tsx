@@ -89,14 +89,27 @@ export function App(): React.JSX.Element {
 
   /* ---------------- loading ---------------- */
 
+  /* What the chapter list marks each chapter with (apply.5). Only the newest
+     answer is kept, so a slow one cannot put back counts a later one has
+     replaced. Resolves once the answer is in; never rejects. */
+  const indexSeq = useRef(0);
+  const refreshIndex = useCallback(async (): Promise<void> => {
+    const ticket = ++indexSeq.current;
+    let next: Record<string, ReviewSummary> = {};
+    try {
+      next = await call('reviews:index', undefined);
+    } catch {
+      // No marks rather than stale ones.
+    }
+    if (ticket === indexSeq.current) setIndex(next);
+  }, []);
+
   const refreshFiles = useCallback(() => {
     void call('files:list', undefined)
       .then(setFiles)
       .catch(() => setFiles([]));
-    void call('reviews:index', undefined)
-      .then(setIndex)
-      .catch(() => setIndex({}));
-  }, []);
+    void refreshIndex();
+  }, [refreshIndex]);
 
   useEffect(() => {
     call('settings:get', undefined)
@@ -160,6 +173,10 @@ export function App(): React.JSX.Element {
           // A decision still waiting to be written must be on disk before
           // its review file is read back (apply.1).
           await flushReviewWrites();
+          // Once another chapter is open, the one being left is marked in the
+          // list from its review as now written, so read the marks again
+          // alongside the chapter, and have them in before it shows (apply.5).
+          const marked = refreshIndex();
           const content = await call('files:read', { path: file.path });
           const base = baseFrom(content);
           let loaded: { path: string | null; review: Review } | null = null;
@@ -178,6 +195,7 @@ export function App(): React.JSX.Element {
             // A missing or unreadable review folder must not stop the chapter opening.
           }
 
+          await marked;
           if (!loaded) {
             setReview(
               createReview({ sourcePath: file.path, base, hunks: [], generator: { kind: 'file' } }),
@@ -201,7 +219,7 @@ export function App(): React.JSX.Element {
         }
       })();
     },
-    [setReview, notify, refreshHistory, refreshFiles, fail, confirmLeaveDrafts, waitForSave]
+    [setReview, notify, refreshHistory, refreshFiles, refreshIndex, fail, confirmLeaveDrafts, waitForSave]
   );
 
   const openHistoryEntry = useCallback(
@@ -529,7 +547,7 @@ export function App(): React.JSX.Element {
         <FileList
           files={files}
           index={index}
-          activePath={review?.sourcePath ?? null}
+          review={review}
           configured={Boolean(settings?.manuscriptFolder)}
           onOpen={openChapter}
           onChooseFolder={chooseManuscriptFolder}

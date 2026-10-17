@@ -30,7 +30,8 @@
   --danger: #b3261e;
   --warn: #84681c;
   /* ember, for changes not saved to the chapter: the dot before the chapter
-     name and the status bar's count (apply.4); dark enough for text */
+     name, in the toolbar and the chapter list, and the status bar's count
+     (apply.4, apply.5); dark enough for text */
   --unsaved: #ad4b0d;
 
   /* Backgrounds that mark a place or a state. */
@@ -300,7 +301,8 @@ input[type='text'] {
   white-space: nowrap;
 }
 
-/* Changes not saved to the chapter, before the chapter name (apply.4). */
+/* Changes not saved to the chapter, before the chapter name in the toolbar
+   (apply.4) and before each such chapter's name in the chapter list (apply.5). */
 .unsaved-dot {
   flex: none;
   width: 8px;
