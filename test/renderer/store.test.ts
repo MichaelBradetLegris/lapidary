@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { composeText } from '../../src/shared/diff/compose';
 import { createDiffReview, createReview } from '../../src/shared/review';
 import { bulkPlan } from '../../src/shared/ui/bulk';
+import { closePrompt, leavePrompt } from '../../src/shared/ui/save';
 import { modelOptions } from '../../src/renderer/state/models';
-import { isLocked, useApp } from '../../src/renderer/state/store';
+import { isLocked, useApp, type ConfirmSpec } from '../../src/renderer/state/store';
 import type { Review } from '../../src/shared/types';
 
 const ORIGINAL = 'The river had began.\n\nShe nodded her head slowly.';
@@ -493,5 +494,141 @@ describe('decidedAt marks the review last worked in (files.1)', () => {
     const decided = { ...fresh(), decidedAt: '2026-10-01T00:00:00.000Z' };
     useApp.getState().setReview(decided);
     expect(useApp.getState().review!.decidedAt).toBe('2026-10-01T00:00:00.000Z');
+  });
+});
+
+describe('three-way confirm (apply.6)', () => {
+  const THREE: ConfirmSpec = {
+    title: 'Leave Chapter 3?',
+    body: '2 changes are not saved to the chapter yet.\nThey are kept in the review.',
+    confirmLabel: 'Save 2 changes first',
+    altLabel: 'Keep for later',
+    cancelLabel: 'Cancel',
+    defaultButton: 'alt'
+  };
+
+  beforeEach(() => {
+    // Close anything an earlier test left open, so no stale resolver answers here.
+    useApp.getState().answerChoice('cancel');
+    useApp.setState({ aiBusyPath: null, drafts: {} });
+    useApp.getState().setReview(fresh());
+  });
+
+  it('resolves askChoice with the button that answered', async () => {
+    for (const choice of ['confirm', 'alt', 'cancel'] as const) {
+      const asked = useApp.getState().askChoice(THREE);
+      expect(useApp.getState().confirmSpec).toEqual(THREE);
+      useApp.getState().answerChoice(choice);
+      await expect(asked).resolves.toBe(choice);
+      expect(useApp.getState().confirmSpec).toBeNull();
+    }
+  });
+
+  it('answers a replaced question with cancel, and the new one with its own answer', async () => {
+    const first = useApp.getState().askChoice(THREE);
+    const second = useApp.getState().askChoice({ ...THREE, title: 'Close Lapidary?' });
+    await expect(first).resolves.toBe('cancel');
+    expect(useApp.getState().confirmSpec?.title).toBe('Close Lapidary?');
+    useApp.getState().answerChoice('alt');
+    await expect(second).resolves.toBe('alt');
+  });
+
+  it('answers a replaced yes-or-no question with no, as before', async () => {
+    const bulk = useApp.getState().askConfirm({ title: 'Accept 2?', body: 'b', confirmLabel: 'Accept' });
+    const leave = useApp.getState().askChoice(THREE);
+    await expect(bulk).resolves.toBe(false);
+    useApp.getState().answerChoice('confirm');
+    await expect(leave).resolves.toBe('confirm');
+
+    const choice = useApp.getState().askChoice(THREE);
+    const confirm = useApp.getState().askConfirm({ title: 'Reset?', body: 'b', confirmLabel: 'Reset' });
+    await expect(choice).resolves.toBe('cancel');
+    useApp.getState().answerConfirm(true);
+    await expect(confirm).resolves.toBe(true);
+  });
+
+  it('askConfirm is true for confirm only', async () => {
+    const results: boolean[] = [];
+    for (const choice of ['confirm', 'alt', 'cancel'] as const) {
+      const asked = useApp.getState().askConfirm(THREE);
+      useApp.getState().answerChoice(choice);
+      results.push(await asked);
+    }
+    expect(results).toEqual([true, false, false]);
+  });
+
+  it('answerConfirm still answers a three-way question: true is confirm, false cancel', async () => {
+    const yes = useApp.getState().askChoice(THREE);
+    useApp.getState().answerConfirm(true);
+    await expect(yes).resolves.toBe('confirm');
+    const no = useApp.getState().askChoice(THREE);
+    useApp.getState().answerConfirm(false);
+    await expect(no).resolves.toBe('cancel');
+  });
+
+  it('turns an answer the question does not show into cancel', async () => {
+    const noSave = useApp.getState().askChoice({ ...THREE, confirmLabel: '' });
+    useApp.getState().answerChoice('confirm');
+    await expect(noSave).resolves.toBe('cancel');
+
+    const twoWay = useApp.getState().askChoice({ title: 'Replace?', body: 'b', confirmLabel: 'Replace' });
+    useApp.getState().answerChoice('alt');
+    await expect(twoWay).resolves.toBe('cancel');
+  });
+
+  it('takes the leave and close prompts as they are', async () => {
+    const chapter = 'D:\\Writing\\Novel\\Chapter 3.md';
+    const leave = leavePrompt(
+      { chapter, unsavedDecisions: 1, changedParagraphs: 0, locked: false, reviewId: 'r1' },
+      { kind: 'chapter', path: 'D:\\Writing\\Novel\\Chapter 4.md' }
+    )!;
+    const asked = useApp.getState().askChoice(leave);
+    expect(useApp.getState().confirmSpec).toEqual(leave);
+    useApp.getState().answerChoice('alt');
+    await expect(asked).resolves.toBe('alt');
+
+    const close = closePrompt({
+      chapter,
+      unsavedDecisions: 0,
+      changedParagraphs: 0,
+      locked: false,
+      reviewRunning: false,
+      writesPending: false,
+      dialogText: true
+    })!;
+    const closing = useApp.getState().askChoice(close);
+    useApp.getState().answerChoice('confirm');
+    await expect(closing).resolves.toBe('cancel');
+  });
+
+  it('a Bulk question answered through askConfirm applies only on confirm', async () => {
+    // The flow in state/bulk.ts: askConfirm, then applyBulk when it says yes.
+    const ask = async (answer: 'confirm' | 'cancel' | 'replaced'): Promise<void> => {
+      const plan = bulkPlan(useApp.getState().review!.hunks, 'accept');
+      const done = useApp
+        .getState()
+        .askConfirm({ title: plan.title, body: plan.body, confirmLabel: plan.confirmLabel })
+        .then((ok) => {
+          if (ok) useApp.getState().applyBulk(plan.ids, plan.status);
+        });
+      if (answer === 'replaced') void useApp.getState().askChoice(THREE);
+      else useApp.getState().answerChoice(answer);
+      await done;
+      useApp.getState().answerChoice('cancel');
+    };
+    const statuses = (): string[] => useApp.getState().review!.hunks.map((h) => h.status);
+
+    await ask('cancel');
+    expect(statuses()).toEqual(['pending', 'pending']);
+    await ask('replaced');
+    expect(statuses()).toEqual(['pending', 'pending']);
+    await ask('confirm');
+    expect(statuses()).toEqual(['accepted', 'accepted']);
+  });
+
+  it('does nothing when answered with no question open', () => {
+    expect(useApp.getState().confirmSpec).toBeNull();
+    expect(() => useApp.getState().answerChoice('confirm')).not.toThrow();
+    expect(useApp.getState().confirmSpec).toBeNull();
   });
 });

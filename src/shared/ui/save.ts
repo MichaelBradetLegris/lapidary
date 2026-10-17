@@ -17,6 +17,7 @@ import { APP_NAME } from '../branding';
 import type { CloseGuardState } from '../ipc';
 import { samePath } from '../paths';
 import { chapterName } from '../review';
+import type { ConfirmChoice } from './confirm';
 
 /* ------------------------------------------------------------------ */
 /* Shared wording                                                       */
@@ -193,12 +194,12 @@ export function currentReviewId(reviews: readonly ReviewTimes[], live?: ReviewTi
 /* ------------------------------------------------------------------ */
 
 /** Which of a prompt's buttons has the focus when it opens. */
-export type PromptButton = 'confirm' | 'alt' | 'cancel';
+export type PromptButton = ConfirmChoice;
 
 /**
- * A three-way question in the shape the confirm dialog takes (apply.6):
- * confirm saves, alt leaves or closes and keeps everything for later, cancel
- * stays.
+ * A three-way question in the shape the confirm dialog takes (`ConfirmSpec`,
+ * apply.6), with every field filled in: confirm saves, alt leaves or closes
+ * and keeps everything for later, cancel stays.
  */
 export interface SavePrompt {
   title: string;

@@ -32,11 +32,9 @@ export interface Notification {
   action?: NotificationAction;
 }
 
-export interface ConfirmSpec {
-  title: string;
-  body: string;
-  confirmLabel: string;
-}
+/* The confirm dialog's question and answers are pure and tested in shared/ui/confirm.ts (apply.6). */
+import { offeredChoice, type ConfirmChoice, type ConfirmSpec } from '../../shared/ui/confirm';
+export type { ConfirmChoice, ConfirmSpec };
 
 export interface FindState {
   open: boolean;
@@ -188,7 +186,17 @@ export interface AppState {
   /** close every card with this key, for example once Claude is ready */
   dismissNotificationsByKey: (key: string) => void;
   clearNotifications: () => void;
+  /**
+   * Show the confirm dialog and resolve with the button that answered it:
+   * `confirm`, `alt` or `cancel` (Escape is cancel). A second question
+   * replaces the first, which resolves `cancel`.
+   */
+  askChoice: (spec: ConfirmSpec) => Promise<ConfirmChoice>;
+  /** `askChoice` for a yes-or-no question: true only for confirm. */
   askConfirm: (spec: ConfirmSpec) => Promise<boolean>;
+  /** The dialog's answer; a choice the question does not show counts as cancel. */
+  answerChoice: (choice: ConfirmChoice) => void;
+  /** `answerChoice` for a yes-or-no question: true is confirm, false cancel. */
   answerConfirm: (ok: boolean) => void;
   openFind: () => void;
   closeFind: () => void;
@@ -234,7 +242,7 @@ function withHunks(review: Review, hunks: Hunk[]): Review {
 }
 
 let notificationSeq = 0;
-let confirmResolve: ((ok: boolean) => void) | null = null;
+let confirmResolve: ((choice: ConfirmChoice) => void) | null = null;
 
 const NO_FIND: FindState = { open: false, query: '', index: -1, count: 0, seek: 0 };
 
@@ -397,21 +405,26 @@ export const useApp = create<AppState>()((set, get) => ({
 
   clearNotifications: () => set({ notifications: [] }),
 
-  askConfirm: (spec) => {
-    // A second question replaces the first; the first is answered "no".
-    if (confirmResolve) confirmResolve(false);
+  askChoice: (spec) => {
+    // A second question replaces the first; the first is answered "cancel".
+    if (confirmResolve) confirmResolve('cancel');
     set({ confirmSpec: spec });
-    return new Promise<boolean>((resolve) => {
+    return new Promise<ConfirmChoice>((resolve) => {
       confirmResolve = resolve;
     });
   },
 
-  answerConfirm: (ok) => {
+  askConfirm: async (spec) => (await get().askChoice(spec)) === 'confirm',
+
+  answerChoice: (choice) => {
     const resolve = confirmResolve;
+    const spec = get().confirmSpec;
     confirmResolve = null;
     set({ confirmSpec: null });
-    if (resolve) resolve(ok);
+    if (resolve) resolve(spec ? offeredChoice(spec, choice) : 'cancel');
   },
+
+  answerConfirm: (ok) => get().answerChoice(ok ? 'confirm' : 'cancel'),
 
   openFind: () => set((state) => ({ find: { ...state.find, open: true } })),
 

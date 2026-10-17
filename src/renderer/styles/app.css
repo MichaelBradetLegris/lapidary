@@ -1164,6 +1164,13 @@ input[type='text'] {
   width: 420px;
 }
 
+/* A question with a middle choice, such as leaving a chapter or closing the
+   window (apply.6): wide enough for Cancel, "Close, keep for later" and "Save
+   120 changes and close" on one row at 100%. */
+.modal--choice {
+  width: 460px;
+}
+
 .modal__buttons {
   display: flex;
   gap: 6px;
@@ -1198,6 +1205,18 @@ input[type='text'] {
   gap: 8px;
   margin-top: 12px;
   align-items: center;
+}
+
+/* The confirm dialog's buttons keep each label on one line. When the row does
+   not fit, zoomed in or in a small window, the last buttons move to a second
+   row, still on the right (apply.6). */
+.modal__actions--confirm {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.modal__actions--confirm button {
+  white-space: nowrap;
 }
 
 .modal__row {
