@@ -66,6 +66,14 @@ export interface DraftPersistence {
   flush: (sourcePath?: string) => Promise<void>;
   /** a write is waiting, under way or held (its file could not be read), for one chapter or any */
   pending: (sourcePath?: string) => boolean;
+  /**
+   * Why boxes are not on disk as they stand: a write that failed, or one held
+   * because the chapter's file could not be read; empty when they are (the
+   * close guard, apply.9).
+   */
+  failures: () => string[];
+  /** queue again the writes that failed, so the next flush tries them once more; held writes need no help */
+  retry: () => void;
   /** bring back what was kept for the chapter of `review`; resolves when done, never rejects */
   restore: (review: Review) => Promise<void>;
   /** the restores under way, for a caller (or a test) that must let them end */
@@ -74,6 +82,11 @@ export interface DraftPersistence {
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** The card, and the close guard's line, when boxes could not be written. */
+function notKeptText(message: string): string {
+  return `The paragraphs you are editing could not be kept: ${message}`;
 }
 
 function sameReview(a: Review | null, b: Review | null): boolean {
@@ -142,8 +155,7 @@ export function createDraftPersistence(io: DraftIo, options: { delayMs?: number 
     describeError: messageOf,
     write: (sourcePath, pending) => save(sourcePath, pending),
     // Said once per distinct failure; a card per keystroke would be noise.
-    onError: (message) =>
-      notify('error', `The paragraphs you are editing could not be kept: ${message}`, DRAFTS_SAVE_CARD),
+    onError: (message) => notify('error', notKeptText(message), DRAFTS_SAVE_CARD),
     onPendingChange: (busy) => {
       writerBusy = busy;
       reportPending();
@@ -333,6 +345,14 @@ export function createDraftPersistence(io: DraftIo, options: { delayMs?: number 
     flush,
     pending: (sourcePath) =>
       draftWriter.pending(sourcePath) || (sourcePath === undefined ? held.size > 0 : held.has(sourcePath)),
+    failures: () => {
+      const reasons = draftWriter.failures().map(notKeptText);
+      for (const chapter of held.keys()) {
+        reasons.push(draftsUnreadableCardText(unread.get(chapter) ?? 'it could not be read'));
+      }
+      return [...new Set(reasons)];
+    },
+    retry: () => draftWriter.retry(),
     restore,
     settled: async () => {
       while (restores.size > 0) await Promise.all([...restores.values()]);
@@ -360,4 +380,14 @@ export function installDraftPersistence(io: DraftIo): () => void {
  */
 export function flushDraftWrites(sourcePath?: string): Promise<void> {
   return persistence ? persistence.flush(sourcePath) : Promise.resolve();
+}
+
+/** Queue again the box writes that failed, before the window closes (apply.9). */
+export function retryDraftWrites(): void {
+  persistence?.retry();
+}
+
+/** Why boxes are not on disk as they stand, in the words of their cards; empty when they are. */
+export function draftWriteFailures(): string[] {
+  return persistence ? persistence.failures() : [];
 }

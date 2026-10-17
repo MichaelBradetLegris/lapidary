@@ -31,6 +31,11 @@ const paths = new Map<string, string>();
 /** The `updatedAt` of each review as it is on disk, so an unchanged review is not written again. */
 const persisted = new Map<string, string>();
 
+/** The card, and the close guard's line, when a review could not be written. */
+function notSavedText(message: string): string {
+  return `The review could not be saved: ${message}`;
+}
+
 const writer = createKeyedWriter<Pending>({
   delayMs: REVIEW_WRITE_DELAY_MS,
   describeError: errorMessage,
@@ -47,8 +52,9 @@ const writer = createKeyedWriter<Pending>({
   },
   // Said once per distinct failure; a card per keystroke would be noise.
   onError: (message) => {
-    useApp.getState().notify('error', `The review could not be saved: ${message}`, 'review-save');
+    useApp.getState().notify('error', notSavedText(message), 'review-save');
   },
+  // A write that failed counts until one succeeds, so a close asks first (apply.9).
   onPendingChange: (pending) => useApp.setState({ persistPending: pending })
 });
 
@@ -80,6 +86,19 @@ export async function writeReviewNow(review: Review, path: string | null): Promi
 /** Write everything that is waiting, for every review, and wait for it. */
 export function flushReviewWrites(): Promise<void> {
   return writer.flush();
+}
+
+/**
+ * Queue again every review write that failed and has not been made since, so
+ * the next flush tries it once more (the close guard, apply.9).
+ */
+export function retryReviewWrites(): void {
+  writer.retry();
+}
+
+/** Why reviews are not on disk as the author left them: the words of their cards; empty when they are. */
+export function reviewWriteFailures(): string[] {
+  return writer.failures().map(notSavedText);
 }
 
 /** Record that `review` was just read from `path` unchanged, so it is not written back. */

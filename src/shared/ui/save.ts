@@ -5,10 +5,11 @@
  * not (apply.20).
  *
  * The toolbar button, the status bar, the Ctrl+S key, the leave prompt, the
- * close prompt, the review dialogs' save-first choices and main's native
- * fallback boxes all take their words and their rules from here, so every
- * state has a test. One count drives them all:
- * `unsavedDecisionCount`, the decisions the chapter file does not contain yet.
+ * close prompt and the page's "Still writing your decisions" (apply.9), the
+ * review dialogs' save-first choices and main's native fallback boxes all
+ * take their words and their rules from here, so every state has a test. One
+ * count drives them all: `unsavedDecisionCount`, the decisions the chapter
+ * file does not contain yet.
  * That count includes a saved change the author has since turned back, so
  * nothing here calls them "accepted changes"; they are changes not saved to the
  * chapter. The app's name comes from `APP_NAME` (C.21).
@@ -621,6 +622,47 @@ export function unresponsiveDetail(stage: UnresponsiveStage, state: CloseGuardSt
     detail: lines.join('\n'),
     waitLabel: 'Wait',
     closeLabel: 'Close anyway'
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* The page's own box, while what it holds is not on disk                */
+/* ------------------------------------------------------------------ */
+
+/** How long the page lets its writes run after a close request before it asks (PLAN 11.3 i). */
+export const WRITES_WAIT_MS = 5_000;
+
+/**
+ * The page's own question when the window is to close and what it holds is
+ * not on disk yet (PLAN 11.3 i, apply.9): the save under way and the review
+ * and paragraph writes took more than `WRITES_WAIT_MS`, or one of the writes
+ * failed, `reasons` saying why in the words of its card (the cards sit under
+ * the dialog, where they cannot be read). Wait stands where Cancel does, so
+ * Escape and Enter give it: it tries again, or gives the writes more time.
+ * Close anyway closes now. It comes before the close prompt and is answered
+ * in its place, so it also says when a running review or typed dialog text
+ * would be lost.
+ */
+export function stillWritingPrompt(reasons: readonly string[], state: CloseGuardState): SavePrompt {
+  const failed = reasons.length > 0;
+  const lines: string[] = [
+    failed
+      ? 'Some of your decisions could not be written.'
+      : 'Writing your decisions is taking longer than usual.',
+    ...reasons
+  ];
+  if (state.reviewRunning || state.locked) lines.push(RUNNING_LINE);
+  if (state.dialogText) lines.push(DIALOG_LINE);
+  lines.push(
+    `${failed ? 'Wait tries again.' : 'Wait gives it more time.'} Close anyway closes the window now, and anything not yet written is lost.`
+  );
+  return {
+    title: 'Still writing your decisions',
+    body: lines.join('\n'),
+    confirmLabel: '',
+    altLabel: 'Close anyway',
+    cancelLabel: 'Wait',
+    defaultButton: 'cancel'
   };
 }
 

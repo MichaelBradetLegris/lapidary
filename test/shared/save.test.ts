@@ -28,9 +28,11 @@ import {
   saveButtonInput,
   saveButtonState,
   saveShortcutAction,
+  stillWritingPrompt,
   unresponsiveDetail,
   unsavedDotLabel,
   unsavedPhrase,
+  WRITES_WAIT_MS,
   type LeaveState,
   type SaveButtonInput,
   type SaveShortcutContext,
@@ -658,6 +660,55 @@ describe('unresponsiveDetail', () => {
   });
 });
 
+describe('stillWritingPrompt (apply.9)', () => {
+  it('says the writes are slow, with Wait in the place of Cancel and focused, and no blue button', () => {
+    const prompt = stillWritingPrompt([], guard({ unsavedDecisions: 2 }));
+    expect(prompt).toEqual({
+      title: 'Still writing your decisions',
+      body: [
+        'Writing your decisions is taking longer than usual.',
+        'Wait gives it more time. Close anyway closes the window now, and anything not yet written is lost.'
+      ].join('\n'),
+      confirmLabel: '',
+      altLabel: 'Close anyway',
+      cancelLabel: 'Wait',
+      defaultButton: 'cancel'
+    });
+    expect(confirmButtons(prompt).map((b) => [b.label, b.primary])).toEqual([
+      ['Wait', false],
+      ['Close anyway', false]
+    ]);
+    // Enter and Escape both wait.
+    expect(focusedChoice(prompt)).toBe('cancel');
+  });
+
+  it('says why a write failed, one reason per line, and that Wait tries again', () => {
+    const reasons = [
+      'The review could not be saved: the disk is full.',
+      'The paragraphs you are editing could not be kept: the disk is full.'
+    ];
+    expect(stillWritingPrompt(reasons, guard()).body.split('\n')).toEqual([
+      'Some of your decisions could not be written.',
+      ...reasons,
+      'Wait tries again. Close anyway closes the window now, and anything not yet written is lost.'
+    ]);
+  });
+
+  it('says a running review stops and typed dialog text is lost, as the close prompt it stands in for does', () => {
+    for (const running of [{ reviewRunning: true }, { locked: true }]) {
+      const lines = stillWritingPrompt([], guard({ ...running, dialogText: true })).body.split('\n');
+      expect(lines.slice(1, 3)).toEqual([
+        'The review that is running will stop, and its result will be lost.',
+        'The text you typed in the open dialog will be lost.'
+      ]);
+    }
+  });
+
+  it('gives the writes 5 seconds', () => {
+    expect(WRITES_WAIT_MS).toBe(5_000);
+  });
+});
+
 describe('saveShortcutAction', () => {
   const ctrlS: ShortcutKey = {
     key: 's',
@@ -946,6 +997,8 @@ describe('wording rules', () => {
           );
           add(unresponsiveDetail('no-answer', state));
           add(unresponsiveDetail('finishing', state));
+          add(stillWritingPrompt([], state));
+          add(stillWritingPrompt(['The review could not be saved: x'], state));
         }
       }
     }

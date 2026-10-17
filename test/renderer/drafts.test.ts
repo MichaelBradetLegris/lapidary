@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DraftFile, DraftSaveRequest, SetAsideRequest, StoredDraft } from '../../src/shared/ipc';
 import { createReview } from '../../src/shared/review';
 import type { Review } from '../../src/shared/types';
+import { draftsUnreadableCardText } from '../../src/shared/ui/drafts';
 import {
   DRAFT_WRITE_DELAY_MS,
   DRAFTS_RESTORED_CARD,
@@ -205,6 +206,62 @@ describe('writing boxes as they are typed in', () => {
         arg: undefined
       }
     ]);
+  });
+});
+
+describe('what closing the window needs to know (apply.9)', () => {
+  it('says why boxes whose write failed are not on disk, counts them as waiting, and writes them on retry', async () => {
+    f.failSave = 'the disk is full';
+    await show(chapter(ONE));
+    state().openDraft(1);
+    state().setDraftText(1, 'The rain came hard, and harder.');
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS);
+    expect(persistence.failures()).toEqual([
+      'The paragraphs you are editing could not be kept: the disk is full'
+    ]);
+    // Nothing is waiting to be written, but it is not on disk: a close must ask.
+    expect(persistence.pending()).toBe(false);
+    expect(state().draftWritesPending).toBe(true);
+
+    f.failSave = null;
+    persistence.retry();
+    await persistence.flush();
+    expect(f.files.get(ONE)?.drafts).toEqual([rainBox()]);
+    expect(persistence.failures()).toEqual([]);
+    expect(state().draftWritesPending).toBe(false);
+  });
+
+  it('says why a write held over an unreadable file is not made, until it can be', async () => {
+    f.files.set(ONE, kept(ONE, [rainBox()]));
+    f.failLoad = 'it is locked';
+    await show(chapter(ONE));
+    state().openDraft(0);
+    state().setDraftText(0, 'Mara waited.');
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS);
+    expect(persistence.failures()).toEqual([draftsUnreadableCardText('it is locked')]);
+    expect(state().draftWritesPending).toBe(true);
+
+    f.failLoad = null;
+    await persistence.flush();
+    expect(persistence.failures()).toEqual([]);
+    expect(state().draftWritesPending).toBe(false);
+  });
+
+  it('retry leaves a chapter alone when a newer write for it is waiting', async () => {
+    f.failSave = 'the disk is full';
+    await show(chapter(ONE));
+    state().openDraft(1);
+    state().setDraftText(1, 'The rain came.');
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS);
+    f.failSave = null;
+    state().setDraftText(1, 'The rain came hard, and harder.');
+    persistence.retry();
+    await persistence.flush();
+    expect(f.saves.map((s) => s.drafts.map((d) => d.text))).toEqual([
+      ['The rain came.'],
+      ['The rain came hard, and harder.']
+    ]);
+    expect(persistence.failures()).toEqual([]);
   });
 });
 

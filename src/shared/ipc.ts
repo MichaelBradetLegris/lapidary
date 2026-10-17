@@ -370,7 +370,10 @@ export interface CloseGuardState {
   locked: boolean;
   /** a review is running, for the open chapter or another */
   reviewRunning: boolean;
-  /** a review or draft write is waiting or under way */
+  /**
+   * a review or draft write is waiting, under way, held, or failed and not
+   * made since, or a Save to chapter is under way (apply.9)
+   */
   writesPending: boolean;
   /** a dialog holds text the author typed: New chapter, Submit manual review or the edit popover */
   dialogText: boolean;

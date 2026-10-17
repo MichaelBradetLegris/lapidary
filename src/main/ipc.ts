@@ -171,9 +171,9 @@ export function registerCoreHandlers(): void {
 
 /**
  * What the page tells the close guard (apply.8, PLAN 7.7): what a close would
- * put at risk, pushed whenever it changes, how far it has got with a close
- * request, and what the author decided. Until `apply.9` the page pushes
- * nothing, so every close goes through at once, as before.
+ * put at risk, pushed once the page has loaded and whenever it changes, how
+ * far it has got with a close request, and what the author decided
+ * (`src/renderer/state/closeGuard.ts`, apply.9).
  */
 function registerCloseGuardHandlers(): void {
   handle('app:guard-state', (state) => {

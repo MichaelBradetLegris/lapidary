@@ -6,7 +6,7 @@ import { historyWhen } from '../shared/ui/history';
 import { rebaseCardText } from '../shared/ui/rebase';
 import { runtimeLabel as labelForRuntime } from '../shared/ui/setup';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
-import type { ChapterFile, ReviewSummary } from '../shared/ipc';
+import type { ApiEventMap, ChapterFile, ReviewSummary } from '../shared/ipc';
 import { PROVIDER_NAMES, type Review } from '../shared/types';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { EditPopover } from './components/EditPopover';
@@ -26,7 +26,19 @@ import { SidePanel } from './components/SidePanel';
 import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
 import { ApiError, call, errorMessage } from './state/client';
-import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state/drafts';
+import {
+  installCloseGuard,
+  type CloseGuardDeps,
+  type CloseGuardIo,
+  type PageWrites
+} from './state/closeGuard';
+import {
+  draftWriteFailures,
+  flushDraftWrites,
+  installDraftPersistence,
+  retryDraftWrites,
+  type DraftIo
+} from './state/drafts';
 import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { useKeyboardBindings } from './state/keyboard';
 import { useProgressLabel } from './state/progress';
@@ -36,6 +48,8 @@ import {
   flushReviewWrites,
   installReviewPersistence,
   markReviewPersistedState,
+  retryReviewWrites,
+  reviewWriteFailures,
   writeReviewNow
 } from './state/reviewPersistence';
 import { baseFrom, useSaveChapter, type SaveDeps } from './state/saveChapter';
@@ -46,6 +60,39 @@ const DRAFT_IO: DraftIo = {
   load: (sourcePath) => call('drafts:load', { sourcePath }),
   save: (request) => call('drafts:save', request),
   setAside: (request) => call('drafts:set-aside', request)
+};
+
+/** Listen to one of main's events, or to nothing outside the app window. */
+function onMain<E extends 'app:close-requested' | 'app:flush'>(
+  event: E,
+  listener: (payload: ApiEventMap[E]) => void
+): () => void {
+  return typeof window.api?.on === 'function' ? window.api.on(event, listener) : () => undefined;
+}
+
+/**
+ * How the close guard reaches main (apply.9, state/closeGuard.ts). `call`
+ * sends before its first await, so each message is on its way when this
+ * returns: a close right after a decision already finds it pushed.
+ */
+const CLOSE_GUARD_IO: CloseGuardIo = {
+  pushState: (state) => void call('app:guard-state', state).catch(() => undefined),
+  sendStatus: (status) => void call('app:close-status', { status }).catch(() => undefined),
+  sendDecision: (close) => void call('app:close-decision', { close }).catch(() => undefined),
+  onCloseRequested: (listener) => onMain('app:close-requested', () => listener()),
+  onFlush: (listener) => onMain('app:flush', ({ reason }) => listener(reason))
+};
+
+/** The review and paragraph writers, which a close and the end of a session write out (apply.9). */
+const PAGE_WRITES: PageWrites = {
+  flush: async () => {
+    await Promise.all([flushReviewWrites(), flushDraftWrites()]);
+  },
+  retry: () => {
+    retryReviewWrites();
+    retryDraftWrites();
+  },
+  failures: () => [...reviewWriteFailures(), ...draftWriteFailures()]
 };
 
 /** Review failures the Setup screen can fix: Claude Code missing, too old, or signed out. */
@@ -337,6 +384,25 @@ export function App(): React.JSX.Element {
   /* Open boxes are written as they are typed in, and come back whenever their
      chapter is on screen again (state/drafts.ts). */
   useEffect(() => installDraftPersistence(DRAFT_IO), []);
+
+  /* ---------------- closing the window (apply.9, state/closeGuard.ts) ---------------- */
+
+  /* Main decides at the window's close from what the page last told it: the
+     page says what a close would put at risk whenever that changes, and when
+     something is, answers main's request with "Close <name>?" after writing
+     what is waiting. Windows ending the session only writes. */
+  const cancelReview = ai.cancel;
+  const closeDeps = useMemo<CloseGuardDeps>(
+    () => ({
+      io: CLOSE_GUARD_IO,
+      writes: PAGE_WRITES,
+      save,
+      history: () => historyRef.current,
+      cancelReview
+    }),
+    [save, cancelReview]
+  );
+  useEffect(() => installCloseGuard(closeDeps), [closeDeps]);
 
   /* ---------------- actions ---------------- */
 

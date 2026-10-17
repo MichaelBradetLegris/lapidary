@@ -276,9 +276,15 @@ export interface AppState {
    * reads it through `reviewKeptAt`, so it shows only for that review.
    */
   reviewSavedAt: ReviewKept | null;
-  /** a review json write is waiting or running, for any review (apply.1) */
+  /**
+   * a review json write is waiting or running, for any review (apply.1), or
+   * failed and has not been made since (apply.9)
+   */
   persistPending: boolean;
-  /** a write of kept paragraph boxes is waiting or running, for any chapter (apply.16) */
+  /**
+   * a write of kept paragraph boxes is waiting, running or held, for any
+   * chapter (apply.16), or failed and has not been made since (apply.9)
+   */
   draftWritesPending: boolean;
   /**
    * which dialogs hold text the author typed: New chapter's name or text,
