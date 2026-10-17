@@ -103,7 +103,8 @@ export interface SaveButtonState {
  * something is not saved, plain "Save to chapter" when the file already reads
  * like the page. It stays enabled then, and a press says so
  * (`CHAPTER_MATCHES_PAGE`), because a button that turns grey for no visible
- * reason is harder to read than one that answers.
+ * reason is harder to read than one that answers. `dot` puts the unsaved dot
+ * before the chapter name, labelled by `unsavedDotLabel`.
  */
 export function saveButtonState(input: SaveButtonInput): SaveButtonState {
   const n = input.unsavedDecisions;
@@ -142,6 +143,35 @@ export function saveButtonState(input: SaveButtonInput): SaveButtonState {
  */
 export function unsavedPhrase(n: number): string {
   return n > 0 ? `${n} not saved to chapter` : '';
+}
+
+/**
+ * The tooltip and spoken name of the dot before the chapter name (apply.4):
+ * "3 changes are not saved to the chapter yet." Empty at zero, when there is
+ * no dot.
+ */
+export function unsavedDotLabel(n: number): string {
+  return n > 0 ? countLine(n) : '';
+}
+
+/**
+ * The tooltip of the status bar's "Decisions kept" time and of its count of
+ * changes not saved to the chapter (apply.4). "Review saved" used to stand
+ * there and read as "chapter saved".
+ */
+export const KEPT_TOOLTIP = `Your decisions are kept automatically in the review. ${SAVE_ONLY}`;
+
+const twoDigits = (n: number): string => String(n).padStart(2, '0');
+
+/**
+ * "Decisions kept 14:02": when the review was last written, in local time on
+ * the 24-hour clock, the HH:MM of PLAN apply.4 (backups name their files on
+ * the same clock, 6.5). Without a readable time it says only "Decisions kept".
+ */
+export function keptPhrase(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 'Decisions kept';
+  return `Decisions kept ${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
 }
 
 /* ------------------------------------------------------------------ */

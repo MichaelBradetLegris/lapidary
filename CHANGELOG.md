@@ -21,6 +21,7 @@ Work towards 1.0.
 - The MIT licence.
 - Ctrl+S saves to the chapter, as Save to chapter does. It does nothing while a dialog, a question or Settings is open, or when there is nothing to save. In a paragraph box it says to press Done first, and with the suggestion editor open it says to press the editor's Save first.
 - Backups. Before every Save to chapter, the version of the chapter it replaces is copied to the app's data folder, into `backups`, in a folder of that chapter's own, named by the time of the save. For each chapter, the copies from the last 20 saves are kept, plus the first of each day for 30 days. If the copy cannot be made, nothing is written and a card says why. Backups never go into your manuscript folder.
+- The status bar counts the changes the chapter file does not have yet, as in "3 not saved to chapter", in orange, beside the pending, accepted and dismissed counts.
 
 ### Changed
 
@@ -40,6 +41,9 @@ Work towards 1.0.
 - New guidelines files tell the reviewer to leave Obsidian syntax alone: links, embeds, tags, block ids, footnotes, callouts, comments, code, maths, URLs and HTML. The visible text of a link can still be corrected. The style sheet now asks to be filled in before the first review. An existing `GUIDELINES.md` is never changed, so copy these lines across if you want them.
 - Opening the guidelines file shows it in its folder, and says why, when no app is set to open that type of file.
 - OpenAI requests always go to api.openai.com. The `OPENAI_BASE_URL`, `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID` environment variables are ignored.
+- Save to chapter shows how many changes it will write, as in "Save 3 changes to chapter", and its tooltip says what pressing it does. The dot that says something is not saved to the chapter is now orange and sits before the chapter name, and it shows only while there is something to save: it used to show after any decision, even one you turned back, or a comment you resolved. A long chapter name ends in "…" so the toolbar stays on one row; the full name is in its tooltip.
+- The status bar says "Decisions kept" and the time in hours and minutes where it said "Review saved", which read as if the chapter had been saved. Its tooltip says the chapter file changes only when you press Save to chapter.
+- The legend behind the status bar's ? button explains the orange dot, says the e key rewrites the focused suggestion, and no longer mentions editing selected words with e, which the pen beside each paragraph replaced. It scrolls when the window is too short to show it whole.
 
 ### Fixed
 

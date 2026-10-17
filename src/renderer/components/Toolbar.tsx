@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { unsavedDecisionCount } from '../../shared/diff/compose';
 import { chapterName } from '../../shared/review';
 import type { Review } from '../../shared/types';
+import { saveButtonState, unsavedDotLabel } from '../../shared/ui/save';
 import { useBulkAction } from '../state/bulk';
-import { isLocked, useApp } from '../state/store';
+import { changedParagraphCount, isLocked, useApp } from '../state/store';
 import { IconChevronDown } from './icons';
 
 interface Props {
@@ -82,7 +84,13 @@ function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): R
  * One row, in the order the author reads it: what is open, what can act on it,
  * then what writes it out. Model and effort moved into the review dialog, where
  * they are chosen once per review rather than sitting in the way all day
- * (item 6).
+ * (item 6). The chapter name gives way first: it is cut short with an ellipsis
+ * so the buttons stay on one row however long the name and the Save label are.
+ *
+ * Save to chapter and the dot before the chapter name come from
+ * `saveButtonState` (apply.4), counted by `unsavedDecisionCount`: the changes
+ * the chapter file does not have yet, not every decision made since the review
+ * opened.
  */
 export function Toolbar({
   review,
@@ -96,10 +104,20 @@ export function Toolbar({
   onCopyResult,
   onSettings
 }: Props): React.JSX.Element {
-  const dirty = useApp((s) => s.dirty);
   // Read-only while a review of this chapter runs (round 3, item 3).
   const locked = useApp(isLocked);
   const editing = useApp((s) => Object.keys(s.drafts).length);
+  const changedParagraphs = useApp((s) => changedParagraphCount(s.drafts));
+
+  const unsaved = review ? unsavedDecisionCount(review.hunks) : 0;
+  const save = saveButtonState({
+    hasChapter: Boolean(review?.sourcePath),
+    unsavedDecisions: unsaved,
+    changedParagraphs,
+    saving,
+    locked
+  });
+  const dotLabel = unsavedDotLabel(unsaved);
 
   const title = review
     ? review.sourcePath
@@ -110,8 +128,10 @@ export function Toolbar({
   return (
     <header className="toolbar">
       <span className="toolbar__title">
-        {title}
-        {dirty ? <span className="toolbar__dirty" title="Unsaved decisions" /> : null}
+        {save.dot ? <span className="unsaved-dot" role="img" aria-label={dotLabel} title={dotLabel} /> : null}
+        <span className="toolbar__name" title={title}>
+          {title}
+        </span>
       </span>
       <span className="spacer" />
 
@@ -147,11 +167,11 @@ export function Toolbar({
       <button
         type="button"
         className="primary"
-        disabled={!review?.sourcePath || saving || locked}
-        title="Write the accepted changes into the chapter file"
+        disabled={save.disabled}
+        title={save.title}
         onClick={onSaveChapter}
       >
-        {saving ? 'Saving…' : 'Save to chapter'}
+        {save.label}
       </button>
 
       <button type="button" disabled={!review} onClick={onCopyResult}>

@@ -214,8 +214,6 @@ export interface AppState {
   settings: Settings | null;
   review: Review | null;
   reviewPath: string | null;
-  /** true when decisions changed since the review was last written to disk */
-  dirty: boolean;
   /** wall-clock time of the last review json write, for the status bar */
   reviewSavedAt: string | null;
   /** a review json write is waiting or running, for any review (apply.1) */
@@ -353,7 +351,6 @@ export const useApp = create<AppState>()((set, get) => ({
   settings: null,
   review: null,
   reviewPath: null,
-  dirty: false,
   reviewSavedAt: null,
   persistPending: false,
   focusedHunkId: null,
@@ -384,7 +381,6 @@ export const useApp = create<AppState>()((set, get) => ({
     set((state) => ({
       review,
       reviewPath: path,
-      dirty: false,
       focusedHunkId: review?.hunks.find((h) => h.anchor !== 'stale')?.id ?? null,
       hoveredHunkId: null,
       activeCommentId: null,
@@ -397,7 +393,7 @@ export const useApp = create<AppState>()((set, get) => ({
   patchReview: (patch) => {
     const review = get().review;
     if (!review) return;
-    set({ review: patch(review), dirty: true });
+    set({ review: patch(review) });
   },
 
   setHunkStatus: (id, status) => {
@@ -406,7 +402,7 @@ export const useApp = create<AppState>()((set, get) => ({
     const hunk = review?.hunks.find((h) => h.id === id);
     if (!review || !hunk || frozen(state, hunk)) return;
     const hunks = review.hunks.map((h) => (h.id === id ? { ...h, status } : h));
-    set({ review: withHunks(review, hunks), dirty: true });
+    set({ review: withHunks(review, hunks) });
   },
 
   toggleAccepted: (id) => {
@@ -434,7 +430,7 @@ export const useApp = create<AppState>()((set, get) => ({
       changed = true;
       return { ...h, status };
     });
-    if (changed) set({ review: withHunks(review, hunks), dirty: true });
+    if (changed) set({ review: withHunks(review, hunks) });
   },
 
   /**
@@ -579,8 +575,7 @@ export const useApp = create<AppState>()((set, get) => ({
         comments: review.comments.map((c) => (c.id === id ? { ...c, status } : c)),
         updatedAt: new Date().toISOString(),
         decidedAt: new Date().toISOString()
-      },
-      dirty: true
+      }
     });
   },
 
@@ -609,7 +604,7 @@ export const useApp = create<AppState>()((set, get) => ({
     const hunks = review.hunks.map((h) =>
       h.id === id ? editSuggestion(review.base.text, h, replacement, accept) : h
     );
-    set({ review: withHunks(review, hunks), dirty: true, focusedHunkId: id });
+    set({ review: withHunks(review, hunks), focusedHunkId: id });
     return { status: 'applied', hunkId: id };
   },
 
@@ -697,7 +692,6 @@ export const useApp = create<AppState>()((set, get) => ({
     const firstHunkId = plan.added[0]?.id ?? accepted[0]?.id ?? null;
     set({
       review: withHunks(review, applyBlockEdit(review.hunks, plan)),
-      dirty: true,
       drafts,
       ...(firstHunkId ? { focusedHunkId: firstHunkId } : {})
     });
@@ -734,7 +728,7 @@ export const useApp = create<AppState>()((set, get) => ({
   markSaved: (hash, written) => {
     const review = get().review;
     if (!review || (written && !isWrittenReview(review, written))) return false;
-    set({ review: savedReview(review, hash), dirty: false });
+    set({ review: savedReview(review, hash) });
     return true;
   },
 

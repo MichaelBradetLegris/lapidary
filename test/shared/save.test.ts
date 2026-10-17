@@ -9,6 +9,8 @@ import {
   changeCount,
   closePrompt,
   currentReviewId,
+  KEPT_TOOLTIP,
+  keptPhrase,
   leavePrompt,
   needsAttention,
   PRESS_DONE_FIRST,
@@ -16,6 +18,7 @@ import {
   saveButtonState,
   saveShortcutAction,
   unresponsiveDetail,
+  unsavedDotLabel,
   unsavedPhrase,
   type LeaveState,
   type SaveButtonInput,
@@ -143,6 +146,45 @@ describe('unsavedPhrase', () => {
     expect(unsavedPhrase(1)).toBe('1 not saved to chapter');
     expect(unsavedPhrase(12)).toBe('12 not saved to chapter');
     expect(unsavedPhrase(0)).toBe('');
+  });
+});
+
+describe('unsavedDotLabel (apply.4)', () => {
+  it('says what the dot before the chapter name means, singular and plural, and nothing at zero', () => {
+    expect(unsavedDotLabel(1)).toBe('1 change is not saved to the chapter yet.');
+    expect(unsavedDotLabel(12)).toBe('12 changes are not saved to the chapter yet.');
+    expect(unsavedDotLabel(0)).toBe('');
+  });
+
+  it('goes with the dot: a label exactly when saveButtonState puts the dot up', () => {
+    for (const n of [0, 1, 12]) {
+      expect(Boolean(unsavedDotLabel(n))).toBe(saveButtonState(button({ unsavedDecisions: n })).dot);
+    }
+  });
+});
+
+describe('keptPhrase and KEPT_TOOLTIP (apply.4)', () => {
+  it('gives the local time on the 24-hour clock, hours and minutes, two digits each', () => {
+    // Built from local fields, so the test reads the same in any time zone.
+    expect(keptPhrase(new Date(2026, 9, 17, 9, 5, 59).toISOString())).toBe('Decisions kept 09:05');
+    expect(keptPhrase(new Date(2026, 9, 17, 14, 2, 0).toISOString())).toBe('Decisions kept 14:02');
+    expect(keptPhrase(new Date(2026, 9, 17, 0, 0, 0).toISOString())).toBe('Decisions kept 00:00');
+    expect(keptPhrase(new Date(2026, 9, 17, 23, 59, 30).toISOString())).toBe('Decisions kept 23:59');
+  });
+
+  it('says only "Decisions kept" without a readable time', () => {
+    expect(keptPhrase('not a time')).toBe('Decisions kept');
+    expect(keptPhrase('')).toBe('Decisions kept');
+  });
+
+  it('never says "saved", which read as the chapter', () => {
+    expect(keptPhrase(new Date().toISOString())).not.toMatch(/saved/i);
+  });
+
+  it('says where decisions are kept and what changes the chapter file', () => {
+    expect(KEPT_TOOLTIP).toBe(
+      'Your decisions are kept automatically in the review. The chapter file changes only when you press Save to chapter.'
+    );
   });
 });
 
@@ -583,13 +625,20 @@ describe('saveShortcutAction', () => {
 describe('wording rules', () => {
   /** Every string the module can produce, over a grid of states. */
   function everyString(): string[] {
-    const out: string[] = [CHAPTER_MATCHES_PAGE, PRESS_DONE_FIRST, PRESS_EDITOR_SAVE_FIRST];
+    const out: string[] = [
+      CHAPTER_MATCHES_PAGE,
+      PRESS_DONE_FIRST,
+      PRESS_EDITOR_SAVE_FIRST,
+      KEPT_TOOLTIP,
+      keptPhrase(new Date(2026, 9, 17, 14, 2).toISOString()),
+      keptPhrase('')
+    ];
     const add = (prompt: object | null): void => {
       if (!prompt) return;
       for (const value of Object.values(prompt)) if (typeof value === 'string') out.push(value);
     };
     for (const n of [0, 1, 4]) {
-      out.push(changeCount(n), unsavedPhrase(n));
+      out.push(changeCount(n), unsavedPhrase(n), unsavedDotLabel(n));
       for (const p of [0, 1, 2]) {
         for (const flag of [false, true]) {
           const state = guard({

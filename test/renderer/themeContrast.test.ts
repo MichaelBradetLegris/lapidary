@@ -92,6 +92,7 @@ const TEXT_PAIRS: Pair[] = [
     why: 'the pending count in the file list'
   },
   { ink: '--warn', on: '--warn-bg-strong', min: 4.5, why: 'the unsaved-decisions box in the review dialog' },
+  { ink: '--unsaved', on: '--panel', min: 4.5, why: 'the count not saved to the chapter, in the status bar' },
   { ink: '--danger', on: '--danger-bg', min: 4.5, why: 'the error card' },
   ...each(CATEGORIES, UNDER_SUGGESTIONS).flatMap(([tint, base]) =>
     ['--tint-pending', '--tint-hover'].map((share) => ({
@@ -139,7 +140,8 @@ const FAINT_PAIRS: Pair[] = [
     on,
     min: 3,
     why: 'a category as a mark: underline, dot, caret'
-  }))
+  })),
+  { ink: '--unsaved', on: '--panel', min: 3, why: 'the unsaved dot before the chapter name (apply.4)' }
 ];
 
 function failures(scheme: Scheme, pairs: Pair[]): string[] {
@@ -161,7 +163,7 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
         expect(() => paint(scheme, pair.on)).not.toThrow();
       }
     }
-    expect([TEXT_PAIRS.length, FAINT_PAIRS.length]).toEqual([136, 58]);
+    expect([TEXT_PAIRS.length, FAINT_PAIRS.length]).toEqual([137, 59]);
   });
 
   it('paints a tint the way color-mix() does, so the tinted pairs mean something', () => {

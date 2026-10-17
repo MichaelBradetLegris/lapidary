@@ -17,7 +17,7 @@
   --ink-soft: #6d675e;
   --ink-faint: #8a8378;
   /* blue for text, links and small marks: a commented paragraph's number, the
-     unsaved dot, the information card's edge, the spinner, the open editor's border */
+     information card's edge, the spinner, the open editor's border */
   --accent: #3b5bdb;
   /* blue for filled buttons and the open editor's glow, with --on-accent on it */
   --accent-fill: #3b5bdb;
@@ -29,6 +29,9 @@
   --dismiss: #8a8378;
   --danger: #b3261e;
   --warn: #84681c;
+  /* ember, for changes not saved to the chapter: the dot before the chapter
+     name and the status bar's count (apply.4); dark enough for text */
+  --unsaved: #ad4b0d;
 
   /* Backgrounds that mark a place or a state. */
   --focus-bg: #fff3bf;
@@ -97,6 +100,8 @@
     --dismiss: #968e82;
     --danger: #ff8a80;
     --warn: #e0b955;
+    /* the ember of the logo's original palette */
+    --unsaved: #ff8a3d;
 
     --focus-bg: #4a3f14;
     --para-active-bg: #2f2a1a;
@@ -261,18 +266,38 @@ input[type='text'] {
   flex: 0 0 auto;
 }
 
+/* The chapter name is the one thing in the row that gives way: it shrinks and
+   ends in an ellipsis, while the buttons keep their labels on one line, so a
+   long name and "Save 12 changes to chapter" still fit a 1100 px window at
+   125% (apply.4). The full name is in the tooltip. */
 .toolbar__title {
   font-weight: 600;
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
-.toolbar__dirty {
-  width: 7px;
-  height: 7px;
+.toolbar__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar button,
+.toolbar .progress {
+  white-space: nowrap;
+}
+
+/* Changes not saved to the chapter, before the chapter name (apply.4). */
+.unsaved-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--unsaved);
 }
 
 .toolbar__group {
@@ -378,6 +403,10 @@ input[type='text'] {
 
 .statusbar__dismiss {
   color: var(--dismiss);
+}
+
+.statusbar__unsaved {
+  color: var(--unsaved);
 }
 
 .statusbar__stale,
@@ -1708,6 +1737,10 @@ input[type='text'] {
   left: 0;
   z-index: 30;
   width: 380px;
+  /* It opens upwards from the status bar; in a short window, or zoomed in, it
+     scrolls rather than running off the top (apply.4 made it longer). */
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1762,7 +1795,17 @@ input[type='text'] {
   border-top: 1px dotted var(--border-strong);
 }
 
-.legend__foot {
+/* The unsaved dot itself, centred in the swatch's 16 px so the text lines up. */
+.legend__swatch--unsaved {
+  width: 8px;
+  height: 8px;
+  margin: 0 4px;
+  border-radius: 50%;
+  background: var(--unsaved);
+}
+
+/* `.legend p` would otherwise take the gap above it away. */
+.legend .legend__foot {
   margin: 9px 0 0;
 }
 

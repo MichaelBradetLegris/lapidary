@@ -31,16 +31,30 @@ describe('review store', () => {
     const state = useApp.getState();
     expect(state.review?.hunks.length).toBe(2);
     expect(state.focusedHunkId).toBe(state.review?.hunks[0]?.id);
-    expect(state.dirty).toBe(false);
+    expect(unsavedDecisionCount(state.review!.hunks)).toBe(0);
+  });
+
+  it('has no dirty flag: the unsaved count is the one measure (apply.4)', () => {
+    expect('dirty' in useApp.getState()).toBe(false);
+    const id = useApp.getState().review!.hunks[0]!.id;
+    const before = useApp.getState().review;
+    useApp.getState().toggleAccepted(id);
+    useApp.getState().toggleAccepted(id);
+    // Accepted and turned back: the review changed, which the old flag counted
+    // as unsaved, but the chapter file already reads like the page.
+    expect(useApp.getState().review).not.toBe(before);
+    expect(useApp.getState().review!.hunks[0]!.status).toBe('pending');
+    expect(unsavedDecisionCount(useApp.getState().review!.hunks)).toBe(0);
   });
 
   it('toggles a hunk between accepted and pending', () => {
     const id = useApp.getState().review!.hunks[0]!.id;
     useApp.getState().toggleAccepted(id);
     expect(useApp.getState().review!.hunks[0]!.status).toBe('accepted');
-    expect(useApp.getState().dirty).toBe(true);
+    expect(unsavedDecisionCount(useApp.getState().review!.hunks)).toBe(1);
     useApp.getState().toggleAccepted(id);
     expect(useApp.getState().review!.hunks[0]!.status).toBe('pending');
+    expect(unsavedDecisionCount(useApp.getState().review!.hunks)).toBe(0);
   });
 
   it('bulk actions reach hunks that carry no category', () => {
@@ -77,13 +91,14 @@ describe('review store', () => {
     expect(useApp.getState().hiddenCategories).toEqual([]);
   });
 
-  it('markSaved folds decisions into the base and clears the dirty flag', () => {
+  it('markSaved folds decisions into the base, leaving nothing unsaved', () => {
     acceptAll();
+    expect(unsavedDecisionCount(useApp.getState().review!.hunks)).toBe(2);
     useApp.getState().markSaved('newhash');
     const review = useApp.getState().review!;
     expect(review.base.text).toBe(CORRECTED);
     expect(review.base.hash).toBe('newhash');
-    expect(useApp.getState().dirty).toBe(false);
+    expect(unsavedDecisionCount(review.hunks)).toBe(0);
     expect(review.hunks.every((h) => h.baseSide === 'replacement')).toBe(true);
     expect(composeText(review.base.text, review.hunks)).toBe(CORRECTED);
   });
@@ -257,7 +272,7 @@ describe('editing', () => {
       category: 'awkward',
       reason: 'Participial opener.'
     });
-    expect(useApp.getState().dirty).toBe(true);
+    expect(unsavedDecisionCount(useApp.getState().review!.hunks)).toBe(1);
     expect(composeText(CHAPTER, useApp.getState().review!.hunks)).toBe(
       'He tilted his head aside, the man watched.\n\nShe said nothing at all.'
     );
@@ -328,7 +343,7 @@ describe('editing a paragraph in place (Phase 5d)', () => {
     expect(composeText(CHAPTER, useApp.getState().review!.hunks)).toBe(
       'Tilting his head aside, the man watched.\n\nShe said nothing.'
     );
-    expect(useApp.getState().dirty).toBe(true);
+    expect(unsavedDecisionCount(useApp.getState().review!.hunks)).toBe(1);
   });
 
   it('supersedes the suggestion a changed word swallows, keeping its reason', () => {

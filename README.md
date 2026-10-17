@@ -91,7 +91,7 @@ Alternatively, set `OPENAI_API_KEY` as an environment variable, the same way as 
 
 1. Pick a chapter on the left.
 2. Click **Review with AI**. The dialog shows the chapter's size, the provider, model and effort, your guidelines file, and what happened last time. For OpenAI it also shows where the key comes from; **Start review** stays disabled until there is one.
-3. While it runs, a card at the bottom of the page shows progress and a **Cancel review** button. A review usually takes a minute or two. The chapter is read-only until it finishes, because the result replaces the current set of suggestions; you can open other chapters meanwhile. If you have accepted changes that are not saved to the chapter yet, the dialog says so first: the review reads the chapter file, so save before starting.
+3. While it runs, a card at the bottom of the page shows progress and a **Cancel review** button. A review usually takes a minute or two. The chapter is read-only until it finishes, because the result replaces the current set of suggestions; you can open other chapters meanwhile. If the page has changes that are not saved to the chapter yet, the dialog says so first: the review reads the chapter file, so save before starting.
 4. When it finishes, each suggestion appears in the text:
    - **Pending**: your original, underlined in the category colour, with the suggestion above it.
    - **Accepted**: the suggestion, with a plain grey underline; your original floats above it after "was".
@@ -126,7 +126,7 @@ Paragraphs are numbered from 1 beside the text, and the AI is shown the same num
 
 If the chapter changes on disk while it is open (for example, you edit it in Obsidian), the app notices, re-anchors the suggestions onto the new text and tells you how many it could not place. Avoid editing the same chapter in Obsidian while you are accepting changes here.
 
-Your decisions are saved to the review file automatically as you go; there is nothing to save there.
+Your decisions are kept in the review automatically as you go; there is nothing to save there, and the status bar says when they were last kept ("Decisions kept 14:02"). Until you press **Save to chapter**, the button counts the changes the chapter file does not have yet ("Save 3 changes to chapter"), a dot sits before the chapter name, and the status bar says "3 not saved to chapter". Ctrl+S saves too.
 
 ## Privacy
 
