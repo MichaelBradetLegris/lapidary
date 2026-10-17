@@ -34,6 +34,14 @@ export const CHAPTER_MATCHES_PAGE = 'The chapter already matches the page.';
 export const PRESS_DONE_FIRST =
   'This paragraph is still open. Press Done or Ctrl+Enter to apply it, then save.';
 
+/**
+ * The card Ctrl+S shows while the suggestion editor is open (PLAN 11.1,
+ * Ctrl+S). Its words are in no hunk until its own Save, so saving now would
+ * write the chapter without them.
+ */
+export const PRESS_EDITOR_SAVE_FIRST =
+  'The suggestion you are editing is still open. Press its Save button or Ctrl+Enter first, then save to the chapter.';
+
 const SAVE_ONLY = 'The chapter file changes only when you press Save to chapter.';
 
 function countLine(n: number): string {
@@ -43,11 +51,13 @@ function countLine(n: number): string {
 /**
  * Where the decisions wait until Save. `olderReviewFrom` is set when the review
  * on screen is not the one the chapter opens with, so the author is told where
- * to find them again.
+ * to find them again. The line says "another review", not "a newer" one: the
+ * chapter opens with the review last decided in (`currentReviewId`), and History
+ * dates reviews by creation, so that review can carry the earlier date.
  */
 function keptLine(olderReviewFrom: string | null | undefined): string {
   if (olderReviewFrom) {
-    return `Your decisions are kept in the review from ${olderReviewFrom}. The chapter opens with a newer review, so reopen this one from History. ${SAVE_ONLY}`;
+    return `Your decisions are kept in the review from ${olderReviewFrom}. The chapter opens with another review, so reopen this one from History. ${SAVE_ONLY}`;
   }
   return `Your decisions are kept in this review. ${SAVE_ONLY}`;
 }
@@ -204,7 +214,8 @@ export interface SavePrompt {
 export interface PromptContext {
   /**
    * Set when the review on screen is not the one the chapter opens with
-   * (`currentReviewId`): its date as History shows it.
+   * (`currentReviewId`): its date as History shows it. "Older" follows PLAN 11.3
+   * (i) and means not the current review, whichever was created first.
    */
   olderReviewFrom?: string | null;
 }
@@ -230,10 +241,11 @@ export function needsAttention(state: CloseGuardState | null): boolean {
 /**
  * The question before the window closes, or null when nothing needs asking
  * (PLAN 11.3 i). "Close, keep for later" is focused whenever there is
- * something to keep. When only a running review or typed dialog text would be
- * lost, the choice is "Close anyway" and Cancel takes the focus, so Enter never
- * throws work away. Saving is offered only when a chapter is open and no review
- * of it is running.
+ * something to keep, as the plan asks, even though it also stops a running
+ * review and drops typed dialog text when those are listed too. When only a
+ * running review or typed dialog text would be lost, the choice is "Close
+ * anyway" and Cancel takes the focus, so Enter does not close in that case.
+ * Saving is offered only when a chapter is open and no review of it is running.
  */
 export function closePrompt(state: CloseGuardState, context: PromptContext = {}): SavePrompt | null {
   const n = state.unsavedDecisions;
@@ -342,7 +354,10 @@ export interface UnresponsiveBox {
 /**
  * The words of main's fallback boxes (PLAN 11.3 i), from the last state the
  * page pushed, which may be a moment old; `state` is null when it never pushed
- * one, and the box then names nothing at risk.
+ * one, and the box then names nothing at risk. As in the close prompt, the
+ * count of changes not saved to the chapter is followed by where they are
+ * kept, so Close anyway does not read as losing them: only decisions not yet
+ * written to the review are at risk.
  */
 export function unresponsiveDetail(stage: UnresponsiveStage, state: CloseGuardState | null): UnresponsiveBox {
   const lines: string[] = [];
@@ -351,8 +366,8 @@ export function unresponsiveDetail(stage: UnresponsiveStage, state: CloseGuardSt
     if (state.unsavedDecisions > 0) {
       lines.push(
         stage === 'no-answer'
-          ? `${countLine(state.unsavedDecisions)} Decisions made just before it stopped responding may not have reached the review.`
-          : countLine(state.unsavedDecisions)
+          ? `${countLine(state.unsavedDecisions)} They are kept in the review, but decisions made just before it stopped responding may not have reached it.`
+          : `${countLine(state.unsavedDecisions)} They are kept in the review, apart from decisions it is still writing.`
       );
     }
     if (state.changedParagraphs > 0 && stage === 'no-answer') {
@@ -393,10 +408,19 @@ export interface ShortcutKey {
 export interface SaveShortcutContext {
   /** a chapter file is open */
   hasChapter: boolean;
-  /** a dialog, a prompt, Settings or Setup covers the page */
+  /**
+   * a dialog, a prompt, Settings or Setup covers the page; the suggestion
+   * editor does not count, see `suggestionEditorOpen`
+   */
   modalOpen: boolean;
   /** the key came from inside a paragraph box */
   inParagraphBox: boolean;
+  /**
+   * the suggestion editor (`EditPopover`, `store.editor`) is open, wherever the
+   * focus is. It is a floating panel, not a modal, so the page behind it still
+   * takes keys, and the words typed in it reach a hunk only through its Save.
+   */
+  suggestionEditorOpen: boolean;
   /** a review of this chapter is running */
   locked: boolean;
   /** a Save to chapter is already under way */
@@ -418,7 +442,9 @@ export type SaveShortcutAction =
  * Ctrl+S, or Cmd+S, runs Save to chapter (PLAN 11.1): not behind a modal, so it
  * can never cancel or answer a prompt; not on a held key's repeats; not while a
  * review of the chapter runs or a save is under way; from inside a paragraph
- * box it says to press Done first; and with nothing to write it does nothing.
+ * box it says to press Done first; while the suggestion editor is open it says
+ * to press that editor's Save first, since saving now would write the chapter
+ * without the words typed there; and with nothing to write it does nothing.
  * The S is read from `key`, or from the physical key on a layout whose S key
  * types another script, so Ctrl+S works in Cyrillic or Greek too.
  */
@@ -431,6 +457,7 @@ export function saveShortcutAction(event: ShortcutKey, context: SaveShortcutCont
     return { kind: 'ignore' };
   }
   if (context.inParagraphBox) return { kind: 'card', message: PRESS_DONE_FIRST };
+  if (context.suggestionEditorOpen) return { kind: 'card', message: PRESS_EDITOR_SAVE_FIRST };
   if (context.unsavedDecisions === 0 && context.changedParagraphs === 0) return { kind: 'ignore' };
   return { kind: 'save' };
 }

@@ -12,6 +12,7 @@ import {
   leavePrompt,
   needsAttention,
   PRESS_DONE_FIRST,
+  PRESS_EDITOR_SAVE_FIRST,
   saveButtonState,
   saveShortcutAction,
   unresponsiveDetail,
@@ -254,6 +255,8 @@ describe('closePrompt', () => {
     const locked = closePrompt(guard({ unsavedDecisions: 2, locked: true, reviewRunning: true }));
     expect(locked?.confirmLabel).toBe('');
     expect(locked?.altLabel).toBe('Close, keep for later');
+    // Something is kept, so Keep for later stays focused although it also stops the review.
+    expect(locked?.defaultButton).toBe('alt');
     expect(locked?.body.split('\n')).toEqual([
       '2 changes are not saved to the chapter yet.',
       KEPT,
@@ -291,14 +294,31 @@ describe('closePrompt', () => {
       'The review that is running will stop, and its result will be lost.',
       'The text you typed in the open dialog will be lost.'
     ]);
+    // With everything at once Keep for later is still the focused choice.
+    expect(prompt?.confirmLabel).toBe('Apply, save and close');
+    expect(prompt?.altLabel).toBe('Close, keep for later');
+    expect(prompt?.defaultButton).toBe('alt');
   });
 
   it('says where to find decisions kept in an older review', () => {
     const prompt = closePrompt(guard({ unsavedDecisions: 1 }), { olderReviewFrom: '14/10/2026, 16:04:33' });
     expect(prompt?.body.split('\n')[1]).toBe(
-      'Your decisions are kept in the review from 14/10/2026, 16:04:33. The chapter opens with a newer review, so reopen this one from History. The chapter file changes only when you press Save to chapter.'
+      'Your decisions are kept in the review from 14/10/2026, 16:04:33. The chapter opens with another review, so reopen this one from History. The chapter file changes only when you press Save to chapter.'
     );
     expect(closePrompt(guard({ unsavedDecisions: 1 }), { olderReviewFrom: null })?.body).toContain(KEPT);
+  });
+
+  it('does not call the review the chapter opens with newer when History dates it earlier', () => {
+    // R1 was created first but last decided in after R2, so the chapter opens
+    // with R1, which History dates 01/10/2026; R2, from 10/10/2026, is on screen.
+    const r1 = { id: 'r1', createdAt: '2026-10-01T09:00:00.000Z', decidedAt: '2026-10-12T09:00:00.000Z' };
+    const r2 = { id: 'r2', createdAt: '2026-10-10T09:00:00.000Z', decidedAt: '2026-10-11T09:00:00.000Z' };
+    expect(currentReviewId([r1, r2], r2)).toBe('r1');
+    const prompt = closePrompt(guard({ unsavedDecisions: 2 }), { olderReviewFrom: '10/10/2026, 10:00:00' });
+    expect(prompt?.body).toContain(
+      'Your decisions are kept in the review from 10/10/2026, 10:00:00. The chapter opens with another review, so reopen this one from History.'
+    );
+    expect(prompt?.body).not.toMatch(/newer|older/i);
   });
 
   it('offers no Save without a chapter file', () => {
@@ -380,8 +400,10 @@ describe('leavePrompt', () => {
     const prompt = leavePrompt(leaving({ unsavedDecisions: 1 }), toOther, {
       olderReviewFrom: '01/10/2026, 10:00:00'
     });
-    expect(prompt?.body).toContain('Your decisions are kept in the review from 01/10/2026, 10:00:00.');
-    expect(prompt?.body).toContain('reopen this one from History');
+    expect(prompt?.body).toContain(
+      'Your decisions are kept in the review from 01/10/2026, 10:00:00. The chapter opens with another review, so reopen this one from History.'
+    );
+    expect(prompt?.body).not.toMatch(/newer/i);
   });
 
   it('offers no Save without a chapter file', () => {
@@ -402,7 +424,7 @@ describe('unresponsiveDetail', () => {
       title: APP_NAME,
       message: `${APP_NAME} is not responding`,
       detail: [
-        '1 change is not saved to the chapter yet. Decisions made just before it stopped responding may not have reached the review.',
+        '1 change is not saved to the chapter yet. They are kept in the review, but decisions made just before it stopped responding may not have reached it.',
         'Paragraph text typed just before it stopped responding may be lost.',
         'The review that is running will stop, and its result will be lost.',
         'The text you typed in the open dialog will be lost.',
@@ -412,7 +434,7 @@ describe('unresponsiveDetail', () => {
       closeLabel: 'Close anyway'
     });
     expect(unresponsiveDetail('no-answer', guard({ unsavedDecisions: 4 })).detail.split('\n')[0]).toBe(
-      '4 changes are not saved to the chapter yet. Decisions made just before it stopped responding may not have reached the review.'
+      '4 changes are not saved to the chapter yet. They are kept in the review, but decisions made just before it stopped responding may not have reached it.'
     );
   });
 
@@ -422,13 +444,27 @@ describe('unresponsiveDetail', () => {
       message: `${APP_NAME} is still finishing`,
       detail: [
         'It is still writing your decisions.',
-        '2 changes are not saved to the chapter yet.',
+        '2 changes are not saved to the chapter yet. They are kept in the review, apart from decisions it is still writing.',
         'The review that is running will stop, and its result will be lost.',
         'Wait gives it more time. Close anyway closes the window now, and anything not yet written is lost.'
       ].join('\n'),
       waitLabel: 'Wait',
       closeLabel: 'Close anyway'
     });
+    expect(unresponsiveDetail('finishing', guard({ unsavedDecisions: 1 })).detail.split('\n')[1]).toBe(
+      '1 change is not saved to the chapter yet. They are kept in the review, apart from decisions it is still writing.'
+    );
+  });
+
+  it('always says where the unsaved changes are kept, so Close anyway does not read as losing them', () => {
+    for (const stage of ['no-answer', 'finishing'] as const) {
+      for (const n of [1, 3]) {
+        const countLine = unresponsiveDetail(stage, guard({ unsavedDecisions: n }))
+          .detail.split('\n')
+          .find((line) => line.includes('not saved to the chapter'));
+        expect(countLine).toContain('They are kept in the review');
+      }
+    }
   });
 
   it('names nothing at risk before the page has pushed any state', () => {
@@ -455,6 +491,7 @@ describe('saveShortcutAction', () => {
     hasChapter: true,
     modalOpen: false,
     inParagraphBox: false,
+    suggestionEditorOpen: false,
     locked: false,
     saving: false,
     unsavedDecisions: 2,
@@ -492,7 +529,13 @@ describe('saveShortcutAction', () => {
     ['a save already under way', {}, { saving: true }],
     ['no chapter open', {}, { hasChapter: false }],
     ['nothing to save', {}, { unsavedDecisions: 0, changedParagraphs: 0 }],
-    ['a modal over a paragraph box', {}, { modalOpen: true, inParagraphBox: true }]
+    ['a modal over a paragraph box', {}, { modalOpen: true, inParagraphBox: true }],
+    ['a modal over the suggestion editor', {}, { modalOpen: true, suggestionEditorOpen: true }],
+    [
+      'the suggestion editor open while the chapter is locked',
+      {},
+      { locked: true, suggestionEditorOpen: true }
+    ]
   ])('swallows it and does nothing with %s', (_name, key, context) => {
     expect(saveShortcutAction({ ...ctrlS, ...key }, { ...ready, ...context })).toEqual({ kind: 'ignore' });
   });
@@ -506,12 +549,41 @@ describe('saveShortcutAction', () => {
       'This paragraph is still open. Press Done or Ctrl+Enter to apply it, then save.'
     );
   });
+
+  it('says to press Save in the suggestion editor first while it is open, wherever the focus is', () => {
+    const card = { kind: 'card', message: PRESS_EDITOR_SAVE_FIRST };
+    expect(saveShortcutAction(ctrlS, { ...ready, suggestionEditorOpen: true })).toEqual(card);
+    // The words typed there are not counted anywhere yet, so it asks even with nothing unsaved.
+    expect(
+      saveShortcutAction(ctrlS, {
+        ...ready,
+        suggestionEditorOpen: true,
+        unsavedDecisions: 0,
+        changedParagraphs: 0
+      })
+    ).toEqual(card);
+    expect(
+      saveShortcutAction(
+        { ...ctrlS, ctrlKey: false, metaKey: true },
+        { ...ready, suggestionEditorOpen: true }
+      )
+    ).toEqual(card);
+    expect(PRESS_EDITOR_SAVE_FIRST).toBe(
+      'The suggestion you are editing is still open. Press its Save button or Ctrl+Enter first, then save to the chapter.'
+    );
+  });
+
+  it('names the paragraph box when the key comes from one while the suggestion editor is also open', () => {
+    expect(saveShortcutAction(ctrlS, { ...ready, inParagraphBox: true, suggestionEditorOpen: true })).toEqual(
+      { kind: 'card', message: PRESS_DONE_FIRST }
+    );
+  });
 });
 
 describe('wording rules', () => {
   /** Every string the module can produce, over a grid of states. */
   function everyString(): string[] {
-    const out: string[] = [CHAPTER_MATCHES_PAGE, PRESS_DONE_FIRST];
+    const out: string[] = [CHAPTER_MATCHES_PAGE, PRESS_DONE_FIRST, PRESS_EDITOR_SAVE_FIRST];
     const add = (prompt: object | null): void => {
       if (!prompt) return;
       for (const value of Object.values(prompt)) if (typeof value === 'string') out.push(value);
