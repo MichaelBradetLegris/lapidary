@@ -513,6 +513,58 @@ describe('Save to chapter (apply.3)', () => {
   });
 });
 
+/* apply.22: the window steps. Accept, Save to chapter, rewrite the suggestion
+   with the editor, Save to chapter again. */
+describe('rewriting a suggestion after Save to chapter (apply.22)', () => {
+  const SAVED = 'As he tilted his head aside, the man watched.\n\nShe said nothing at all.';
+  const REWRITTEN = 'He tilted his head aside, the man watched.\n\nShe said nothing at all.';
+
+  async function acceptAndSave(h: ReturnType<typeof harness>): Promise<void> {
+    state().toggleAccepted('h1');
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('saved');
+    expect(state().review!.base.text).toBe(SAVED);
+    expect(state().review!.hunks[0]).toMatchObject({ baseSide: 'replacement', status: 'accepted' });
+    state().clearNotifications();
+  }
+
+  it('the second Save writes the new words', async () => {
+    const h = harness({ status: 'written', hash: 'h2' }, { status: 'written', hash: 'h3' });
+    await acceptAndSave(h);
+
+    expect(state().editHunkText('h1', 'He tilted', true)).toEqual({ status: 'applied', hunkId: 'h1' });
+    expect(unsavedDecisionCount(state().review!.hunks)).toBe(1);
+    expect(saveShortcutContext(state(), false).unsavedDecisions).toBe(1);
+
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('saved');
+    expect(h.requests[1]).toMatchObject({ path: SOURCE, text: REWRITTEN, expectedHash: 'h2' });
+    expect(state().review!.base.text).toBe(REWRITTEN);
+    expect(unsavedDecisionCount(state().review!.hunks)).toBe(0);
+    expect(lastCard()).toBe('Saved to the chapter file.');
+  });
+
+  it('unticked, the saved words stay and there is nothing to save', async () => {
+    const h = harness({ status: 'written', hash: 'h2' });
+    await acceptAndSave(h);
+
+    expect(state().editHunkText('h1', 'He tilted', false).status).toBe('applied');
+    expect(state().review!.hunks[0]).toMatchObject({ status: 'pending', original: 'As he tilted' });
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('nothing-to-save');
+    expect(h.requests).toHaveLength(1);
+    expect(lastCard()).toBe(CHAPTER_MATCHES_PAGE);
+  });
+
+  it('rewritten and then back to the saved words, there is nothing to save', async () => {
+    const h = harness({ status: 'written', hash: 'h2' });
+    await acceptAndSave(h);
+
+    state().editHunkText('h1', 'He tilted', true);
+    expect(state().editHunkText('h1', 'As he tilted', true).status).toBe('applied');
+    expect(unsavedDecisionCount(state().review!.hunks)).toBe(0);
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('nothing-to-save');
+    expect(h.requests).toHaveLength(1);
+  });
+});
+
 describe('isWrittenReview (apply.3)', () => {
   it('is the review written, or a copy of it on the same base that composes the same text', () => {
     const written = chapterReview();

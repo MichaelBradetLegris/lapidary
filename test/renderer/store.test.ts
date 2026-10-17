@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { composeText } from '../../src/shared/diff/compose';
+import { composeText, unsavedDecisionCount } from '../../src/shared/diff/compose';
 import { createDiffReview, createReview } from '../../src/shared/review';
 import { bulkPlan } from '../../src/shared/ui/bulk';
 import { closePrompt, leavePrompt } from '../../src/shared/ui/save';
@@ -266,6 +266,26 @@ describe('editing', () => {
   it('says nothing happened when a rewrite changes nothing', () => {
     useApp.getState().toggleAccepted('h1');
     expect(useApp.getState().editHunkText('h1', 'As he tilted', true)).toEqual({ status: 'noop' });
+  });
+
+  it('counts a rewrite of a saved suggestion as unsaved, against the saved words (apply.22)', () => {
+    useApp.getState().toggleAccepted('h1');
+    useApp.getState().markSaved('h2');
+    const saved = useApp.getState().review!;
+    expect(unsavedDecisionCount(saved.hunks)).toBe(0);
+
+    useApp.getState().editHunkText('h1', 'He tilted', true);
+    const review = useApp.getState().review!;
+    expect(review.hunks[0]).toMatchObject({
+      baseSide: 'original',
+      original: 'As he tilted',
+      replacement: 'He tilted',
+      status: 'accepted'
+    });
+    expect(unsavedDecisionCount(review.hunks)).toBe(1);
+    expect(composeText(review.base.text, review.hunks)).toBe(
+      'He tilted his head aside, the man watched.\n\nShe said nothing at all.'
+    );
   });
 
   it('opens and closes the editor on one thing at a time', () => {

@@ -1,7 +1,13 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { commitDecisions, composeText, findOverlaps } from '../../src/shared/diff/compose';
+import {
+  commitDecisions,
+  composeText,
+  findOverlaps,
+  unsavedDecisionCount
+} from '../../src/shared/diff/compose';
 import { rebaseReview } from '../../src/shared/diff/rebase';
+import { editSuggestion } from '../../src/shared/edit';
 import { createReview } from '../../src/shared/review';
 import type { Hunk, HunkSource, HunkStatus, Review, ReviewBase } from '../../src/shared/types';
 
@@ -225,6 +231,114 @@ describe('rebase round trip', () => {
         }
       }),
       { numRuns: 200 }
+    );
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* apply.22: rewriting a suggestion after Save to chapter              */
+/* ------------------------------------------------------------------ */
+
+const savedRewriteArb = fc.record({
+  specs: fc.array(specArb, { minLength: 1, maxLength: 8 }),
+  /** decisions changed after the save, as an author does */
+  flips: fc.array(
+    fc.option(fc.constantFrom<HunkStatus>('pending', 'accepted', 'dismissed'), { nil: undefined }),
+    { maxLength: 8 }
+  ),
+  /** which hunk the editor opens on */
+  which: fc.nat(),
+  /** "Accept now" */
+  accept: fc.boolean(),
+  /** then rewrite the words back to what the file says, with this "Accept now" */
+  back: fc.option(fc.boolean(), { nil: undefined })
+});
+
+/** The composed text either side of one hunk, from every other hunk's decision. */
+function around(base: string, hunks: readonly Hunk[], target: Hunk): { before: string; after: string } {
+  const others = hunks.filter((h) => h.id !== target.id);
+  const after = others
+    .filter((h) => h.start >= target.end)
+    .map((h) => ({ ...h, start: h.start - target.end, end: h.end - target.end }));
+  return {
+    before: composeText(
+      base.slice(0, target.start),
+      others.filter((h) => h.end <= target.start)
+    ),
+    after: composeText(base.slice(target.end), after)
+  };
+}
+
+describe('rewriting a saved suggestion (apply.22)', () => {
+  it('composes the new words, counts them unsaved, and compose stays a function of base and hunks', () => {
+    fc.assert(
+      fc.property(savedRewriteArb, ({ specs, flips, which, accept, back }) => {
+        const built = buildCase(specs);
+        fc.pre(built.hunks.length > 0);
+        // Save to chapter: accepted hunks now hold their replacement in the base.
+        const saved = commitDecisions(built.base, built.hunks);
+        const base = saved.text;
+        const hunks = saved.hunks.map((h, i) => {
+          const status = flips[i];
+          return status ? { ...h, status } : h;
+        });
+        const target = hunks[which % hunks.length];
+        if (!target) throw new Error('no hunk');
+        const inFile = base.slice(target.start, target.end);
+        const words = 'z0 z1'; // in no generated text
+        const { before, after } = around(base, hunks, target);
+        const othersUnsaved = unsavedDecisionCount(hunks.filter((h) => h.id !== target.id));
+
+        const rewrite = (list: readonly Hunk[], to: string, tick: boolean): Hunk[] =>
+          list.map((h) => (h.id === target.id ? editSuggestion(base, h, to, tick) : h));
+        let edited = rewrite(hunks, words, accept);
+        let shown = accept ? words : inFile;
+        if (back !== undefined) {
+          edited = rewrite(edited, inFile, back);
+          shown = inFile;
+        }
+        const rewritten = edited.find((h) => h.id === target.id);
+        if (!rewritten) throw new Error('lost the hunk');
+        const composed = composeText(base, edited);
+
+        // The page reads the new words, or the file's own when they wait or went back.
+        expect(composed).toBe(before + shown + after);
+        expect(base.slice(rewritten.start, rewritten.end)).toBe(inFile);
+        expect(findOverlaps(edited)).toEqual([]);
+        const own = shown === words ? 1 : 0;
+        expect(unsavedDecisionCount([rewritten])).toBe(own);
+        expect(unsavedDecisionCount(edited)).toBe(othersUnsaved + own);
+        if (shown === words) expect(unsavedDecisionCount(edited)).toBeGreaterThan(0);
+        if (back !== undefined && hunks.every((_, i) => flips[i] === undefined)) {
+          // Rewriting back to the saved words is a no-op.
+          expect(composed).toBe(base);
+          expect(unsavedDecisionCount(edited)).toBe(0);
+        }
+
+        // A pure function of base plus hunks.
+        expect(composeText(base, [...edited].reverse())).toBe(composed);
+        expect(composeText(base, structuredClone(edited))).toBe(composed);
+
+        // The next Save writes exactly that, and leaves nothing unsaved.
+        const next = commitDecisions(base, edited);
+        expect(next.text).toBe(composed);
+        expect(composeText(next.text, next.hunks)).toBe(composed);
+        expect(unsavedDecisionCount(next.hunks)).toBe(0);
+
+        // Rebase round trips: onto the composed text, and onto the same text.
+        const review = reviewOf(base, edited);
+        const { review: rebased } = rebaseReview(review, nextBase(composed));
+        expect(composeText(rebased.base.text, rebased.hunks)).toBe(composed);
+        for (const h of edited) {
+          const moved = rebased.hunks.find((r) => r.id === h.id);
+          expect(moved?.anchor).not.toBe('stale');
+          expect(moved?.status).toBe(h.status);
+        }
+        const { review: same } = rebaseReview(review, nextBase(base));
+        expect(composeText(same.base.text, same.hunks)).toBe(composed);
+        expect(unsavedDecisionCount(same.hunks)).toBe(unsavedDecisionCount(edited));
+      }),
+      { numRuns: 500 }
     );
   });
 });

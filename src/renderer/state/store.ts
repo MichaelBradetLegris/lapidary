@@ -606,7 +606,9 @@ export const useApp = create<AppState>()((set, get) => ({
     if (replacement === hunk.replacement && (!accept || hunk.status === 'accepted')) {
       return { status: 'noop' };
     }
-    const hunks = review.hunks.map((h) => (h.id === id ? editSuggestion(h, replacement, accept) : h));
+    const hunks = review.hunks.map((h) =>
+      h.id === id ? editSuggestion(review.base.text, h, replacement, accept) : h
+    );
     set({ review: withHunks(review, hunks), dirty: true, focusedHunkId: id });
     return { status: 'applied', hunkId: id };
   },
