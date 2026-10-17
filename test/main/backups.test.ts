@@ -384,6 +384,7 @@ describe('chapterBackupHooks', () => {
     });
     await expect(hooks.afterWrite(file)).resolves.toBeUndefined();
     expect(logged.map(([event]) => event)).toEqual(['backups.prune-failed']);
-    expect(JSON.stringify(logged)).not.toContain('Chapter');
+    // Neither the chapter's name nor its folder's lower-case slug, `chapter-01-<hash>`.
+    expect(JSON.stringify(logged)).not.toMatch(/chapter/i);
   });
 });

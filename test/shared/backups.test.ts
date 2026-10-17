@@ -195,19 +195,32 @@ describe('backupsToPrune', () => {
     expect(kept([day30, day29, ...recent], now)).toEqual([day29, ...recent]);
   });
 
-  it('counts calendar days across a month, a year and a clock change', () => {
+  it('counts calendar days across a month and a year', () => {
     const now = at(2027, 1, 2, 12);
-    const days = [
-      at(2026, 12, 31),
-      at(2026, 12, 4),
-      at(2026, 12, 3),
-      at(2026, 10, 25, 1, 30),
-      at(2026, 3, 29, 1, 30)
-    ];
+    const days = [at(2026, 12, 31), at(2026, 12, 4), at(2026, 12, 3), at(2026, 10, 25), at(2026, 3, 29)];
     const recent = Array.from({ length: 20 }, (_, i) => named(at(2027, 1, 2, 10, i)));
     const names = [...days.map((d) => named(d)).reverse(), ...recent];
     // 3 December is 30 days before 2 January; 4 December is 29.
     expect(kept(names, now)).toEqual([named(days[1]!), named(days[0]!), ...recent]);
+  });
+
+  it('counts calendar days, not elapsed time, across a clock change', () => {
+    // Node reads TZ again when it is assigned. In Toronto the clocks go back
+    // on 1 November 2026, so 3 October 00:30 is 29 calendar days before
+    // 1 November 23:30 but a full 30 times 24 hours before it.
+    const previous = process.env.TZ;
+    process.env.TZ = 'America/Toronto';
+    try {
+      const now = at(2026, 11, 1, 23, 30);
+      const backup = at(2026, 10, 3, 0, 30);
+      expect(backup.getTimezoneOffset()).not.toBe(now.getTimezoneOffset());
+      expect(now.getTime() - backup.getTime()).toBeGreaterThanOrEqual(30 * 86_400_000);
+      const recent = Array.from({ length: 20 }, (_, i) => named(at(2026, 11, 1, 10, i)));
+      expect(kept([named(backup), ...recent], now)).toEqual([named(backup), ...recent]);
+    } finally {
+      if (previous === undefined) delete process.env.TZ;
+      else process.env.TZ = previous;
+    }
   });
 
   it('orders a second backup in the same second after the first', () => {

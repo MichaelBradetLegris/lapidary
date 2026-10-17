@@ -53,7 +53,12 @@ export interface SaveDeps {
   onSaved?: (review: Review, onScreen: boolean) => void;
 }
 
-/** Cards about a Save to chapter share a key, so the newest replaces the last. */
+/**
+ * Cards about how a Save to chapter ended, failures included, share a key, so
+ * the newest replaces the last (PLAN 7). A save refused again and again, as
+ * when the backup cannot be made, leaves one card, and a save that then works
+ * clears it. The rebase card stays apart: it counts the suggestions lost.
+ */
 export const SAVE_CARD = 'save-chapter';
 
 function messageOf(err: unknown): string {
@@ -182,7 +187,8 @@ async function runSave(options: SaveOptions, deps: SaveDeps): Promise<SaveOutcom
       if (!sameReview(app().review, working)) {
         app().notify(
           'warn',
-          'The chapter changed on disk before saving, and another review is open now, so nothing was saved.'
+          'The chapter changed on disk before saving, and another review is open now, so nothing was saved.',
+          SAVE_CARD
         );
         return 'failed';
       }
@@ -194,10 +200,14 @@ async function runSave(options: SaveOptions, deps: SaveDeps): Promise<SaveOutcom
         `The chapter changed on disk before saving. Rebased: ${stats.anchored} re-anchored, ${stats.stale} lost. Retrying.`
       );
     }
-    app().notify('error', 'The chapter keeps changing on disk. Close it in Obsidian and save again.');
+    app().notify(
+      'error',
+      'The chapter keeps changing on disk. Close it in Obsidian and save again.',
+      SAVE_CARD
+    );
     return 'failed';
   } catch (err) {
-    app().notify('error', messageOf(err));
+    app().notify('error', messageOf(err), SAVE_CARD);
     return 'failed';
   } finally {
     app().setChapterSaving(false);
@@ -216,7 +226,7 @@ export function saveChapter(options: SaveOptions, deps: SaveDeps): Promise<SaveO
   const run = queue
     .then(() => runSave(options, deps))
     .catch((err: unknown) => {
-      useApp.getState().notify('error', messageOf(err));
+      useApp.getState().notify('error', messageOf(err), SAVE_CARD);
       return 'failed' as const;
     });
   queue = run;

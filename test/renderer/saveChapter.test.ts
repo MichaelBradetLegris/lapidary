@@ -15,6 +15,7 @@ import {
 import {
   pendingSave,
   RELOADED_WHILE_SAVING,
+  SAVE_CARD,
   saveChapter,
   type SaveDeps
 } from '../../src/renderer/state/saveChapter';
@@ -317,6 +318,48 @@ describe('Save to chapter (apply.3)', () => {
     expect(state().chapterSaving).toBe(false);
   });
 
+  it('keeps one card for a save refused twice, and a save that then works replaces it (apply.10)', async () => {
+    // What main sends when the backup cannot be made; it does not change between tries.
+    const refused =
+      'Could not back up the chapter before saving, so nothing was written: D:/data/backups/chapter-01-1a2b3c4d cannot be made, because a file stands where a folder should be.';
+    state().toggleAccepted('h1');
+    const h = harness(new Error(refused), new Error(refused), { status: 'written', hash: 'h2' });
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('failed');
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('failed');
+    expect(state().notifications.map((n) => [n.tone, n.text])).toEqual([['error', refused]]);
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('saved');
+    expect(state().notifications.map((n) => [n.tone, n.text])).toEqual([
+      ['info', 'Saved to the chapter file.']
+    ]);
+  });
+
+  it('replaces the card for a chapter that kept changing with the next outcome, and keeps the rebase cards', async () => {
+    state().toggleAccepted('h1');
+    const disk = (hash: string): FileContent => ({
+      path: SOURCE,
+      text: CHAPTER,
+      hash,
+      eol: 'lf',
+      bom: false,
+      trailingNewline: true
+    });
+    const h = harness(
+      { status: 'stale', disk: disk('h3') },
+      { status: 'stale', disk: disk('h4') },
+      new Error('There is no space left on the disk.'),
+      { status: 'written', hash: 'h5' }
+    );
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('failed');
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('failed');
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('saved');
+    const left = cards();
+    expect(left).toHaveLength(3);
+    expect(
+      left.slice(0, 2).every((t) => t.startsWith('The chapter changed on disk before saving. Rebased'))
+    ).toBe(true);
+    expect(left[2]).toBe('Saved to the chapter file.');
+  });
+
   it('records the save in its own review, off screen, when another chapter opened during the write', async () => {
     state().toggleAccepted('h1');
     const written = state().review!;
@@ -363,6 +406,7 @@ describe('Save to chapter (apply.3)', () => {
     expect(lastCard()).toBe(
       'The chapter changed on disk before saving, and another review is open now, so nothing was saved.'
     );
+    expect(state().notifications.at(-1)?.key).toBe(SAVE_CARD);
     expect(state().review).toBe(other);
     expect(h.requests).toHaveLength(1);
     expect(h.reviewWrites).toEqual([]);
