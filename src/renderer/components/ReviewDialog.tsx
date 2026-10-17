@@ -275,7 +275,7 @@ export function ReviewDialog({
 
         <p className="modal__note">
           {previous && previousCounts
-            ? `Last reviewed ${historyWhen(previous.createdAt)}:${previousCounts.hunkCount} suggestion${
+            ? `Last reviewed ${historyWhen(previous.createdAt)}: ${previousCounts.hunkCount} suggestion${
                 previousCounts.hunkCount === 1 ? '' : 's'
               }, ${previousCounts.pendingCount} still pending. A new review replaces the working set; the old one stays in History.`
             : 'This chapter has not been reviewed yet.'}

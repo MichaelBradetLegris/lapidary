@@ -13,6 +13,7 @@ import {
   confirmLeave,
   leaveStateOf,
   olderReviewFrom,
+  openedBy,
   type LeaveDeps
 } from '../../src/renderer/state/leave';
 import { saveChapter, type SaveDeps, type SaveOutcome } from '../../src/renderer/state/saveChapter';
@@ -306,6 +307,42 @@ describe('olderReviewFrom (apply.7)', () => {
   });
 });
 
+/* apply.7 review: a chapter in the list opens with its current review, so the
+   open chapter clicked while an older review is on screen opens that one. */
+describe('openedBy (apply.7 review)', () => {
+  const onScreen = { ...chapterReview(), decidedAt: '2026-10-16T10:00:00.000Z' };
+  // Created before the review on screen, decided in after it: the chapter opens with this one.
+  const current = summary('review-2', '2026-10-15T09:00:00.000Z', '2026-10-16T11:00:00.000Z');
+  const thisChapter: LeaveTarget = { kind: 'chapter', path: SOURCE };
+
+  it('is the review the chapter opens with, dated as History dates it, for the open chapter clicked from another review', () => {
+    expect(openedBy(thisChapter, onScreen, [current])).toEqual({
+      kind: 'review',
+      id: 'review-2',
+      when: historyWhen('2026-10-15T09:00:00.000Z')
+    });
+    expect(openedBy({ kind: 'chapter', path: 'C:\\vault\\Chapter 01.md' }, onScreen, [current])).toEqual(
+      openedBy(thisChapter, onScreen, [current])
+    );
+  });
+
+  it('is the chapter as clicked while the review it opens with is on screen', () => {
+    expect(openedBy(thisChapter, onScreen, [])).toBe(thisChapter);
+    expect(openedBy(thisChapter, onScreen, [summary('review-2', '2026-10-16T09:45:00.000Z')])).toBe(
+      thisChapter
+    );
+  });
+
+  it('is what was clicked for another chapter, a History row, or nothing on screen', () => {
+    expect(openedBy(toOther, onScreen, [current])).toBe(toOther);
+    expect(openedBy(toOlder, onScreen, [current])).toBe(toOlder);
+    expect(openedBy(thisChapter, null, [current])).toBe(thisChapter);
+    // Another chapter's History, still listed a moment after a chapter opens, does not count.
+    const elsewhere = { ...current, sourcePath: OTHER };
+    expect(openedBy(thisChapter, onScreen, [elsewhere])).toBe(thisChapter);
+  });
+});
+
 describe('beforeLeaving (apply.7)', () => {
   it('only flushes for the chapter or review already on screen, whatever is unsaved', async () => {
     state().toggleAccepted('h1');
@@ -317,6 +354,37 @@ describe('beforeLeaving (apply.7)', () => {
     expect(await beforeLeaving({ kind: 'review', id: 'review-1', when: 'x' }, d.leave)).toBe('here');
     expect(state().confirmSpec).toBeNull();
     expect(d.saves).toEqual([]);
+  });
+
+  it('opens the review the chapter opens with when the chapter is clicked from an older review', async () => {
+    // The page holds review-1; review-2 was decided in later, so the chapter opens with it.
+    const history = [
+      summary('review-1', '2026-10-16T09:00:00.000Z'),
+      summary('review-2', '2026-10-17T09:00:00.000Z', '2026-10-17T10:00:00.000Z')
+    ];
+    const thisChapter: LeaveTarget = { kind: 'chapter', path: SOURCE };
+    // Nothing unsaved: it goes, with no question, where it used to say 'here'.
+    expect(await beforeLeaving(thisChapter, deps('saved', history).leave)).toBe('go');
+    expect(state().confirmSpec).toBeNull();
+
+    // A change not saved: the question names the review it opens, as History does.
+    state().toggleAccepted('h1');
+    useApp.setState({ review: { ...state().review!, decidedAt: '2026-10-16T09:31:00.000Z' } });
+    const asked = beforeLeaving(thisChapter, deps('saved', history).leave);
+    await tick();
+    expect(state().confirmSpec?.title).toBe(
+      `Open the review from ${historyWhen('2026-10-17T09:00:00.000Z')}?`
+    );
+    expect(state().confirmSpec?.body).toContain(
+      `Your decisions are kept in the review from ${historyWhen('2026-10-16T09:00:00.000Z')}. The chapter opens with another review, so reopen this one from History.`
+    );
+    state().answerChoice('alt');
+    expect(await asked).toBe('go');
+
+    // Decided in last, the review on screen is the one the chapter opens with: only a flush.
+    useApp.setState({ review: { ...state().review!, decidedAt: '2026-10-17T11:00:00.000Z' } });
+    expect(await beforeLeaving(thisChapter, deps('saved', history).leave)).toBe('here');
+    expect(state().confirmSpec).toBeNull();
   });
 
   it('goes at once to another chapter when nothing is unsaved', async () => {

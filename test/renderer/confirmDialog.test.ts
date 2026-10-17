@@ -77,3 +77,47 @@ describe('confirm dialog layer (apply.6 review)', () => {
     expect(REVIEW_DIALOG).toMatch(/event\.key === 'Escape' && !useApp\.getState\(\)\.confirmSpec/);
   });
 });
+
+/* apply.7 review: Tab from the leave question reached the toolbar's Save
+   behind it, and Enter there saved the chapter with the question still open. */
+describe('the question holds the keyboard (apply.7 review)', () => {
+  const main = APP.slice(APP.lastIndexOf('return ('));
+  const page = '<div className="app-shell__page" inert={questionOpen}>';
+
+  it('makes everything in the window but the question inert while one is open', () => {
+    expect(APP).toContain('const questionOpen = useApp((s) => s.confirmSpec !== null);');
+    expect(main.indexOf(page)).toBeGreaterThan(main.indexOf('<div className="app-shell">'));
+    const inside = main.slice(main.indexOf(page));
+    for (const name of [
+      '{toolbar}',
+      '<FilterChips',
+      '<FileList',
+      '<ReviewPane',
+      '<NotificationCards',
+      '<SidePanel',
+      '<StatusBar',
+      '<HunkTooltip',
+      '<EditPopover',
+      '<NewChapterDialog',
+      '<ManualReviewDialog',
+      '<ReviewDialog',
+      '<SettingsDialog'
+    ]) {
+      expect(inside.indexOf(name), name).toBeGreaterThan(0);
+    }
+    // The wrapper closes just before the question, which stays outside it
+    // (the `{}` is a JSX comment with its text taken out).
+    expect(main).toMatch(/<\/div>\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*<\/div>\s*\);\s*\}\s*$/);
+  });
+
+  it('gives the wrapper no box, so the layout is as it was', () => {
+    expect(CSS).toMatch(/\.app-shell__page\s*\{\s*display:\s*contents;\s*\}/);
+  });
+
+  it('puts the focus back where it was when the question closes, if that is still there', () => {
+    expect(CONFIRM).toMatch(
+      /useLayoutEffect\(\(\) => \{\s*if \(open\) returnTo\.current = document\.activeElement;/
+    );
+    expect(CONFIRM).toMatch(/if \(back instanceof HTMLElement && back\.isConnected\) back\.focus\(/);
+  });
+});

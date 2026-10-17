@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { bodyLines, confirmButtons, focusedChoice, type ConfirmChoice } from '../../shared/ui/confirm';
 import { useApp } from '../state/store';
 
@@ -24,11 +24,32 @@ const FOCUS_WITH_RING: FocusOptions & { focusVisible: boolean } = { focusVisible
  * A question can be asked from inside another dialog or with the suggestion
  * editor open, so it sits above every other surface: its backdrop has a layer
  * of its own (`.modal-backdrop--confirm`), and App renders it last.
+ *
+ * It holds the keyboard too: while it is open App makes the rest of the window
+ * inert, so Tab cannot reach the toolbar, the chapter list or History behind
+ * it (apply.7 review). When it closes, the focus goes back to where it was
+ * when it opened, a list row or a paragraph box, if that is still there.
  */
 export function ConfirmDialog(): React.JSX.Element | null {
   const spec = useApp((s) => s.confirmSpec);
   const answer = useApp((s) => s.answerChoice);
   const buttonRefs = useRef<Partial<Record<ConfirmChoice, HTMLButtonElement | null>>>({});
+  const open = spec !== null;
+  const returnTo = useRef<Element | null>(null);
+
+  /* Where the focus is as the question opens, read in the commit that makes
+     the page behind it inert, before the browser takes the focus off it. A
+     question that replaces another keeps the first one's. */
+  useLayoutEffect(() => {
+    if (open) returnTo.current = document.activeElement;
+  }, [open]);
+
+  useEffect(() => {
+    if (open) return;
+    const back = returnTo.current;
+    returnTo.current = null;
+    if (back instanceof HTMLElement && back.isConnected) back.focus({ preventScroll: true });
+  }, [open]);
 
   useEffect(() => {
     if (!spec) return;

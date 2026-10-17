@@ -365,7 +365,9 @@ export interface LeaveState extends Pick<
  * chapter, or the review on screen. Opening it again asks nothing and only
  * writes what is waiting (apply.7). The chapter is compared exactly, apart
  * from separators and Unicode form: a path that differs only in case counts as
- * another, which costs a question and loses nothing.
+ * another, which costs a question and loses nothing. The open chapter clicked
+ * while another of its reviews is on screen reaches here as the review it
+ * opens with (`openedBy` in state/leave.ts), so it is not open.
  */
 export function isOpenTarget(state: Pick<LeaveState, 'chapter' | 'reviewId'>, target: LeaveTarget): boolean {
   if (target.kind === 'chapter') return state.chapter !== null && samePath(target.path, state.chapter, false);

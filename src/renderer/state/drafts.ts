@@ -25,7 +25,9 @@ import { useApp } from './store';
  * (`placeDrafts`), and one holding typed text that cannot go back is set aside
  * as a .txt, with a card whose Show the text opens it. Until the .txt is
  * written, such a box stays in the chapter's file ("carried"), so a failure
- * never loses what was typed.
+ * never loses what was typed. The card saying boxes came back goes when
+ * another chapter or review comes on screen, or once the boxes it names are
+ * applied or closed.
  *
  * A file that could not be read back is never written over unread: every
  * write for its chapter reads it first and writes nothing while it still
@@ -42,7 +44,10 @@ export const DRAFT_WRITE_DELAY_MS = 700;
 /** Cards about keeping boxes share a key, so a failing disk leaves one card, not one per keystroke. */
 export const DRAFTS_SAVE_CARD = 'drafts-save';
 
-/** The card saying boxes came back; a later one replaces it. */
+/**
+ * The card saying boxes came back; a later one replaces it, and it goes when
+ * another chapter or review comes on screen or its boxes are all closed.
+ */
 export const DRAFTS_RESTORED_CARD = 'drafts-restored';
 
 export interface DraftIo {
@@ -105,6 +110,22 @@ export function createDraftPersistence(io: DraftIo, options: { delayMs?: number 
   const held = new Map<string, PendingDrafts>();
   /** restores under way, by chapter; a second for the same chapter runs after the first */
   const restores = new Map<string, Promise<void>>();
+  /**
+   * The keys of the boxes the restored card names ("Paragraph 6 is open for
+   * editing again"), while that card is the one under `DRAFTS_RESTORED_CARD`:
+   * it goes once none of them is open (`dismissRestoredCard`).
+   */
+  let restoredCardKeys: number[] | null = null;
+
+  /**
+   * Take the card about boxes coming back off the screen once it no longer
+   * says anything true about the page: another chapter or review is on
+   * screen, or the boxes it names are applied or closed (apply.7 review).
+   */
+  function dismissRestoredCard(): void {
+    restoredCardKeys = null;
+    useApp.getState().dismissNotificationsByKey(DRAFTS_RESTORED_CARD);
+  }
 
   const notify = (...args: Parameters<ReturnType<typeof useApp.getState>['notify']>): void =>
     void useApp.getState().notify(...args);
@@ -183,6 +204,8 @@ export function createDraftPersistence(io: DraftIo, options: { delayMs?: number 
     // goes when the boxes come back and say so.
     if (kept && kept.drafts.length > 0) {
       carried.set(sourcePath, kept.drafts);
+      // This card names boxes that are not on screen, so closing a box does not take it away.
+      restoredCardKeys = null;
       notify('info', draftsReadLaterCardText(), DRAFTS_RESTORED_CARD);
     }
     return true;
@@ -219,7 +242,7 @@ export function createDraftPersistence(io: DraftIo, options: { delayMs?: number 
       // since, is out of date; what comes back now has a card of its own.
       if (wasUnread) {
         useApp.getState().dismissNotificationsByKey(DRAFTS_SAVE_CARD);
-        useApp.getState().dismissNotificationsByKey(DRAFTS_RESTORED_CARD);
+        dismissRestoredCard();
       }
     } catch (err) {
       failed = true;
@@ -255,7 +278,11 @@ export function createDraftPersistence(io: DraftIo, options: { delayMs?: number 
     state.reopenDrafts(placement.reopen);
     writeOnScreen(sourcePath);
     const restored = restoredCardText(placement.reopen);
-    if (restored) notify('info', restored, DRAFTS_RESTORED_CARD);
+    if (restored) {
+      // The boxes the card names: those with typed text, as `restoredCardText` counts them.
+      restoredCardKeys = placement.reopen.filter((draft) => draft.text !== draft.initial).map((d) => d.key);
+      notify('info', restored, DRAFTS_RESTORED_CARD);
+    }
 
     if (placement.setAside.length === 0) return;
     try {
@@ -290,11 +317,16 @@ export function createDraftPersistence(io: DraftIo, options: { delayMs?: number 
         const review = state.review;
         if (!review?.sourcePath) return;
         if (!sameReview(review, previous.review)) {
-          // Another chapter or review is on screen: what was left open in it comes back.
+          // Another chapter or review is on screen: a card about boxes that
+          // came back on the last one is out of date, and what was left open
+          // in this one comes back, with a card of its own.
+          dismissRestoredCard();
           void restore(review);
           return;
         }
         if (state.drafts === previous.drafts) return;
+        // The boxes the card names are all applied or closed: it has nothing left to say.
+        if (restoredCardKeys && !restoredCardKeys.some((key) => key in state.drafts)) dismissRestoredCard();
         if (loading.has(review.sourcePath)) changedWhileLoading.add(review.sourcePath);
         else write(review.sourcePath, review.id, toStoredDrafts(state.drafts));
       }),

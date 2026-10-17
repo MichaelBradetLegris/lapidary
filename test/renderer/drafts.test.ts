@@ -236,6 +236,46 @@ describe('bringing boxes back', () => {
     ]);
   });
 
+  it('takes the card away when the author leaves, after Keep for later or Save first', async () => {
+    f.files.set(ONE, kept(ONE, [rainBox()]));
+    await show(chapter(ONE));
+    expect(cards().map((card) => card.key)).toEqual([DRAFTS_RESTORED_CARD]);
+    // Another chapter: the card was about the one left.
+    await show(chapter(TWO));
+    expect(cards()).toEqual([]);
+
+    // Back, and on to another review of the same chapter whose text differs:
+    // the box is set aside there, and only that card is left.
+    await show(chapter(ONE));
+    expect(cards().map((card) => card.key)).toEqual([DRAFTS_RESTORED_CARD]);
+    await show(chapter(ONE, 'Another text altogether.', 'a-newer-review'));
+    expect(cards().map((card) => card.key)).toEqual([undefined]);
+    expect(cards()[0]?.action).toBe('reveal-drafts');
+  });
+
+  it('takes the card away once every box it names is applied or closed, and not before', async () => {
+    const gateBox: StoredDraft = {
+      key: 0,
+      paragraphs: [0],
+      initial: 'Mara waited by the gate.',
+      text: 'Mara waited.'
+    };
+    f.files.set(ONE, kept(ONE, [gateBox, rainBox()]));
+    await show(chapter(ONE));
+    expect(cards().map((card) => card.text)).toEqual([
+      'Paragraphs 1 and 2 are open for editing again, as you left them.'
+    ]);
+    // A box the card does not name, opened and closed, changes nothing.
+    state().openDraft(2);
+    state().cancelDraft(2);
+    state().cancelDraft(0);
+    expect(cards()).toHaveLength(1);
+    // Applied, as Save first does with the last one.
+    state().commitAllDrafts();
+    expect(state().drafts).toEqual({});
+    expect(cards()).toEqual([]);
+  });
+
   it('puts boxes back on another review of the same chapter when the text agrees', async () => {
     f.files.set(ONE, kept(ONE, [rainBox()]));
     await show(chapter(ONE, TEXT, 'a-newer-review'));
@@ -400,6 +440,8 @@ describe('bringing boxes back', () => {
     await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS);
     expect(f.loads).toHaveLength(3);
     expect(f.files.get(ONE)?.drafts).toEqual([rainBox()]);
+    // The card is about boxes that are not on screen, so closing one that is leaves it.
+    expect(cards().map((card) => card.key)).toEqual([DRAFTS_RESTORED_CARD]);
 
     // And it comes back when the chapter does, its card replacing that one.
     await show(chapter(TWO));

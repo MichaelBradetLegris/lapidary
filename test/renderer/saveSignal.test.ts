@@ -222,6 +222,10 @@ describe('History (apply.5)', () => {
     );
     expect(REVIEW_DIALOG).toContain('${previousCounts.hunkCount} suggestion');
     expect(REVIEW_DIALOG).toContain('${previousCounts.pendingCount} still pending');
+    // History's date, then a space after the colon (apply.7 review: it had gone missing).
+    expect(REVIEW_DIALOG).toContain(
+      '`Last reviewed ${historyWhen(previous.createdAt)}: ${previousCounts.hunkCount} suggestion${'
+    );
     expect(REVIEW_DIALOG).not.toMatch(/previous\.(hunkCount|pendingCount)/);
     expect(APP).toMatch(/history=\{history\}\s+reviewPath=\{reviewPath\}\s+unsavedDecisions=/);
   });

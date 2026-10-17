@@ -257,6 +257,13 @@ input[type='text'] {
   height: 100%;
 }
 
+/* Everything but the confirm dialog, made inert while a question is open
+   (apply.7 review). It has no box, so its children lay out in .app-shell's
+   column as before. */
+.app-shell__page {
+  display: contents;
+}
+
 /* The row wraps, as the status bar does: when the buttons and the chapter name
    at its narrowest do not fit, zoomed in or with a review's progress showing
    in a narrow window, the last buttons move to a second row on the right

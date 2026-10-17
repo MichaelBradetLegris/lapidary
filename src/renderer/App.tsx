@@ -75,6 +75,7 @@ export function App(): React.JSX.Element {
   const setupOpen = useApp((s) => s.setupOpen);
   const setSetupOpen = useApp((s) => s.setSetupOpen);
   const chapterSaving = useApp((s) => s.chapterSaving);
+  const questionOpen = useApp((s) => s.confirmSpec !== null);
 
   const [files, setFiles] = useState<ChapterFile[]>([]);
   const [index, setIndex] = useState<Record<string, ReviewSummary>>({});
@@ -176,7 +177,9 @@ export function App(): React.JSX.Element {
   /* Opening a chapter or a History entry lets a save under way end first, then
      asks when something on screen is not saved to the chapter: Save first,
      Keep for later or Cancel (`beforeLeaving`). Clicking what is already open
-     asks nothing and only writes what is waiting (PLAN 11.3 i). */
+     asks nothing and only writes what is waiting (PLAN 11.3 i). The open
+     chapter is already open only while the review it opens with is on screen;
+     clicked from another of its reviews, it opens that one. */
   const openChapter = useCallback(
     (file: ChapterFile) => {
       void (async () => {
@@ -552,155 +555,160 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="app-shell">
-      {toolbar}
-      {review ? <FilterChips review={review} /> : null}
+      {/* Everything but the question. While one is open this is inert, so Tab,
+          a click or a screen reader cannot reach the page behind it (apply.7
+          review; the dialog is apply.6's). It lays out nothing of its own. */}
+      <div className="app-shell__page" inert={questionOpen}>
+        {toolbar}
+        {review ? <FilterChips review={review} /> : null}
 
-      <div className="body">
-        <FileList
-          files={files}
-          index={index}
-          review={review}
-          configured={Boolean(settings?.manuscriptFolder)}
-          onOpen={openChapter}
-          onChooseFolder={chooseManuscriptFolder}
-          onNewChapter={() => setNewChapterOpen(true)}
-        />
+        <div className="body">
+          <FileList
+            files={files}
+            index={index}
+            review={review}
+            configured={Boolean(settings?.manuscriptFolder)}
+            onOpen={openChapter}
+            onChooseFolder={chooseManuscriptFolder}
+            onNewChapter={() => setNewChapterOpen(true)}
+          />
 
-        {/* The find bar is a strip above the scroller, not a sticky bar inside
+          {/* The find bar is a strip above the scroller, not a sticky bar inside
             it: inside, it scrolled out of view once the author was more than
             a screen down, and Ctrl+F then seemed to do nothing (round 4). */}
-        <div className={`center-wrap ${findOpen ? 'center-wrap--find' : ''}`}>
-          {review ? <FindBar /> : null}
-          <main className="center">
-            {review ? (
-              <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
-            ) : (
-              <div className="empty">
-                <h1>Nothing open</h1>
-                <p>
-                  Pick a chapter on the left, or start one with the + beside Chapters. Review with AI asks for
-                  suggestions; Submit manual review turns a corrected copy into the same kind of list.
-                </p>
-              </div>
-            )}
-          </main>
-          <NotificationCards
-            onAction={(action, arg) => {
-              switch (action) {
-                case 'open-settings':
-                  openSettings();
-                  break;
-                case 'open-setup':
-                  setSetupOpen(true);
-                  break;
-                case 'reveal-drafts':
-                case 'reveal-backups':
-                  // A set-aside card names its file, which Show the text opens (apply.16).
-                  void window.api
-                    .invoke(
-                      'shell:reveal',
-                      action === 'reveal-drafts'
-                        ? { target: 'drafts', ...(arg ? { name: arg } : {}) }
-                        : { target: 'backups' }
-                    )
-                    .then((result) => {
-                      if (!result.ok) notify('error', result.error.message);
-                    });
-                  break;
-                default:
-                  // Diagnostics (hardening.5) and updates (release.9) wire theirs in when they land.
-                  break;
-              }
-            }}
-          />
-          <LockCard label={progressLabel} onCancel={ai.cancel} />
+          <div className={`center-wrap ${findOpen ? 'center-wrap--find' : ''}`}>
+            {review ? <FindBar /> : null}
+            <main className="center">
+              {review ? (
+                <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
+              ) : (
+                <div className="empty">
+                  <h1>Nothing open</h1>
+                  <p>
+                    Pick a chapter on the left, or start one with the + beside Chapters. Review with AI asks
+                    for suggestions; Submit manual review turns a corrected copy into the same kind of list.
+                  </p>
+                </div>
+              )}
+            </main>
+            <NotificationCards
+              onAction={(action, arg) => {
+                switch (action) {
+                  case 'open-settings':
+                    openSettings();
+                    break;
+                  case 'open-setup':
+                    setSetupOpen(true);
+                    break;
+                  case 'reveal-drafts':
+                  case 'reveal-backups':
+                    // A set-aside card names its file, which Show the text opens (apply.16).
+                    void window.api
+                      .invoke(
+                        'shell:reveal',
+                        action === 'reveal-drafts'
+                          ? { target: 'drafts', ...(arg ? { name: arg } : {}) }
+                          : { target: 'backups' }
+                      )
+                      .then((result) => {
+                        if (!result.ok) notify('error', result.error.message);
+                      });
+                    break;
+                  default:
+                    // Diagnostics (hardening.5) and updates (release.9) wire theirs in when they land.
+                    break;
+                }
+              }}
+            />
+            <LockCard label={progressLabel} onCancel={ai.cancel} />
+          </div>
+
+          {review ? (
+            <SidePanel
+              review={review}
+              history={history}
+              activeReviewPath={reviewPath}
+              onSetCommentStatus={setCommentStatus}
+              onOpenHistory={openHistoryEntry}
+            />
+          ) : (
+            <aside className="side" />
+          )}
         </div>
 
-        {review ? (
-          <SidePanel
-            review={review}
-            history={history}
-            activeReviewPath={reviewPath}
-            onSetCommentStatus={setCommentStatus}
-            onOpenHistory={openHistoryEntry}
+        <StatusBar
+          review={review}
+          {...(runtimeLabel ? { runtimeLabel } : {})}
+          rateLimit={ai.rateLimit?.message}
+        />
+        <HunkTooltip />
+        <EditPopover onSaved={(message, tone) => notify(tone ?? 'info', message, 'edit')} />
+        {newChapterOpen ? (
+          <NewChapterDialog
+            onClose={() => setNewChapterOpen(false)}
+            onCreated={(file) => {
+              setNewChapterOpen(false);
+              refreshFiles();
+              openChapter(file);
+              notify('info', `Created ${file.name}.`);
+            }}
           />
-        ) : (
-          <aside className="side" />
-        )}
+        ) : null}
+        {manualReviewOpen && review?.sourcePath ? (
+          <ManualReviewDialog
+            review={review}
+            onClose={() => setManualReviewOpen(false)}
+            onLoadCorrected={loadCorrectedFromFile}
+            onCreated={(next) => {
+              adoptReview(next);
+              notify(
+                'info',
+                `Built ${next.hunks.length} suggestion${next.hunks.length === 1 ? '' : 's'} from your text.`
+              );
+            }}
+          />
+        ) : null}
+        {reviewDialogOpen && review && settings ? (
+          <ReviewDialog
+            review={review}
+            settings={settings}
+            models={ai.models}
+            modelsLoading={ai.modelsLoading}
+            runtimes={ai.runtimes}
+            keyStatus={ai.keyStatus}
+            history={history}
+            reviewPath={reviewPath}
+            unsavedDecisions={unsavedDecisionCount(review.hunks)}
+            saving={chapterSaving}
+            onSaveFirst={saveChapter}
+            onApplySettings={setSettings}
+            onNeedModels={ai.ensureModels}
+            onOpenSettings={openSettings}
+            onCheckClaude={() => ai.check('claude')}
+            checking={ai.checking}
+            onStart={startReview}
+            onClose={() => setReviewDialogOpen(false)}
+          />
+        ) : null}
+        {settingsOpen && settings ? (
+          <SettingsDialog
+            settings={settings}
+            models={ai.models.claude ?? []}
+            runtime={claudeRuntime}
+            keyStatus={ai.keyStatus}
+            onKeyChanged={ai.keyChanged}
+            onApply={(next) => {
+              setSettings(next);
+              refreshFiles();
+            }}
+            onClose={() => setSettingsOpen(false)}
+            onOpenSetup={() => {
+              setSettingsOpen(false);
+              setSetupOpen(true);
+            }}
+          />
+        ) : null}
       </div>
-
-      <StatusBar
-        review={review}
-        {...(runtimeLabel ? { runtimeLabel } : {})}
-        rateLimit={ai.rateLimit?.message}
-      />
-      <HunkTooltip />
-      <EditPopover onSaved={(message, tone) => notify(tone ?? 'info', message, 'edit')} />
-      {newChapterOpen ? (
-        <NewChapterDialog
-          onClose={() => setNewChapterOpen(false)}
-          onCreated={(file) => {
-            setNewChapterOpen(false);
-            refreshFiles();
-            openChapter(file);
-            notify('info', `Created ${file.name}.`);
-          }}
-        />
-      ) : null}
-      {manualReviewOpen && review?.sourcePath ? (
-        <ManualReviewDialog
-          review={review}
-          onClose={() => setManualReviewOpen(false)}
-          onLoadCorrected={loadCorrectedFromFile}
-          onCreated={(next) => {
-            adoptReview(next);
-            notify(
-              'info',
-              `Built ${next.hunks.length} suggestion${next.hunks.length === 1 ? '' : 's'} from your text.`
-            );
-          }}
-        />
-      ) : null}
-      {reviewDialogOpen && review && settings ? (
-        <ReviewDialog
-          review={review}
-          settings={settings}
-          models={ai.models}
-          modelsLoading={ai.modelsLoading}
-          runtimes={ai.runtimes}
-          keyStatus={ai.keyStatus}
-          history={history}
-          reviewPath={reviewPath}
-          unsavedDecisions={unsavedDecisionCount(review.hunks)}
-          saving={chapterSaving}
-          onSaveFirst={saveChapter}
-          onApplySettings={setSettings}
-          onNeedModels={ai.ensureModels}
-          onOpenSettings={openSettings}
-          onCheckClaude={() => ai.check('claude')}
-          checking={ai.checking}
-          onStart={startReview}
-          onClose={() => setReviewDialogOpen(false)}
-        />
-      ) : null}
-      {settingsOpen && settings ? (
-        <SettingsDialog
-          settings={settings}
-          models={ai.models.claude ?? []}
-          runtime={claudeRuntime}
-          keyStatus={ai.keyStatus}
-          onKeyChanged={ai.keyChanged}
-          onApply={(next) => {
-            setSettings(next);
-            refreshFiles();
-          }}
-          onClose={() => setSettingsOpen(false)}
-          onOpenSetup={() => {
-            setSettingsOpen(false);
-            setSetupOpen(true);
-          }}
-        />
-      ) : null}
       {/* Last, above everything: a question can be asked from any dialog above. */}
       <ConfirmDialog />
     </div>
