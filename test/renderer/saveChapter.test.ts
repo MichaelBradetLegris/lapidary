@@ -5,6 +5,7 @@ import { unsavedDecisionCount } from '../../src/shared/diff/compose';
 import type { FileContent, SaveRequest, SaveResponse } from '../../src/shared/ipc';
 import { createReview } from '../../src/shared/review';
 import type { Review } from '../../src/shared/types';
+import { SHOW_BACKUPS_CARD, noBackupsYet } from '../../src/shared/ui/backups';
 import {
   CHAPTER_MATCHES_PAGE,
   PRESS_DONE_FIRST,
@@ -614,6 +615,56 @@ describe('the save card and its backup (apply.11)', () => {
     expect(card()?.text).toBe(SAVED_CARD);
     expect(card()?.action).toBeUndefined();
     expect(card()?.actionArg).toBeUndefined();
+  });
+
+  /* Show backups on a chapter never saved puts up a card saying there are no
+     backups; cards close only on their X, so a save that makes one must take
+     it down, or it stays above "Saved to the chapter file." untrue. */
+  it('takes down the no-backups card once a save makes or finds a backup', async () => {
+    for (const backup of [BACKUP, { ...BACKUP, created: false }]) {
+      state().clearNotifications();
+      state().setReview(chapterReview(), REVIEW_PATH);
+      state().notify('info', noBackupsYet('Chapter 01'), SHOW_BACKUPS_CARD, 'reveal-all-backups');
+      state().toggleAccepted('h1');
+      const h = harness({ status: 'written', hash: 'h2', backup });
+      expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('saved');
+      expect(cards()).toEqual([SAVED_CARD]);
+    }
+  });
+
+  it('takes it down too when the review was reloaded while saving, since the backup was still made', async () => {
+    state().notify('info', noBackupsYet('Chapter 01'), SHOW_BACKUPS_CARD, 'reveal-all-backups');
+    state().toggleAccepted('h1');
+    const reply = deferred();
+    const h = harness(reply.promise);
+    const run = saveChapter({ applyDrafts: 'ask' }, h.deps);
+    await tick();
+    // The same review, rebased by the watcher onto other bytes during the write.
+    const r = state().review!;
+    state().setReview(
+      { ...r, base: { ...r.base, text: `${CHAPTER} Then she left.`, hash: 'h9' } },
+      REVIEW_PATH
+    );
+    reply.resolve({ status: 'written', hash: 'h2', backup: BACKUP });
+    expect(await run).toBe('saved');
+    expect(cards()).toEqual([RELOADED_WHILE_SAVING]);
+  });
+
+  it('leaves it when no backup was made: nothing written, or the write refused', async () => {
+    const none = noBackupsYet('Chapter 01');
+    state().notify('info', none, SHOW_BACKUPS_CARD, 'reveal-all-backups');
+    state().toggleAccepted('h1');
+    const unchanged = harness({ status: 'written', hash: 'h1', unchanged: true });
+    expect(await saveChapter({ applyDrafts: 'ask' }, unchanged.deps)).toBe('nothing-to-save');
+    expect(cards()).toEqual([none, CHAPTER_MATCHES_PAGE]);
+    state().setReview(chapterReview(), REVIEW_PATH);
+    state().toggleAccepted('h1');
+    const refused = harness(
+      new Error('Could not back up the chapter before saving, so nothing was written: no space left.')
+    );
+    expect(await saveChapter({ applyDrafts: 'ask' }, refused.deps)).toBe('failed');
+    expect(cards()[0]).toBe(none);
+    expect(cards()).toHaveLength(2);
   });
 
   it('has no button on the cards that say nothing new was written', async () => {

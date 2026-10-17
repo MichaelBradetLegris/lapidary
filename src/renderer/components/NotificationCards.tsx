@@ -1,4 +1,4 @@
-import { SHOW_BACKUPS } from '../../shared/ui/backups';
+import { SHOW_ALL_BACKUPS, SHOW_BACKUPS } from '../../shared/ui/backups';
 import { useApp, type NotificationAction } from '../state/store';
 import { IconX } from './icons';
 
@@ -8,6 +8,7 @@ const ACTION_LABELS: Record<NotificationAction, string> = {
   'show-diagnostics': 'Show diagnostics',
   'reveal-drafts': 'Show the text',
   'reveal-backups': SHOW_BACKUPS,
+  'reveal-all-backups': SHOW_ALL_BACKUPS,
   'update-download': 'Download',
   'update-restart': 'Restart now',
   'update-open-page': 'Open the release page'

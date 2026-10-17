@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { composeReview, unsavedDecisionCount } from '../shared/diff/compose';
 import { rebaseReview } from '../shared/diff/rebase';
 import { proPreselection } from '../shared/ai/claudeModels';
+import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
 import { historyWhen } from '../shared/ui/history';
 import { rebaseCardText } from '../shared/ui/rebase';
 import { runtimeLabel as labelForRuntime } from '../shared/ui/setup';
@@ -113,6 +114,7 @@ export function App(): React.JSX.Element {
   const setSettings = useApp((s) => s.setSettings);
   const setReview = useApp((s) => s.setReview);
   const notify = useApp((s) => s.notify);
+  const dismissNotificationsByKey = useApp((s) => s.dismissNotificationsByKey);
   const setNewChapterOpen = useApp((s) => s.setNewChapterOpen);
   const setManualReviewOpen = useApp((s) => s.setManualReviewOpen);
   const setReviewDialogOpen = useApp((s) => s.setReviewDialogOpen);
@@ -416,20 +418,24 @@ export function App(): React.JSX.Element {
   }, [review, notify]);
 
   /* Show backups (apply.11, PLAN 6.5): a chapter's own backup folder, with its
-     newest backup selected, which main works out from the chapter's path. A
-     chapter with none yet gets a card saying so rather than an error. */
+     newest backup selected, which main works out from the chapter's path; with
+     no path, the backups root. A chapter with no folder at its path gets a card
+     saying so rather than an error, with Show all backups for the folders of
+     other paths, a renamed or moved chapter's among them. A reveal that works
+     closes any such card, since it may no longer be true. */
   const revealBackups = useCallback(
     (sourcePath?: string) => {
-      void call('shell:reveal', { target: 'backups', ...(sourcePath ? { sourcePath } : {}) }).catch(
-        (err: unknown) =>
-          notify(
-            err instanceof ApiError && err.code === 'not-found' ? 'info' : 'error',
-            errorMessage(err),
-            'show-backups'
-          )
-      );
+      void call('shell:reveal', { target: 'backups', ...(sourcePath ? { sourcePath } : {}) })
+        .then(() => dismissNotificationsByKey(SHOW_BACKUPS_CARD))
+        .catch((err: unknown) => {
+          if (err instanceof ApiError && err.code === 'not-found') {
+            notify('info', errorMessage(err), SHOW_BACKUPS_CARD, 'reveal-all-backups');
+          } else {
+            notify('error', errorMessage(err), SHOW_BACKUPS_CARD);
+          }
+        });
     },
-    [notify]
+    [notify, dismissNotificationsByKey]
   );
 
   const chooseManuscriptFolder = useCallback(() => {
@@ -718,6 +724,10 @@ export function App(): React.JSX.Element {
                   case 'reveal-backups':
                     // The save card names the chapter it saved (apply.11).
                     revealBackups(arg);
+                    break;
+                  case 'reveal-all-backups':
+                    // The no-backups card: the backups root, as in Settings (apply.11).
+                    revealBackups();
                     break;
                   default:
                     // Diagnostics (hardening.5) and updates (release.9) wire theirs in when they land.

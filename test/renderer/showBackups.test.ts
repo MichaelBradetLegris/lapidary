@@ -61,8 +61,20 @@ describe('Show backups in the side panel (apply.11)', () => {
     expect(APP).toContain(
       "call('shell:reveal', { target: 'backups', ...(sourcePath ? { sourcePath } : {}) })"
     );
-    // A chapter with no backups yet is told so, not shown an error.
-    expect(APP).toContain("err instanceof ApiError && err.code === 'not-found' ? 'info' : 'error'");
+    // A chapter with no folder at its path is told so, not shown an error, and
+    // offered every chapter's backups, a renamed or moved chapter's among them.
+    expect(APP).toMatch(
+      /if \(err instanceof ApiError && err\.code === 'not-found'\) \{\s*notify\('info', errorMessage\(err\), SHOW_BACKUPS_CARD, 'reveal-all-backups'\);/
+    );
+  });
+
+  it('closes an earlier no-backups card once a Show backups works, under the shared key', () => {
+    const reveal = APP.slice(APP.indexOf('const revealBackups'), APP.indexOf('const chooseManuscriptFolder'));
+    expect(reveal).toMatch(
+      /call\('shell:reveal', [^\n]*\)\s*\.then\(\(\) => dismissNotificationsByKey\(SHOW_BACKUPS_CARD\)\)\s*\.catch\(/
+    );
+    expect(APP).not.toContain("'show-backups'");
+    expect(APP).toContain("import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';");
   });
 
   it('keeps the footer pinned: the panel is a column, the regions take the rest, and the footer never scrolls', () => {
@@ -91,6 +103,11 @@ describe('Show backups on the save card (apply.11)', () => {
     expect(CARDS).toContain("'reveal-backups': SHOW_BACKUPS,");
     expect(CARDS).toContain('onAction(action, note.actionArg)');
     expect(APP).toMatch(/case 'reveal-backups':\s*revealBackups\(arg\);\s*break;/);
+  });
+
+  it("gives the no-backups card's Show all backups the backups root, with no chapter", () => {
+    expect(CARDS).toContain("'reveal-all-backups': SHOW_ALL_BACKUPS,");
+    expect(APP).toMatch(/case 'reveal-all-backups':\s*revealBackups\(\);\s*break;/);
   });
 });
 

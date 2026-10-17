@@ -9,7 +9,13 @@ import {
   localDayNumber,
   parseBackupFileName
 } from '../../src/shared/backups';
-import { BACKUPS_NOTE, SHOW_BACKUPS, SHOW_BACKUPS_TITLE, noBackupsYet } from '../../src/shared/ui/backups';
+import {
+  BACKUPS_NOTE,
+  SHOW_ALL_BACKUPS,
+  SHOW_BACKUPS,
+  SHOW_BACKUPS_TITLE,
+  noBackupsYet
+} from '../../src/shared/ui/backups';
 
 /* apply.10: backup names and what is kept (PLAN 6.5, 11.3 h). Dates are built
    with the local-time constructor, so the tests hold in any time zone. */
@@ -295,13 +301,30 @@ describe('finding backups: the wording', () => {
     expect(BACKUP_RETENTION).toMatchObject({ newest: 20, days: 30 });
   });
 
-  it('names the button and the chapter with no backups plainly', () => {
+  it('names the buttons and the chapter with no backups plainly', () => {
     expect(SHOW_BACKUPS).toBe('Show backups');
+    expect(SHOW_ALL_BACKUPS).toBe('Show all backups');
     expect(noBackupsYet('Chapter 03')).toBe(
-      'Chapter 03 has no backups yet. Save to chapter makes one each time it changes the file.'
+      'No backups of Chapter 03 at this path yet. Save to chapter makes one each time it changes the file. If the chapter or its folder was renamed or moved, its earlier backups are in another folder, named after its old file name.'
     );
-    for (const text of [BACKUPS_NOTE, SHOW_BACKUPS, SHOW_BACKUPS_TITLE, noBackupsYet('Chapter 03')]) {
+    for (const text of [
+      BACKUPS_NOTE,
+      SHOW_BACKUPS,
+      SHOW_BACKUPS_TITLE,
+      SHOW_ALL_BACKUPS,
+      noBackupsYet('Chapter 03')
+    ]) {
       expect(text).not.toMatch(/accepted changes?/i);
     }
+  });
+
+  /* The backup folder is named by the chapter's path (`backupFolderFor`), so a
+     renamed or moved chapter has none at its new path while its earlier
+     backups stay in the old one: the card must not say it has none at all. */
+  it('never says a chapter has no backups at all, since a renamed or moved one has them elsewhere', () => {
+    const text = noBackupsYet('Chapter 03');
+    expect(text).not.toMatch(/has no backups/);
+    expect(text).toContain('at this path');
+    expect(text).toMatch(/renamed or moved/);
   });
 });

@@ -451,6 +451,36 @@ describe('chapterBackups', () => {
     expect(await chapterBackups(backupsRoot, b, true)).toBeNull();
   });
 
+  /* Backups are kept by path, so they do not follow a renamed or moved
+     chapter as its reviews do (6.4): the card says "at this path", and the
+     old folder's chapter.json names the file it was made for (PLAN 6.5). */
+  it('finds nothing at the new path of a renamed chapter or a moved vault, and the old folder names the old path', async () => {
+    const before = await chapter('Chapter 01 - The Flood.md', Buffer.from('one\n'));
+    const { folder } = await writeBackup({
+      backupsRoot,
+      sourcePath: before,
+      bytes: Buffer.from('one\n'),
+      now: at(2026, 10, 17),
+      ci: true
+    });
+    const renamed = path.join(vault, 'Chapter 01 - The Deluge.md');
+    await fs.rename(before, renamed);
+    expect(await chapterBackups(backupsRoot, renamed, true)).toBeNull();
+    const movedVault = path.join(root, 'Books', 'vault');
+    await fs.mkdir(path.dirname(movedVault), { recursive: true });
+    await fs.rename(vault, movedVault);
+    const moved = path.join(movedVault, 'Chapter 01 - The Deluge.md');
+    expect(await chapterBackups(backupsRoot, moved, true)).toBeNull();
+    // A moved vault keeps the file name, so the new folder would share the
+    // old one's slug and differ only in its hash.
+    expect(
+      path.basename(backupFolderFor(backupsRoot, path.join(movedVault, 'Chapter 01 - The Flood.md'), true))
+    ).not.toBe(path.basename(folder));
+    expect(path.basename(folder)).toMatch(/^chapter-01-the-flood-[0-9a-f]{8}$/);
+    expect(await readInfo(folder)).toEqual({ sourcePath: before });
+    expect((await chapterBackups(backupsRoot, before, true))?.newest).not.toBeNull();
+  });
+
   it('opens a folder whose backups were deleted by hand, with nothing to select', async () => {
     const file = await chapter('Chapter 01.md', Buffer.from('one\n'));
     const { file: copy, folder } = await writeBackup({

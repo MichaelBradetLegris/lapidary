@@ -348,6 +348,7 @@ export type NotificationAction =
   | 'show-diagnostics'
   | 'reveal-drafts'
   | 'reveal-backups'
+  | 'reveal-all-backups'
   | 'update-download'
   | 'update-restart'
   | 'update-open-page';

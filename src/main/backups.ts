@@ -105,8 +105,10 @@ export interface ChapterBackups {
 /**
  * What Show backups shows for a chapter (apply.11): its own folder, worked
  * out here from the chapter's path rather than taken from the page, and the
- * newest backup in it. Null when the chapter has no folder yet, which is the
- * case until a Save to chapter first changes the file.
+ * newest backup in it. Null when the chapter has no folder at this path: until
+ * a Save to chapter first changes the file there, and so also after the
+ * chapter, its folder or the vault was renamed or moved, since the folder is
+ * named by the path and the backups made before stay in the old path's folder.
  */
 export async function chapterBackups(
   backupsRoot: string,

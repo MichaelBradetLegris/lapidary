@@ -3,6 +3,7 @@ import { composeReview, unsavedDecisionCount } from '../../shared/diff/compose';
 import { rebaseReview } from '../../shared/diff/rebase';
 import type { FileContent, SaveRequest, SaveResponse } from '../../shared/ipc';
 import type { Review, ReviewBase } from '../../shared/types';
+import { SHOW_BACKUPS_CARD } from '../../shared/ui/backups';
 import { rebaseCardText } from '../../shared/ui/rebase';
 import { CHAPTER_MATCHES_PAGE } from '../../shared/ui/save';
 import { changedParagraphCount, isLocked, savedReview, useApp } from './store';
@@ -176,6 +177,9 @@ async function runSave(options: SaveOptions, deps: SaveDeps): Promise<SaveOutcom
           reloaded = app().review?.base.hash !== response.hash;
         }
         deps.onSaved?.(working, sameChapter(app().review, working));
+        // A backup now stands for this save, so a card from Show backups
+        // saying there are none is no longer true (apply.11, PLAN 6.5).
+        if (response.backup) app().dismissNotificationsByKey(SHOW_BACKUPS_CARD);
         if (reloaded) {
           app().notify('warn', RELOADED_WHILE_SAVING, SAVE_CARD);
           return 'saved';

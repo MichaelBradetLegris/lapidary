@@ -364,8 +364,10 @@ function registerFileHandlers(): void {
   handle('shell:reveal', async ({ target, sourcePath, name }) => {
     /* Show backups for a chapter (apply.11): its own backup folder, which main
        works out from the path and refuses outside the backups root, opened
-       with the newest backup selected. A chapter never yet changed by a Save
-       to chapter has no folder, and the card says so. */
+       with the newest backup selected. The folder follows the chapter's path,
+       so a chapter not yet changed by a Save to chapter at this path has none,
+       whether it is new or was renamed or moved (its earlier backups stay in
+       the old path's folder), and the card says so. */
     if (target === 'backups' && sourcePath !== undefined) {
       const shown = await chapterBackups(
         backupsRootFor(app.getPath('userData')),
