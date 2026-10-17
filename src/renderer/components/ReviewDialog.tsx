@@ -23,6 +23,7 @@ import {
 } from '../../shared/types';
 import { call, errorMessage } from '../state/client';
 import { modelOptions, selectedModel } from '../state/models';
+import { useApp } from '../state/store';
 import { Command } from './Command';
 
 interface Props {
@@ -116,7 +117,9 @@ export function ReviewDialog({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
+      // A question asked over this dialog takes Escape for itself. This
+      // listener was added first, so it would otherwise close the dialog too.
+      if (event.key === 'Escape' && !useApp.getState().confirmSpec) {
         event.stopPropagation();
         onClose();
       }

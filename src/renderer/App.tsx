@@ -659,7 +659,6 @@ export function App(): React.JSX.Element {
         rateLimit={ai.rateLimit?.message}
       />
       <HunkTooltip />
-      <ConfirmDialog />
       <EditPopover onSaved={(message, tone) => notify(tone ?? 'info', message, 'edit')} />
       {newChapterOpen ? (
         <NewChapterDialog
@@ -725,6 +724,8 @@ export function App(): React.JSX.Element {
           }}
         />
       ) : null}
+      {/* Last, above everything: a question can be asked from any dialog above. */}
+      <ConfirmDialog />
     </div>
   );
 }

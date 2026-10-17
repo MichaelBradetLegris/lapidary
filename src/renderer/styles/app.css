@@ -1145,6 +1145,13 @@ input[type='text'] {
   z-index: 20;
 }
 
+/* The confirm dialog is asked from inside other dialogs and with the suggestion
+   editor open (.editor, 38), so it sits above every other layer, the tooltip
+   (.tip, 40) included. */
+.modal-backdrop--confirm {
+  z-index: 45;
+}
+
 .modal {
   background: var(--panel);
   border-radius: 8px;
