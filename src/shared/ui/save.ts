@@ -1,0 +1,436 @@
+/**
+ * What Save to chapter, Ctrl+S, leaving a chapter and closing the window say
+ * and do, decided without React or Electron (apply.2, PLAN 11.3 i).
+ *
+ * The toolbar button, the status bar, the Ctrl+S key, the leave prompt, the
+ * close prompt and main's native fallback boxes all take their words and their
+ * rules from here, so every state has a test. One count drives them all:
+ * `unsavedDecisionCount`, the decisions the chapter file does not contain yet.
+ * That count includes a saved change the author has since turned back, so
+ * nothing here calls them "accepted changes"; they are changes not saved to the
+ * chapter. The app's name comes from `APP_NAME` (C.21).
+ *
+ * Pure (CLAUDE.md rule 4): the main process imports it for the close guard.
+ */
+
+import { APP_NAME } from '../branding';
+import type { CloseGuardState } from '../ipc';
+import { samePath } from '../paths';
+import { chapterName } from '../review';
+
+/* ------------------------------------------------------------------ */
+/* Shared wording                                                       */
+/* ------------------------------------------------------------------ */
+
+/** "1 change", "3 changes": the one noun for what Save to chapter writes. */
+export function changeCount(n: number): string {
+  return `${n} change${n === 1 ? '' : 's'}`;
+}
+
+/** What a Save with nothing to write says, and the Save button's tooltip then (apply.3). */
+export const CHAPTER_MATCHES_PAGE = 'The chapter already matches the page.';
+
+/** The card Ctrl+S shows from inside a paragraph box (PLAN 11.1, Ctrl+S). */
+export const PRESS_DONE_FIRST =
+  'This paragraph is still open. Press Done or Ctrl+Enter to apply it, then save.';
+
+const SAVE_ONLY = 'The chapter file changes only when you press Save to chapter.';
+
+function countLine(n: number): string {
+  return `${changeCount(n)} ${n === 1 ? 'is' : 'are'} not saved to the chapter yet.`;
+}
+
+/**
+ * Where the decisions wait until Save. `olderReviewFrom` is set when the review
+ * on screen is not the one the chapter opens with, so the author is told where
+ * to find them again.
+ */
+function keptLine(olderReviewFrom: string | null | undefined): string {
+  if (olderReviewFrom) {
+    return `Your decisions are kept in the review from ${olderReviewFrom}. The chapter opens with a newer review, so reopen this one from History. ${SAVE_ONLY}`;
+  }
+  return `Your decisions are kept in this review. ${SAVE_ONLY}`;
+}
+
+function paragraphLine(p: number): string {
+  return p === 1
+    ? 'The paragraph you are editing is kept as you left it and comes back with this review.'
+    : `The ${p} paragraphs you are editing are kept as you left them and come back with this review.`;
+}
+
+const RUNNING_LINE = 'The review that is running will stop, and its result will be lost.';
+const DIALOG_LINE = 'The text you typed in the open dialog will be lost.';
+
+/* ------------------------------------------------------------------ */
+/* The Save button and the status bar                                   */
+/* ------------------------------------------------------------------ */
+
+export interface SaveButtonInput {
+  /** a chapter file is open: a review with a source path */
+  hasChapter: boolean;
+  /** `unsavedDecisionCount` of the review on screen */
+  unsavedDecisions: number;
+  /** paragraph boxes whose text differs from what they opened with */
+  changedParagraphs: number;
+  /** a Save to chapter is under way */
+  saving: boolean;
+  /** a review of this chapter is running, so the page is read-only */
+  locked: boolean;
+}
+
+export interface SaveButtonState {
+  label: string;
+  disabled: boolean;
+  /** the tooltip */
+  title: string;
+  /** true when the chapter name in the toolbar gets the unsaved dot */
+  dot: boolean;
+}
+
+/**
+ * The toolbar's Save button (apply.4): "Save 3 changes to chapter" while
+ * something is not saved, plain "Save to chapter" when the file already reads
+ * like the page. It stays enabled then, and a press says so
+ * (`CHAPTER_MATCHES_PAGE`), because a button that turns grey for no visible
+ * reason is harder to read than one that answers.
+ */
+export function saveButtonState(input: SaveButtonInput): SaveButtonState {
+  const n = input.unsavedDecisions;
+  if (!input.hasChapter) {
+    return { label: 'Save to chapter', disabled: true, title: 'Open a chapter to save to it.', dot: false };
+  }
+  const dot = n > 0;
+  if (input.saving) {
+    return { label: 'Saving…', disabled: true, title: 'Writing the chapter file.', dot };
+  }
+  const label = n > 0 ? `Save ${changeCount(n)} to chapter` : 'Save to chapter';
+  if (input.locked) {
+    return { label, disabled: true, title: 'Wait for the review to finish, then save.', dot };
+  }
+  if (input.changedParagraphs > 0) {
+    const boxes =
+      input.changedParagraphs === 1 ? 'the paragraph' : `the ${input.changedParagraphs} paragraphs`;
+    return {
+      label,
+      disabled: false,
+      title: `Write your decisions into the chapter file (Ctrl+S). You are asked first about ${boxes} you are editing.`,
+      dot
+    };
+  }
+  if (n > 0) {
+    const what = n === 1 ? 'this change' : `these ${n} changes`;
+    return { label, disabled: false, title: `Write ${what} into the chapter file (Ctrl+S).`, dot };
+  }
+  return { label, disabled: false, title: CHAPTER_MATCHES_PAGE, dot };
+}
+
+/**
+ * The status bar's count (apply.4), beside "N pending" and "N accepted":
+ * "3 not saved to chapter". Empty when the chapter matches the page, so the
+ * status bar shows nothing rather than a count of zero.
+ */
+export function unsavedPhrase(n: number): string {
+  return n > 0 ? `${n} not saved to chapter` : '';
+}
+
+/* ------------------------------------------------------------------ */
+/* Which review the chapter opens with                                  */
+/* ------------------------------------------------------------------ */
+
+/** The fields of a review or a `ReviewSummary` that decide which one is current. */
+export interface ReviewTimes {
+  id: string;
+  createdAt: string;
+  decidedAt?: string | undefined;
+}
+
+function lastDecided(review: ReviewTimes): string {
+  return review.decidedAt ?? review.createdAt;
+}
+
+/**
+ * The id of the review a chapter opens with: the one with the latest
+ * `decidedAt ?? createdAt`, ties going to the later `createdAt` (PLAN 6.4; the
+ * same rule as `currentOf` in `src/main/reviews.ts`). `live` is the review on
+ * screen, whose times are newer than the History list the renderer last
+ * fetched; it replaces its own entry, or joins the list when it is not there
+ * yet. Null when there are no reviews.
+ *
+ * The close and leave prompts use it to tell when the decisions on screen sit
+ * in an older review that the chapter will not open with.
+ */
+export function currentReviewId(reviews: readonly ReviewTimes[], live?: ReviewTimes | null): string | null {
+  const all = live
+    ? reviews.some((r) => r.id === live.id)
+      ? reviews.map((r) => (r.id === live.id ? live : r))
+      : [...reviews, live]
+    : reviews;
+  let best: ReviewTimes | null = null;
+  for (const review of all) {
+    if (!best) {
+      best = review;
+      continue;
+    }
+    const a = lastDecided(review);
+    const b = lastDecided(best);
+    if (a > b || (a === b && review.createdAt > best.createdAt)) best = review;
+  }
+  return best ? best.id : null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Leaving a chapter and closing the window                              */
+/* ------------------------------------------------------------------ */
+
+/** Which of a prompt's buttons has the focus when it opens. */
+export type PromptButton = 'confirm' | 'alt' | 'cancel';
+
+/**
+ * A three-way question in the shape the confirm dialog takes (apply.6):
+ * confirm saves, alt leaves or closes and keeps everything for later, cancel
+ * stays.
+ */
+export interface SavePrompt {
+  title: string;
+  /** one point per line, separated by "\n"; a dialog that collapses white space shows one paragraph */
+  body: string;
+  /** the Save choice; empty when saving is not possible now, which hides the button */
+  confirmLabel: string;
+  altLabel: string;
+  cancelLabel: string;
+  defaultButton: PromptButton;
+}
+
+export interface PromptContext {
+  /**
+   * Set when the review on screen is not the one the chapter opens with
+   * (`currentReviewId`): its date as History shows it.
+   */
+  olderReviewFrom?: string | null;
+}
+
+/**
+ * Whether closing the window needs the page at all (PLAN 11.3 i). False closes
+ * at once with no IPC. Pending writes count, so the page gets to flush them,
+ * though they ask nothing (`closePrompt` is null then). Null, before the page
+ * has said anything, means nothing is known to be at risk.
+ */
+export function needsAttention(state: CloseGuardState | null): boolean {
+  if (!state) return false;
+  return (
+    state.unsavedDecisions > 0 ||
+    state.changedParagraphs > 0 ||
+    state.reviewRunning ||
+    state.locked ||
+    state.writesPending ||
+    state.dialogText
+  );
+}
+
+/**
+ * The question before the window closes, or null when nothing needs asking
+ * (PLAN 11.3 i). "Close, keep for later" is focused whenever there is
+ * something to keep. When only a running review or typed dialog text would be
+ * lost, the choice is "Close anyway" and Cancel takes the focus, so Enter never
+ * throws work away. Saving is offered only when a chapter is open and no review
+ * of it is running.
+ */
+export function closePrompt(state: CloseGuardState, context: PromptContext = {}): SavePrompt | null {
+  const n = state.unsavedDecisions;
+  const p = state.changedParagraphs;
+  const running = state.reviewRunning || state.locked;
+  const keep = n > 0 || p > 0;
+  if (!keep && !running && !state.dialogText) return null;
+
+  const lines: string[] = [];
+  if (n > 0) lines.push(countLine(n), keptLine(context.olderReviewFrom));
+  if (p > 0) lines.push(paragraphLine(p));
+  if (running) lines.push(RUNNING_LINE);
+  if (state.dialogText) lines.push(DIALOG_LINE);
+
+  const canSave = keep && state.chapter !== null && !state.locked;
+  let confirmLabel = '';
+  if (canSave) confirmLabel = p > 0 ? 'Apply, save and close' : `Save ${changeCount(n)} and close`;
+
+  return {
+    title: `Close ${APP_NAME}?`,
+    body: lines.join('\n'),
+    confirmLabel,
+    altLabel: keep ? 'Close, keep for later' : 'Close anyway',
+    cancelLabel: 'Cancel',
+    defaultButton: keep ? 'alt' : 'cancel'
+  };
+}
+
+/** What the author is about to open instead of what is on screen. */
+export type LeaveTarget =
+  /** a chapter from the list, or the one New chapter has just made */
+  | { kind: 'chapter'; path: string }
+  /** a review from History; `when` is its date as History shows it */
+  | { kind: 'review'; id: string; when: string };
+
+export interface LeaveState extends Pick<
+  CloseGuardState,
+  'chapter' | 'unsavedDecisions' | 'changedParagraphs' | 'locked'
+> {
+  /** the id of the review on screen */
+  reviewId: string | null;
+}
+
+/**
+ * The question before another chapter or another review replaces the one on
+ * screen, or null when nothing needs asking (PLAN 11.3 i): nothing unsaved, a
+ * review of this chapter running (the page is read-only and its decisions are
+ * already written), or the target is what is already open, which only flushes.
+ * The open chapter is compared exactly, apart from separators and Unicode form:
+ * a path that differs only in case asks, which costs a click and loses nothing.
+ */
+export function leavePrompt(
+  state: LeaveState,
+  target: LeaveTarget,
+  context: PromptContext = {}
+): SavePrompt | null {
+  if (target.kind === 'chapter' && state.chapter !== null && samePath(target.path, state.chapter, false)) {
+    return null;
+  }
+  if (target.kind === 'review' && target.id === state.reviewId) return null;
+  if (state.locked) return null;
+  const n = state.unsavedDecisions;
+  const p = state.changedParagraphs;
+  if (n === 0 && p === 0) return null;
+
+  const lines: string[] = [];
+  if (n > 0) lines.push(countLine(n), keptLine(context.olderReviewFrom));
+  if (p > 0) lines.push(paragraphLine(p));
+
+  let confirmLabel = '';
+  if (state.chapter !== null) confirmLabel = p > 0 ? 'Apply and save first' : `Save ${changeCount(n)} first`;
+
+  return {
+    title:
+      target.kind === 'chapter'
+        ? `Leave ${state.chapter !== null ? chapterName(state.chapter) : 'this chapter'}?`
+        : `Open the review from ${target.when}?`,
+    body: lines.join('\n'),
+    confirmLabel,
+    altLabel: 'Keep for later',
+    cancelLabel: 'Cancel',
+    defaultButton: 'alt'
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Main's native boxes, when the page does not get as far as asking      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `no-answer`: the page did not say it received the close request within 3 s.
+ * `finishing`: it did, but has not reached its question 10 s later.
+ */
+export type UnresponsiveStage = 'no-answer' | 'finishing';
+
+/** A native message box with two buttons: Wait, then Close anyway. */
+export interface UnresponsiveBox {
+  /** the box's window title */
+  title: string;
+  message: string;
+  detail: string;
+  waitLabel: string;
+  closeLabel: string;
+}
+
+/**
+ * The words of main's fallback boxes (PLAN 11.3 i), from the last state the
+ * page pushed, which may be a moment old; `state` is null when it never pushed
+ * one, and the box then names nothing at risk.
+ */
+export function unresponsiveDetail(stage: UnresponsiveStage, state: CloseGuardState | null): UnresponsiveBox {
+  const lines: string[] = [];
+  if (stage === 'finishing') lines.push('It is still writing your decisions.');
+  if (state) {
+    if (state.unsavedDecisions > 0) {
+      lines.push(
+        stage === 'no-answer'
+          ? `${countLine(state.unsavedDecisions)} Decisions made just before it stopped responding may not have reached the review.`
+          : countLine(state.unsavedDecisions)
+      );
+    }
+    if (state.changedParagraphs > 0 && stage === 'no-answer') {
+      lines.push('Paragraph text typed just before it stopped responding may be lost.');
+    }
+    if (state.reviewRunning || state.locked) lines.push(RUNNING_LINE);
+    if (state.dialogText) lines.push(DIALOG_LINE);
+  }
+  lines.push(
+    stage === 'no-answer'
+      ? 'Wait gives it more time. Close anyway closes the window now.'
+      : 'Wait gives it more time. Close anyway closes the window now, and anything not yet written is lost.'
+  );
+  return {
+    title: APP_NAME,
+    message: stage === 'no-answer' ? `${APP_NAME} is not responding` : `${APP_NAME} is still finishing`,
+    detail: lines.join('\n'),
+    waitLabel: 'Wait',
+    closeLabel: 'Close anyway'
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Ctrl+S                                                               */
+/* ------------------------------------------------------------------ */
+
+/** The parts of a keydown event the shortcut reads. */
+export interface ShortcutKey {
+  key: string;
+  code?: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  repeat: boolean;
+}
+
+export interface SaveShortcutContext {
+  /** a chapter file is open */
+  hasChapter: boolean;
+  /** a dialog, a prompt, Settings or Setup covers the page */
+  modalOpen: boolean;
+  /** the key came from inside a paragraph box */
+  inParagraphBox: boolean;
+  /** a review of this chapter is running */
+  locked: boolean;
+  /** a Save to chapter is already under way */
+  saving: boolean;
+  unsavedDecisions: number;
+  changedParagraphs: number;
+}
+
+export type SaveShortcutAction =
+  /** not the save shortcut: leave the event alone */
+  | { kind: 'pass' }
+  /** the save shortcut with nothing to do now: swallow it and do nothing */
+  | { kind: 'ignore' }
+  | { kind: 'save' }
+  /** show this card instead of saving */
+  | { kind: 'card'; message: string };
+
+/**
+ * Ctrl+S, or Cmd+S, runs Save to chapter (PLAN 11.1): not behind a modal, so it
+ * can never cancel or answer a prompt; not on a held key's repeats; not while a
+ * review of the chapter runs or a save is under way; from inside a paragraph
+ * box it says to press Done first; and with nothing to write it does nothing.
+ * The S is read from `key`, or from the physical key on a layout whose S key
+ * types another script, so Ctrl+S works in Cyrillic or Greek too.
+ */
+export function saveShortcutAction(event: ShortcutKey, context: SaveShortcutContext): SaveShortcutAction {
+  const modifier = (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey;
+  const key = event.key.toLowerCase();
+  const isS = key === 's' || (event.code === 'KeyS' && !/^[a-z]$/.test(key));
+  if (!modifier || !isS) return { kind: 'pass' };
+  if (event.repeat || context.modalOpen || context.locked || context.saving || !context.hasChapter) {
+    return { kind: 'ignore' };
+  }
+  if (context.inParagraphBox) return { kind: 'card', message: PRESS_DONE_FIRST };
+  if (context.unsavedDecisions === 0 && context.changedParagraphs === 0) return { kind: 'ignore' };
+  return { kind: 'save' };
+}

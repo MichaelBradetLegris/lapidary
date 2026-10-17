@@ -288,6 +288,30 @@ export interface AppNotice {
   action?: NotificationAction;
 }
 
+/**
+ * What closing the window now would put at risk (PLAN 11.3 i). The renderer
+ * pushes it whenever it changes, so main can close at once when nothing is at
+ * risk and ask the page only when something is (`needsAttention` and
+ * `closePrompt` in `src/shared/ui/save.ts`). Counts and flags only: no chapter
+ * text and no typed text crosses for this.
+ */
+export interface CloseGuardState {
+  /** absolute path of the open chapter, or null when none is open */
+  chapter: string | null;
+  /** decisions the chapter file does not contain yet (`unsavedDecisionCount`) */
+  unsavedDecisions: number;
+  /** paragraph boxes whose text differs from what they opened with */
+  changedParagraphs: number;
+  /** a review of the open chapter is running, so its page is read-only */
+  locked: boolean;
+  /** a review is running, for the open chapter or another */
+  reviewRunning: boolean;
+  /** a review or draft write is waiting or under way */
+  writesPending: boolean;
+  /** a dialog holds text the author typed: New chapter, Submit manual review or the edit popover */
+  dialogText: boolean;
+}
+
 /* ------------------------------------------------------------------ */
 /* Request map                                                         */
 /* ------------------------------------------------------------------ */
