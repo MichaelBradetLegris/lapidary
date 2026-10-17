@@ -3,6 +3,7 @@ import { composeReview, unsavedDecisionCount } from '../../shared/diff/compose';
 import { rebaseReview } from '../../shared/diff/rebase';
 import type { FileContent, SaveRequest, SaveResponse } from '../../shared/ipc';
 import type { Review, ReviewBase } from '../../shared/types';
+import { rebaseCardText } from '../../shared/ui/rebase';
 import { CHAPTER_MATCHES_PAGE } from '../../shared/ui/save';
 import { changedParagraphCount, isLocked, savedReview, useApp } from './store';
 
@@ -195,10 +196,7 @@ async function runSave(options: SaveOptions, deps: SaveDeps): Promise<SaveOutcom
       const { review: rebased, stats } = rebaseReview(working, baseFrom(response.disk));
       app().setReview(rebased, app().reviewPath);
       working = rebased;
-      app().notify(
-        'warn',
-        `The chapter changed on disk before saving. Rebased: ${stats.anchored} re-anchored, ${stats.stale} lost. Retrying.`
-      );
+      app().notify('warn', rebaseCardText('saving', stats));
     }
     app().notify(
       'error',

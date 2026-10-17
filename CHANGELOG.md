@@ -25,6 +25,7 @@ Work towards 1.0.
 ### Changed
 
 - Save to chapter with nothing to save says "The chapter already matches the page." and leaves the file untouched, its modified time included; it used to write the same text again. It no longer asks about paragraph boxes you opened but did not change.
+- The card shown when the chapter changed on disk now also says how many decisions changed to match the file, as when you made or undid a suggested change in Obsidian. So does the card Save to chapter shows when it finds the chapter changed.
 - In the light theme, faint grey text and the brown of warnings and word-choice suggestions are a little darker, so they are easier to read. Links are in the app's blue, and text fields and drop-down lists use the same near-black text as the rest of the app. The OpenAI key field in Settings has the same thin frame and rounded corners as the other fields.
 - The focused suggestion has a thin gold outline when it sits in the paragraph of the comment you have selected, where its yellow was hard to tell from the paragraph's own yellow.
 - The app is now called Lapidary; it was Stet. Settings, the stored OpenAI key and reviews in the default folder stay where they were. The Windows installer replaces an installed Stet, which has the same app id, and keeps its data folder.
@@ -62,6 +63,8 @@ Work towards 1.0.
 - A Save to chapter that failed left its card on screen after the next save, so repeated tries piled up identical red cards, even above "Saved to the chapter file.". Each save's card now replaces the last one's. The card saying the chapter changed on disk and was rebased still stays, since it counts the suggestions lost.
 - Rewriting a suggestion you had already saved to the chapter showed the new words on the page, but Save to chapter kept the old ones in the file. The new words now count as a change that is not saved yet, and Save writes them. With Accept now unticked, the saved words stay and your words wait as a suggestion; Save used to put the original words back.
 - A suggestion rewritten to the words the chapter already holds no longer counts as a change to save when you turn it back or dismiss it afterwards. Save to chapter offered to write one change, then said the chapter already matched the page.
+- After the chapter changed on disk, a deletion you had saved, such as one word of a doubled "the the", could come back as a suggestion to delete the word that remained, or another word like it, which accepting and saving would have deleted. It now stays saved. A deletion you had accepted and also made in the file, in Obsidian for example, could make Save to chapter delete the word left beside it; it is now taken as made.
+- After the chapter changed on disk, a suggestion to add words could be taken as already made wherever those words appeared in the chapter, and turning it back would then have removed them there. It now stays where it was suggested. A suggestion whose place can no longer be told for certain moves to Unanchored instead of being placed by a guess, and Save to chapter writes nothing for it.
 
 ### Removed
 

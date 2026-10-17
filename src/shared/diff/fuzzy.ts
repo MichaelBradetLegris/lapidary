@@ -85,6 +85,15 @@ export function isCleanMatch(haystack: string, start: number, needle: string): b
 }
 
 /**
+ * True when a zero-width place falls between two word characters, inside a
+ * word. A deletion or an insertion always starts and ends on a word boundary
+ * (`trimCommonAffixes`), so a place inside a word is never where one was.
+ */
+export function insideWord(haystack: string, at: number): boolean {
+  return isWordChar(haystack[at - 1]) && isWordChar(haystack[at]);
+}
+
+/**
  * Occurrences that respect word boundaries, falling back to every occurrence
  * when the needle only ever appears mid-word.
  */

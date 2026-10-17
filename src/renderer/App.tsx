@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { composeReview, unsavedDecisionCount } from '../shared/diff/compose';
 import { rebaseReview } from '../shared/diff/rebase';
 import { proPreselection } from '../shared/ai/claudeModels';
+import { rebaseCardText } from '../shared/ui/rebase';
 import { runtimeLabel as labelForRuntime } from '../shared/ui/setup';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
 import type { ChapterFile, ReviewSummary } from '../shared/ipc';
@@ -188,12 +189,7 @@ export function App(): React.JSX.Element {
           } else {
             const { review: rebased, stats } = rebaseReview(loaded.review, base);
             setReview(rebased, loaded.path);
-            notify(
-              stats.stale > 0 ? 'warn' : 'info',
-              `The chapter changed since this review was made. ${stats.anchored} suggestion${
-                stats.anchored === 1 ? '' : 's'
-              } re-anchored, ${stats.stale} could not be found.`
-            );
+            notify(stats.stale > 0 ? 'warn' : 'info', rebaseCardText('opened', stats));
           }
           if (adoptedFrom) {
             notify('info', `Reopened the review made when this chapter was at ${adoptedFrom}.`);
@@ -228,10 +224,7 @@ export function App(): React.JSX.Element {
           } else {
             const { review: rebased, stats } = rebaseReview(review, base);
             setReview(rebased, loaded.path);
-            notify(
-              'info',
-              `Loaded an older review. ${stats.anchored} re-anchored, ${stats.stale} could not be found.`
-            );
+            notify('info', rebaseCardText('history', stats));
           }
         } catch (err) {
           fail(err);
@@ -265,13 +258,7 @@ export function App(): React.JSX.Element {
           if (!latest) return;
           const { review: rebased, stats } = rebaseReview(latest, baseFrom(content));
           setReview(rebased, useApp.getState().reviewPath);
-          notify(
-            stats.stale > 0 ? 'warn' : 'info',
-            `Reloaded from disk. ${stats.anchored} suggestion${
-              stats.anchored === 1 ? '' : 's'
-            } re-anchored, ${stats.stale} could not be found.`,
-            'file-reload'
-          );
+          notify(stats.stale > 0 ? 'warn' : 'info', rebaseCardText('reloaded', stats), 'file-reload');
         })
         .catch(fail);
     });

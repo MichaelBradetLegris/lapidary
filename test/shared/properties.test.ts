@@ -353,3 +353,438 @@ describe('rewriting a saved suggestion (apply.22)', () => {
     );
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* apply.23: deletions and insertions through a rebase                 */
+/* ------------------------------------------------------------------ */
+
+/** Words any chapter repeats, so a doubled one usually has others of its kind about. */
+const COMMON = ['the', 'had'] as const;
+type Common = (typeof COMMON)[number];
+
+/** Which word of a doubled pair is deleted, and the space that goes with it. */
+type DoubledForm = 'first-trailing' | 'first-leading' | 'second-trailing' | 'second-leading';
+
+type Piece =
+  | { kind: 'word' }
+  | { kind: 'common'; word: Common }
+  | { kind: 'para' }
+  | { kind: 'doubled'; word: Common; form: DoubledForm; status: HunkStatus }
+  | { kind: 'delete'; status: HunkStatus }
+  | { kind: 'insert'; status: HunkStatus }
+  | { kind: 'replace'; status: HunkStatus };
+
+const commonArb = fc.constantFrom<Common>(...COMMON);
+const statusArb = fc.constantFrom<HunkStatus>('pending', 'accepted', 'dismissed');
+
+const pieceArb: fc.Arbitrary<Piece> = fc.oneof(
+  { weight: 4, arbitrary: fc.constant<Piece>({ kind: 'word' }) },
+  { weight: 2, arbitrary: commonArb.map((word): Piece => ({ kind: 'common', word })) },
+  { weight: 1, arbitrary: fc.constant<Piece>({ kind: 'para' }) },
+  {
+    weight: 3,
+    arbitrary: fc
+      .record({
+        word: commonArb,
+        form: fc.constantFrom<DoubledForm>(
+          'first-trailing',
+          'first-leading',
+          'second-trailing',
+          'second-leading'
+        ),
+        status: statusArb
+      })
+      .map((p): Piece => ({ kind: 'doubled', ...p }))
+  },
+  { weight: 1, arbitrary: statusArb.map((status): Piece => ({ kind: 'delete', status })) },
+  { weight: 1, arbitrary: statusArb.map((status): Piece => ({ kind: 'insert', status })) },
+  { weight: 1, arbitrary: statusArb.map((status): Piece => ({ kind: 'replace', status })) }
+);
+
+const piecesArb = fc.array(pieceArb, { minLength: 1, maxLength: 14 });
+
+/**
+ * A chapter of unique filler words ("w12"), words that recur, doubled words
+ * with a deletion of one of the pair, and deletions, insertions and
+ * replacements of filler words, with every hunk's offsets exact. `spacing`
+ * puts at least that many characters between one hunk and the next.
+ */
+function buildChapter(pieces: readonly Piece[], spacing = 0): { base: string; hunks: Hunk[] } {
+  let text = '';
+  let fresh = 0;
+  let lastEnd = Number.NEGATIVE_INFINITY;
+  const hunks: Hunk[] = [];
+
+  const push = (token: string): number => {
+    if (text.length > 0 && !text.endsWith('\n')) text += ' ';
+    const at = text.length;
+    text += token;
+    return at;
+  };
+  const filler = (): number => push(`w${fresh++}`);
+  const room = (): void => {
+    while (text.length + 1 - lastEnd < spacing) filler();
+  };
+  const add = (start: number, original: string, replacement: string, status: HunkStatus): void => {
+    hunks.push({
+      id: `h${hunks.length}`,
+      start,
+      end: start + original.length,
+      baseSide: 'original',
+      original,
+      replacement,
+      paragraph: 0,
+      source: 'diff',
+      status,
+      anchor: 'exact'
+    });
+    lastEnd = start + original.length;
+  };
+
+  for (const piece of pieces) {
+    switch (piece.kind) {
+      case 'word':
+        filler();
+        break;
+      case 'common':
+        push(piece.word);
+        break;
+      case 'para':
+        if (text.length > 0 && !text.endsWith('\n')) text += '\n\n';
+        break;
+      case 'doubled': {
+        room();
+        // A filler word either side, so every form has the space it takes.
+        filler();
+        const first = push(piece.word);
+        const second = push(piece.word);
+        filler();
+        const word = piece.word;
+        if (piece.form === 'first-trailing') add(first, `${word} `, '', piece.status);
+        else if (piece.form === 'first-leading') add(first - 1, ` ${word}`, '', piece.status);
+        else if (piece.form === 'second-trailing') add(second, `${word} `, '', piece.status);
+        else add(second - 1, ` ${word}`, '', piece.status);
+        break;
+      }
+      case 'delete': {
+        room();
+        const at = filler();
+        const word = text.slice(at);
+        filler();
+        add(at, `${word} `, '', piece.status);
+        break;
+      }
+      case 'insert': {
+        room();
+        add(filler(), '', `i${hunks.length} `, piece.status);
+        break;
+      }
+      case 'replace': {
+        room();
+        const at = filler();
+        add(at, text.slice(at), `r${hunks.length}`, piece.status);
+        break;
+      }
+    }
+  }
+  filler(); // never end on a hunk
+  return { base: text, hunks };
+}
+
+/** Another editor's change, word by word; a word of `null` is a new one ("x3"). */
+type Edit =
+  | { op: 'insert'; at: number; word: string | null }
+  | { op: 'delete'; at: number }
+  | { op: 'replace'; at: number; word: string | null }
+  | { op: 'append' }
+  | { op: 'prepend' };
+
+function editArb(words: fc.Arbitrary<string | null>, ops: ReadonlyArray<Edit['op']>): fc.Arbitrary<Edit> {
+  const all: Array<fc.Arbitrary<Edit>> = [];
+  if (ops.includes('insert'))
+    all.push(fc.record({ op: fc.constant('insert' as const), at: fc.nat(), word: words }));
+  if (ops.includes('delete')) all.push(fc.record({ op: fc.constant('delete' as const), at: fc.nat() }));
+  if (ops.includes('replace'))
+    all.push(fc.record({ op: fc.constant('replace' as const), at: fc.nat(), word: words }));
+  if (ops.includes('append')) all.push(fc.constant({ op: 'append' as const }));
+  if (ops.includes('prepend')) all.push(fc.constant({ op: 'prepend' as const }));
+  return fc.oneof(...all);
+}
+
+const ALL_OPS: ReadonlyArray<Edit['op']> = ['insert', 'delete', 'replace', 'append', 'prepend'];
+/** Edits that take nothing out of the file: words added anywhere, a paragraph before or after. */
+const ADDING_OPS: ReadonlyArray<Edit['op']> = ['insert', 'append', 'prepend'];
+const anyWord = fc.option(commonArb, { nil: null });
+const newWord = fc.constant(null);
+
+/**
+ * Apply edits to a text. `marks` are places in it that move with the text;
+ * with `away`, an edit within that many characters of a mark is skipped, so
+ * the text around every mark reads as it did.
+ */
+function applyEdits(
+  text: string,
+  edits: readonly Edit[],
+  marks: readonly number[] = [],
+  away?: number
+): { text: string; marks: number[] } {
+  let out = text;
+  let at = [...marks];
+  let fresh = 0;
+  const word = (w: string | null): string => w ?? `x${fresh++}`;
+  const near = (from: number, to: number): boolean =>
+    away !== undefined && at.some((m) => from < m + away && to > m - away);
+  const splice = (from: number, to: number, insert: string): void => {
+    out = out.slice(0, from) + insert + out.slice(to);
+    const delta = insert.length - (to - from);
+    at = at.map((m) => (m >= to ? m + delta : m));
+  };
+
+  for (const edit of edits) {
+    if (edit.op === 'append') {
+      splice(out.length, out.length, `\n\n${word(null)} ${word(null)}`);
+      continue;
+    }
+    if (edit.op === 'prepend') {
+      splice(0, 0, `${word(null)} ${word(null)}\n\n`);
+      continue;
+    }
+    const words = [...out.matchAll(/\S+/g)];
+    const target = words[edit.at % Math.max(1, words.length)];
+    if (!target) continue;
+    const from = target.index;
+    const to = from + target[0].length;
+    if (edit.op === 'insert') {
+      if (!near(from, from)) splice(from, from, `${word(edit.word)} `);
+    } else if (edit.op === 'replace') {
+      if (!near(from, to)) splice(from, to, word(edit.word));
+    } else {
+      // The word and one space beside it.
+      const a = out[to] === ' ' || out[from - 1] !== ' ' ? from : from - 1;
+      const b = out[to] === ' ' ? to + 1 : to;
+      if (!near(a, b)) splice(a, b, '');
+    }
+  }
+  return { text: out, marks: at };
+}
+
+/**
+ * Which sides of a span in `b` read as they did around one in `a`: the 40
+ * characters before it, or up to the start of the text where both begin
+ * there, and the same after it with the end of the text. A side with no text
+ * in `a` never counts.
+ */
+function sidesAsBefore(
+  a: string,
+  aStart: number,
+  aEnd: number,
+  b: string,
+  bStart: number,
+  bEnd: number
+): { before: boolean; after: boolean } {
+  const n = 40;
+  const lead = (t: string, at: number): string => (at >= n ? t.slice(at - n, at) : `^${t.slice(0, at)}`);
+  const tail = (t: string, at: number): string =>
+    t.length - at >= n ? t.slice(at, at + n) : `${t.slice(at)}$`;
+  return {
+    before: aStart > 0 && lead(a, aStart) === lead(b, bStart),
+    after: aEnd < a.length && tail(a, aEnd) === tail(b, bEnd)
+  };
+}
+
+/** Save to chapter: every decision folded into the base. */
+function savedChapter(base: string, hunks: readonly Hunk[]): Review {
+  const { text, hunks: folded } = commitDecisions(base, hunks);
+  return reviewOf(text, folded);
+}
+
+/** A saved deletion: in the file, so a zero-width hunk on its replacement side. */
+function isSavedDeletion(h: Hunk): boolean {
+  return (
+    h.status === 'accepted' && h.baseSide === 'replacement' && h.replacement === '' && h.anchor !== 'stale'
+  );
+}
+
+/**
+ * After a rebase of a review with every decision saved: the page reads as the
+ * file, so Save would write nothing, and each saved deletion is still saved,
+ * off the page, or back as a suggestion only over its own words put back
+ * where they were taken out (C.5): the text reads as it did on both sides of
+ * them, or on one side when they were not one of a doubled pair, whose twin
+ * is all that may be left of them. One already off the page stays off it.
+ */
+function expectSavedDeletionsKept(before: Review, text: string, after: Review): void {
+  expect(composeText(text, after.hunks)).toBe(text);
+  expect(unsavedDecisionCount(after.hunks)).toBe(0);
+  expect(findOverlaps(after.hunks)).toEqual([]);
+  expectBaseSidesInPlace(text, after.hunks);
+
+  const old = before.base.text;
+  for (const was of before.hunks) {
+    if (was.status !== 'accepted' || was.baseSide !== 'replacement' || was.replacement !== '') continue;
+    const now = after.hunks.find((h) => h.id === was.id);
+    if (!now) throw new Error('lost a hunk');
+    if (was.anchor === 'stale') {
+      expect(now.anchor).toBe('stale');
+      continue;
+    }
+    if (now.anchor === 'stale') continue;
+    if (now.baseSide === 'replacement') {
+      expect(now.status).toBe('accepted');
+      expect(now.start).toBe(now.end);
+      continue;
+    }
+    expect(now.status).toBe('pending');
+    expect(text.slice(now.start, now.end)).toBe(was.original);
+    const sides = sidesAsBefore(old, was.start, was.end, text, now.start, now.end);
+    const doubled =
+      old.slice(Math.max(0, was.start - was.original.length), was.start) === was.original ||
+      old.slice(was.end, was.end + was.original.length) === was.original;
+    expect(doubled ? sides.before && sides.after : sides.before || sides.after).toBe(true);
+  }
+}
+
+/** Every hunk the rebase placed holds the text of its base side, unless it was placed fuzzily. */
+function expectBaseSidesInPlace(text: string, hunks: readonly Hunk[]): void {
+  for (const h of hunks) {
+    if (h.anchor === 'stale' || h.anchor === 'fuzzy') continue;
+    expect(text.slice(h.start, h.end)).toBe(h.baseSide === 'original' ? h.original : h.replacement);
+  }
+}
+
+describe('deletions through a rebase (apply.23)', () => {
+  it('a saved deletion never comes back as a suggestion on another word, whatever else changed', () => {
+    fc.assert(
+      fc.property(
+        piecesArb,
+        fc.array(editArb(anyWord, ALL_OPS), { maxLength: 5 }),
+        fc.array(editArb(anyWord, ALL_OPS), { maxLength: 3 }),
+        (pieces, edits, more) => {
+          const built = buildChapter(pieces);
+          const before = savedChapter(built.base, built.hunks);
+          const text = applyEdits(before.base.text, edits).text;
+          const after = rebaseReview(before, nextBase(text)).review;
+          expectSavedDeletionsKept(before, text, after);
+          // And through the next change too, deletions already off the page included.
+          const later = applyEdits(text, more).text;
+          expectSavedDeletionsKept(after, later, rebaseReview(after, nextBase(later)).review);
+        }
+      ),
+      { numRuns: 500 }
+    );
+  });
+
+  it('a saved deletion stays saved where it was when the file changes away from it', () => {
+    fc.assert(
+      fc.property(piecesArb, fc.array(editArb(anyWord, ALL_OPS), { maxLength: 6 }), (pieces, edits) => {
+        const built = buildChapter(pieces);
+        const before = savedChapter(built.base, built.hunks);
+        const deletions = before.hunks.filter(isSavedDeletion);
+        fc.pre(deletions.length > 0);
+        const { text, marks } = applyEdits(
+          before.base.text,
+          edits,
+          deletions.map((h) => h.start),
+          48
+        );
+        const { review: after } = rebaseReview(before, nextBase(text));
+        expect(composeText(text, after.hunks)).toBe(text);
+        deletions.forEach((was, i) => {
+          const now = after.hunks.find((h) => h.id === was.id);
+          expect(now).toMatchObject({
+            status: 'accepted',
+            baseSide: 'replacement',
+            start: marks[i],
+            end: marks[i]
+          });
+          expect(now?.anchor).not.toBe('stale');
+        });
+      }),
+      { numRuns: 300 }
+    );
+  });
+
+  it('an accepted deletion already made in the file is taken as saved, or left off the page, and Save writes the file as it is', () => {
+    fc.assert(
+      fc.property(piecesArb, fc.array(editArb(newWord, ADDING_OPS), { maxLength: 5 }), (pieces, edits) => {
+        const built = buildChapter(pieces);
+        const review = reviewOf(built.base, built.hunks);
+        // The file as Save, or the same edits made by hand, wrote it, then
+        // words added anywhere by another editor, right beside a deletion too.
+        const text = applyEdits(composeText(built.base, built.hunks), edits).text;
+        const { review: after } = rebaseReview(review, nextBase(text));
+
+        expect(unsavedDecisionCount(after.hunks)).toBe(0);
+        expect(composeText(text, after.hunks)).toBe(text);
+        expect(findOverlaps(after.hunks)).toEqual([]);
+        expectBaseSidesInPlace(text, after.hunks);
+        for (const was of built.hunks) {
+          if (was.status !== 'accepted' || was.replacement !== '') continue;
+          const now = after.hunks.find((h) => h.id === was.id);
+          if (now?.anchor === 'stale') continue;
+          expect(now).toMatchObject({ status: 'accepted', baseSide: 'replacement' });
+          expect(now?.start).toBe(now?.end);
+        }
+      }),
+      { numRuns: 300 }
+    );
+  });
+
+  it('an accepted deletion already made in the file is taken as saved where it was when the file changes away from it', () => {
+    fc.assert(
+      fc.property(piecesArb, fc.array(editArb(newWord, ADDING_OPS), { maxLength: 6 }), (pieces, edits) => {
+        const built = buildChapter(pieces, 41);
+        const made = commitDecisions(built.base, built.hunks);
+        const accepted = built.hunks.filter((h) => h.status === 'accepted' && h.replacement === '');
+        fc.pre(accepted.length > 0);
+        const points = accepted.map((h) => made.hunks.find((m) => m.id === h.id)?.start ?? -1);
+        const { text, marks } = applyEdits(made.text, edits, points, 48);
+        const { review: after } = rebaseReview(reviewOf(built.base, built.hunks), nextBase(text));
+        expect(composeText(text, after.hunks)).toBe(text);
+        accepted.forEach((was, i) => {
+          const now = after.hunks.find((h) => h.id === was.id);
+          expect(now).toMatchObject({
+            status: 'accepted',
+            baseSide: 'replacement',
+            start: marks[i],
+            end: marks[i]
+          });
+          expect(now?.anchor).not.toBe('stale');
+        });
+      }),
+      { numRuns: 200 }
+    );
+  });
+
+  it('compose and rebase round trips keep deletions and insertions, doubled words and all', () => {
+    fc.assert(
+      fc.property(piecesArb, (pieces) => {
+        const built = buildChapter(pieces, 41);
+        const review = reviewOf(built.base, built.hunks);
+        const composed = composeText(built.base, built.hunks);
+        expect(composeText(built.base, [...built.hunks].reverse())).toBe(composed);
+        const committed = commitDecisions(built.base, built.hunks);
+        expect(committed.text).toBe(composed);
+        expect(composeText(committed.text, committed.hunks)).toBe(composed);
+
+        // Onto the composed text: the same text, every decision kept.
+        const { review: onto } = rebaseReview(review, nextBase(composed));
+        expect(composeText(composed, onto.hunks)).toBe(composed);
+        for (const was of built.hunks) {
+          const now = onto.hunks.find((h) => h.id === was.id);
+          expect(now?.anchor).not.toBe('stale');
+          expect(now?.status).toBe(was.status);
+        }
+
+        // Onto the same text: nothing moves.
+        const { review: same, stats } = rebaseReview(review, nextBase(built.base));
+        expect(same.hunks.map((h) => [h.id, h.start, h.end, h.status, h.baseSide])).toEqual(
+          built.hunks.map((h) => [h.id, h.start, h.end, h.status, h.baseSide])
+        );
+        expect(stats).toMatchObject({ stale: 0, adopted: 0 });
+        expect(composeText(built.base, same.hunks)).toBe(composed);
+      }),
+      { numRuns: 300 }
+    );
+  });
+});

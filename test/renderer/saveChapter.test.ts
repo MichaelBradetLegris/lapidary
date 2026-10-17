@@ -291,6 +291,52 @@ describe('Save to chapter (apply.3)', () => {
     expect(state().review!.base.hash).toBe('h4');
   });
 
+  it('counts on the rebase card the decisions that changed to match the file (apply.23)', async () => {
+    // A second suggestion, to cut " at all", which the author then made by hand in Obsidian.
+    const review = chapterReview();
+    const cut = CHAPTER.indexOf(' at all');
+    state().setReview(
+      {
+        ...review,
+        hunks: [
+          ...review.hunks,
+          {
+            id: 'h2',
+            start: cut,
+            end: cut + ' at all'.length,
+            baseSide: 'original',
+            original: ' at all',
+            replacement: '',
+            paragraph: 1,
+            source: 'diff',
+            status: 'pending',
+            anchor: 'exact'
+          }
+        ]
+      },
+      REVIEW_PATH
+    );
+    state().toggleAccepted('h1');
+    const disk: FileContent = {
+      path: SOURCE,
+      text: CHAPTER.replace('nothing at all.', 'nothing.'),
+      hash: 'h3',
+      eol: 'lf',
+      bom: false,
+      trailingNewline: true
+    };
+    const h = harness({ status: 'stale', disk }, { status: 'written', hash: 'h4' });
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('saved');
+    expect(cards()).toContain(
+      'The chapter changed on disk before saving. Rebased: 2 re-anchored, 0 lost. 1 decision changed to match the file. Retrying.'
+    );
+    expect(h.requests[1]?.text).toBe('As he tilted his head aside, the man watched.\n\nShe said nothing.');
+    expect(state().review!.hunks.find((x) => x.id === 'h2')).toMatchObject({
+      status: 'accepted',
+      baseSide: 'replacement'
+    });
+  });
+
   it('gives up when the chapter keeps changing on disk', async () => {
     state().toggleAccepted('h1');
     const disk = (hash: string): FileContent => ({
