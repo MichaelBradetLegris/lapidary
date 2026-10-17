@@ -57,7 +57,7 @@ Work towards 1.0.
 - The side panel no longer shows two scrollbars side by side. The suggestions list and the part below it (the focused suggestion's details, comments, Unanchored and History) now scroll separately, so the details stay in view while you step through the list with j and k, and come back into view if you had scrolled that part down. When the window is short, as at 175% zoom and above in a window of the default size, the panel scrolls as one.
 - On a standard-resolution screen, text in the manuscript no longer switches between two kinds of font smoothing while it scrolls, which could make it look heavier until it stopped. The suggestions list's text now uses the same ClearType smoothing as the rest of the window; it was greyscale.
 - Questions such as "Replace the open review?" and the Bulk confirmations open in front of everything else. They could open hidden behind Submit manual review or the suggestion editor, where Enter still answered them. The button Enter picks shows its focus ring even when you opened the question with the mouse.
-- A suggestion accepted, or another chapter opened, at the moment Save to chapter was writing the file could be counted as saved without being in the chapter. Decisions now wait until the save is done.
+- A suggestion accepted, or another chapter opened, at the moment Save to chapter was writing the file could be counted as saved without being in the chapter. Decisions now wait until the save is done, and a chapter or History entry you open meanwhile opens once it is.
 
 ### Removed
 

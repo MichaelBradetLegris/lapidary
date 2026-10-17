@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { commitDecisions, unsavedDecisionCount } from '../../shared/diff/compose';
+import { commitDecisions, composeReview, unsavedDecisionCount } from '../../shared/diff/compose';
 import { applyBlockEdit, blockSpanFor, editSuggestion, liveTextIn, planBlockEdit } from '../../shared/edit';
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import { remapAfterCommit } from '../../shared/review';
@@ -192,6 +192,24 @@ export function savedReview(review: Review, hash: string): Review {
   };
 }
 
+/**
+ * Whether the review on screen is the one Save to chapter wrote (apply.3):
+ * that object, or a copy of the same review on the same base whose decisions
+ * compose the same text, which is what reading the review back during the
+ * write puts on screen. Decisions are held while the file is written, so such
+ * a copy carries nothing the file lacks. A copy on another base, such as one
+ * rebased onto newer bytes, is not the written review.
+ */
+export function isWrittenReview(onScreen: Review, written: Review): boolean {
+  if (onScreen === written) return true;
+  return (
+    onScreen.id === written.id &&
+    onScreen.sourcePath === written.sourcePath &&
+    onScreen.base.hash === written.base.hash &&
+    composeReview(onScreen) === composeReview(written)
+  );
+}
+
 export interface AppState {
   settings: Settings | null;
   review: Review | null;
@@ -287,8 +305,9 @@ export interface AppState {
   setChapterSaving: (saving: boolean) => void;
   /**
    * Fold the decisions into the base after Save to chapter wrote the file
-   * (`savedReview`). With `written`, only when that exact review is still the
-   * one on screen; false when the screen has moved on and nothing changed.
+   * (`savedReview`). With `written`, only when the review on screen is that
+   * review (`isWrittenReview`); false, with nothing changed, when the screen
+   * has moved on or holds a copy that reads differently.
    */
   markSaved: (hash: string, written?: Review) => boolean;
   markReviewPersisted: (at?: string) => void;
@@ -712,7 +731,7 @@ export const useApp = create<AppState>()((set, get) => ({
 
   markSaved: (hash, written) => {
     const review = get().review;
-    if (!review || (written && review !== written)) return false;
+    if (!review || (written && !isWrittenReview(review, written))) return false;
     set({ review: savedReview(review, hash), dirty: false });
     return true;
   },

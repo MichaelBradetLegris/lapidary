@@ -44,8 +44,13 @@ export interface SaveDeps {
   saveFile: (request: SaveRequest) => Promise<SaveResponse>;
   /** write the review json now (`writeReviewNow`) */
   writeReview: (review: Review, path: string | null) => Promise<string | null>;
-  /** after `files:save` wrote the chapter, or found it already as the page reads: refresh History and the list */
-  onSaved?: (review: Review) => void;
+  /**
+   * After `files:save` wrote the chapter, or found it already as the page
+   * reads: refresh the list, and History when `onScreen` says the saved
+   * chapter is still the one open. Another chapter opened during the write has
+   * refreshed History for itself.
+   */
+  onSaved?: (review: Review, onScreen: boolean) => void;
 }
 
 /** Cards about a Save to chapter share a key, so the newest replaces the last. */
@@ -68,6 +73,15 @@ export function baseFrom(content: FileContent): ReviewBase {
 function sameReview(a: Review | null, b: Review): boolean {
   return a !== null && a.id === b.id && a.sourcePath === b.sourcePath;
 }
+
+/** The same chapter, compared as the `file:changed` handler compares paths. */
+function sameChapter(a: Review | null, b: Review): boolean {
+  return a !== null && a.sourcePath.toLowerCase() === b.sourcePath.toLowerCase();
+}
+
+/** The card when this review was replaced on screen, during the write, by a copy that reads differently. */
+export const RELOADED_WHILE_SAVING =
+  'Saved to the chapter file, but the review was reloaded while saving. Save again to bring the page up to date.';
 
 async function runSave(options: SaveOptions, deps: SaveDeps): Promise<SaveOutcome> {
   const app = useApp.getState;
@@ -136,15 +150,27 @@ async function runSave(options: SaveOptions, deps: SaveDeps): Promise<SaveOutcom
       });
 
       if (response.status === 'written') {
+        let reloaded = false;
         if (app().markSaved(response.hash, working)) {
+          // The review written, or a copy of it read back during the write.
           const saved = app().review;
           if (saved) await deps.writeReview(saved, app().reviewPath);
         } else if (!sameReview(app().review, working)) {
-          // Another chapter or History entry was opened while the file was
+          // Another chapter or review was put on screen while the file was
           // written: record the save in the review it belongs to, off screen.
           await deps.writeReview(savedReview(working, response.hash), currentPath);
+        } else {
+          // This review is on screen again, but as a copy that reads
+          // differently. One already on the written bytes is up to date;
+          // any other is left alone, and the card says so rather than
+          // passing for an ordinary save.
+          reloaded = app().review?.base.hash !== response.hash;
         }
-        deps.onSaved?.(working);
+        deps.onSaved?.(working, sameChapter(app().review, working));
+        if (reloaded) {
+          app().notify('warn', RELOADED_WHILE_SAVING, SAVE_CARD);
+          return 'saved';
+        }
         if (response.unchanged) {
           app().notify('info', CHAPTER_MATCHES_PAGE, SAVE_CARD);
           return 'nothing-to-save';
@@ -201,7 +227,10 @@ export function saveChapter(options: SaveOptions, deps: SaveDeps): Promise<SaveO
   return run;
 }
 
-/** The save under way or waiting, for a caller that must let it end first (closing the window). */
+/**
+ * The save under way or waiting, for a caller that must let it end first:
+ * opening a chapter or a History entry, and later leaving and closing.
+ */
 export function pendingSave(): Promise<SaveOutcome> | null {
   return inFlight;
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { composeReview, unsavedDecisionCount } from '../shared/diff/compose';
 import { rebaseReview } from '../shared/diff/rebase';
 import { proPreselection } from '../shared/ai/claudeModels';
@@ -33,7 +33,7 @@ import {
   markReviewPersistedState,
   writeReviewNow
 } from './state/reviewPersistence';
-import { baseFrom, useSaveChapter, type SaveDeps } from './state/saveChapter';
+import { baseFrom, pendingSave, useSaveChapter, type SaveDeps } from './state/saveChapter';
 import { useAi } from './state/useAi';
 
 /** Review failures the Setup screen can fix: Claude Code missing, too old, or signed out. */
@@ -106,10 +106,18 @@ export function App(): React.JSX.Element {
       .catch(fail);
   }, [setSettings, refreshFiles, fail]);
 
+  /* History lists the chapter on screen, so a reply for a chapter the author
+     has left since is dropped (apply.3). */
   const refreshHistory = useCallback((sourcePath: string) => {
+    const showing = (): boolean =>
+      useApp.getState().review?.sourcePath.toLowerCase() === sourcePath.toLowerCase();
     void call('reviews:list', { sourcePath })
-      .then(setHistory)
-      .catch(() => setHistory([]));
+      .then((list) => {
+        if (showing()) setHistory(list);
+      })
+      .catch(() => {
+        if (showing()) setHistory([]);
+      });
   }, []);
 
   /**
@@ -132,9 +140,20 @@ export function App(): React.JSX.Element {
 
   /* ---------------- opening a chapter ---------------- */
 
+  /* Opening a chapter or a History entry lets a save under way end first, so
+     its review is not read back in the middle of being recorded (apply.3).
+     Of several clicks made meanwhile, only the last goes ahead. */
+  const openSeq = useRef(0);
+  const waitForSave = useCallback(async (): Promise<boolean> => {
+    const ticket = ++openSeq.current;
+    await pendingSave();
+    return ticket === openSeq.current;
+  }, []);
+
   const openChapter = useCallback(
     (file: ChapterFile) => {
       void (async () => {
+        if (!(await waitForSave())) return;
         if (!(await confirmLeaveDrafts())) return;
         try {
           // A decision still waiting to be written must be on disk before
@@ -186,12 +205,13 @@ export function App(): React.JSX.Element {
         }
       })();
     },
-    [setReview, notify, refreshHistory, refreshFiles, fail, confirmLeaveDrafts]
+    [setReview, notify, refreshHistory, refreshFiles, fail, confirmLeaveDrafts, waitForSave]
   );
 
   const openHistoryEntry = useCallback(
     (summary: ReviewSummary) => {
       void (async () => {
+        if (!(await waitForSave())) return;
         if (!(await confirmLeaveDrafts())) return;
         try {
           await flushReviewWrites();
@@ -218,7 +238,7 @@ export function App(): React.JSX.Element {
         }
       })();
     },
-    [setReview, notify, fail, confirmLeaveDrafts]
+    [setReview, notify, fail, confirmLeaveDrafts, waitForSave]
   );
 
   /* ---------------- external changes ---------------- */
@@ -281,8 +301,8 @@ export function App(): React.JSX.Element {
     () => ({
       saveFile: (request) => call('files:save', request),
       writeReview: writeReviewNow,
-      onSaved: (saved) => {
-        refreshHistory(saved.sourcePath);
+      onSaved: (saved, onScreen) => {
+        if (onScreen) refreshHistory(saved.sourcePath);
         refreshFiles();
       }
     }),

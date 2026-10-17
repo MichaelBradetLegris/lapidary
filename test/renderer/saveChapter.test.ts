@@ -12,10 +12,17 @@ import {
   saveShortcutAction
 } from '../../src/shared/ui/save';
 
-import { pendingSave, saveChapter, type SaveDeps } from '../../src/renderer/state/saveChapter';
+import {
+  pendingSave,
+  RELOADED_WHILE_SAVING,
+  saveChapter,
+  type SaveDeps
+} from '../../src/renderer/state/saveChapter';
 import {
   changedParagraphCount,
   isModalOpen,
+  isWrittenReview,
+  savedReview,
   saveShortcutContext,
   useApp
 } from '../../src/renderer/state/store';
@@ -56,7 +63,7 @@ type Reply = SaveResponse | Error | Promise<SaveResponse>;
 function harness(...replies: Reply[]) {
   const requests: SaveRequest[] = [];
   const reviewWrites: { review: Review; path: string | null }[] = [];
-  const saved: Review[] = [];
+  const saved: { sourcePath: string; onScreen: boolean }[] = [];
   const deps: SaveDeps = {
     saveFile: (request) => {
       requests.push(request);
@@ -69,7 +76,7 @@ function harness(...replies: Reply[]) {
       reviewWrites.push({ review, path: file });
       return Promise.resolve(file);
     },
-    onSaved: (review) => void saved.push(review)
+    onSaved: (review, onScreen) => void saved.push({ sourcePath: review.sourcePath, onScreen })
   };
   return { deps, requests, reviewWrites, saved };
 }
@@ -136,7 +143,7 @@ describe('Save to chapter (apply.3)', () => {
     expect(review.base.hash).toBe('h2');
     expect(unsavedDecisionCount(review.hunks)).toBe(0);
     expect(h.reviewWrites).toEqual([{ review, path: REVIEW_PATH }]);
-    expect(h.saved.map((r) => r.sourcePath)).toEqual([SOURCE]);
+    expect(h.saved).toEqual([{ sourcePath: SOURCE, onScreen: true }]);
     expect(lastCard()).toBe('Saved to the chapter file.');
     expect(state().chapterSaving).toBe(false);
   });
@@ -328,6 +335,122 @@ describe('Save to chapter (apply.3)', () => {
     expect(off.review.id).toBe(written.id);
     expect(off.review.base.hash).toBe('h2');
     expect(unsavedDecisionCount(off.review.hunks)).toBe(0);
+    // History lists the chapter on screen, so the save does not refresh it for Chapter 01.
+    expect(h.saved).toEqual([{ sourcePath: SOURCE, onScreen: false }]);
+    expect(lastCard()).toBe('Saved to the chapter file.');
+  });
+
+  it('stops on a stale answer when another chapter is on screen, and leaves that one alone', async () => {
+    state().toggleAccepted('h1');
+    const reply = deferred();
+    const h = harness(reply.promise);
+    const run = saveChapter({ applyDrafts: 'ask' }, h.deps);
+    await tick();
+    const other = chapterReview('C:/vault/Chapter 02.md');
+    state().setReview(other, 'C:/reviews/chapter-02/x.review.json');
+    reply.resolve({
+      status: 'stale',
+      disk: {
+        path: SOURCE,
+        text: `${CHAPTER} Then she left.`,
+        hash: 'h3',
+        eol: 'lf',
+        bom: false,
+        trailingNewline: true
+      }
+    });
+    expect(await run).toBe('failed');
+    expect(lastCard()).toBe(
+      'The chapter changed on disk before saving, and another review is open now, so nothing was saved.'
+    );
+    expect(state().review).toBe(other);
+    expect(h.requests).toHaveLength(1);
+    expect(h.reviewWrites).toEqual([]);
+    expect(h.saved).toEqual([]);
+    expect(state().chapterSaving).toBe(false);
+  });
+
+  it('folds a copy of the review read back during the write, as a click on the open chapter gives', async () => {
+    state().toggleAccepted('h1');
+    const reply = deferred();
+    const h = harness(reply.promise);
+    const run = saveChapter({ applyDrafts: 'ask' }, h.deps);
+    await tick();
+    const copy = structuredClone(state().review!);
+    state().setReview(copy, REVIEW_PATH);
+    reply.resolve({ status: 'written', hash: 'h2' });
+    expect(await run).toBe('saved');
+    const review = state().review!;
+    expect(review.id).toBe(copy.id);
+    expect(review.base.hash).toBe('h2');
+    expect(review.base.text).toBe(
+      'As he tilted his head aside, the man watched.\n\nShe said nothing at all.'
+    );
+    expect(unsavedDecisionCount(review.hunks)).toBe(0);
+    expect(h.reviewWrites).toEqual([{ review, path: REVIEW_PATH }]);
+    expect(h.saved).toEqual([{ sourcePath: SOURCE, onScreen: true }]);
+    expect(lastCard()).toBe('Saved to the chapter file.');
+  });
+
+  it('records the save when the author left the chapter and came back during the write', async () => {
+    state().toggleAccepted('h1');
+    // The review as its json holds it: opening a chapter writes what is waiting first.
+    const asStored = JSON.parse(JSON.stringify(state().review)) as Review;
+    const reply = deferred();
+    const h = harness(reply.promise);
+    const run = saveChapter({ applyDrafts: 'ask' }, h.deps);
+    await tick();
+    state().setReview(chapterReview('C:/vault/Chapter 02.md'), 'C:/reviews/chapter-02/x.review.json');
+    state().setReview(asStored, REVIEW_PATH);
+    reply.resolve({ status: 'written', hash: 'h2' });
+    expect(await run).toBe('saved');
+    const review = state().review!;
+    expect(review.base.hash).toBe('h2');
+    expect(unsavedDecisionCount(review.hunks)).toBe(0);
+    expect(h.reviewWrites).toEqual([{ review, path: REVIEW_PATH }]);
+    expect(h.saved).toEqual([{ sourcePath: SOURCE, onScreen: true }]);
+    expect(lastCard()).toBe('Saved to the chapter file.');
+  });
+
+  it.each([
+    [
+      'on another base, as the watcher rebases it',
+      (r: Review): Review => ({ ...r, base: { ...r.base, text: `${CHAPTER} Then she left.`, hash: 'h9' } })
+    ],
+    [
+      'with other decisions',
+      (r: Review): Review => ({ ...r, hunks: r.hunks.map((x) => ({ ...x, status: 'pending' as const })) })
+    ]
+  ])('says the review was reloaded while saving, and leaves it, for a copy %s', async (_name, reload) => {
+    state().toggleAccepted('h1');
+    const reply = deferred();
+    const h = harness(reply.promise);
+    const run = saveChapter({ applyDrafts: 'ask' }, h.deps);
+    await tick();
+    const copy = reload(state().review!);
+    state().setReview(copy, REVIEW_PATH);
+    reply.resolve({ status: 'written', hash: 'h2' });
+    expect(await run).toBe('saved');
+    expect(state().review).toBe(copy);
+    expect(h.reviewWrites).toEqual([]);
+    expect(lastCard()).toBe(RELOADED_WHILE_SAVING);
+    expect(state().notifications.at(-1)?.tone).toBe('warn');
+    expect(h.saved).toEqual([{ sourcePath: SOURCE, onScreen: true }]);
+  });
+
+  it('takes a copy read back after the write, already on the written bytes, as up to date', async () => {
+    state().toggleAccepted('h1');
+    const reply = deferred();
+    const h = harness(reply.promise);
+    const run = saveChapter({ applyDrafts: 'ask' }, h.deps);
+    await tick();
+    const reread = savedReview(state().review!, 'h2');
+    state().setReview(reread, REVIEW_PATH);
+    reply.resolve({ status: 'written', hash: 'h2' });
+    expect(await run).toBe('saved');
+    expect(state().review).toBe(reread);
+    expect(h.reviewWrites).toEqual([]);
+    expect(lastCard()).toBe('Saved to the chapter file.');
   });
 
   it('runs one save at a time: a second waits for the first and then finds nothing to save', async () => {
@@ -343,6 +466,24 @@ describe('Save to chapter (apply.3)', () => {
     expect(await first).toBe('saved');
     expect(await second).toBe('nothing-to-save');
     expect(h.requests).toHaveLength(1);
+  });
+});
+
+describe('isWrittenReview (apply.3)', () => {
+  it('is the review written, or a copy of it on the same base that composes the same text', () => {
+    const written = chapterReview();
+    const withStatus = (status: 'accepted' | 'dismissed'): Review => ({
+      ...written,
+      hunks: written.hunks.map((x) => ({ ...x, status }))
+    });
+    expect(isWrittenReview(written, written)).toBe(true);
+    expect(isWrittenReview(structuredClone(written), written)).toBe(true);
+    // Dismissed reads like pending, so the file is the same either way.
+    expect(isWrittenReview(withStatus('dismissed'), written)).toBe(true);
+    expect(isWrittenReview(withStatus('accepted'), written)).toBe(false);
+    expect(isWrittenReview({ ...written, id: 'another' }, written)).toBe(false);
+    expect(isWrittenReview({ ...written, sourcePath: 'C:/vault/Chapter 02.md' }, written)).toBe(false);
+    expect(isWrittenReview({ ...written, base: { ...written.base, hash: 'h9' } }, written)).toBe(false);
   });
 });
 
