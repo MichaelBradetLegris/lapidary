@@ -36,6 +36,13 @@ export interface ErrorContext {
   operation?: FileOperation;
   /** how the message names the file; by default its name in the error */
   name?: string;
+  /**
+   * The file is a chapter, which the author opens from the list: a read that
+   * finds nothing adds that a renamed or moved chapter is opened again from
+   * where it is now. A review file, the drafts file, the guidelines file or a
+   * backup folder cannot be opened that way, so they never get those words.
+   */
+  reopen?: boolean;
   platform?: NodeJS.Platform;
 }
 
@@ -51,7 +58,7 @@ export function toAppError(err: unknown, context: ErrorContext = {}): AppError {
     const name = context.name ?? fileNameOf(err);
     const explained =
       context.operation === 'read'
-        ? explainReadError(err, name, platform)
+        ? explainReadError(err, name, platform, context.reopen ?? false)
         : explainWriteError(err, name, platform);
     if (explained) return { code: 'io', message: explained, detail: err.stack ?? undefined };
     const code: ErrorCode = isFsError(err) ? 'io' : 'unknown';
@@ -59,6 +66,9 @@ export function toAppError(err: unknown, context: ErrorContext = {}): AppError {
   }
   return { code: 'unknown', message: String(err) };
 }
+
+/** How `readFailure` words a read: `reopen` and `platform` as in `ErrorContext`. */
+export type ReadFailureOptions = Pick<ErrorContext, 'reopen' | 'platform'>;
 
 /**
  * A failed read, as an error that keeps its words all the way to the page:
@@ -68,13 +78,13 @@ export function toAppError(err: unknown, context: ErrorContext = {}): AppError {
  * not the file system's, such as a refusal already in words or a parse
  * error, is left as it is.
  */
-export function readFailure(err: unknown, name?: string, platform?: NodeJS.Platform): Error {
+export function readFailure(err: unknown, name?: string, options: ReadFailureOptions = {}): Error {
   if (!(err instanceof Error)) return new Error(String(err));
   if (err instanceof AppFailure || systemCode(err) === undefined) return err;
   const explained = toAppError(err, {
     operation: 'read',
     ...(name === undefined ? {} : { name }),
-    ...(platform === undefined ? {} : { platform })
+    ...options
   });
   return new AppFailure(explained.code, explained.message, explained.detail);
 }
@@ -142,9 +152,15 @@ export function explainWriteError(err: unknown, fileName: string, platform: Node
  * blocks only changes, so it is not mentioned here. Any other error code
  * gets general words with the code in them; null for an error that is not
  * the file system's. The name never starts a sentence, so a file name is
- * shown exactly as it is.
+ * shown exactly as it is. Only a chapter (`reopen`) is told, when it cannot
+ * be found, to be opened again from where it is now.
  */
-export function explainReadError(err: unknown, fileName: string, platform: NodeJS.Platform): string | null {
+export function explainReadError(
+  err: unknown,
+  fileName: string,
+  platform: NodeJS.Platform,
+  reopen = false
+): string | null {
   const code = systemCode(err);
   if (code === undefined) return null;
   const unchanged = `${APP_NAME} has not changed anything.`;
@@ -157,7 +173,9 @@ export function explainReadError(err: unknown, fileName: string, platform: NodeJ
         : `${APP_NAME} is not allowed to read ${fileName}. Check that the file and its folder can be read, and that no other program is holding it, then try again. ${unchanged}`;
     case 'ENOENT':
     case 'ENOTDIR':
-      return `${APP_NAME} could not find ${fileName}. It may have been renamed, moved or deleted; if it was renamed or moved, open it again from where it is now. ${unchanged}`;
+      return reopen
+        ? `${APP_NAME} could not find ${fileName}. It may have been renamed, moved or deleted; if it was renamed or moved, open it again from where it is now. ${unchanged}`
+        : `${APP_NAME} could not find ${fileName}. It may have been renamed, moved or deleted. ${unchanged}`;
     case 'EISDIR':
       return `${APP_NAME} could not read ${fileName}, because it is a folder, not a file. ${unchanged}`;
     default:

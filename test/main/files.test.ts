@@ -325,6 +325,115 @@ describe('a refused read is explained as a read (apply.24)', () => {
     expect(await fs.readdir(root)).toEqual(['c.md']);
   });
 
+  it('a save that cannot reach the chapter tells it to be opened again from where it is now', async () => {
+    const file = await put('c.md', 'one\n');
+    const content = await readChapter(file);
+    const read = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(refused('ENOTDIR'));
+    try {
+      const message = await shown(
+        writeChapter({
+          path: file,
+          text: 'two',
+          eol: 'lf',
+          bom: false,
+          trailingNewline: true,
+          expectedHash: content.hash
+        })
+      );
+      expect(message).toBe(
+        `${APP_NAME} could not find c.md. It may have been renamed, moved or deleted; if it was renamed or moved, open it again from where it is now. ${APP_NAME} has not changed anything.`
+      );
+    } finally {
+      read.mockRestore();
+    }
+    expect(await fs.readFile(file, 'utf8')).toBe('one\n');
+  });
+
+  it('a save whose read after the backup is refused says so as a read and writes nothing', async () => {
+    const file = await put('c.md', 'one\n');
+    const content = await readChapter(file);
+    const spies: Array<{ mockRestore(): void }> = [];
+    try {
+      const message = await shown(
+        writeChapter(
+          {
+            path: file,
+            text: 'two',
+            eol: 'lf',
+            bom: false,
+            trailingNewline: true,
+            expectedHash: content.hash
+          },
+          {
+            // Step 4 has the old bytes; another program then holds the file,
+            // so step 5's read, made in case it changed meanwhile, is refused.
+            beforeReplace: () => {
+              spies.push(vi.spyOn(fs, 'readFile').mockRejectedValueOnce(refused('EBUSY')));
+              return Promise.resolve(undefined);
+            }
+          }
+        )
+      );
+      expect(spies).toHaveLength(1);
+      expect(message).toBe(explainReadError(refused('EBUSY'), 'c.md', process.platform));
+      expect(message).not.toMatch(WRITE_WORDS);
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    expect(await fs.readFile(file, 'utf8')).toBe('one\n');
+    expect(await fs.readdir(root)).toEqual(['c.md']);
+  });
+
+  it('a save that finds the chapter changed while its rename was refused, then cannot read it, says so as a read', async () => {
+    const file = await put('c.md', 'one\n');
+    const content = await readChapter(file);
+    const realReadFile = fs.readFile.bind(fs);
+    const spies: Array<{ mockRestore(): void }> = [];
+    let renames = 0;
+    try {
+      const message = await shown(
+        writeChapter(
+          {
+            path: file,
+            text: 'two',
+            eol: 'lf',
+            bom: false,
+            trailingNewline: true,
+            expectedHash: content.hash
+          },
+          {
+            atomic: {
+              // Another program writes the chapter and holds it: the rename is
+              // refused, the check before the retry reads new bytes, so the
+              // save stops as stale, and the read of those bytes for the page
+              // is refused.
+              rename: async (from: string, to: string) => {
+                renames += 1;
+                await fs.writeFile(file, 'someone else\n');
+                spies.push(
+                  vi
+                    .spyOn(fs, 'readFile')
+                    .mockImplementationOnce((...args) => realReadFile(...args))
+                    .mockRejectedValueOnce(refused('EBUSY'))
+                );
+                throw Object.assign(new Error('EBUSY: refused'), { code: 'EBUSY', path: from, dest: to });
+              },
+              sleep: () => Promise.resolve()
+            }
+          }
+        )
+      );
+      expect(renames).toBe(1);
+      expect(message).toBe(explainReadError(refused('EBUSY'), 'c.md', process.platform));
+      expect(message).not.toMatch(WRITE_WORDS);
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    // Their bytes stay, and the temp file is gone.
+    expect(await fs.readFile(file, 'utf8')).toBe('someone else\n');
+    expect(await fs.readdir(root)).toEqual(['c.md']);
+  });
+
   it('a save whose rename is refused keeps the write words', async () => {
     const file = await put('c.md', 'one\n');
     const content = await readChapter(file);

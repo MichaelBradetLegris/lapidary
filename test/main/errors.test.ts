@@ -80,11 +80,12 @@ function otherRead(code: string): Expected {
   };
 }
 
+/** A read that finds nothing, of a file that is not a chapter (no `reopen`). */
 function notFound(code: string): Record<FileOperation, Record<'win32' | 'linux', Expected>> {
   return {
     read: same({
       code: 'io',
-      message: `${APP_NAME} could not find Chapter 1.md. It may have been renamed, moved or deleted; if it was renamed or moved, open it again from where it is now. ${unchanged}`
+      message: `${APP_NAME} could not find Chapter 1.md. It may have been renamed, moved or deleted. ${unchanged}`
     }),
     write: same({ code: 'io', message: raw(code) })
   };
@@ -161,6 +162,45 @@ describe('toAppError, read and write', () => {
     ).toMatch(/read the file\./);
   });
 
+  it('tells only a chapter it cannot find to be opened again from where it is now', () => {
+    const reopenWords = /open it again|from where it is now/;
+    for (const code of ['ENOENT', 'ENOTDIR']) {
+      for (const platform of ['win32', 'linux'] as const) {
+        expect(toAppError(errno(code), { operation: 'read', platform, reopen: true }).message).toBe(
+          `${APP_NAME} could not find Chapter 1.md. It may have been renamed, moved or deleted; if it was renamed or moved, open it again from where it is now. ${unchanged}`
+        );
+        // A review file, the drafts file, the guidelines file or a backup
+        // folder cannot be opened again from somewhere else.
+        for (const name of [
+          'the review file 2026-10-17T12-00-00-000Z.review.json',
+          'the file they are kept in',
+          'GUIDELINES.md',
+          'the backup folder of Chapter 1.md'
+        ]) {
+          const message = toAppError(errno(code), { operation: 'read', platform, name }).message;
+          expect(message).toBe(
+            `${APP_NAME} could not find ${name}. It may have been renamed, moved or deleted. ${unchanged}`
+          );
+          expect(message).not.toMatch(reopenWords);
+        }
+      }
+    }
+    // No other code, read or written, has words that change with it.
+    for (const code of Object.keys(TABLE)) {
+      for (const operation of ['read', 'write'] as const) {
+        for (const platform of ['win32', 'linux'] as const) {
+          if (operation === 'read' && (code === 'ENOENT' || code === 'ENOTDIR')) continue;
+          const err = errno(code);
+          const chapter = toAppError(err, { operation, platform, reopen: true });
+          expect(chapter, `${code} ${operation} ${platform}`).toEqual(
+            toAppError(err, { operation, platform })
+          );
+          expect(chapter.message).not.toMatch(reopenWords);
+        }
+      }
+    }
+  });
+
   it('never starts a sentence with the name, so a file name is shown as it is', () => {
     const lower = path.join(path.sep, 'vault', 'chapter 1.md');
     for (const code of Object.keys(TABLE)) {
@@ -208,7 +248,7 @@ describe('readFailure', () => {
     for (const code of Object.keys(TABLE)) {
       for (const platform of ['win32', 'linux'] as const) {
         const err = errno(code);
-        const failure = readFailure(err, undefined, platform);
+        const failure = readFailure(err, undefined, { platform });
         expect(failure).toBeInstanceOf(AppFailure);
         const read = toAppError(err, { operation: 'read', platform });
         // What the bridge sends: no operation, so a write unless already explained.
@@ -219,8 +259,21 @@ describe('readFailure', () => {
   });
 
   it('names the file as told', () => {
-    expect(readFailure(errno('EBUSY'), 'the review file 2026.review.json', 'linux').message).toBe(
+    expect(
+      readFailure(errno('EBUSY'), 'the review file 2026.review.json', { platform: 'linux' }).message
+    ).toBe(
       `${APP_NAME} is not allowed to read the review file 2026.review.json. Check that the file and its folder can be read, and that no other program is holding it, then try again. ${unchanged}`
+    );
+  });
+
+  it('tells a chapter, and only a chapter, to be opened again from where it is now', () => {
+    expect(readFailure(errno('ENOENT'), 'Chapter 1.md', { reopen: true, platform: 'win32' }).message).toBe(
+      `${APP_NAME} could not find Chapter 1.md. It may have been renamed, moved or deleted; if it was renamed or moved, open it again from where it is now. ${unchanged}`
+    );
+    expect(
+      readFailure(errno('ENOENT'), 'the review file 2026.review.json', { platform: 'win32' }).message
+    ).toBe(
+      `${APP_NAME} could not find the review file 2026.review.json. It may have been renamed, moved or deleted. ${unchanged}`
     );
   });
 

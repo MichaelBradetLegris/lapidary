@@ -15,6 +15,7 @@ import {
   reviewIndex,
   saveReview
 } from '../../src/main/reviews';
+import { APP_NAME } from '../../src/shared/branding';
 import { rebaseReview } from '../../src/shared/diff/rebase';
 import { createReview } from '../../src/shared/review';
 import type { Review } from '../../src/shared/types';
@@ -157,10 +158,18 @@ describe('review store', () => {
         read.mockRestore();
       }
     }
+    // A History entry whose file was deleted or moved outside the app: a
+    // review file cannot be opened again from where it is now, so the words
+    // stop at what may have happened to it.
     await fs.rm(file);
-    await expect(loadReviewFile(file)).rejects.toThrow(
-      `could not find the review file ${path.basename(file)}. It may have been renamed, moved or deleted`
+    const gone = await loadReviewFile(file).then(
+      () => null,
+      (e: unknown) => e
     );
+    expect(toAppError(gone)).toMatchObject({
+      code: 'io',
+      message: `${APP_NAME} could not find the review file ${path.basename(file)}. It may have been renamed, moved or deleted. ${APP_NAME} has not changed anything.`
+    });
     // Words that are not the file system's are left as they were.
     await fs.writeFile(file, '{ not json');
     await expect(loadReviewFile(file)).rejects.toThrow(SyntaxError);

@@ -208,7 +208,7 @@ export async function readChapter(file: string): Promise<FileContent> {
   try {
     return (await readChapterBytes(file)).content;
   } catch (err) {
-    throw readFailure(err, path.basename(file));
+    throw readFailure(err, path.basename(file), { reopen: true });
   }
 }
 
@@ -252,7 +252,7 @@ async function readForSave(file: string): Promise<{ bytes: Buffer; content: File
         `The chapter is no longer at ${file}. If you renamed or moved it in Obsidian, open it again from the list; its review comes with it.`
       );
     }
-    throw readFailure(err, path.basename(file));
+    throw readFailure(err, path.basename(file), { reopen: true });
   });
 }
 
