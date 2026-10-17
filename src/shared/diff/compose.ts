@@ -30,12 +30,30 @@ export function findOverlaps(hunks: readonly Hunk[]): OverlapProblem[] {
 }
 
 /**
+ * True when a hunk's decision asks for words the base does not hold over its
+ * span: the side it wants is not the side the base holds, and the two sides
+ * differ. A hunk whose two sides read the same, which a rewrite to the file's
+ * own words leaves behind (`editSuggestion`), changes nothing whatever its
+ * decision, so it never counts and compose always copies the base for it.
+ */
+export function changesBase(hunk: Pick<Hunk, 'status' | 'baseSide' | 'original' | 'replacement'>): boolean {
+  return desiredSide(hunk) !== hunk.baseSide && hunk.original !== hunk.replacement;
+}
+
+/**
+ * The words a hunk's decision puts over its span. The base slice is copied
+ * whenever the decision changes nothing (`changesBase`), so drift between
+ * `base.text` and a hunk's recorded strings can never silently rewrite
+ * untouched prose.
+ */
+export function decidedText(base: string, hunk: Hunk): string {
+  if (!changesBase(hunk)) return base.slice(hunk.start, hunk.end);
+  return desiredSide(hunk) === 'replacement' ? hunk.replacement : hunk.original;
+}
+
+/**
  * Base text plus hunk decisions to output text. Pure: the same base and the same
  * statuses always give the same string (CLAUDE.md rule 5).
- *
- * A hunk whose desired side already occupies its span is copied straight through
- * from the base, so drift between `base.text` and a hunk's recorded strings can
- * never silently rewrite untouched prose.
  */
 export function composeText(base: string, hunks: readonly Hunk[]): string {
   let out = '';
@@ -43,13 +61,7 @@ export function composeText(base: string, hunks: readonly Hunk[]): string {
   for (const hunk of activeHunks(hunks)) {
     if (hunk.start < cursor) continue; // overlapping leftover: the earlier hunk wins
     out += base.slice(cursor, hunk.start);
-    const want = desiredSide(hunk);
-    out +=
-      want === hunk.baseSide
-        ? base.slice(hunk.start, hunk.end)
-        : want === 'replacement'
-          ? hunk.replacement
-          : hunk.original;
+    out += decidedText(base, hunk);
     cursor = hunk.end;
   }
   return out + base.slice(cursor);
@@ -91,17 +103,11 @@ export function commitDecisions(base: string, hunks: readonly Hunk[]): CommitRes
       continue;
     }
     out += base.slice(cursor, hunk.start);
-    const want = desiredSide(hunk);
-    const span =
-      want === hunk.baseSide
-        ? base.slice(hunk.start, hunk.end)
-        : want === 'replacement'
-          ? hunk.replacement
-          : hunk.original;
+    const span = decidedText(base, hunk);
     const newStart = hunk.start + delta;
     out += span;
     delta += span.length - (hunk.end - hunk.start);
-    byId.set(hunk.id, { ...hunk, start: newStart, end: newStart + span.length, baseSide: want });
+    byId.set(hunk.id, { ...hunk, start: newStart, end: newStart + span.length, baseSide: desiredSide(hunk) });
     cursor = hunk.end;
   }
 
@@ -113,10 +119,11 @@ export function commitDecisions(base: string, hunks: readonly Hunk[]): CommitRes
 /**
  * How many anchored hunks decide something the chapter file does not say yet:
  * an accepted change not saved, or a saved change since turned back. Zero means
- * the file on disk already reads exactly like the page.
+ * the file on disk already reads exactly like the page. A hunk whose two sides
+ * are the same never counts, whatever its decision (`changesBase`).
  */
 export function unsavedDecisionCount(hunks: readonly Hunk[]): number {
-  return hunks.filter((h) => h.anchor !== 'stale' && desiredSide(h) !== h.baseSide).length;
+  return hunks.filter((h) => h.anchor !== 'stale' && changesBase(h)).length;
 }
 
 /** Counts for the status bar. */

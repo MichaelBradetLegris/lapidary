@@ -251,7 +251,9 @@ const savedRewriteArb = fc.record({
   /** "Accept now" */
   accept: fc.boolean(),
   /** then rewrite the words back to what the file says, with this "Accept now" */
-  back: fc.option(fc.boolean(), { nil: undefined })
+  back: fc.option(fc.boolean(), { nil: undefined }),
+  /** then decide on the rewritten suggestion once more, as a click on the word does */
+  then: fc.option(fc.constantFrom<HunkStatus>('pending', 'accepted', 'dismissed'), { nil: undefined })
 });
 
 /** The composed text either side of one hunk, from every other hunk's decision. */
@@ -272,7 +274,7 @@ function around(base: string, hunks: readonly Hunk[], target: Hunk): { before: s
 describe('rewriting a saved suggestion (apply.22)', () => {
   it('composes the new words, counts them unsaved, and compose stays a function of base and hunks', () => {
     fc.assert(
-      fc.property(savedRewriteArb, ({ specs, flips, which, accept, back }) => {
+      fc.property(savedRewriteArb, ({ specs, flips, which, accept, back, then }) => {
         const built = buildCase(specs);
         fc.pre(built.hunks.length > 0);
         // Save to chapter: accepted hunks now hold their replacement in the base.
@@ -292,16 +294,19 @@ describe('rewriting a saved suggestion (apply.22)', () => {
         const rewrite = (list: readonly Hunk[], to: string, tick: boolean): Hunk[] =>
           list.map((h) => (h.id === target.id ? editSuggestion(base, h, to, tick) : h));
         let edited = rewrite(hunks, words, accept);
-        let shown = accept ? words : inFile;
-        if (back !== undefined) {
-          edited = rewrite(edited, inFile, back);
-          shown = inFile;
+        if (back !== undefined) edited = rewrite(edited, inFile, back);
+        if (then !== undefined) {
+          edited = edited.map((h) => (h.id === target.id ? { ...h, status: then } : h));
         }
         const rewritten = edited.find((h) => h.id === target.id);
         if (!rewritten) throw new Error('lost the hunk');
         const composed = composeText(base, edited);
 
-        // The page reads the new words, or the file's own when they wait or went back.
+        // The page reads the new words while they are accepted, and the file's
+        // own words otherwise: when they wait, when they were rewritten back
+        // (both sides are then the file's words, so no decision can change
+        // what shows), and when the author turned them back or dismissed them.
+        const shown = back === undefined && rewritten.status === 'accepted' ? words : inFile;
         expect(composed).toBe(before + shown + after);
         expect(base.slice(rewritten.start, rewritten.end)).toBe(inFile);
         expect(findOverlaps(edited)).toEqual([]);
@@ -309,10 +314,16 @@ describe('rewriting a saved suggestion (apply.22)', () => {
         expect(unsavedDecisionCount([rewritten])).toBe(own);
         expect(unsavedDecisionCount(edited)).toBe(othersUnsaved + own);
         if (shown === words) expect(unsavedDecisionCount(edited)).toBeGreaterThan(0);
-        if (back !== undefined && hunks.every((_, i) => flips[i] === undefined)) {
-          // Rewriting back to the saved words is a no-op.
-          expect(composed).toBe(base);
-          expect(unsavedDecisionCount(edited)).toBe(0);
+        if (hunks.every((_, i) => flips[i] === undefined)) {
+          // Nothing else was decided after the save, so the count is 0 exactly
+          // when the page reads like the file, whatever was decided on the
+          // rewritten suggestion afterwards.
+          expect(unsavedDecisionCount(edited) === 0).toBe(composed === base);
+          if (back !== undefined) {
+            // Rewriting back to the saved words is a no-op, and stays one.
+            expect(composed).toBe(base);
+            expect(unsavedDecisionCount(edited)).toBe(0);
+          }
         }
 
         // A pure function of base plus hunks.

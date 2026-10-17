@@ -61,6 +61,7 @@ Work towards 1.0.
 - A suggestion accepted, or another chapter opened, at the moment Save to chapter was writing the file could be counted as saved without being in the chapter. Decisions now wait until the save is done, and a chapter or History entry you open meanwhile opens once it is.
 - A Save to chapter that failed left its card on screen after the next save, so repeated tries piled up identical red cards, even above "Saved to the chapter file.". Each save's card now replaces the last one's. The card saying the chapter changed on disk and was rebased still stays, since it counts the suggestions lost.
 - Rewriting a suggestion you had already saved to the chapter showed the new words on the page, but Save to chapter kept the old ones in the file. The new words now count as a change that is not saved yet, and Save writes them. With Accept now unticked, the saved words stay and your words wait as a suggestion; Save used to put the original words back.
+- A suggestion rewritten to the words the chapter already holds no longer counts as a change to save when you turn it back or dismiss it afterwards. Save to chapter offered to write one change, then said the chapter already matched the page.
 
 ### Removed
 

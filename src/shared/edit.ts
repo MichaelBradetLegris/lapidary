@@ -18,7 +18,7 @@
  */
 
 import { diffWordsWithSpace } from 'diff';
-import { activeHunks, desiredSide } from './diff/compose';
+import { activeHunks, decidedText, desiredSide } from './diff/compose';
 import { trimCommonAffixes } from './diff/trim';
 import { nextId } from './ids';
 import { buildRenderBlocks } from './render';
@@ -76,13 +76,7 @@ export function liveLayout(base: string, hunks: readonly Hunk[], span: Span): Li
   for (const hunk of activeHunks(hunks)) {
     if (hunk.start < span.start || hunk.end > span.end || hunk.start < cursor) continue;
     plain(hunk.start);
-    const want = desiredSide(hunk);
-    const shown =
-      want === hunk.baseSide
-        ? base.slice(hunk.start, hunk.end)
-        : want === 'replacement'
-          ? hunk.replacement
-          : hunk.original;
+    const shown = decidedText(base, hunk);
     runs.push({ ls: text.length, le: text.length + shown.length, bs: hunk.start, be: hunk.end, hunk });
     text += shown;
     cursor = hunk.end;
@@ -566,9 +560,12 @@ export function applyBlockEdit(hunks: readonly Hunk[], plan: BlockEditPlan): Hun
  * though the backup made before the save that replaced them does.
  *
  * Words that read exactly as the file does change nothing, so both sides become
- * the file's words and the hunk sits on whichever side its decision asks for:
- * rewriting a saved suggestion and then back to the saved words leaves nothing
- * unsaved. A stale hunk has no place in the base and only takes the new words.
+ * the file's words and the hunk sits on whichever side its decision asks for.
+ * Such a hunk never counts as unsaved and compose always copies the base for
+ * it (`changesBase`), whatever the author decides on it afterwards: rewriting a
+ * saved suggestion and then back to the saved words leaves nothing unsaved, and
+ * neither does turning that back or dismissing it. A stale hunk has no place in
+ * the base and only takes the new words.
  */
 export function editSuggestion(base: string, hunk: Hunk, replacement: string, accept: boolean): Hunk {
   const rewritten: Hunk = {

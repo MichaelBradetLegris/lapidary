@@ -356,6 +356,18 @@ describe('editing a suggestion in place', () => {
     expect(unsavedDecisionCount([unticked])).toBe(0);
   });
 
+  it('still counts nothing when the author turns such a suggestion back or dismisses it', () => {
+    // The hunk is "Tilting" -> "Tilting" on the replacement side. A click on the
+    // word, or a dismiss, used to make it one unsaved change that wrote nothing.
+    const ticked = editSuggestion(BASE, claudeHunk(), 'Tilting', true);
+    for (const status of ['pending', 'dismissed', 'accepted'] as const) {
+      const decided = { ...ticked, status };
+      expect(composeText(BASE, [decided])).toBe(BASE);
+      expect(liveTextIn(BASE, [decided], FIRST)).toBe(BASE.slice(FIRST.start, FIRST.end));
+      expect(unsavedDecisionCount([decided])).toBe(0);
+    }
+  });
+
   it('only takes the new words on a stale suggestion, which has no place in the text', () => {
     const stale = claudeHunk({ anchor: 'stale', start: 0, end: 0, baseSide: 'replacement' });
     expect(editSuggestion(BASE, stale, 'He tilted', true)).toEqual({
@@ -462,6 +474,26 @@ describe('rewriting a suggestion already saved into the chapter (apply.22)', () 
     expect(backUnticked.status).toBe('pending');
     expect(composeText(base, [backUnticked])).toBe(base);
     expect(unsavedDecisionCount([backUnticked])).toBe(0);
+  });
+
+  it('after rewriting back, any later decision still leaves nothing unsaved', () => {
+    // "begun" -> "begun" on the replacement side. A click on the word sent it
+    // to pending, and the count said 1 while the page still read like the file:
+    // "Save 1 change to chapter", then "The chapter already matches the page.".
+    const { base, hunk } = savedCase();
+    const back = editSuggestion(base, editSuggestion(base, hunk, 'started', true), 'begun', true);
+    expect(back).toMatchObject({ original: 'begun', replacement: 'begun', baseSide: 'replacement' });
+    for (const status of ['pending', 'dismissed', 'accepted'] as const) {
+      const decided = { ...back, status };
+      expect(composeText(base, [decided])).toBe(base);
+      expect(liveTextIn(base, [decided], { start: 0, end: 29 })).toBe(base.slice(0, 29));
+      expect(unsavedDecisionCount([decided])).toBe(0);
+      // A Save that finds nothing to write still folds the decisions in.
+      const committed = commitDecisions(base, [decided]);
+      expect(committed.text).toBe(base);
+      expect(unsavedDecisionCount(committed.hunks)).toBe(0);
+      expect(composeText(committed.text, [{ ...committed.hunks[0]!, status: 'accepted' }])).toBe(base);
+    }
   });
 
   it('a saved change the author turned back takes the new words against the saved ones', () => {
