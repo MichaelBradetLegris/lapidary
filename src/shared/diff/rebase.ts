@@ -2,7 +2,7 @@ import { paragraphIndexAt, splitParagraphs, type Paragraph } from '../text/parag
 import type { AnchorQuality, BaseSide, Hunk, HunkStatus, Review, ReviewBase, ReviewComment } from '../types';
 import { resolveOverlaps } from './anchor';
 import { changesBase } from './compose';
-import { cleanOccurrences, fuzzyFind, insideWord, isCleanMatch, occurrences } from './fuzzy';
+import { cleanOccurrences, fuzzyFind, insideWord, isCleanMatch, isWordChar, occurrences } from './fuzzy';
 
 export interface RebaseStats {
   /** hunks that found a home in the new text */
@@ -146,6 +146,14 @@ interface Candidate {
 /** How much text either side of a hunk is compared when ranking candidates. */
 const CONTEXT_CHARS = 40;
 
+/**
+ * How many characters of whole words a side of a place that no longer reads
+ * as before in full must still agree for, to count (`plainlyOnDisk`,
+ * `placedPlainly`): the narrowest context a place is looked for by
+ * (`contextNeedles`).
+ */
+const PINNED = 12;
+
 /** How many candidates for one side are scored: the nearest ones to the old offset. */
 const NEAREST = 12;
 
@@ -168,20 +176,38 @@ function betterCandidate(a: Candidate, b: Candidate): number {
 
 /**
  * Whether a candidate on the side the base does not hold may win, which flips
- * the decision (C.5). A zero-width place was found by the text around it, so
- * it stands where the hunk stood. Words count only when they plainly are the
- * hunk's own: a word-boundary match whose surroundings read as they did on
- * both sides; on one side, unless the words stood right beside a copy of
- * themselves, which may be all that is left of them; or, for a hunk whose own
- * side has words, the only word-boundary match in the file. A side counts
- * only where the old file has text on it: the start of the file alone says
- * nothing. Words found anywhere else say nothing about whether a change was
+ * the decision (C.5). A zero-width place was found by the text around it, and
+ * it counts where that text reads as before in full on one side, or for at
+ * least `PINNED` characters of whole words on both, a side with less old text
+ * than that saying nothing: a place found only by a few words, such as the
+ * last word of the file recurring further up, is no evidence that a change
+ * was made or undone. A place near copies of the hunk's own words has been
+ * weighed against them first (`settleCopies`). Words count only when they
+ * plainly are the hunk's own: a word-boundary match whose surroundings read
+ * as they did on both sides; on one side, unless the words stood right beside
+ * a copy of themselves, which may be all that is left of them; or, for a hunk
+ * whose own side has words, the only word-boundary match in the file. A side
+ * counts only where the old file has text on it: the start of the file alone
+ * says nothing. Words found anywhere else say nothing about whether a change was
  * made or undone: that is how a saved deletion of one word of a doubled
  * "the the" came back as a suggestion to delete the "the" that remained, or
  * another "the" nearby (apply.23).
  */
-function plainlyOnDisk(c: Candidate, oldText: string, hunk: Hunk, expected: string, other: string): boolean {
-  if (c.place) return true;
+function plainlyOnDisk(
+  c: Candidate,
+  oldText: string,
+  newText: string,
+  hunk: Hunk,
+  expected: string,
+  other: string
+): boolean {
+  if (c.place) {
+    if (c.before === CONTEXT_CHARS || c.after === CONTEXT_CHARS) return true;
+    const before = hunk.start < PINNED || wordsBefore(oldText, hunk.start, newText, c.start) >= PINNED;
+    const after =
+      oldText.length - hunk.end < PINNED || wordsAfter(oldText, hunk.end, newText, c.end) >= PINNED;
+    return before && after;
+  }
   if (!c.clean) return false;
   const before = hunk.start > 0 && c.before === CONTEXT_CHARS;
   const after = hunk.end < oldText.length && c.after === CONTEXT_CHARS;
@@ -201,13 +227,18 @@ function locate(oldText: string, newText: string, hunk: Hunk, opts: typeof DEFAU
   const expected = expectedSide === 'original' ? hunk.original : hunk.replacement;
   const other = otherSide === 'original' ? hunk.original : hunk.replacement;
 
-  const pool = [
-    ...candidates(oldText, newText, hunk, expectedSide, expected, true, opts),
-    ...candidates(oldText, newText, hunk, otherSide, other, false, opts).map((c) => ({
+  const { pool, unclear } = settleCopies(
+    oldText,
+    newText,
+    hunk,
+    expected,
+    candidates(oldText, newText, hunk, expectedSide, expected, true, opts),
+    candidates(oldText, newText, hunk, otherSide, other, false, opts).map((c) => ({
       ...c,
-      plain: plainlyOnDisk(c, oldText, hunk, expected, other)
+      plain: plainlyOnDisk(c, oldText, newText, hunk, expected, other)
     }))
-  ].sort(betterCandidate);
+  );
+  pool.sort(betterCandidate);
 
   let best = pool[0];
   if (best?.own && best.place && !(best.before === CONTEXT_CHARS && best.after === CONTEXT_CHARS)) {
@@ -227,20 +258,21 @@ function locate(oldText: string, newText: string, hunk: Hunk, opts: typeof DEFAU
       (c) => c.side === best.side && c.clean === best.clean && (c.own || c.plain)
     ).length;
     const anchor: AnchorQuality = best.clean && rivals === 1 ? 'exact' : 'ambiguous';
-    if (best.own && changesBase(hunk) && !placedPlainly(best, anchor, oldText, hunk, expected)) return null;
+    if (
+      best.own &&
+      changesBase(hunk) &&
+      (unclear.has(best.start) || !placedPlainly(best, anchor, oldText, newText, hunk, expected))
+    ) {
+      return null;
+    }
     return { start: best.start, end: best.end, side: best.side, anchor };
   }
 
-  // Save never writes a decision into a place found only approximately.
-  if (expected.length === 0 && !changesBase(hunk)) {
-    const place = placeByFuzzyContext(oldText, newText, hunk, expectedSide, opts);
-    if (place) return place;
-  }
-  if (other.length === 0) {
-    const place = placeByFuzzyContext(oldText, newText, hunk, otherSide, opts);
-    if (place) return place;
-  }
-
+  /* Only words are placed by the fuzzy search. A zero-width place found by
+     surroundings that no longer read as before is a guess that can fall
+     inside a word, where accepting the suggestion and saving would write its
+     words into the middle of another ("alwaysvery  fine"), so a deletion or
+     an insertion with nothing found exactly leaves the page instead. */
   if (expected.length > 0) {
     const match = fuzzyFind(newText, expected, hunk.start);
     if (match && match.ratio <= opts.maxDistanceRatio) {
@@ -254,26 +286,152 @@ function locate(oldText: string, newText: string, hunk: Hunk, opts: typeof DEFAU
 /**
  * Whether a decision Save would write (an accepted change not saved yet, or a
  * saved one turned back) may stay on this candidate of its own side. An empty
- * place, known only by its surroundings, needs them to read as they did on
- * both sides, so Save never inserts words a little way from the same words
- * already typed by hand. Words need them on one side at least, unless they are
- * the only such words in the file and did not stand beside a copy of
- * themselves: otherwise Save would write over whichever of several the rebase
- * picked, as when a doubled word was deleted by hand together with the words
- * either side of it and only its twin is left.
+ * place, known only by its surroundings, needs them to read as they did in
+ * full on one side and for at least `PINNED` characters of whole words on the
+ * other, so an edit a few words off on either side leaves it where it was,
+ * while Save never inserts words beside different words typed by hand at the
+ * place ("Then later Mara", where the text before agrees for none). Words
+ * need their surroundings in full on one side, unless they are the only such
+ * words in the file and did not stand beside a copy of themselves: otherwise
+ * Save would write over whichever of several the rebase picked, as when a
+ * doubled word was deleted by hand together with the words either side of it
+ * and only its twin is left.
  */
 function placedPlainly(
   c: Candidate,
   anchor: AnchorQuality,
   oldText: string,
+  newText: string,
   hunk: Hunk,
   words: string
 ): boolean {
   const before = c.before === CONTEXT_CHARS;
   const after = c.after === CONTEXT_CHARS;
-  if (c.place) return before && after;
+  if (c.place) {
+    if (before && after) return true;
+    if (before) return wordsAfter(oldText, hunk.end, newText, c.end) >= PINNED;
+    if (after) return wordsBefore(oldText, hunk.start, newText, c.start) >= PINNED;
+    return false;
+  }
   if (before || after) return true;
   return anchor === 'exact' && !twinned(oldText, hunk, words);
+}
+
+/**
+ * A place on the side the base does not hold, against copies of the hunk's
+ * own words near it. A place found by the text on one side of it can sit
+ * right beside those words, or a word or two from them, and its score on the
+ * other side then runs into them or into whatever was typed beside them, so an
+ * edited neighbour let it beat the words by a character or two: a suggested
+ * deletion of one word of "before the the storm" was taken as made when
+ * "before" became "after", and an accepted one dropped from Save (the
+ * `apply.23` review). Each copy of the words within `CONTEXT_CHARS` of the
+ * place is weighed against it on the side the copy is on, in whole words only
+ * (`wordsBefore`, `wordsAfter`). For a copy right beside the place: from the
+ * place itself, how far the new text reads as the old with the words taken
+ * out (`out`) and as the old with them in (`in`). For a copy further off,
+ * with other words between: how far the text beyond the copy reads as the old
+ * text beyond the hunk (`in`), against the place's own score on that side
+ * (`out`).
+ *
+ * Where any copy reads further, the place goes. Where the place reads further
+ * against every copy, it stands, and a copy right beside it is a copy indeed,
+ * the twin of a doubled word, which leaves the pool. A tie right beside the
+ * place counts for the place when the words stood twice in a row and stand
+ * only once there now, since the change is then made whichever copy went
+ * ("and the the frayed" changed to "but the frayed"). A tie further off counts
+ * for the place when a copy right beside it lost. Any other tie removes the
+ * place and keeps the copies, but as no place for Save to write a decision
+ * (`unclear`), except a copy whose own surroundings read further than the
+ * place's in all, which would have won anyway: "river the before" changed to
+ * "night the to before" reads as well with "the" kept and "to" typed after it
+ * as with "the" taken out and "night the to" typed before the place.
+ */
+function settleCopies(
+  oldText: string,
+  newText: string,
+  hunk: Hunk,
+  words: string,
+  own: Candidate[],
+  others: Candidate[]
+): { pool: Candidate[]; unclear: Set<number> } {
+  const unclear = new Set<number>();
+  if (words.length === 0) return { pool: [...own, ...others], unclear };
+  const twin = twinned(oldText, hunk, words);
+  const copies = new Set<number>();
+  const kept = others.filter((c) => {
+    if (!c.place) return true;
+    const at = c.start;
+    const near = copiesNear(newText, at, words).map((start) => {
+      const end = start + words.length;
+      if (end === at) {
+        return {
+          start,
+          beside: true,
+          out: wordsBefore(oldText, hunk.start, newText, at),
+          in: wordsBefore(oldText, hunk.end, newText, at)
+        };
+      }
+      if (start === at) {
+        return {
+          start,
+          beside: true,
+          out: wordsAfter(oldText, hunk.end, newText, at),
+          in: wordsAfter(oldText, hunk.start, newText, at)
+        };
+      }
+      return end < at
+        ? {
+            start,
+            beside: false,
+            out: wordsBefore(oldText, hunk.start, newText, at),
+            in: wordsBefore(oldText, hunk.start, newText, start)
+          }
+        : {
+            start,
+            beside: false,
+            out: wordsAfter(oldText, hunk.end, newText, at),
+            in: wordsAfter(oldText, hunk.end, newText, end)
+          };
+    });
+    if (near.some((n) => n.out < n.in)) return false;
+    const single = twin && copiesAt(newText, at, words) === 1;
+    const beaten = near.filter((n) => n.out > n.in || (n.beside && single));
+    const confirmed = beaten.some((n) => n.beside);
+    const tied = near.filter((n) => !beaten.includes(n) && (n.beside || !confirmed));
+    if (tied.length > 0) {
+      // A copy whose surroundings read further than the place's in all would have won anyway.
+      const score = c.before + c.after;
+      for (const n of near) {
+        const own =
+          agreeBefore(oldText, hunk.start, newText, n.start) +
+          agreeAfter(oldText, hunk.end, newText, n.start + words.length);
+        if (own <= score) unclear.add(n.start);
+      }
+      return false;
+    }
+    for (const n of beaten) if (n.beside) copies.add(n.start);
+    return true;
+  });
+  return { pool: [...own.filter((c) => !copies.has(c.start)), ...kept], unclear };
+}
+
+/** Where `words` stand in the new text, whole, within `CONTEXT_CHARS` of a place either side. */
+function copiesNear(newText: string, at: number, words: string): number[] {
+  const from = Math.max(0, at - CONTEXT_CHARS - words.length);
+  const window = newText.slice(from, at + CONTEXT_CHARS + words.length);
+  return occurrences(window, words)
+    .map((i) => from + i)
+    .filter((start) => isCleanMatch(newText, start, words))
+    .filter((start) => start + words.length <= at || start >= at);
+}
+
+/** How many copies of `words` stand in a row at `at`, either side of it. */
+function copiesAt(text: string, at: number, words: string): number {
+  let n = 0;
+  for (let i = at; i >= words.length && text.startsWith(words, i - words.length); i -= words.length) n += 1;
+  for (let i = at; text.startsWith(words, i); i += words.length) n += 1;
+  return n;
 }
 
 /** Whether a hunk's words stood right next to an identical copy in the old text, as one word of a doubled "the the" does. */
@@ -403,27 +561,6 @@ function contextNeedles(
   return needles;
 }
 
-/** A zero-width place found by its surroundings with small edits allowed, once nothing was found exactly. */
-function placeByFuzzyContext(
-  oldText: string,
-  newText: string,
-  hunk: Hunk,
-  side: BaseSide,
-  opts: typeof DEFAULTS
-): Found | null {
-  const left = oldText.slice(Math.max(0, hunk.start - opts.contextChars), hunk.start);
-  const right = oldText.slice(hunk.end, hunk.end + opts.contextChars);
-  const context = left + right;
-  if (context.length === 0) return null;
-
-  const match = fuzzyFind(newText, context, hunk.start);
-  if (match && match.ratio <= opts.maxDistanceRatio) {
-    const at = Math.min(newText.length, match.start + left.length);
-    return { start: at, end: at, side, anchor: 'fuzzy' };
-  }
-  return null;
-}
-
 function nearestOf(offsets: readonly number[], near: number): number[] {
   return [...offsets].sort((a, b) => Math.abs(a - near) - Math.abs(b - near)).slice(0, NEAREST);
 }
@@ -455,6 +592,45 @@ function agreeAfter(oldText: string, from: number, newText: string, bfrom: numbe
     if (oldText[i] !== newText[j]) return k;
   }
   return CONTEXT_CHARS;
+}
+
+/**
+ * `agreeBefore`, short of full, in whole words: counted back only to the
+ * start of the furthest word that agrees all through, in both texts. Letters
+ * that agree part way into a word, as the "e" of "the" does with the "e" of
+ * "before", are chance, and so is the space or the comma before a word.
+ */
+function wordsBefore(oldText: string, at: number, newText: string, bt: number): number {
+  let k = agreeBefore(oldText, at, newText, bt);
+  if (k === CONTEXT_CHARS) return k;
+  while (
+    k > 0 &&
+    !(isWordChar(newText[bt - k]) && startsWord(newText, bt - k) && startsWord(oldText, at - k))
+  ) {
+    k -= 1;
+  }
+  return k;
+}
+
+/** `agreeAfter`, short of full, in whole words: to the end of the furthest word that agrees all through. */
+function wordsAfter(oldText: string, from: number, newText: string, bfrom: number): number {
+  let k = agreeAfter(oldText, from, newText, bfrom);
+  if (k === CONTEXT_CHARS) return k;
+  while (
+    k > 0 &&
+    !(isWordChar(newText[bfrom + k - 1]) && endsWord(newText, bfrom + k) && endsWord(oldText, from + k))
+  ) {
+    k -= 1;
+  }
+  return k;
+}
+
+function startsWord(text: string, at: number): boolean {
+  return !isWordChar(text[at - 1]);
+}
+
+function endsWord(text: string, at: number): boolean {
+  return !isWordChar(text[at]);
 }
 
 function remapComment(

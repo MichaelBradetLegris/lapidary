@@ -6,6 +6,7 @@ import {
   findOverlaps,
   unsavedDecisionCount
 } from '../../src/shared/diff/compose';
+import { insideWord } from '../../src/shared/diff/fuzzy';
 import { rebaseReview } from '../../src/shared/diff/rebase';
 import { editSuggestion } from '../../src/shared/edit';
 import { createReview } from '../../src/shared/review';
@@ -785,6 +786,146 @@ describe('deletions through a rebase (apply.23)', () => {
         expect(composeText(built.base, same.hunks)).toBe(composed);
       }),
       { numRuns: 300 }
+    );
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* apply.23 review: words that stay, and no place by a guess           */
+/* ------------------------------------------------------------------ */
+
+describe('deletions and insertions whose words stay (apply.23 review)', () => {
+  /** Words of the passage around the hunk; none is a hunk's word. */
+  const PASSAGE = [
+    'before',
+    'since',
+    'once',
+    'like',
+    'made',
+    'river',
+    'mill',
+    'rain',
+    'night',
+    'was',
+    'and',
+    'of',
+    'to',
+    'into',
+    'over',
+    'she',
+    'he',
+    'were'
+  ];
+  /**
+   * Words another editor types: new to the passage, so an edit never puts back
+   * a word that stood beside the hunk, which would read the same as the hunk's
+   * own words taken out. Several share letters with the passage and with the
+   * hunk's words ("after" and "before", "then" and "the").
+   */
+  const TYPED = ['after', 'where', 'there', 'tide', 'stone', 'bank', 'wore', 'gone', 'her', 'then'];
+  /** Long enough that the start of the file is never within 40 characters of the hunk. */
+  const LEAD = 'Far away and long before any of this w1 w2 w3 w4 w5 w6 w7 w8';
+
+  type Kind = 'pending deletion' | 'accepted deletion' | 'saved insertion';
+
+  const caseArb = fc.record({
+    kind: fc.constantFrom<Kind>('pending deletion', 'accepted deletion', 'saved insertion'),
+    word: fc.constantFrom('the', 'that', 'had'),
+    doubled: fc.boolean(),
+    second: fc.boolean(),
+    left: fc.array(fc.constantFrom(...PASSAGE), { minLength: 1, maxLength: 8 }),
+    right: fc.array(fc.constantFrom(...PASSAGE), { minLength: 1, maxLength: 8 }),
+    edits: fc.array(
+      fc.record({
+        left: fc.boolean(),
+        at: fc.nat(),
+        op: fc.constantFrom('replace', 'insert', 'delete'),
+        word: fc.constantFrom(...TYPED)
+      }),
+      { minLength: 1, maxLength: 2 }
+    )
+  });
+
+  it('keeps its decision on its own words through one or two words changed beside them or near', () => {
+    fc.assert(
+      fc.property(caseArb, (c) => {
+        // A deletion may be one word of a doubled pair, whose twin is left alone.
+        const run = c.kind !== 'saved insertion' && c.doubled ? [c.word, c.word] : [c.word];
+        const build = (left: string[], right: string[]): string =>
+          [LEAD, ...left, ...run, ...right].join(' ');
+        const offset = run.length === 2 && c.second ? c.word.length + 1 : 0;
+        const words = `${c.word} `;
+        const base = build(c.left, c.right);
+        const start = [LEAD, ...c.left].join(' ').length + 1 + offset;
+        const hunk: Hunk = {
+          id: 'h1',
+          start,
+          end: start + words.length,
+          baseSide: c.kind === 'saved insertion' ? 'replacement' : 'original',
+          original: c.kind === 'saved insertion' ? '' : words,
+          replacement: c.kind === 'saved insertion' ? words : '',
+          paragraph: 0,
+          source: 'diff',
+          status: c.kind === 'pending deletion' ? 'pending' : 'accepted',
+          anchor: 'exact'
+        };
+
+        const left = [...c.left];
+        const right = [...c.right];
+        for (const edit of c.edits) {
+          const words = edit.left ? left : right;
+          const i = edit.at % (words.length + (edit.op === 'insert' ? 1 : 0));
+          if (edit.op === 'replace') words[i] = edit.word;
+          else if (edit.op === 'insert') words.splice(i, 0, edit.word);
+          else if (words.length > 1) words.splice(i, 1);
+        }
+        const text = build(left, right);
+        fc.pre(text !== base);
+        const at = [LEAD, ...left].join(' ').length + 1 + offset;
+
+        const { review: after, stats } = rebaseReview(reviewOf(base, [hunk]), nextBase(text));
+        const now = after.hunks[0]!;
+        // Never taken as made, or undone, by hand.
+        expect(stats.adopted).toBe(0);
+        expect(now.status).toBe(hunk.status);
+        expect(now.baseSide).toBe(hunk.baseSide);
+        // Off the page only when the text changed on both sides of the words (C.52).
+        const sides = sidesAsBefore(base, hunk.start, hunk.end, text, at, at + words.length);
+        if (sides.before || sides.after) expect(now.anchor).not.toBe('stale');
+        if (now.anchor === 'stale') return;
+        // On its words, or on their twin: either word of a doubled pair deletes to the same text.
+        const twin = run.length === 2 ? at + (c.second ? -1 : 1) * words.length : at;
+        expect([at, twin]).toContain(now.start);
+        expect(now.end).toBe(now.start + words.length);
+        // Save deletes an accepted deletion's words, and writes nothing for the others.
+        expect(composeText(text, after.hunks)).toBe(
+          c.kind === 'accepted deletion' ? text.slice(0, at) + text.slice(at + words.length) : text
+        );
+      }),
+      { numRuns: 1000 }
+    );
+  });
+
+  it('never places a deletion or an insertion inside a word, through rounds of edits', () => {
+    fc.assert(
+      fc.property(
+        piecesArb,
+        fc.array(fc.array(editArb(anyWord, ALL_OPS), { maxLength: 4 }), { minLength: 1, maxLength: 3 }),
+        (pieces, rounds) => {
+          const built = buildChapter(pieces);
+          let review = reviewOf(built.base, built.hunks);
+          let text = built.base;
+          for (const edits of rounds) {
+            text = applyEdits(text, edits).text;
+            review = rebaseReview(review, nextBase(text)).review;
+            for (const h of review.hunks) {
+              if (h.anchor === 'stale' || h.start !== h.end) continue;
+              expect(insideWord(text, h.start)).toBe(false);
+            }
+          }
+        }
+      ),
+      { numRuns: 500 }
     );
   });
 });

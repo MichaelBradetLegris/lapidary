@@ -6,6 +6,7 @@ import {
   composeText,
   unsavedDecisionCount
 } from '../../src/shared/diff/compose';
+import { insideWord } from '../../src/shared/diff/fuzzy';
 import { rebaseReview } from '../../src/shared/diff/rebase';
 import { createDiffReview, createReview } from '../../src/shared/review';
 import { normalizeText } from '../../src/shared/text/eol';
@@ -636,5 +637,229 @@ describe('saved changes through a rebase (apply.23)', () => {
     expect(next.hunks[0]?.anchor).toBe('stale');
     // Save writes nothing for it rather than "have" over whichever "of" looked closest.
     expect(composeReview(next)).toBe(text);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* apply.23 review: words beside a place, edits on one side, no guess   */
+/* ------------------------------------------------------------------ */
+
+describe('a place beside the words it stands for (apply.23 review)', () => {
+  const barge =
+    'The barge had been tied up all night, and before the the storm broke they had moved it to the lee of the mill.';
+
+  it.each([
+    ['second', barge.indexOf('the the') + 4],
+    ['first', barge.indexOf('the the')]
+  ])(
+    'keeps a deletion of the %s word of "before the the storm" on its word when "before" becomes "after"',
+    (_, at) => {
+      const text = barge.replace('before the the storm', 'after the the storm');
+      const point = at - 'before'.length + 'after'.length;
+
+      // Suggested: still a suggestion over its own word, not taken as made by hand.
+      const pending = rebaseOnto(reviewOn(barge, [hunkAt(at, 'the ', '', 'pending')]), text);
+      expect(pending.review.hunks[0]).toMatchObject({
+        status: 'pending',
+        baseSide: 'original',
+        start: point,
+        end: point + 4
+      });
+      expect(pending.stats.adopted).toBe(0);
+      expect(composeReview(pending.review)).toBe(text);
+
+      // Accepted: still a change to save, and Save deletes the word.
+      const accepted = rebaseOnto(reviewOn(barge, [hunkAt(at, 'the ', '', 'accepted')]), text);
+      expect(accepted.review.hunks[0]).toMatchObject({
+        status: 'accepted',
+        baseSide: 'original',
+        start: point,
+        end: point + 4
+      });
+      expect(accepted.stats.adopted).toBe(0);
+      expect(unsavedDecisionCount(accepted.review.hunks)).toBe(1);
+      expect(composeReview(accepted.review)).toBe(barge.replace('before the the storm', 'after the storm'));
+    }
+  );
+
+  it('still takes an accepted deletion as made when one "the" went and the word before the pair changed', () => {
+    // Which of the two went cannot be told, but the pair is single now, so the change is made.
+    const at = barge.indexOf('the the') + 4;
+    for (const word of ['but', 'once']) {
+      const text = barge.replace('and before the the storm', `and ${word} the storm`);
+      const { review: next, stats } = rebaseOnto(reviewOn(barge, [hunkAt(at, 'the ', '', 'accepted')]), text);
+      expect(next.hunks[0]).toMatchObject({ status: 'accepted', baseSide: 'replacement' });
+      expect(next.hunks[0]?.start).toBe(text.indexOf(`${word} the `) + `${word} the `.length);
+      expect(stats).toMatchObject({ stale: 0, adopted: 0 });
+      expect(composeReview(next)).toBe(text);
+    }
+  });
+
+  it('keeps a saved insertion when a word is typed right after it and the text further back changes', () => {
+    const rain = 'It was the third night of rain, and the river had begun to climb the steps below the mill.';
+    const at = rain.indexOf('had begun');
+    const savedHad: Hunk = {
+      ...hunkAt(at, '', 'had ', 'accepted', 'i1'),
+      end: at + 4,
+      baseSide: 'replacement'
+    };
+    const text = rain.replace('third night', 'fourth night').replace('had begun', 'had slowly begun');
+    const { review: next, stats } = rebaseOnto(reviewOn(rain, [savedHad]), text);
+    // Not turned back into a suggestion to insert "had " beside the "had" in the file.
+    expect(next.hunks[0]).toMatchObject({
+      status: 'accepted',
+      baseSide: 'replacement',
+      start: text.indexOf('had slowly'),
+      end: text.indexOf('had slowly') + 4
+    });
+    expect(stats.adopted).toBe(0);
+    expect(composeReview(next)).toBe(text);
+  });
+
+  it('never takes a suggested deletion as made at a place found only by a few words that recur', () => {
+    // The text after the deletion is the last word of the file, "before", which
+    // also stands earlier on; both words beside the deletion changed.
+    const prose = 'They had all gone long before the flood came. Mara had stood at the door like that before';
+    const at = prose.lastIndexOf('that ');
+    const text = prose.replace('door like that before', 'door now like that again');
+    const { review: next, stats } = rebaseOnto(reviewOn(prose, [hunkAt(at, 'that ', '', 'pending')]), text);
+    expect(next.hunks[0]).toMatchObject({ status: 'pending', baseSide: 'original' });
+    expect(stats.adopted).toBe(0);
+    expect(composeReview(next)).toBe(text);
+  });
+
+  it.each([
+    // The new word ends, or starts, with the letter "the" does, which agrees by chance.
+    ['second', SECOND, ['and the frayed', 'once the frayed'], 'once the '],
+    ['first', FIRST, ['and the frayed', 'and the torn'], 'and ']
+  ] as const)(
+    'takes an accepted deletion of the %s "the" as made when it went and the word on the far side of the pair changed',
+    (_, at, [from, to], before) => {
+      const review = reviewOn(SPLICE, [hunkAt(at, 'the ', '', 'accepted')]);
+      const text = composeReview(review).replace(from, to);
+      const { review: next, stats } = rebaseOnto(review, text);
+      expect(next.hunks[0]).toMatchObject({
+        status: 'accepted',
+        baseSide: 'replacement',
+        start: text.indexOf(to) + before.length
+      });
+      expect(stats).toMatchObject({ stale: 0, adopted: 0 });
+      // Save writes nothing for it: the "the" left stays.
+      expect(composeReview(next)).toBe(text);
+    }
+  );
+
+  it('takes an accepted deletion as made when the word went, the next words changed and the same word stands further on', () => {
+    // The "the" in "of the rope" reads no worse than the place beside the
+    // twin, but the twin, right beside the place, plainly lost to it.
+    const review = reviewOn(SPLICE, [hunkAt(SECOND, 'the ', '', 'accepted')]);
+    const text = composeReview(review).replace('the frayed end had', 'the worn end of the rope had');
+    const { review: next, stats } = rebaseOnto(review, text);
+    expect(next.hunks[0]).toMatchObject({
+      status: 'accepted',
+      baseSide: 'replacement',
+      start: text.indexOf('and the worn') + 'and the '.length
+    });
+    expect(stats).toMatchObject({ stale: 0, adopted: 0 });
+    expect(composeReview(next)).toBe(text);
+  });
+
+  it('leaves an accepted deletion off the page when its words and a place read as well as each other', () => {
+    // "stood" became "sat" and "quietly" was typed after "very": as well read
+    // as "very" kept, as "very" taken out and "sat very quietly" typed.
+    const still = 'Far out on the marsh he stood very still by the gate, and the dogs lay down beside him.';
+    const review = reviewOn(still, [hunkAt(still.indexOf('very '), 'very ', '', 'accepted')]);
+    const text = still.replace('he stood very still', 'he sat very quietly still');
+    const { review: next, stats } = rebaseOnto(review, text);
+    expect(next.hunks[0]?.anchor).toBe('stale');
+    expect(stats.adopted).toBe(0);
+    // Save writes nothing for it, rather than delete a "very" that may be new.
+    expect(composeReview(next)).toBe(text);
+  });
+
+  it('keeps an accepted deletion among repeated words when a word is added after them', () => {
+    // A place found by repeated words reads as well on its far side as the
+    // deletion's own words, but the words read further in all.
+    const lead = 'Far away and long before any of this w1 w2 w3 w4 w5 w6 w7 w8';
+    const repeated = `${lead} before before before the before`;
+    const at = repeated.lastIndexOf('the ');
+    const review = reviewOn(repeated, [hunkAt(at, 'the ', '', 'accepted')]);
+    const text = `${repeated} after`;
+    const { review: next } = rebaseOnto(review, text);
+    expect(next.hunks[0]).toMatchObject({ status: 'accepted', baseSide: 'original', start: at, end: at + 4 });
+    expect(composeReview(next)).toBe(`${lead} before before before before after`);
+  });
+});
+
+describe('a decision Save would write, with the file changed on one side of it (apply.23 review)', () => {
+  const rain =
+    'It was the third night of rain, and the river begun to climb the steps below the mill. Nobody in the town slept.';
+  const point = rain.indexOf('begun');
+
+  it.each([
+    ['a word 15 characters after it', rain.replace('the steps below', 'the stairs below')],
+    ['a word 25 characters before it', rain.replace('third night', 'fourth night')],
+    ['a word 60 characters after it', rain.replace('Nobody in the town', 'No one in the town')]
+  ])('keeps an accepted insertion where it was when the file changes %s', (_, text) => {
+    const review = reviewOn(rain, [hunkAt(point, '', 'had ', 'accepted', 'i1')]);
+    const { review: next, stats } = rebaseOnto(review, text);
+    const at = text.indexOf('river begun') + 'river '.length;
+    expect(next.hunks[0]).toMatchObject({ status: 'accepted', baseSide: 'original', start: at, end: at });
+    expect(stats).toMatchObject({ stale: 0, adopted: 0 });
+    expect(unsavedDecisionCount(next.hunks)).toBe(1);
+    expect(composeReview(next)).toBe(text.replace('river begun', 'river had begun'));
+  });
+
+  it('keeps a saved deletion turned back where it was when a word a few words after it changes', () => {
+    const before = saved(reviewOn(rain, [hunkAt(rain.indexOf('third '), 'third ', '', 'accepted', 'd1')]));
+    expect(before.base.text).toContain('It was the night of rain');
+    const turnedBack = { ...before, hunks: before.hunks.map((h) => ({ ...h, status: 'pending' as const })) };
+    const text = before.base.text.replace('and the river', 'and the stream');
+    const { review: next } = rebaseOnto(turnedBack, text);
+    expect(next.hunks[0]).toMatchObject({ status: 'pending', baseSide: 'replacement', start: 11, end: 11 });
+    // Save puts the word back.
+    expect(composeReview(next)).toBe(text.replace('It was the night', 'It was the third night'));
+  });
+
+  it('still leaves an accepted insertion off the page when another word was typed right where it goes', () => {
+    const text = rain.replace('river begun to', 'river slowly begun to');
+    const { review: next } = rebaseOnto(reviewOn(rain, [hunkAt(point, '', 'had ', 'accepted', 'i1')]), text);
+    expect(next.hunks[0]?.anchor).toBe('stale');
+    expect(composeReview(next)).toBe(text);
+  });
+});
+
+describe('no place by a guess (apply.23 review)', () => {
+  const ewes = [
+    'Her brother had left in June. He had not said where.',
+    '',
+    'The ewes were fine. The ewes were always fine. It was the one mercy of that whole year, and she took it without gratitude, the way you take a thing you are owed.'
+  ].join('\n');
+  const point = ewes.indexOf('always fine') + 'always '.length;
+  const glued = /\wvery|very\s\s/;
+
+  it('never places a suggested insertion inside a word when the words either side of it change in turn', () => {
+    // As seen in a window: "always fine." became "always good.", then "quite good.", then "always fine." again.
+    let review = reviewOn(ewes, [hunkAt(point, '', 'very ', 'pending', 'i1')]);
+    for (const text of [
+      ewes.replace('were always fine. It', 'were always good. It'),
+      ewes.replace('were always fine. It', 'were quite good. It'),
+      ewes
+    ]) {
+      review = rebaseOnto(review, text).review;
+      const hunk = review.hunks[0]!;
+      if (hunk.anchor !== 'stale') expect(insideWord(text, hunk.start)).toBe(false);
+      // Accepted and saved, the words never run into the next.
+      const accepted = review.hunks.map((h) => ({ ...h, status: 'accepted' as const }));
+      expect(composeText(text, accepted)).not.toMatch(glued);
+    }
+    // The last step changed the words either side of it: off the page, so Save writes nothing for it.
+    expect(review.hunks[0]?.anchor).toBe('stale');
+  });
+
+  it('leaves it off the page when both words beside it change at once', () => {
+    const text = ewes.replace('were always fine. It', 'were quite good. It');
+    const { review: next } = rebaseOnto(reviewOn(ewes, [hunkAt(point, '', 'very ', 'pending', 'i1')]), text);
+    expect(next.hunks[0]?.anchor).toBe('stale');
   });
 });

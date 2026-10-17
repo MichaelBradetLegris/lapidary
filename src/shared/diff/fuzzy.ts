@@ -68,7 +68,8 @@ export function occurrences(haystack: string, needle: string): number[] {
 
 const WORD_CHAR = /[\p{L}\p{N}_'’]/u;
 
-function isWordChar(ch: string | undefined): boolean {
+/** A letter, a digit, an underscore or an apostrophe: what a word is made of here. */
+export function isWordChar(ch: string | undefined): boolean {
   return ch !== undefined && WORD_CHAR.test(ch);
 }
 
