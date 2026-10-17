@@ -15,8 +15,11 @@ import {
   listChapters,
   readChapter,
   readTextFile,
-  writeChapter
+  writeChapter,
+  type WriteHooks
 } from '../../src/main/files';
+import { backupFolderFor, backupsRootFor, chapterBackupHooks, listBackups } from '../../src/main/backups';
+import type { SaveResponse } from '../../src/shared/ipc';
 
 let root: string;
 
@@ -242,6 +245,172 @@ describe('writeChapter', () => {
     expect(result).toEqual({ status: 'written', hash: expected });
     expect(seen).toEqual([[file, expected]]);
     expect((await readChapter(file)).hash).toBe(expected);
+  });
+});
+
+describe('writeChapter backup hooks (apply.10, PLAN 11.3 h)', () => {
+  /** A save of `text` over what `file` holds now. */
+  async function saveOver(file: string, text: string, hooks: WriteHooks): Promise<SaveResponse> {
+    const content = await readChapter(file);
+    return writeChapter(
+      {
+        path: file,
+        text,
+        eol: content.eol,
+        bom: content.bom,
+        trailingNewline: content.trailingNewline,
+        expectedHash: content.hash
+      },
+      hooks
+    );
+  }
+
+  it('hands beforeReplace the exact old bytes before anything is written, and returns its answer', async () => {
+    const original = Buffer.from('﻿the river had began\r\n\r\nto climb\r\n', 'utf8');
+    const file = await put('c.md', original);
+    const calls: Array<{ file: string; bytes: Buffer; onDisk: Buffer }> = [];
+    const order: string[] = [];
+    const result = await saveOver(file, 'the river had begun\n\nto climb', {
+      beforeReplace: async (target, bytes) => {
+        order.push('beforeReplace');
+        calls.push({ file: target, bytes: Buffer.from(bytes), onDisk: await fs.readFile(target) });
+        return { name: '2026-10-14 16.04.33 c.md', created: true };
+      },
+      onWritten: () => order.push('onWritten'),
+      afterWrite: async (target) => {
+        order.push('afterWrite');
+        expect(await fs.readFile(target, 'utf8')).toBe('﻿the river had begun\r\n\r\nto climb\r\n');
+      }
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.file).toBe(file);
+    expect(calls[0]!.bytes.equals(original)).toBe(true);
+    expect(calls[0]!.onDisk.equals(original)).toBe(true);
+    expect(order).toEqual(['beforeReplace', 'onWritten', 'afterWrite']);
+    expect(result).toEqual({
+      status: 'written',
+      hash: hashBytes(Buffer.from('﻿the river had begun\r\n\r\nto climb\r\n', 'utf8')),
+      backup: { name: '2026-10-14 16.04.33 c.md', created: true }
+    });
+  });
+
+  it('writes nothing when beforeReplace throws, and says the backup failed', async () => {
+    const file = await put('c.md', 'one\n');
+    const old = new Date('2026-01-02T03:04:05.000Z');
+    await fs.utimes(file, old, old);
+    const seen: string[] = [];
+    let after = false;
+    const err = await saveOver(file, 'two', {
+      beforeReplace: () => Promise.reject(new Error('there is no space left on the disk')),
+      onWritten: (_f, hash) => seen.push(hash),
+      afterWrite: () => {
+        after = true;
+        return Promise.resolve();
+      }
+    }).catch((e: unknown) => e);
+    expect((err as Error).message).toBe(
+      'Could not back up the chapter before saving, so nothing was written: there is no space left on the disk'
+    );
+    expect((err as { code?: string }).code).toBe('io');
+    expect(await fs.readFile(file, 'utf8')).toBe('one\n');
+    expect((await fs.stat(file)).mtime.getTime()).toBe(old.getTime());
+    expect(await fs.readdir(root)).toEqual(['c.md']);
+    expect(seen).toEqual([]);
+    expect(after).toBe(false);
+  });
+
+  it('returns stale, keeping the new bytes, when the file changes during the backup', async () => {
+    const file = await put('c.md', 'one\n');
+    let after = false;
+    const result = await saveOver(file, 'mine', {
+      beforeReplace: async (target) => {
+        await fs.writeFile(target, 'Obsidian saved this meanwhile\n');
+        return { name: 'x', created: true };
+      },
+      afterWrite: () => {
+        after = true;
+        return Promise.resolve();
+      }
+    });
+    expect(result.status).toBe('stale');
+    expect(result.status === 'stale' && result.disk.text).toBe('Obsidian saved this meanwhile');
+    expect(await fs.readFile(file, 'utf8')).toBe('Obsidian saved this meanwhile\n');
+    expect(after).toBe(false);
+  });
+
+  it('calls no hook when the new bytes are the ones on disk, or the file is stale', async () => {
+    const file = await put('c.md', 'one\n');
+    const calls: string[] = [];
+    const hooks: WriteHooks = {
+      beforeReplace: () => {
+        calls.push('beforeReplace');
+        return Promise.resolve(undefined);
+      },
+      afterWrite: () => {
+        calls.push('afterWrite');
+        return Promise.resolve();
+      }
+    };
+    expect(await saveOver(file, 'one', hooks)).toMatchObject({ status: 'written', unchanged: true });
+    const content = await readChapter(file);
+    await fs.writeFile(file, 'changed elsewhere\n');
+    const stale = await writeChapter(
+      { path: file, text: 'two', eol: 'lf', bom: false, trailingNewline: true, expectedHash: content.hash },
+      hooks
+    );
+    expect(stale.status).toBe('stale');
+    expect(calls).toEqual([]);
+  });
+
+  it('still reports the save written when afterWrite fails', async () => {
+    const file = await put('c.md', 'one\n');
+    const result = await saveOver(file, 'two', {
+      beforeReplace: () => Promise.resolve({ name: 'b', created: false }),
+      afterWrite: () => Promise.reject(new Error('prune failed'))
+    });
+    expect(result).toMatchObject({ status: 'written', backup: { name: 'b', created: false } });
+    expect(await fs.readFile(file, 'utf8')).toBe('two\n');
+  });
+
+  it('reports a chapter removed during the backup as gone, writing nothing', async () => {
+    const file = await put('c.md', 'one\n');
+    await expect(
+      saveOver(file, 'two', {
+        beforeReplace: async (target) => {
+          await fs.rm(target);
+          return undefined;
+        }
+      })
+    ).rejects.toThrow(/no longer at/);
+    expect(await fs.readdir(root)).toEqual([]);
+  });
+
+  it('with the real hooks, two saves leave two backups in userData and nothing new beside the chapter', async () => {
+    const vault = path.join(root, 'vault');
+    const userData = path.join(root, 'userData');
+    const original = Buffer.from('﻿one\r\ntwo\r\n', 'utf8');
+    const file = path.join(vault, 'Chapter 01.md');
+    await fs.mkdir(vault, { recursive: true });
+    await fs.writeFile(file, original);
+    const backupsRoot = backupsRootFor(userData);
+    let clock = new Date(2026, 9, 14, 16, 4, 33);
+    const hooks = chapterBackupHooks({ backupsRoot, manuscriptFolder: vault, ci: true, now: () => clock });
+
+    const first = await saveOver(file, 'one\nthree', hooks);
+    clock = new Date(2026, 9, 14, 16, 5, 0);
+    const second = await saveOver(file, 'one\nfour', hooks);
+
+    expect(first).toMatchObject({ backup: { name: '2026-10-14 16.04.33 Chapter 01.md', created: true } });
+    expect(second).toMatchObject({ backup: { name: '2026-10-14 16.05.00 Chapter 01.md', created: true } });
+    const folder = backupFolderFor(backupsRoot, file, true);
+    const backups = await listBackups(folder);
+    expect(backups.map((b) => b.name)).toEqual([
+      '2026-10-14 16.05.00 Chapter 01.md',
+      '2026-10-14 16.04.33 Chapter 01.md'
+    ]);
+    expect(hashBytes(await fs.readFile(backups[1]!.file))).toBe(hashBytes(original));
+    expect(await fs.readFile(backups[0]!.file)).toEqual(Buffer.from('﻿one\r\nthree\r\n', 'utf8'));
+    expect(await fs.readdir(vault)).toEqual(['Chapter 01.md']);
   });
 });
 

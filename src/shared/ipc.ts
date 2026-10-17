@@ -70,12 +70,25 @@ export interface SaveRequest {
   expectedHash: string;
 }
 
+/**
+ * The copy of the chapter made before a save replaced it (`apply.10`, PLAN
+ * 6.5). It lies in the chapter's own folder under `<userData>/backups`, which
+ * the renderer reaches only through `shell:reveal`, so only the name crosses.
+ */
+export interface SaveBackup {
+  /** the backup's file name, such as `2026-10-14 16.04.33 Chapter 12.md` */
+  name: string;
+  /** false when the newest backup already held exactly these bytes, so it stands for this save */
+  created: boolean;
+}
+
 export type SaveResponse =
   /**
    * `unchanged`: the file already held exactly these bytes, so nothing was
-   * written and its modified time stays as it was (PLAN 11.3 h, step 3).
+   * written, nothing was backed up, and its modified time stays as it was
+   * (PLAN 11.3 h, step 3). Otherwise `backup` is the copy of what was replaced.
    */
-  | { status: 'written'; hash: string; unchanged?: true }
+  | { status: 'written'; hash: string; unchanged?: true; backup?: SaveBackup }
   /** the file changed underneath us; the caller must rebase onto `disk` and retry */
   | { status: 'stale'; disk: FileContent };
 

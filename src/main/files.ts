@@ -6,6 +6,7 @@ import type {
   ChapterFile,
   FileContent,
   NameCheck,
+  SaveBackup,
   SaveRequest,
   SaveResponse
 } from '../shared/ipc';
@@ -211,28 +212,49 @@ export function bytesFor(request: Pick<SaveRequest, 'text' | 'eol' | 'bom' | 'tr
 export interface WriteHooks {
   /** called with the hash just written so the watcher can ignore its own echo */
   onWritten?: (file: string, hash: string) => void;
+  /**
+   * Step 4 of PLAN 11.3 (h): handed the exact bytes about to be replaced,
+   * once the file is known to be the one the caller expects and before
+   * anything is written. Main backs them up here (`chapterBackupHooks` in
+   * `backups.ts`). If it throws, nothing is written and the save fails with
+   * "Could not back up the chapter before saving, so nothing was written:"
+   * and its message. What it returns comes back as `SaveResponse.backup`.
+   */
+  beforeReplace?: (file: string, bytes: Buffer) => Promise<SaveBackup | undefined>;
+  /**
+   * Step 8: after the chapter is written and its hash remembered. Best
+   * effort: the save has already happened, so a failure here never fails it.
+   */
+  afterWrite?: (file: string) => Promise<void>;
   /** tests replace the rename and the waits between retries */
   atomic?: Pick<AtomicWriteOptions, 'rename' | 'sleep'>;
 }
 
-/**
- * Save a chapter. The file is re-read first: when the bytes on disk are not the
- * ones the caller based its decisions on, nothing is written and the fresh
- * contents come back so the caller can rebase and try again (plan section 6.3).
- * When the new bytes are the ones already on disk, nothing is written either,
- * so the file keeps its modified time and Obsidian or a sync tool sees no
- * change (`unchanged`, PLAN 11.3 h step 3).
- */
-export async function writeChapter(request: SaveRequest, hooks: WriteHooks = {}): Promise<SaveResponse> {
-  const { bytes: onDisk, content: current } = await readChapterBytes(request.path).catch((err: unknown) => {
+/** A chapter's bytes for a save, with a missing file explained. */
+async function readForSave(file: string): Promise<{ bytes: Buffer; content: FileContent }> {
+  return readChapterBytes(file).catch((err: unknown) => {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       throw fail(
         'not-found',
-        `The chapter is no longer at ${request.path}. If you renamed or moved it in Obsidian, open it again from the list; its review comes with it.`
+        `The chapter is no longer at ${file}. If you renamed or moved it in Obsidian, open it again from the list; its review comes with it.`
       );
     }
     throw err;
   });
+}
+
+/**
+ * Save a chapter, in the order of PLAN 11.3 (h). The file is re-read first:
+ * when the bytes on disk are not the ones the caller based its decisions on,
+ * nothing is written and the fresh contents come back so the caller can rebase
+ * and try again (plan section 6.3). When the new bytes are the ones already on
+ * disk, nothing is written or backed up, so the file keeps its modified time
+ * and Obsidian or a sync tool sees no change (`unchanged`, step 3). Otherwise
+ * `beforeReplace` backs up the old bytes (step 4), the file is read once more
+ * in case it changed meanwhile (step 5), and only then replaced (step 6).
+ */
+export async function writeChapter(request: SaveRequest, hooks: WriteHooks = {}): Promise<SaveResponse> {
+  const { bytes: onDisk, content: current } = await readForSave(request.path);
 
   if (current.hash !== request.expectedHash) {
     return { status: 'stale', disk: current };
@@ -240,6 +262,22 @@ export async function writeChapter(request: SaveRequest, hooks: WriteHooks = {})
 
   const bytes = bytesFor(request);
   if (bytes.equals(onDisk)) return { status: 'written', hash: current.hash, unchanged: true };
+
+  let backup: SaveBackup | undefined;
+  if (hooks.beforeReplace) {
+    try {
+      backup = await hooks.beforeReplace(request.path, onDisk);
+    } catch (err) {
+      throw fail(
+        'io',
+        `Could not back up the chapter before saving, so nothing was written: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+    // The copy took a moment. Bytes that arrived meanwhile, from Obsidian or a
+    // sync, are not in the backup and are not what the caller decided on.
+    const again = await readForSave(request.path);
+    if (again.content.hash !== current.hash) return { status: 'stale', disk: again.content };
+  }
 
   const outcome = await atomicWriteFile(request.path, bytes, {
     ...hooks.atomic,
@@ -255,7 +293,8 @@ export async function writeChapter(request: SaveRequest, hooks: WriteHooks = {})
   if (outcome === 'stale') return { status: 'stale', disk: await readChapter(request.path) };
   const hash = hashBytes(bytes);
   hooks.onWritten?.(request.path, hash);
-  return { status: 'written', hash };
+  if (hooks.afterWrite) await hooks.afterWrite(request.path).catch(() => undefined);
+  return backup ? { status: 'written', hash, backup } : { status: 'written', hash };
 }
 
 /* ------------------------------------------------------------------ */

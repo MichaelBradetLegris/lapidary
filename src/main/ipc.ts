@@ -10,6 +10,7 @@ import type {
   RequestPayload,
   ResponsePayload
 } from '../shared/ipc';
+import { backupsRootFor, chapterBackupHooks } from './backups';
 import { fail, toAppError } from './errors';
 import { beginRequest, cancelRequest, endRequest, providers } from './providers';
 import { clearOpenAiKey, openAiKeyStatus, storeOpenAiKey } from './secrets';
@@ -256,7 +257,16 @@ function registerFileHandlers(): void {
       opened: openedChapters,
       ci: caseInsensitiveFs()
     });
-    const response = await writeChapter(request, { onWritten: rememberHash });
+    // Before the chapter is replaced, the bytes it holds are copied to
+    // <userData>/backups; no backup, no save (apply.10, PLAN 6.5).
+    const response = await writeChapter(request, {
+      onWritten: rememberHash,
+      ...chapterBackupHooks({
+        backupsRoot: backupsRootFor(app.getPath('userData')),
+        manuscriptFolder: settings.manuscriptFolder,
+        ci: caseInsensitiveFs()
+      })
+    });
     if (response.status === 'stale') forgetHash(request.path);
     return response;
   });
@@ -307,8 +317,9 @@ function registerFileHandlers(): void {
 
 /**
  * The userData places "show in folder" can open, created on demand so the
- * author never lands on a missing folder (setup.7a). Backups get a folder per
- * chapter once apply.10 exists; until then the backups root is shown.
+ * author never lands on a missing folder (setup.7a). Each chapter's backups
+ * have a folder of their own (`backupFolderFor`, apply.10); showing that one
+ * for the open chapter is apply.11, so until then the backups root is shown.
  */
 async function userDataTarget(target: 'data' | 'logs' | 'backups' | 'drafts'): Promise<string> {
   const root = app.getPath('userData');
@@ -317,7 +328,7 @@ async function userDataTarget(target: 'data' | 'logs' | 'backups' | 'drafts'): P
     target === 'logs'
       ? path.join(root, 'logs')
       : target === 'backups'
-        ? path.join(root, 'backups')
+        ? backupsRootFor(root)
         : path.join(root, 'drafts', 'set-aside');
   await fs.mkdir(folder, { recursive: true });
   if (target === 'logs') {

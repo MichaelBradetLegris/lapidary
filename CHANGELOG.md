@@ -20,6 +20,7 @@ Work towards 1.0.
 - A log file, `logs/main.log` in the app's data folder, records when the app starts and quits, and problems it works around, such as a settings file it could not read. It is rotated at 1 MiB, and keys, email addresses and your home folder are scrubbed from it.
 - The MIT licence.
 - Ctrl+S saves to the chapter, as Save to chapter does. It does nothing while a dialog, a question or Settings is open, or when there is nothing to save. In a paragraph box it says to press Done first, and with the suggestion editor open it says to press the editor's Save first.
+- Backups. Before every Save to chapter, the version of the chapter it replaces is copied to the app's data folder, into `backups`, in a folder of that chapter's own, named by the time of the save. For each chapter, the copies from the last 20 saves are kept, plus the first of each day for 30 days. If the copy cannot be made, nothing is written and a card says why. Backups never go into your manuscript folder.
 
 ### Changed
 
