@@ -22,7 +22,16 @@ import type { LogLevel } from './log';
  * - The close goes through at once, with no IPC, when it is allowed (Restart
  *   now's `allowNextClose`, or a close the page has agreed to), when the page
  *   is gone, once the session is ending, or when nothing is at risk
- *   (`needsAttention`), which includes a page that has pushed nothing yet.
+ *   (`needsAttention`), which includes a page that has pushed nothing since it
+ *   loaded.
+ * - A reload is a new page. When a new document replaces the page in the same
+ *   window (the main frame's `did-navigate`: the dev server's reload, Ctrl+R
+ *   in development, Reload window after a crash), the guard forgets what the
+ *   old page pushed, as it does for a new window, and a close under way ends
+ *   without closing, since its request went to a document that is no longer
+ *   there and the author is looking at the page they reloaded. Not
+ *   `did-start-navigation`: it also fires for a navigation that `will-navigate`
+ *   then refuses, which leaves the page where it was.
  * - Otherwise it is held (`preventDefault`), the window comes forward, and the
  *   page is asked once (`app:close-requested`). It has 3 s to say it has the
  *   request (`received`) and 10 s more to put a question on screen
@@ -59,6 +68,8 @@ export interface CloseEventLike {
 /** The page's side of a window, where the guard's two events go. */
 export interface GuardContents {
   send(channel: string, payload: unknown): void;
+  /** A new document replaced the page in the main frame: a reload. Not emitted for a navigation that was refused. */
+  on(event: 'did-navigate', listener: () => void): unknown;
 }
 
 /** The parts of a BrowserWindow the guard uses. */
@@ -102,7 +113,10 @@ export interface CloseGuardDeps<W extends GuardWindow> {
 }
 
 export interface CloseGuard<W extends GuardWindow> {
-  /** Guard this window's close from now on. A new window starts with nothing known about its page. */
+  /**
+   * Guard this window's close from now on. A new window starts with nothing
+   * known about its page, and so does each page that loads in it later.
+   */
   attach(win: W): void;
   /** `app:guard-state`: what a close would put at risk now. A page that pushes one is there. */
   setState(state: CloseGuardState): void;
@@ -178,10 +192,10 @@ type Stage =
 
 export function createCloseGuard<W extends GuardWindow>(deps: CloseGuardDeps<W>): CloseGuard<W> {
   let win: W | null = null;
-  /** the last state the page pushed; null until it pushes one */
+  /** the last state the page on screen pushed; null until it pushes one */
   let state: CloseGuardState | null = null;
   let stage: Stage = 'idle';
-  /** the page's process has gone, until a page pushes a state again (a reload) */
+  /** the page's process has gone, until a new page loads or a page pushes a state */
   let gone = false;
   /** the session is ending (Windows sent `session-end`); nothing holds a close after that */
   let sessionEnding = false;
@@ -412,12 +426,37 @@ export function createCloseGuard<W extends GuardWindow>(deps: CloseGuardDeps<W>)
     }
   }
 
+  /**
+   * A new document has replaced the page in the window: a reload. What the
+   * old page pushed is no longer on screen, so it is forgotten, as for a new
+   * window, and until the new page pushes, a close goes through at once. A
+   * close under way ends without closing, its box, timers and flashing with
+   * it, and so does the quit it came from, as when the page answers false:
+   * the request went to the old document, which can no longer answer, and the
+   * reload came after the close, so the author is looking at the page they
+   * reloaded. The next close is asked of the new page. The allowance stays,
+   * since it is the window's: Restart now's, or a close the old page agreed
+   * to on the tick before.
+   */
+  function onNewPage(): void {
+    const underWay = stage !== 'idle';
+    settle();
+    state = null;
+    gone = false;
+    if (!underWay) return;
+    deps.log('info', 'close.page-replaced', { quitting });
+    quitting = false;
+  }
+
   function attach(next: W): void {
     settle();
     win = next;
     state = null;
     gone = false;
     allowance = null;
+    next.webContents.on('did-navigate', () => {
+      if (win === next) onNewPage();
+    });
     next.on('close', (event) => {
       if (win === next) onClose(event);
     });

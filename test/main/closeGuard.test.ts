@@ -37,12 +37,25 @@ class FakeWindow implements GuardWindow {
   readonly calls: string[] = [];
   /** what went to the page */
   readonly sent: [string, unknown][] = [];
+  private readonly pageListeners = new Map<string, (() => void)[]>();
   readonly webContents = {
     send: (channel: string, payload: unknown): void => {
       if (this.unreachable) throw new Error('Object has been destroyed');
       this.sent.push([channel, payload]);
+    },
+    on: (event: string, listener: () => void): void => {
+      this.pageListeners.set(event, [...(this.pageListeners.get(event) ?? []), listener]);
     }
   };
+
+  /**
+   * A new document replaces the page, as a reload does (Ctrl+R in development,
+   * the dev server, Reload window): the main frame's `did-navigate`. A
+   * navigation that `will-navigate` refuses never gets this far.
+   */
+  reloads(): void {
+    for (const listener of this.pageListeners.get('did-navigate') ?? []) listener();
+  }
 
   on(event: string, listener: Listener): this {
     this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
@@ -787,7 +800,7 @@ describe('a page that is gone', () => {
     expect(boxes).toEqual([]);
   });
 
-  it('is asked again once a page pushes a state, as a reloaded one does', () => {
+  it('is asked again once a page pushes a state', () => {
     const { guard, win } = setup();
     guard.setState(AT_RISK);
     guard.onRendererGone();
@@ -801,10 +814,189 @@ describe('a page that is gone', () => {
     guard.setState(AT_RISK);
     win.userCloses();
     expect(guard.onRendererGone()).toBe(true);
+    win.reloads();
+    await tick();
+    expect(win.calls).not.toContain('close');
+    expect(win.isDestroyed()).toBe(false);
+  });
+
+  it('nor one whose page has pushed a state by then', async () => {
+    const { guard, win } = setup();
+    guard.setState(AT_RISK);
+    win.userCloses();
+    expect(guard.onRendererGone()).toBe(true);
     guard.setState(AT_RISK);
     await tick();
     expect(win.calls).not.toContain('close');
     expect(win.isDestroyed()).toBe(false);
+  });
+
+  it('loads again: the new page is there, so shutdown asks it to write', () => {
+    const { guard, win } = setup();
+    guard.onRendererGone();
+    win.reloads();
+    win.emit('query-session-end');
+    expect(win.sent).toEqual([['app:flush', { reason: 'query-session-end' }]]);
+  });
+});
+
+/* Review fix: a reload keeps the page's process, so render-process-gone never
+   fires for it, and the old page's state used to stay in main. A close during
+   the new page's load was then held and asked of a document with no listener
+   yet, and a close under way across the reload had its request sent to the old
+   document only, so every later close opened "not responding" at once. */
+describe('a page that reloads in the same window (did-navigate)', () => {
+  it('is a new page: what the old one pushed is forgotten, and a close before the new one pushes goes through at once', () => {
+    const { guard, win } = setup();
+    guard.setState(AT_RISK);
+    win.reloads();
+    expect(win.userCloses()).toBe(true);
+    expect(win.sent).toEqual([]);
+  });
+
+  it('holds a close again once the new page pushes something at risk, and asks the new page', () => {
+    const { guard, win } = setup();
+    guard.setState({ ...AT_RISK, dialogText: true });
+    win.reloads();
+    guard.setState(AT_RISK);
+    expect(win.userCloses()).toBe(false);
+    expect(win.requests()).toEqual([{ quitting: false }]);
+  });
+
+  it('during a close: ends it without closing, with no box later, and the next close asks the new page', async () => {
+    const { guard, win, boxes, logged } = setup();
+    guard.setState(AT_RISK);
+    win.focused = false;
+    expect(win.userCloses()).toBe(false);
+    await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS - 1);
+    win.reloads();
+    expect(win.calls).toEqual(['show', 'focus', 'flash', 'stop flashing']);
+    expect(logged.find((l) => l.event === 'close.page-replaced')?.fields).toEqual({ quitting: false });
+    await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS + FINISHING_TIMEOUT_MS);
+    expect(boxes).toEqual([]);
+    expect(win.isDestroyed()).toBe(false);
+
+    guard.setState(AT_RISK);
+    expect(win.userCloses()).toBe(false);
+    expect(win.requests()).toHaveLength(2);
+    expect(boxes).toEqual([]);
+    guard.onStatus('received');
+    guard.onStatus('prompting');
+    guard.onDecision(true);
+    await tick();
+    expect(win.isDestroyed()).toBe(true);
+    expect(boxes).toEqual([]);
+  });
+
+  it('after the old page said received: the new page gets its own 3 s, not a box at once', async () => {
+    const { guard, win, boxes } = setup();
+    guard.setState(AT_RISK);
+    win.userCloses();
+    guard.onStatus('received');
+    win.reloads();
+    await vi.advanceTimersByTimeAsync(FINISHING_TIMEOUT_MS);
+    expect(boxes).toEqual([]);
+    guard.setState(AT_RISK);
+    expect(win.userCloses()).toBe(false);
+    expect(win.requests()).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS - 1);
+    expect(boxes).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(boxes).toHaveLength(1);
+    expect(lastBox(boxes).box).toEqual(unresponsiveDetail('no-answer', AT_RISK));
+  });
+
+  it('takes an open box away and ignores its late Close anyway; the next close asks the new page', async () => {
+    const { guard, win, boxes } = setup();
+    guard.setState(AT_RISK);
+    win.userCloses();
+    await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS);
+    const box = lastBox(boxes);
+    win.reloads();
+    expect(box.signal.aborted).toBe(true);
+    box.press('close');
+    await tick();
+    expect(win.isDestroyed()).toBe(false);
+    guard.setState(AT_RISK);
+    expect(win.userCloses()).toBe(false);
+    expect(boxes).toHaveLength(1);
+    expect(win.requests()).toHaveLength(2);
+  });
+
+  it('after Wait: the next close asks the new page rather than opening the box at once', async () => {
+    const { guard, win, boxes } = setup();
+    guard.setState(AT_RISK);
+    win.userCloses();
+    await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS);
+    lastBox(boxes).press('wait');
+    await tick();
+    win.reloads();
+    guard.setState(AT_RISK);
+    expect(win.userCloses()).toBe(false);
+    expect(boxes).toHaveLength(1);
+    expect(win.requests()).toHaveLength(2);
+  });
+
+  it('forgets the quit the close came from, as the page s false does', async () => {
+    const { guard, win, quits, logged } = setup();
+    guard.setState(AT_RISK);
+    guard.onBeforeQuit();
+    win.userCloses();
+    win.reloads();
+    expect(guard.isQuitting()).toBe(false);
+    expect(logged.find((l) => l.event === 'close.page-replaced')?.fields).toEqual({ quitting: true });
+    guard.setState(AT_RISK);
+    win.userCloses();
+    expect(win.requests()).toEqual([{ quitting: true }, { quitting: false }]);
+    await tick();
+    expect(quits()).toBe(0);
+  });
+
+  it('ignores what the old page says after it: no status starts a timer and no decision closes', async () => {
+    const { guard, win, boxes } = setup();
+    guard.setState(AT_RISK);
+    win.userCloses();
+    win.reloads();
+    guard.onStatus('received');
+    guard.onStatus('prompting');
+    guard.onDecision(true);
+    await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS + FINISHING_TIMEOUT_MS);
+    expect(boxes).toEqual([]);
+    expect(win.calls).not.toContain('close');
+    expect(win.isDestroyed()).toBe(false);
+  });
+
+  it('still closes a window the page agreed to close on the tick before', async () => {
+    const { guard, win } = setup();
+    guard.setState(AT_RISK);
+    win.userCloses();
+    guard.onStatus('received');
+    guard.onStatus('prompting');
+    guard.onDecision(true);
+    win.reloads();
+    await tick();
+    expect(win.isDestroyed()).toBe(true);
+  });
+
+  it('with no close under way, changes only what is known about the page: the quit and the allowance stay', () => {
+    const { guard, win, logged } = setup();
+    guard.onBeforeQuit();
+    guard.allowNextClose('update');
+    win.reloads();
+    expect(guard.isQuitting()).toBe(true);
+    guard.setState(AT_RISK);
+    expect(win.userCloses()).toBe(true);
+    expect(win.requests()).toEqual([]);
+    expect(logged.map((l) => l.event)).not.toContain('close.page-replaced');
+  });
+
+  it('in a window no longer attached changes nothing for the new one', () => {
+    const { guard, win } = setup();
+    const next = new FakeWindow();
+    guard.attach(next);
+    guard.setState(AT_RISK);
+    win.reloads();
+    expect(next.userCloses()).toBe(false);
   });
 });
 
