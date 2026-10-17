@@ -1,0 +1,44 @@
+# The checks every change must pass (release.3). The Windows leg is the
+# platform the app ships for; the Linux leg keeps the source portable, and the
+# whole suite passed on Linux before this file existed (PLAN release.3).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    env:
+      # Electron 44 fetches its binary only when the app first starts, and
+      # nothing below starts it; this keeps an older Electron from fetching it.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run branding:check
+      - run: npm run check:public
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+      # build runs the typecheck first
+      - run: npm run build
