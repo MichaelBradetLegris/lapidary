@@ -3,6 +3,7 @@ import { isAuthored } from '../../shared/edit';
 import type { ReviewSummary } from '../../shared/ipc';
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import { groupComments } from '../../shared/ui/comments';
+import { historyCounts } from '../../shared/ui/history';
 import { groupSuggestions, summaryLine } from '../../shared/ui/suggestions';
 import { PROVIDER_NAMES, type Hunk, type Review, type ReviewComment } from '../../shared/types';
 import { editFromComment, editHunk } from '../state/edit';
@@ -306,27 +307,32 @@ export function SidePanel({
             <section className="side__section">
               <h3>History ({history.length})</h3>
               <ul className="history">
-                {history.map((entry) => (
-                  <li key={entry.path}>
-                    <button
-                      type="button"
-                      className={`history__item ${entry.path === activeReviewPath ? 'history__item--active' : ''}`}
-                      onClick={() => onOpenHistory(entry)}
-                      title={entry.path}
-                    >
-                      <span className="history__when">{shortTime(entry.createdAt)}</span>
-                      {/* A model-written review names its provider and model; a
-                      manual or file review keeps its kind (Phase 5c). */}
-                      <span className="badge" title={entry.model ?? ''}>
-                        {entry.provider ? PROVIDER_NAMES[entry.provider] : entry.generatorKind}
-                      </span>
-                      {entry.model ? <span className="history__model">{entry.model}</span> : null}
-                      {entry.pendingCount > 0 ? (
-                        <span className="badge badge--pending">{entry.pendingCount}</span>
-                      ) : null}
-                    </button>
-                  </li>
-                ))}
+                {history.map((entry) => {
+                  /* The review on screen counts from the page, as the
+                     chapter list and the status bar do (apply.5). */
+                  const counts = historyCounts(entry, activeReviewPath, review);
+                  return (
+                    <li key={entry.path}>
+                      <button
+                        type="button"
+                        className={`history__item ${counts.onScreen ? 'history__item--active' : ''}`}
+                        onClick={() => onOpenHistory(entry)}
+                        title={entry.path}
+                      >
+                        <span className="history__when">{shortTime(entry.createdAt)}</span>
+                        {/* A model-written review names its provider and model; a
+                        manual or file review keeps its kind (Phase 5c). */}
+                        <span className="badge" title={entry.model ?? ''}>
+                          {entry.provider ? PROVIDER_NAMES[entry.provider] : entry.generatorKind}
+                        </span>
+                        {entry.model ? <span className="history__model">{entry.model}</span> : null}
+                        {counts.pendingCount > 0 ? (
+                          <span className="badge badge--pending">{counts.pendingCount}</span>
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           ) : null}

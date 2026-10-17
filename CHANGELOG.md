@@ -49,7 +49,7 @@ Work towards 1.0.
 ### Fixed
 
 - The legend behind the status bar's ? button wraps its text inside its box instead of running across the chapter.
-- The number beside the open chapter in the chapter list counts the suggestions still pending as you decide them. It kept the count from when the list was last read, so it could say 12 with 6 left, until you saved. A chapter you leave is counted again too.
+- The number beside the open chapter in the chapter list and beside the open review in History counts the suggestions still pending as you decide them, and so do the counts in the review dialog's "Last reviewed" line. They kept the count from when the list or History was last read, so they could say 12 with 6 left, until you saved. A chapter or a History entry you leave is counted again too.
 - Comments and suggestion labels stay beside their quotes after a Save that splits, joins or deletes a paragraph. Comments that had already shifted move back beside their quotes when the review opens.
 - Chapters with the same name in different folders no longer share reviews, and a Save in one can no longer write the other's accepted changes.
 - A decision made just before opening another chapter or a History entry is no longer lost.

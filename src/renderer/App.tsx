@@ -244,12 +244,15 @@ export function App(): React.JSX.Element {
             setReview(rebased, loaded.path);
             notify('info', rebaseCardText('history', stats));
           }
+          // The review just left is no longer counted from the page, so read
+          // History again, now that its last decisions are on disk (apply.5).
+          refreshHistory(sourcePath);
         } catch (err) {
           fail(err);
         }
       })();
     },
-    [setReview, notify, fail, confirmLeaveDrafts, waitForSave]
+    [setReview, notify, fail, confirmLeaveDrafts, waitForSave, refreshHistory]
   );
 
   /* ---------------- external changes ---------------- */
@@ -652,6 +655,7 @@ export function App(): React.JSX.Element {
           runtimes={ai.runtimes}
           keyStatus={ai.keyStatus}
           history={history}
+          reviewPath={reviewPath}
           unsavedDecisions={unsavedDecisionCount(review.hunks)}
           saving={chapterSaving}
           onSaveFirst={saveChapter}

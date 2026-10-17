@@ -18,6 +18,7 @@ import { rebaseReview } from '../../src/shared/diff/rebase';
 import { createReview } from '../../src/shared/review';
 import type { Review } from '../../src/shared/types';
 import { chapterListMarks } from '../../src/shared/ui/chapterList';
+import { historyCounts } from '../../src/shared/ui/history';
 
 let root: string;
 
@@ -246,11 +247,9 @@ describe('the current review', () => {
     expect(summary).toMatchObject({ unsavedCount: 1, pendingCount: 0, sourcePath: source });
   });
 
-  it('marks a chapter in the list as it was marked while open (apply.5)', async () => {
-    // A saved change, one accepted since, one turned back after a save, a
-    // dismissed and a lost one, and one still pending: once written, the list
-    // must mark the chapter it has just left exactly as it marked it open.
-    const source = 'C:/vault/Chapter 12.md';
+  /** A saved change, one accepted since, one turned back after a save, a
+      dismissed and a lost one, and one still pending. */
+  function mixedReview(source: string): Review {
     const hunk = (
       id: string,
       start: number,
@@ -264,7 +263,7 @@ describe('the current review', () => {
       replacement: 'b',
       ...patch
     });
-    const review: Review = {
+    return {
       ...make(source, T1),
       base: { text: 'abcdefghij', hash: 'h', eol: 'lf', bom: false, trailingNewline: true },
       hunks: [
@@ -276,6 +275,13 @@ describe('the current review', () => {
         hunk('pending', 9, {})
       ]
     };
+  }
+
+  it('marks a chapter in the list as it was marked while open (apply.5)', async () => {
+    // Once written, the list must mark the chapter it has just left exactly as
+    // it marked it open.
+    const source = 'C:/vault/Chapter 12.md';
+    const review = mixedReview(source);
     await saveReview(root, review);
     const summary = (await reviewIndex(root, [source]))[source];
     expect(chapterListMarks(summary, null)).toEqual(chapterListMarks(undefined, review));
@@ -284,6 +290,22 @@ describe('the current review', () => {
       dotLabel: '2 changes are not saved to the chapter yet.',
       pending: 2
     });
+  });
+
+  it('counts a review in History as it was counted on screen (apply.5)', async () => {
+    // Opening another review reads History again: the row of the one just
+    // left must keep the numbers it showed while that review was on screen.
+    const source = 'C:/vault/Chapter 12.md';
+    const review = mixedReview(source);
+    const { path: file } = await saveReview(root, review);
+    const [summary] = await listReviews(root, source);
+    if (!summary) throw new Error('no summary');
+    expect(summary.path).toBe(file);
+    const onScreen = historyCounts(summary, file, review);
+    const other = await saveReview(root, make(source, T2, [pendingHunk]));
+    const left = historyCounts(summary, other.path, make(source, T2, [pendingHunk]));
+    expect(onScreen).toEqual({ onScreen: true, hunkCount: 6, pendingCount: 2 });
+    expect(left).toEqual({ ...onScreen, onScreen: false });
   });
 });
 

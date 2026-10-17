@@ -10,6 +10,7 @@ import type {
 import { proPlanNote } from '../../shared/ai/claudeModels';
 import { claudeUpdateAdvice } from '../../shared/ai/claudeStatus';
 import { chapterStats } from '../../shared/text/stats';
+import { historyCounts } from '../../shared/ui/history';
 import {
   EFFORT_LEVELS,
   PROVIDERS,
@@ -35,6 +36,8 @@ interface Props {
   keyStatus: OpenAiKeyStatus | null;
   /** newest first; used for the "last reviewed" line */
   history: ReviewSummary[];
+  /** the file the review on screen is kept in, so that line counts it from the page (apply.5) */
+  reviewPath: string | null;
   /** decisions on the page that the chapter file does not contain yet */
   unsavedDecisions: number;
   saving: boolean;
@@ -72,6 +75,7 @@ export function ReviewDialog({
   runtimes,
   keyStatus,
   history,
+  reviewPath,
   unsavedDecisions,
   saving,
   onSaveFirst,
@@ -87,6 +91,7 @@ export function ReviewDialog({
   const [error, setError] = useState<string | null>(null);
   const stats = chapterStats(review.base.text);
   const previous = history[0];
+  const previousCounts = previous ? historyCounts(previous, reviewPath, review) : null;
   const provider = settings.provider;
   const isOpenAi = provider === 'openai';
   const list = models[provider] ?? [];
@@ -274,10 +279,10 @@ export function ReviewDialog({
         </div>
 
         <p className="modal__note">
-          {previous
-            ? `Last reviewed ${when(previous.createdAt)}: ${previous.hunkCount} suggestion${
-                previous.hunkCount === 1 ? '' : 's'
-              }, ${previous.pendingCount} still pending. A new review replaces the working set; the old one stays in History.`
+          {previous && previousCounts
+            ? `Last reviewed ${when(previous.createdAt)}: ${previousCounts.hunkCount} suggestion${
+                previousCounts.hunkCount === 1 ? '' : 's'
+              }, ${previousCounts.pendingCount} still pending. A new review replaces the working set; the old one stays in History.`
             : 'This chapter has not been reviewed yet.'}
         </p>
 

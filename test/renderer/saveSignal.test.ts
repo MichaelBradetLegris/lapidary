@@ -17,6 +17,8 @@ const read = (file: string): string => withoutComments(readFileSync(path.join(RE
 const TOOLBAR = read('components/Toolbar.tsx');
 const STATUS_BAR = read('components/StatusBar.tsx');
 const FILE_LIST = read('components/FileList.tsx');
+const SIDE_PANEL = read('components/SidePanel.tsx');
+const REVIEW_DIALOG = read('components/ReviewDialog.tsx');
 const APP = read('App.tsx');
 const STORE = read('state/store.ts');
 const PERSIST = read('state/reviewPersistence.ts');
@@ -189,6 +191,51 @@ describe('the chapter list (apply.5)', () => {
     expect(shown).toBeGreaterThan(wait);
     // Only the newest answer counts, and a failure leaves no stale marks.
     expect(APP).toContain('if (ticket === indexSeq.current) setIndex(next);');
+  });
+});
+
+/* apply.5, after review: History and the Review with AI dialog's "Last
+   reviewed" line count the review on screen from the page, as the chapter list
+   does, through `historyCounts` (its tests are in test/shared/history.test.ts,
+   and test/main/reviews.test.ts checks that main counts a written review the
+   same way); these check the wiring. */
+describe('History (apply.5)', () => {
+  it('takes the highlight and the pending badge of each row from historyCounts', () => {
+    expect(SIDE_PANEL).toContain("import { historyCounts } from '../../shared/ui/history';");
+    expect(SIDE_PANEL).toContain('const counts = historyCounts(entry, activeReviewPath, review);');
+    expect(SIDE_PANEL).toContain(
+      "className={`history__item ${counts.onScreen ? 'history__item--active' : ''}`}"
+    );
+    expect(SIDE_PANEL).toMatch(
+      /\{counts\.pendingCount > 0 \? \(\s*<span className="badge badge--pending">\{counts\.pendingCount\}<\/span>/
+    );
+    expect(SIDE_PANEL).not.toContain('entry.pendingCount');
+    expect(APP).toMatch(
+      /<SidePanel\s+review=\{review\}\s+history=\{history\}\s+activeReviewPath=\{reviewPath\}/
+    );
+  });
+
+  it('counts the last review in the Review with AI dialog the same way', () => {
+    expect(REVIEW_DIALOG).toContain("import { historyCounts } from '../../shared/ui/history';");
+    expect(REVIEW_DIALOG).toContain(
+      'const previousCounts = previous ? historyCounts(previous, reviewPath, review) : null;'
+    );
+    expect(REVIEW_DIALOG).toContain('${previousCounts.hunkCount} suggestion');
+    expect(REVIEW_DIALOG).toContain('${previousCounts.pendingCount} still pending');
+    expect(REVIEW_DIALOG).not.toMatch(/previous\.(hunkCount|pendingCount)/);
+    expect(APP).toMatch(/history=\{history\}\s+reviewPath=\{reviewPath\}\s+unsavedDecisions=/);
+  });
+
+  it('reads History again when a History entry opens, after the review left is written', () => {
+    const start = APP.indexOf('const openHistoryEntry = useCallback(');
+    const open = APP.slice(start, APP.indexOf('useEffect(', start));
+    const flush = open.indexOf('await flushReviewWrites();');
+    const shown = open.lastIndexOf('setReview(');
+    const read = open.indexOf('refreshHistory(sourcePath);');
+    expect(flush).toBeGreaterThan(0);
+    expect(shown).toBeGreaterThan(flush);
+    expect(read).toBeGreaterThan(shown);
+    expect(open).toMatch(/\[[^\]]*\brefreshHistory\b[^\]]*\]\s*\);\s*$/);
   });
 });
 
