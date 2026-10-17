@@ -181,18 +181,26 @@ async function readTextBytes(file: string): Promise<Buffer> {
   return fs.readFile(file);
 }
 
-/** Read a chapter, capturing everything needed to write it back byte-identically. */
-export async function readChapter(file: string): Promise<FileContent> {
+/** A chapter's bytes as read, with what `readChapter` makes of them. */
+async function readChapterBytes(file: string): Promise<{ bytes: Buffer; content: FileContent }> {
   const bytes = await readTextBytes(file);
   const normalized = normalizeText(decodeText(bytes, file));
   return {
-    path: file,
-    text: normalized.text,
-    hash: hashBytes(bytes),
-    eol: normalized.eol,
-    bom: normalized.bom,
-    trailingNewline: normalized.trailingNewline
+    bytes,
+    content: {
+      path: file,
+      text: normalized.text,
+      hash: hashBytes(bytes),
+      eol: normalized.eol,
+      bom: normalized.bom,
+      trailingNewline: normalized.trailingNewline
+    }
   };
+}
+
+/** Read a chapter, capturing everything needed to write it back byte-identically. */
+export async function readChapter(file: string): Promise<FileContent> {
+  return (await readChapterBytes(file)).content;
 }
 
 /** Bytes that would be written for the given LF text and shape. */
@@ -211,9 +219,12 @@ export interface WriteHooks {
  * Save a chapter. The file is re-read first: when the bytes on disk are not the
  * ones the caller based its decisions on, nothing is written and the fresh
  * contents come back so the caller can rebase and try again (plan section 6.3).
+ * When the new bytes are the ones already on disk, nothing is written either,
+ * so the file keeps its modified time and Obsidian or a sync tool sees no
+ * change (`unchanged`, PLAN 11.3 h step 3).
  */
 export async function writeChapter(request: SaveRequest, hooks: WriteHooks = {}): Promise<SaveResponse> {
-  const current = await readChapter(request.path).catch((err: unknown) => {
+  const { bytes: onDisk, content: current } = await readChapterBytes(request.path).catch((err: unknown) => {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       throw fail(
         'not-found',
@@ -228,6 +239,8 @@ export async function writeChapter(request: SaveRequest, hooks: WriteHooks = {})
   }
 
   const bytes = bytesFor(request);
+  if (bytes.equals(onDisk)) return { status: 'written', hash: current.hash, unchanged: true };
+
   const outcome = await atomicWriteFile(request.path, bytes, {
     ...hooks.atomic,
     // While Windows refuses the rename, Obsidian may be the one writing.

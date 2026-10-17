@@ -19,9 +19,11 @@ Work towards 1.0.
 - The status bar tells more Claude states apart: not installed, out of date, not signed in, sign-in ended, usage limit reached, could not check, and ready through an API key.
 - A log file, `logs/main.log` in the app's data folder, records when the app starts and quits, and problems it works around, such as a settings file it could not read. It is rotated at 1 MiB, and keys, email addresses and your home folder are scrubbed from it.
 - The MIT licence.
+- Ctrl+S saves to the chapter, as Save to chapter does. It does nothing while a dialog, a question or Settings is open, or when there is nothing to save. In a paragraph box it says to press Done first, and with the suggestion editor open it says to press the editor's Save first.
 
 ### Changed
 
+- Save to chapter with nothing to save says "The chapter already matches the page." and leaves the file untouched, its modified time included; it used to write the same text again. It no longer asks about paragraph boxes you opened but did not change.
 - In the light theme, faint grey text and the brown of warnings and word-choice suggestions are a little darker, so they are easier to read. Links are in the app's blue, and text fields and drop-down lists use the same near-black text as the rest of the app. The OpenAI key field in Settings has the same thin frame and rounded corners as the other fields.
 - The focused suggestion has a thin gold outline when it sits in the paragraph of the comment you have selected, where its yellow was hard to tell from the paragraph's own yellow.
 - The app is now called Lapidary; it was Stet. Settings, the stored OpenAI key and reviews in the default folder stay where they were. The Windows installer replaces an installed Stet, which has the same app id, and keeps its data folder.
@@ -55,6 +57,7 @@ Work towards 1.0.
 - The side panel no longer shows two scrollbars side by side. The suggestions list and the part below it (the focused suggestion's details, comments, Unanchored and History) now scroll separately, so the details stay in view while you step through the list with j and k, and come back into view if you had scrolled that part down. When the window is short, as at 175% zoom and above in a window of the default size, the panel scrolls as one.
 - On a standard-resolution screen, text in the manuscript no longer switches between two kinds of font smoothing while it scrolls, which could make it look heavier until it stopped. The suggestions list's text now uses the same ClearType smoothing as the rest of the window; it was greyscale.
 - Questions such as "Replace the open review?" and the Bulk confirmations open in front of everything else. They could open hidden behind Submit manual review or the suggestion editor, where Enter still answered them. The button Enter picks shows its focus ring even when you opened the question with the mouse.
+- A suggestion accepted, or another chapter opened, at the moment Save to chapter was writing the file could be counted as saved without being in the chapter. Decisions now wait until the save is done.
 
 ### Removed
 

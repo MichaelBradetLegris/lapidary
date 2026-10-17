@@ -13,6 +13,7 @@
     "src/renderer/state/store.ts",
     "src/renderer/state/models.ts",
     "src/renderer/state/persist.ts",
+    "src/renderer/state/saveChapter.ts",
     "scripts/**/*.ts",
     "test/**/*.ts",
     "electron.vite.config.ts",

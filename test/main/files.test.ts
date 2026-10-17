@@ -112,6 +112,56 @@ describe('writeChapter', () => {
     expect(await fs.readFile(file)).toEqual(original);
   });
 
+  it('writes nothing when the new bytes are the ones on disk, so the modified time stays (apply.3)', async () => {
+    const original = Buffer.from('﻿one\r\ntwo\r\n', 'utf8');
+    const file = await put('c.md', original);
+    const old = new Date('2026-01-02T03:04:05.000Z');
+    await fs.utimes(file, old, old);
+    const content = await readChapter(file);
+    const renames: string[] = [];
+    const seen: string[] = [];
+    const result = await writeChapter(
+      {
+        path: file,
+        text: content.text,
+        eol: content.eol,
+        bom: content.bom,
+        trailingNewline: content.trailingNewline,
+        expectedHash: content.hash
+      },
+      {
+        onWritten: (_file, hash) => seen.push(hash),
+        atomic: {
+          rename: (from) => {
+            renames.push(from);
+            return Promise.resolve();
+          }
+        }
+      }
+    );
+    expect(result).toEqual({ status: 'written', hash: content.hash, unchanged: true });
+    expect(renames).toEqual([]);
+    expect(seen).toEqual([]);
+    expect((await fs.stat(file)).mtime.getTime()).toBe(old.getTime());
+    expect(await fs.readFile(file)).toEqual(original);
+    expect(await fs.readdir(root)).toEqual(['c.md']);
+  });
+
+  it('still writes when only the shape differs, such as the final newline', async () => {
+    const file = await put('c.md', 'one\n');
+    const content = await readChapter(file);
+    const result = await writeChapter({
+      path: file,
+      text: content.text,
+      eol: content.eol,
+      bom: content.bom,
+      trailingNewline: false,
+      expectedHash: content.hash
+    });
+    expect(result).toEqual({ status: 'written', hash: hashBytes(Buffer.from('one')) });
+    expect(await fs.readFile(file, 'utf8')).toBe('one');
+  });
+
   it('keeps CRLF and the BOM when the text does change', async () => {
     const file = await put('c.md', Buffer.from('﻿the river had began\r\n', 'utf8'));
     const content = await readChapter(file);

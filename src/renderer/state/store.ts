@@ -1,10 +1,11 @@
 import { create } from 'zustand';
-import { commitDecisions } from '../../shared/diff/compose';
+import { commitDecisions, unsavedDecisionCount } from '../../shared/diff/compose';
 import { applyBlockEdit, blockSpanFor, editSuggestion, liveTextIn, planBlockEdit } from '../../shared/edit';
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import { remapAfterCommit } from '../../shared/review';
 import { splitParagraphs } from '../../shared/text/paragraphs';
 import { stepIndex } from '../../shared/ui/find';
+import type { SaveShortcutContext } from '../../shared/ui/save';
 import type { ChangeCategory, Hunk, HunkStatus, Review, ReviewComment, Settings } from '../../shared/types';
 
 export type NotificationTone = 'info' | 'warn' | 'error';
@@ -116,9 +117,79 @@ export function inDraft(drafts: Record<number, ParagraphDraft>, paragraph: numbe
   return Object.values(drafts).some((d) => d.paragraphs.includes(paragraph));
 }
 
-/** Suggestions that must not change right now: all of them during a review, or those under an open editor. */
+/** Paragraph boxes whose text differs from what they opened with. */
+export function changedParagraphCount(drafts: Record<number, ParagraphDraft>): number {
+  return Object.values(drafts).filter((d) => d.text !== d.initial).length;
+}
+
+/**
+ * True while a dialog, a question, Settings or the Setup screen covers the page
+ * (`SaveShortcutContext.modalOpen`). The suggestion editor is a floating panel,
+ * not a modal, and is not counted.
+ */
+export function isModalOpen(
+  state: Pick<
+    AppState,
+    'confirmSpec' | 'settingsOpen' | 'setupOpen' | 'newChapterOpen' | 'manualReviewOpen' | 'reviewDialogOpen'
+  >
+): boolean {
+  return (
+    state.confirmSpec !== null ||
+    state.settingsOpen ||
+    state.setupOpen ||
+    state.newChapterOpen ||
+    state.manualReviewOpen ||
+    state.reviewDialogOpen
+  );
+}
+
+/** What Ctrl+S needs to know about the page (`saveShortcutAction`, apply.3). */
+export function saveShortcutContext(state: AppState, inParagraphBox: boolean): SaveShortcutContext {
+  return {
+    hasChapter: Boolean(state.review?.sourcePath),
+    modalOpen: isModalOpen(state),
+    inParagraphBox,
+    suggestionEditorOpen: state.editor !== null,
+    locked: isLocked(state),
+    saving: state.chapterSaving,
+    unsavedDecisions: state.review ? unsavedDecisionCount(state.review.hunks) : 0,
+    changedParagraphs: changedParagraphCount(state.drafts)
+  };
+}
+
+/**
+ * Decisions that would change the review while Save to chapter writes it are
+ * held back until it is done (apply.3): the save folds into the new base
+ * exactly the decisions it wrote, so one made in the meantime would be
+ * recorded as saved without being in the file.
+ */
+function held(state: Pick<AppState, 'review' | 'aiBusyPath' | 'chapterSaving'>): boolean {
+  return isLocked(state) || state.chapterSaving;
+}
+
+/** Suggestions that must not change right now: all of them during a review or a save, or those under an open editor. */
 function frozen(state: AppState, hunk: Hunk): boolean {
-  return isLocked(state) || inDraft(state.drafts, hunk.paragraph);
+  return held(state) || inDraft(state.drafts, hunk.paragraph);
+}
+
+/**
+ * The review after Save to chapter wrote `review`: its decisions folded into
+ * the base, which now has the written file's hash (PLAN 6.3, step 3). Comments
+ * and labels follow their paragraphs into the new base (files.21).
+ */
+export function savedReview(review: Review, hash: string): Review {
+  const committed = commitDecisions(review.base.text, review.hunks);
+  // A save that split or joined a paragraph renumbers the ones after it.
+  const remapped = remapAfterCommit(review.base.text, review.hunks, committed, review.comments);
+  const now = new Date().toISOString();
+  return {
+    ...review,
+    base: { ...review.base, text: committed.text, hash },
+    hunks: remapped.hunks,
+    comments: remapped.comments,
+    updatedAt: now,
+    decidedAt: now
+  };
 }
 
 export interface AppState {
@@ -150,6 +221,11 @@ export interface AppState {
   newChapterOpen: boolean;
   manualReviewOpen: boolean;
   reviewDialogOpen: boolean;
+  settingsOpen: boolean;
+  /** the Claude Setup screen stands in place of the chapter */
+  setupOpen: boolean;
+  /** Save to chapter is writing the file (`state/saveChapter.ts`); decisions wait meanwhile */
+  chapterSaving: boolean;
   /** paragraphs open for editing in place, keyed by their first paragraph index */
   drafts: Record<number, ParagraphDraft>;
   /** the chapter an AI review is running for; its review is read-only until it returns */
@@ -206,7 +282,15 @@ export interface AppState {
   setNewChapterOpen: (open: boolean) => void;
   setManualReviewOpen: (open: boolean) => void;
   setReviewDialogOpen: (open: boolean) => void;
-  markSaved: (hash: string, path?: string) => void;
+  setSettingsOpen: (open: boolean) => void;
+  setSetupOpen: (open: boolean) => void;
+  setChapterSaving: (saving: boolean) => void;
+  /**
+   * Fold the decisions into the base after Save to chapter wrote the file
+   * (`savedReview`). With `written`, only when that exact review is still the
+   * one on screen; false when the screen has moved on and nothing changed.
+   */
+  markSaved: (hash: string, written?: Review) => boolean;
   markReviewPersisted: (at?: string) => void;
 
   /* ---- editing (item 3) ---- */
@@ -266,6 +350,9 @@ export const useApp = create<AppState>()((set, get) => ({
   newChapterOpen: false,
   manualReviewOpen: false,
   reviewDialogOpen: false,
+  settingsOpen: false,
+  setupOpen: false,
+  chapterSaving: false,
   drafts: {},
   aiBusyPath: null,
 
@@ -320,7 +407,7 @@ export const useApp = create<AppState>()((set, get) => ({
   applyBulk: (ids, status) => {
     const state = get();
     const review = state.review;
-    if (!review || ids.length === 0 || isLocked(state)) return;
+    if (!review || ids.length === 0 || held(state)) return;
     const wanted = new Set(ids);
     let changed = false;
     const hunks = review.hunks.map((h) => {
@@ -456,11 +543,17 @@ export const useApp = create<AppState>()((set, get) => ({
 
   setReviewDialogOpen: (reviewDialogOpen) => set({ reviewDialogOpen }),
 
+  setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+
+  setSetupOpen: (setupOpen) => set({ setupOpen }),
+
+  setChapterSaving: (chapterSaving) => set({ chapterSaving }),
+
   /* ---------------- editing (item 3) ---------------- */
 
   setCommentStatus: (id, status) => {
     const review = get().review;
-    if (!review || isLocked(get())) return;
+    if (!review || held(get())) return;
     set({
       review: {
         ...review,
@@ -504,7 +597,7 @@ export const useApp = create<AppState>()((set, get) => ({
   openDraft: (paragraph, select) => {
     const state = get();
     const review = state.review;
-    if (!review || isLocked(state)) return false;
+    if (!review || held(state)) return false;
 
     const open = Object.values(state.drafts).find((d) => d.paragraphs.includes(paragraph));
     if (open) return true;
@@ -558,6 +651,7 @@ export const useApp = create<AppState>()((set, get) => ({
     const draft = state.drafts[key];
     if (!review || !draft) return { status: 'blocked', message: 'That paragraph is not being edited.' };
     if (isLocked(state)) return { status: 'blocked', message: 'Wait for the review to finish first.' };
+    if (state.chapterSaving) return { status: 'blocked', message: 'Wait for the save to finish first.' };
 
     const base = review.base.text;
     const paragraphs = splitParagraphs(base);
@@ -616,25 +710,11 @@ export const useApp = create<AppState>()((set, get) => ({
 
   setAiBusy: (aiBusyPath) => set({ aiBusyPath }),
 
-  markSaved: (hash, path) => {
+  markSaved: (hash, written) => {
     const review = get().review;
-    if (!review) return;
-    const committed = commitDecisions(review.base.text, review.hunks);
-    // A save that split or joined a paragraph renumbers the ones after it, so
-    // comments and labels follow their paragraphs into the new base (files.21).
-    const remapped = remapAfterCommit(review.base.text, review.hunks, committed, review.comments);
-    set({
-      review: {
-        ...review,
-        base: { ...review.base, text: committed.text, hash },
-        hunks: remapped.hunks,
-        comments: remapped.comments,
-        updatedAt: new Date().toISOString(),
-        decidedAt: new Date().toISOString()
-      },
-      dirty: false,
-      ...(path ? { reviewPath: path } : {})
-    });
+    if (!review || (written && review !== written)) return false;
+    set({ review: savedReview(review, hash), dirty: false });
+    return true;
   },
 
   markReviewPersisted: (at) => set({ reviewSavedAt: at ?? new Date().toISOString() })

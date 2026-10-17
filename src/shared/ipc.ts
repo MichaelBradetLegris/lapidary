@@ -71,7 +71,11 @@ export interface SaveRequest {
 }
 
 export type SaveResponse =
-  | { status: 'written'; hash: string }
+  /**
+   * `unchanged`: the file already held exactly these bytes, so nothing was
+   * written and its modified time stays as it was (PLAN 11.3 h, step 3).
+   */
+  | { status: 'written'; hash: string; unchanged?: true }
   /** the file changed underneath us; the caller must rebase onto `disk` and retry */
   | { status: 'stale'; disk: FileContent };
 

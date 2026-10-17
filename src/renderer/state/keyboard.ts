@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
 import { sortComments } from '../../shared/ui/comments';
+import { saveShortcutAction } from '../../shared/ui/save';
 import { editHunk } from './edit';
+import { SAVE_CARD, type SaveOptions, type SaveOutcome } from './saveChapter';
 import { scrollToElement } from './scroll';
-import { isLocked, useApp } from './store';
+import { isLocked, saveShortcutContext, useApp } from './store';
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -13,12 +15,30 @@ function isTypingTarget(target: EventTarget | null): boolean {
 /**
  * Review-pane keys from the plan section 7: j/k move, a accepts, u returns to
  * pending, d toggles dismissed, n jumps to the next commented paragraph.
- * Ctrl+F opens the find bar (item 11) and Escape closes it.
+ * Ctrl+F opens the find bar (item 11) and Escape closes it. Ctrl+S, or Cmd+S,
+ * runs Save to chapter (apply.3), wherever the focus is, under the rules of
+ * `saveShortcutAction`.
  */
-export function useKeyboardBindings(): void {
+export function useKeyboardBindings(save: (options: SaveOptions) => Promise<SaveOutcome>): void {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       const state = useApp.getState();
+
+      /* Before the early return for modified keys, and for keys typed in a
+         text field too: the rules decide when it does nothing. */
+      if (event.ctrlKey || event.metaKey) {
+        const target = event.target instanceof Element ? event.target : null;
+        const shortcut = saveShortcutAction(
+          event,
+          saveShortcutContext(state, target?.closest('.para-editor') != null)
+        );
+        if (shortcut.kind !== 'pass') {
+          event.preventDefault();
+          if (shortcut.kind === 'card') state.notify('info', shortcut.message, SAVE_CARD);
+          else if (shortcut.kind === 'save') void save({ applyDrafts: 'ask' });
+          return;
+        }
+      }
 
       if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'f') {
         if (!state.review) return;
@@ -103,5 +123,5 @@ export function useKeyboardBindings(): void {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [save]);
 }

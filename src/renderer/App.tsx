@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { composeReview, unsavedDecisionCount } from '../shared/diff/compose';
 import { rebaseReview } from '../shared/diff/rebase';
 import { proPreselection } from '../shared/ai/claudeModels';
 import { runtimeLabel as labelForRuntime } from '../shared/ui/setup';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
-import type { ChapterFile, FileContent, ReviewSummary } from '../shared/ipc';
-import { PROVIDER_NAMES, type Review, type ReviewBase } from '../shared/types';
+import type { ChapterFile, ReviewSummary } from '../shared/ipc';
+import { PROVIDER_NAMES, type Review } from '../shared/types';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { EditPopover } from './components/EditPopover';
 import { FileList } from './components/FileList';
@@ -33,6 +33,7 @@ import {
   markReviewPersistedState,
   writeReviewNow
 } from './state/reviewPersistence';
+import { baseFrom, useSaveChapter, type SaveDeps } from './state/saveChapter';
 import { useAi } from './state/useAi';
 
 /** Review failures the Setup screen can fix: Claude Code missing, too old, or signed out. */
@@ -42,16 +43,6 @@ const SETUP_FAILURES: ReadonlySet<string> = new Set([
   'claude-missing-binary',
   'claude-outdated'
 ]);
-
-function baseFrom(content: FileContent): ReviewBase {
-  return {
-    text: content.text,
-    hash: content.hash,
-    eol: content.eol,
-    bom: content.bom,
-    trailingNewline: content.trailingNewline
-  };
-}
 
 export function App(): React.JSX.Element {
   const settings = useApp((s) => s.settings);
@@ -67,22 +58,21 @@ export function App(): React.JSX.Element {
   const setManualReviewOpen = useApp((s) => s.setManualReviewOpen);
   const setReviewDialogOpen = useApp((s) => s.setReviewDialogOpen);
   const setCommentStatus = useApp((s) => s.setCommentStatus);
-  const markSaved = useApp((s) => s.markSaved);
   const askConfirm = useApp((s) => s.askConfirm);
   const findOpen = useApp((s) => s.find.open);
+  const settingsOpen = useApp((s) => s.settingsOpen);
+  const setSettingsOpen = useApp((s) => s.setSettingsOpen);
+  const setupOpen = useApp((s) => s.setupOpen);
+  const setSetupOpen = useApp((s) => s.setSetupOpen);
+  const chapterSaving = useApp((s) => s.chapterSaving);
 
   const [files, setFiles] = useState<ChapterFile[]>([]);
   const [index, setIndex] = useState<Record<string, ReviewSummary>>({});
   const [history, setHistory] = useState<ReviewSummary[]>([]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [setupOpen, setSetupOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   const ai = useAi();
   const claudeRuntime = ai.runtimes.claude ?? null;
   const progressLabel = useProgressLabel(ai.running, ai.startedAt, ai.progress?.outputTokens);
-
-  useKeyboardBindings();
 
   /* A new user on a Pro plan starts on Sonnet, once (setup.1, Appendix D 12). */
   useEffect(() => {
@@ -285,80 +275,23 @@ export function App(): React.JSX.Element {
     };
   }, [setReview, notify, refreshFiles, fail]);
 
-  /* ---------------- saving ---------------- */
+  /* ---------------- saving (apply.3, state/saveChapter.ts) ---------------- */
 
-  const saveChapter = useCallback(() => {
-    if (!useApp.getState().review?.sourcePath) return;
-
-    void (async () => {
-      /* Open paragraph editors hold changes that are not suggestions yet. Saving
-         without them would write a chapter the author did not see; saving
-         them silently would apply edits the author has not finished. Ask. */
-      const open = Object.keys(useApp.getState().drafts).length;
-      if (open > 0) {
-        const ok = await askConfirm({
-          title: 'Apply paragraph edits first?',
-          body: `${open} paragraph${open === 1 ? ' is' : 's are'} still open for editing. Apply ${
-            open === 1 ? 'its changes' : 'their changes'
-          } as accepted suggestions, then save the chapter?`,
-          confirmLabel: 'Apply and save'
-        });
-        if (!ok) return;
-        const { blocked } = useApp.getState().commitAllDrafts();
-        if (blocked.length > 0) {
-          for (const message of blocked) notify('warn', message);
-          notify(
-            'error',
-            'Nothing was saved. Resolve the paragraphs above, then save again.',
-            'save-chapter'
-          );
-          return;
-        }
+  const saveDeps = useMemo<SaveDeps>(
+    () => ({
+      saveFile: (request) => call('files:save', request),
+      writeReview: writeReviewNow,
+      onSaved: (saved) => {
+        refreshHistory(saved.sourcePath);
+        refreshFiles();
       }
+    }),
+    [refreshHistory, refreshFiles]
+  );
+  const { save } = useSaveChapter(saveDeps);
+  const saveChapter = useCallback(() => void save({ applyDrafts: 'ask' }), [save]);
 
-      const current = useApp.getState().review;
-      if (!current?.sourcePath) return;
-      setSaving(true);
-      try {
-        let working = current;
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-          const response = await call('files:save', {
-            path: working.sourcePath,
-            text: composeReview(working),
-            eol: working.base.eol,
-            bom: working.base.bom,
-            trailingNewline: working.base.trailingNewline,
-            expectedHash: working.base.hash
-          });
-
-          if (response.status === 'written') {
-            markSaved(response.hash);
-            const saved = useApp.getState().review;
-            if (saved) {
-              await writeReviewNow(saved, useApp.getState().reviewPath);
-              refreshHistory(saved.sourcePath);
-              refreshFiles();
-            }
-            notify('info', 'Saved to the chapter file.', 'save-chapter');
-            return;
-          }
-
-          const { review: rebased, stats } = rebaseReview(working, baseFrom(response.disk));
-          setReview(rebased, useApp.getState().reviewPath);
-          working = rebased;
-          notify(
-            'warn',
-            `The chapter changed on disk before saving. Rebased: ${stats.anchored} re-anchored, ${stats.stale} lost. Retrying.`
-          );
-        }
-        notify('error', 'The chapter keeps changing on disk. Close it in Obsidian and save again.');
-      } catch (err) {
-        fail(err);
-      } finally {
-        setSaving(false);
-      }
-    })();
-  }, [markSaved, refreshHistory, refreshFiles, setReview, notify, fail, askConfirm]);
+  useKeyboardBindings(save);
 
   /* ---------------- review persistence (apply.1) ---------------- */
 
@@ -423,7 +356,7 @@ export function App(): React.JSX.Element {
     setReviewDialogOpen(false);
     setSetupOpen(false);
     setSettingsOpen(true);
-  }, [setReviewDialogOpen]);
+  }, [setReviewDialogOpen, setSetupOpen, setSettingsOpen]);
 
   /**
    * The dialog collects provider, model and effort before anything is sent
@@ -466,7 +399,7 @@ export function App(): React.JSX.Element {
       );
     }
     setReviewDialogOpen(true);
-  }, [settings, claudeRuntime, ai.keyStatus, notify, setReviewDialogOpen, refuseWhileEditing]);
+  }, [settings, claudeRuntime, ai.keyStatus, notify, setReviewDialogOpen, refuseWhileEditing, setSetupOpen]);
 
   /**
    * Run a review. The chapter's review is read-only until it returns (round 3,
@@ -541,7 +474,7 @@ export function App(): React.JSX.Element {
         fail(err);
       })
       .finally(() => useApp.getState().setAiBusy(null));
-  }, [settings, ai, adoptReview, notify, setReviewDialogOpen, fail, refreshFiles]);
+  }, [settings, ai, adoptReview, notify, setReviewDialogOpen, fail, refreshFiles, setSetupOpen]);
 
   const activeProvider = settings?.provider ?? 'claude';
   const activeRuntime = ai.runtimes[activeProvider];
@@ -553,7 +486,7 @@ export function App(): React.JSX.Element {
       review={review}
       running={ai.running}
       progressLabel={progressLabel}
-      saving={saving}
+      saving={chapterSaving}
       onReviewWithAi={openReviewDialog}
       onCancelReview={ai.cancel}
       onManualReview={openManualReview}
@@ -695,7 +628,7 @@ export function App(): React.JSX.Element {
           keyStatus={ai.keyStatus}
           history={history}
           unsavedDecisions={unsavedDecisionCount(review.hunks)}
-          saving={saving}
+          saving={chapterSaving}
           onSaveFirst={saveChapter}
           onApplySettings={setSettings}
           onNeedModels={ai.ensureModels}
