@@ -14,6 +14,7 @@ import {
   type CloseGuardDeps,
   type PageWrites
 } from '../../src/renderer/state/closeGuard';
+import { createKeyedWriter } from '../../src/renderer/state/persist';
 import { saveChapter, type SaveDeps, type SaveOutcome } from '../../src/renderer/state/saveChapter';
 import { useApp } from '../../src/renderer/state/store';
 
@@ -63,6 +64,9 @@ function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => voi
 const state = () => useApp.getState();
 const tick = (): Promise<void> => new Promise((r) => setImmediate(r));
 
+/** What reached main but the state pushes, which a store change in a test sends too. */
+const toMain = (h: Harness): string[] => h.sent.filter((s) => s !== 'state');
+
 /** Let the run reach its next question, or end. */
 async function settle(): Promise<void> {
   for (let i = 0; i < 20; i += 1) await tick();
@@ -86,7 +90,15 @@ interface Harness {
   uninstall: () => void;
 }
 
-function harness(options: { save?: CloseGuardDeps['save']; history?: ReviewSummary[] } = {}): Harness {
+function harness(
+  options: {
+    save?: CloseGuardDeps['save'];
+    history?: ReviewSummary[];
+    /** a writer behind the stand-in, which still counts and holds its flushes */
+    writes?: PageWrites;
+    writesWaitMs?: number;
+  } = {}
+): Harness {
   const h: Harness = {
     deps: undefined as unknown as CloseGuardDeps,
     sent: [],
@@ -101,17 +113,20 @@ function harness(options: { save?: CloseGuardDeps['save']; history?: ReviewSumma
     flushRequested: () => undefined,
     uninstall: () => undefined
   };
+  const inner = options.writes;
   const writes: PageWrites = {
     flush: async () => {
       h.flushes += 1;
       const hold = h.holdFlush;
       h.holdFlush = null;
       if (hold) await hold.promise;
+      if (inner) await inner.flush();
     },
     retry: () => {
       h.retries += 1;
+      inner?.retry();
     },
-    failures: () => h.failures
+    failures: () => (inner ? [...inner.failures(), ...h.failures] : h.failures)
   };
   h.deps = {
     io: {
@@ -144,7 +159,8 @@ function harness(options: { save?: CloseGuardDeps['save']; history?: ReviewSumma
     history: () => options.history ?? [],
     cancelReview: () => {
       h.cancels += 1;
-    }
+    },
+    ...(options.writesWaitMs !== undefined ? { writesWaitMs: options.writesWaitMs } : {})
   };
   h.uninstall = installCloseGuard(h.deps);
   return h;
@@ -447,6 +463,133 @@ describe('prepareToLeaveApp, the close request (apply.9)', () => {
     expect(await run).toBe(true);
   });
 
+  it('writes again what arrived while the writes ran, before closing with nothing to ask', async () => {
+    const h = guard();
+    h.sent.length = 0;
+    const first = deferred();
+    h.holdFlush = { promise: first.promise, resolve: () => first.resolve() };
+    const run = prepareToLeaveApp('close');
+    await settle();
+    expect(h.flushes).toBe(1);
+    // A dismissal while that write runs: the writer keeps it for its own 700 ms
+    // and lets the flush end without it, so the store still counts it.
+    state().toggleDismissed('h1');
+    useApp.setState({ persistPending: true });
+    const second = deferred();
+    h.holdFlush = { promise: second.promise, resolve: () => second.resolve() };
+    first.resolve();
+    await vi.waitFor(() => expect(h.flushes).toBe(2));
+    expect(toMain(h)).toEqual(['received']);
+    useApp.setState({ persistPending: false });
+    second.resolve();
+    expect(await run).toBe(true);
+    expect(toMain(h)).toEqual(['received', 'decision:true']);
+    expect(state().confirmSpec).toBeNull();
+  });
+
+  it('with the real writer: a dismissal made while the last decision is written is on disk before the window goes', async () => {
+    vi.useFakeTimers();
+    const written: string[] = [];
+    const firstWrite = deferred();
+    let held = false;
+    const writer = createKeyedWriter<string>({
+      delayMs: 700,
+      write: async (_key, value) => {
+        if (!held) {
+          held = true;
+          await firstWrite.promise;
+        }
+        written.push(value);
+      },
+      onPendingChange: (pending) => useApp.setState({ persistPending: pending })
+    });
+    const h = guard({
+      writes: { flush: () => writer.flush(), retry: () => writer.retry(), failures: () => writer.failures() }
+    });
+    writer.schedule('review', 'A dismissed');
+    await vi.advanceTimersByTimeAsync(700); // its write starts, and takes its time
+    const run = prepareToLeaveApp('close');
+    await vi.advanceTimersByTimeAsync(0);
+    writer.schedule('review', 'A and B dismissed');
+    firstWrite.resolve();
+    await vi.advanceTimersByTimeAsync(10); // well inside B's own 700 ms
+    expect(written).toEqual(['A dismissed', 'A and B dismissed']);
+    expect(await run).toBe(true);
+    expect(h.sent.at(-1)).toBe('decision:true');
+    expect(state().persistPending).toBe(false);
+  });
+
+  it('with the real writer: a write that fails is asked about at once, not tried round after round', async () => {
+    vi.useFakeTimers();
+    const writer = createKeyedWriter<string>({
+      delayMs: 700,
+      write: () => Promise.reject(new Error('the disk is full')),
+      onPendingChange: (pending) => useApp.setState({ persistPending: pending })
+    });
+    const h = guard({
+      writes: { flush: () => writer.flush(), retry: () => writer.retry(), failures: () => writer.failures() }
+    });
+    writer.schedule('review', 'A dismissed');
+    const run = prepareToLeaveApp('close');
+    await vi.advanceTimersByTimeAsync(10);
+    // The writer still counts the value as pending, since it is not on disk.
+    expect(state().persistPending).toBe(true);
+    expect(state().confirmSpec?.title).toBe('Still writing your decisions');
+    expect(state().confirmSpec?.body).toContain('the disk is full');
+    expect(h.flushes).toBe(1);
+    state().answerChoice('alt'); // Close anyway
+    expect(await run).toBe(true);
+  });
+
+  it('waits for a Save to chapter pressed while the writes ran, and then has nothing to ask', async () => {
+    vi.useFakeTimers();
+    state().toggleAccepted('h1');
+    const reply = deferred<SaveResponse>();
+    const saveDeps: SaveDeps = {
+      saveFile: () => reply.promise,
+      writeReview: (_review, file) => Promise.resolve(file)
+    };
+    const h = guard();
+    h.sent.length = 0;
+    const hold = deferred();
+    h.holdFlush = { promise: hold.promise, resolve: () => hold.resolve() };
+    const run = prepareToLeaveApp('close');
+    await vi.advanceTimersByTimeAsync(0);
+    const saving = saveChapter({ applyDrafts: 'ask' }, saveDeps);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state().chapterSaving).toBe(true);
+    hold.resolve();
+    await vi.advanceTimersByTimeAsync(10);
+    // Not asked about the change the save is writing.
+    expect(state().confirmSpec).toBeNull();
+    expect(toMain(h)).toEqual(['received']);
+    reply.resolve({ status: 'written', hash: 'h2' });
+    expect(await saving).toBe('saved');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(await run).toBe(true);
+    expect(h.flushes).toBe(2);
+    expect(state().confirmSpec).toBeNull();
+    expect(unsavedDecisionCount(state().review!.hunks)).toBe(0);
+  });
+
+  it('a write the store still counts after every round runs out the time and asks, with the page free meanwhile', async () => {
+    const h = guard({ writesWaitMs: 40 });
+    h.sent.length = 0;
+    useApp.setState({ persistPending: true });
+    const run = prepareToLeaveApp('close');
+    // Each round gives the page a task of its own, so its clock still runs.
+    await vi.waitFor(() => expect(state().confirmSpec?.title).toBe('Still writing your decisions'));
+    expect(h.flushes).toBeGreaterThan(1);
+    const rounds = h.flushes;
+    await new Promise((r) => setTimeout(r, 30));
+    // The rounds stop with the time they were given.
+    expect(h.flushes).toBe(rounds);
+    useApp.setState({ persistPending: false });
+    state().answerChoice('cancel'); // Wait
+    expect(await run).toBe(true);
+    expect(toMain(h)).toEqual(['received', 'prompting', 'decision:true']);
+  });
+
   it('takes the place of a question already open, which stays as Cancel left it', async () => {
     state().toggleAccepted('h1');
     const h = guard();
@@ -702,6 +845,22 @@ describe('the wiring (apply.9)', () => {
     expect(source).toContain('writer.retry();');
     expect(source).toContain('return writer.failures().map(notSavedText);');
     expect(source).toContain("notify('error', notSavedText(message), 'review-save')");
+  });
+
+  it('every layout App returns has the question, with the page under it inert while it is open', () => {
+    // The Setup screen can show with a review still open, and a close can ask
+    // from there (apply.9 review): a layout without the dialog left the
+    // question in the store and nothing on screen.
+    const layouts = [...app.matchAll(/return \(\s*<div className="app-shell">([\s\S]*?)\r?\n {2,4}\);/g)].map(
+      (m) => m[1] ?? ''
+    );
+    expect(layouts).toHaveLength(2);
+    for (const layout of layouts) {
+      expect(layout).toContain('<div className="app-shell__page" inert={questionOpen}>');
+      expect(layout.match(/<ConfirmDialog \/>/g)).toHaveLength(1);
+      expect(layout).toMatch(/<ConfirmDialog \/>\s*<\/div>\s*$/);
+    }
+    expect(layouts.some((layout) => layout.includes('<SetupScreen'))).toBe(true);
   });
 
   it('pushes in the same task: no await, timer or microtask before the send', () => {

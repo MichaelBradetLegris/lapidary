@@ -625,16 +625,22 @@ export function App(): React.JSX.Element {
   if (setupOpen && claudeRuntime) {
     return (
       <div className="app-shell">
-        {toolbar}
-        <div className="body body--single">
-          <SetupScreen
-            runtime={claudeRuntime}
-            checking={ai.checking}
-            onCheckAgain={() => ai.check('claude')}
-            onClose={() => setSetupOpen(false)}
-          />
+        {/* Closing the window can ask its question here too, with a review
+            still open behind Setup (apply.9 review), so this layout has the
+            dialog and goes inert under it, as the one below does. */}
+        <div className="app-shell__page" inert={questionOpen}>
+          {toolbar}
+          <div className="body body--single">
+            <SetupScreen
+              runtime={claudeRuntime}
+              checking={ai.checking}
+              onCheckAgain={() => ai.check('claude')}
+              onClose={() => setSetupOpen(false)}
+            />
+          </div>
+          <StatusBar review={review} {...(runtimeLabel ? { runtimeLabel } : {})} />
         </div>
-        <StatusBar review={review} {...(runtimeLabel ? { runtimeLabel } : {})} />
+        <ConfirmDialog />
       </div>
     );
   }

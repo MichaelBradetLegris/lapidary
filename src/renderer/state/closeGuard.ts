@@ -148,16 +148,38 @@ async function ask(deps: CloseGuardDeps, spec: ConfirmSpec): Promise<ConfirmChoi
   }
 }
 
+/** A macrotask, so the clock in `raceWrites` can run between two rounds of writes. */
+function nextTask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 /**
  * Let the save under way end, then write what the writers hold, retrying a
  * write that failed, against `writesWaitMs`. `slow` when the time ran out,
  * `failed` when a write could not be made.
+ *
+ * The page stays live while it waits, so the author can decide something
+ * that does not count as unsaved (a dismissal, a comment) or press Save.
+ * The writer holds that value for its own 700 ms and lets the flush end
+ * without it, so while the store still says a write or a save is pending
+ * and none has failed, the page goes round again within the same time.
+ * Otherwise a close with nothing to ask went on the next tick and lost it
+ * (apply.9 review).
  */
 async function raceWrites(deps: CloseGuardDeps): Promise<'written' | 'slow' | 'failed'> {
   deps.writes.retry();
+  let over = false;
+  const more = (): boolean =>
+    !over && closeGuardStateOf(useApp.getState()).writesPending && deps.writes.failures().length === 0;
   const done = (async () => {
     await pendingSave();
     await deps.writes.flush();
+    while (more()) {
+      await nextTask();
+      if (over) return;
+      await pendingSave();
+      await deps.writes.flush();
+    }
   })().then(
     () => 'done' as const,
     () => 'done' as const
@@ -169,6 +191,7 @@ async function raceWrites(deps: CloseGuardDeps): Promise<'written' | 'slow' | 'f
   try {
     if ((await Promise.race([done, slow])) === 'slow') return 'slow';
   } finally {
+    over = true;
     clearTimeout(timer);
   }
   return deps.writes.failures().length > 0 ? 'failed' : 'written';
