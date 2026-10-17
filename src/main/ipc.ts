@@ -11,6 +11,7 @@ import type {
   ResponsePayload
 } from '../shared/ipc';
 import { backupsRootFor, chapterBackupHooks } from './backups';
+import { boxAnswer, createCloseGuard, messageBoxOptions } from './closeGuard';
 import {
   draftsRootFor,
   loadDrafts,
@@ -40,6 +41,7 @@ import {
   guidelinesPathFor,
   guidelinesStatus
 } from './guidelines';
+import { log } from './log';
 import { openGuidelinesFile } from './openGuidelines';
 import {
   isDefaultReviewsFolder,
@@ -77,6 +79,20 @@ const startWatching = (folder: string | null): void => watcher.start(folder);
 const rememberHash = (file: string, hash: string): void => watcher.rememberHash(file, hash);
 const forgetHash = (file: string): void => watcher.forgetHash(file);
 export const stopWatching = (): void => watcher.stop();
+
+/**
+ * The app's one close guard (apply.8, PLAN 7.7 and 11.3 i). `createWindow`
+ * attaches the window, `before-quit` and `render-process-gone` tell it so, and
+ * the three `app:` requests below carry what the page says. Its native box is
+ * `dialog.showMessageBox` over the window, taken away through the signal when
+ * the page answers late.
+ */
+export const closeGuard = createCloseGuard<BrowserWindow>({
+  showBox: async (win, box, signal) =>
+    boxAnswer((await dialog.showMessageBox(win, { ...messageBoxOptions(box), signal })).response),
+  quit: () => app.quit(),
+  log
+});
 
 /** Wire the accumulated handlers into ipcMain. Call once, after all modules registered. */
 export function installIpcBridge(): void {
@@ -150,6 +166,28 @@ export function registerCoreHandlers(): void {
   registerDraftHandlers();
   registerAiHandlers();
   registerSecretHandlers();
+  registerCloseGuardHandlers();
+}
+
+/**
+ * What the page tells the close guard (apply.8, PLAN 7.7): what a close would
+ * put at risk, pushed whenever it changes, how far it has got with a close
+ * request, and what the author decided. Until `apply.9` the page pushes
+ * nothing, so every close goes through at once, as before.
+ */
+function registerCloseGuardHandlers(): void {
+  handle('app:guard-state', (state) => {
+    closeGuard.setState(state);
+    return Promise.resolve();
+  });
+  handle('app:close-status', ({ status }) => {
+    closeGuard.onStatus(status);
+    return Promise.resolve();
+  });
+  handle('app:close-decision', ({ close }) => {
+    closeGuard.onDecision(close);
+    return Promise.resolve();
+  });
 }
 
 /**

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { APP_DATA_DIR, APP_ID, APP_NAME } from '../shared/branding';
 import { readDevSwitches, setDevSwitches } from './devSwitches';
-import { installIpcBridge, registerCoreHandlers, stopWatching } from './ipc';
+import { closeGuard, installIpcBridge, registerCoreHandlers, stopWatching } from './ipc';
 import { flushLog, initLog, log } from './log';
 import { navigationAction } from './navigation';
 import { abortAll } from './providers/controllers';
@@ -116,14 +116,23 @@ function createWindow(): BrowserWindow {
   setTimeout(reveal, 3000);
   installZoom(win);
 
+  /* The close guard (apply.8, PLAN 7.7): a close that would put something at
+     risk asks the page first, a page that does not answer gets a native box
+     with Close anyway, and a window whose page has said nothing closes at once. */
+  closeGuard.attach(win);
+
+  /* The one render-process-gone handler (11.3 a). A page that is gone holds
+     nothing more that could be saved, so no close waits for it. */
+  win.webContents.on('render-process-gone', (_e, details) => {
+    closeGuard.onRendererGone();
+    if (isDev) console.error('[renderer] process gone', details);
+  });
+
   if (isDev) {
     installDevShortcuts(win);
     // Surface renderer console output in the terminal so `npm run dev` failures are visible.
     win.webContents.on('console-message', (event) => {
       console.log(`[renderer:${event.level}] ${event.message} (${event.sourceId}:${event.lineNumber})`);
-    });
-    win.webContents.on('render-process-gone', (_e, details) => {
-      console.error('[renderer] process gone', details);
     });
   }
 
@@ -195,6 +204,11 @@ function start(): void {
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
   });
+
+  /* The app, not only its window, is closing: a close the page then agrees to
+     goes on quitting, since holding the close cancelled the quit (apply.8).
+     Awaits nothing (11.3 a). */
+  app.on('before-quit', () => closeGuard.onBeforeQuit());
 
   // Synchronous on purpose: nothing may be awaited once the app is quitting.
   app.on('will-quit', () => {

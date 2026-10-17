@@ -353,10 +353,11 @@ export interface AppNotice {
 
 /**
  * What closing the window now would put at risk (PLAN 11.3 i). The renderer
- * pushes it whenever it changes, so main can close at once when nothing is at
- * risk and ask the page only when something is (`needsAttention` and
- * `closePrompt` in `src/shared/ui/save.ts`). Counts and flags only: no chapter
- * text and no typed text crosses for this.
+ * pushes it whenever it changes (`app:guard-state`), so main can close at once
+ * when nothing is at risk and ask the page only when something is
+ * (`needsAttention` and `closePrompt` in `src/shared/ui/save.ts`, the close
+ * guard in `src/main/closeGuard.ts`). Counts and flags only: no chapter text
+ * and no typed text crosses for this.
  */
 export interface CloseGuardState {
   /** absolute path of the open chapter, or null when none is open */
@@ -374,6 +375,24 @@ export interface CloseGuardState {
   /** a dialog holds text the author typed: New chapter, Submit manual review or the edit popover */
   dialogText: boolean;
 }
+
+/**
+ * How far the page has got with a close request (`app:close-status`, PLAN 7.7).
+ * Main gives it 3 s to say `received` and 10 s more to say `prompting`, then
+ * offers its native box (`src/main/closeGuard.ts`).
+ */
+export type CloseStatus =
+  /** the page has the request and is finishing its writes before it asks */
+  | 'received'
+  /** a question is on screen, its close prompt or its "Still writing your decisions" */
+  | 'prompting';
+
+/** Why main asks the page to write everything it holds at once (`app:flush`). */
+export type FlushReason =
+  /** Windows asks whether the session may end; the app never says no */
+  | 'query-session-end'
+  /** the session is ending: shutdown, restart or sign-out */
+  | 'session-end';
 
 /* ------------------------------------------------------------------ */
 /* Request map                                                         */
@@ -432,6 +451,13 @@ export interface ApiRequestMap {
   'secrets:openai-clear': { request: void; response: OpenAiKeyStatus };
   /** step or reset the window zoom; answers with the level now in use (round 5) */
   'view:zoom': { request: { action: ZoomAction }; response: { zoom: number } };
+  /* The close guard (apply.8, PLAN 7.7 and 11.3 i): the page tells main what a
+     close would put at risk, how far it has got with a close request, and what
+     the author decided. */
+  'app:guard-state': { request: CloseGuardState; response: void };
+  'app:close-status': { request: { status: CloseStatus }; response: void };
+  /** true closes the window, or goes on quitting; false keeps it open */
+  'app:close-decision': { request: { close: boolean }; response: void };
 }
 
 export type RequestChannel = keyof ApiRequestMap;
@@ -473,7 +499,10 @@ const REQUEST_CHANNEL_FLAGS = {
   'secrets:openai-status': true,
   'secrets:openai-set': true,
   'secrets:openai-clear': true,
-  'view:zoom': true
+  'view:zoom': true,
+  'app:guard-state': true,
+  'app:close-status': true,
+  'app:close-decision': true
 } as const satisfies Record<RequestChannel, true>;
 
 export const REQUEST_CHANNELS: readonly RequestChannel[] = Object.keys(
@@ -507,6 +536,14 @@ export interface ApiEventMap {
   'view:zoom-changed': { zoom: number };
   /** a card main wants shown: a crash it survived, an update, a backup problem */
   'app:notice': AppNotice;
+  /**
+   * the window was asked to close while the page holds something at risk
+   * (apply.8): answer with `app:close-status`, then `app:close-decision`.
+   * `quitting` when the whole app was asked to quit, not only the window.
+   */
+  'app:close-requested': { quitting: boolean };
+  /** write every waiting review and drafts write now; nothing is asked (shutdown, PLAN 7.7) */
+  'app:flush': { reason: FlushReason };
 }
 
 export type EventChannel = keyof ApiEventMap;
@@ -522,7 +559,9 @@ const EVENT_CHANNEL_FLAGS = {
   'ai:progress': true,
   'ai:rate-limit': true,
   'view:zoom-changed': true,
-  'app:notice': true
+  'app:notice': true,
+  'app:close-requested': true,
+  'app:flush': true
 } as const satisfies Record<EventChannel, true>;
 
 export const EVENT_CHANNELS: readonly EventChannel[] = Object.keys(EVENT_CHANNEL_FLAGS) as EventChannel[];
