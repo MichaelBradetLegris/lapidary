@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from 'react';
+import { discardDraftPrompt } from '../../shared/ui/drafts';
 import { useApp, type ParagraphDraft } from '../state/store';
 
 interface Props {
@@ -14,13 +15,34 @@ interface Props {
  * The box holds the paragraph as the page shows it, with every accepted change
  * applied, in the same typeface. It grows with its text rather than scrolling,
  * so a long paragraph stays readable while the author works on it. Nothing is
- * written anywhere until Done: then the changed words become suggestions,
- * already accepted, and go through Save to chapter like everything else.
+ * written to the chapter until Done: then the changed words become
+ * suggestions, already accepted, and go through Save to chapter like
+ * everything else. Meanwhile the box is kept on disk as it is typed in, and
+ * comes back if the app closes (apply.16, `state/drafts.ts`). Escape or
+ * Cancel on a box whose text changed asks before throwing the text away.
  */
 export function ParagraphEditor({ draft, label, onDone }: Props): React.JSX.Element {
   const setText = useApp((s) => s.setDraftText);
   const cancel = useApp((s) => s.cancelDraft);
+  const askConfirm = useApp((s) => s.askConfirm);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+
+  /* Unchanged, the box just closes. Changed, it asks first, with Keep editing
+     focused; the answer applies only to this box as it still is, since a
+     save may have applied and closed it while the question was open. */
+  const close = (): void => {
+    if (draft.text === draft.initial) {
+      cancel(draft.key);
+      return;
+    }
+    const asked = { key: draft.key, initial: draft.initial };
+    void askConfirm(discardDraftPrompt(draft.paragraphs)).then((discard) => {
+      const now = useApp.getState().drafts[asked.key];
+      if (!now || now.initial !== asked.initial) return;
+      if (discard) cancel(asked.key);
+      else areaRef.current?.focus({ preventScroll: true });
+    });
+  };
 
   const fit = (): void => {
     const area = areaRef.current;
@@ -59,7 +81,7 @@ export function ParagraphEditor({ draft, label, onDone }: Props): React.JSX.Elem
           if (event.key === 'Escape') {
             event.preventDefault();
             event.stopPropagation();
-            cancel(draft.key);
+            close();
           } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
             event.preventDefault();
             onDone(draft.key);
@@ -71,7 +93,7 @@ export function ParagraphEditor({ draft, label, onDone }: Props): React.JSX.Elem
           {changed ? 'Ctrl+Enter applies, Esc cancels' : 'Nothing changed yet. Esc closes.'}
         </span>
         <span className="spacer" />
-        <button type="button" onClick={() => cancel(draft.key)}>
+        <button type="button" onClick={close}>
           Cancel
         </button>
         <button type="button" className="primary" onClick={() => onDone(draft.key)}>

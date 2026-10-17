@@ -11,6 +11,14 @@ import type {
   ResponsePayload
 } from '../shared/ipc';
 import { backupsRootFor, chapterBackupHooks } from './backups';
+import {
+  draftsRootFor,
+  loadDrafts,
+  saveDrafts,
+  setAsideDrafts,
+  setAsideFile,
+  setAsideFolderFor
+} from './drafts';
 import { fail, toAppError } from './errors';
 import { beginRequest, cancelRequest, endRequest, providers } from './providers';
 import { clearOpenAiKey, openAiKeyStatus, storeOpenAiKey } from './secrets';
@@ -139,8 +147,21 @@ export function registerCoreHandlers(): void {
 
   registerFileHandlers();
   registerReviewHandlers();
+  registerDraftHandlers();
   registerAiHandlers();
   registerSecretHandlers();
+}
+
+/**
+ * Paragraph boxes kept on disk (apply.16, PLAN 11.3 j): one file per chapter
+ * under `<userData>/drafts`, named by a hash of its path, so the renderer
+ * never names a file here; set-aside text goes to `drafts/set-aside`.
+ */
+function registerDraftHandlers(): void {
+  const root = (): string => draftsRootFor(app.getPath('userData'));
+  handle('drafts:load', async ({ sourcePath }) => loadDrafts(root(), sourcePath, caseInsensitiveFs()));
+  handle('drafts:save', async (request) => saveDrafts(root(), request, caseInsensitiveFs()));
+  handle('drafts:set-aside', async (request) => ({ name: (await setAsideDrafts(root(), request)).name }));
 }
 
 /**
@@ -299,7 +320,17 @@ function registerFileHandlers(): void {
 
   handle('guidelines:status', async () => guidelinesStatus(await loadSettings()));
 
-  handle('shell:reveal', async ({ target }) => {
+  handle('shell:reveal', async ({ target, name }) => {
+    /* A set-aside card's Show the text opens its own file (apply.16), in the
+       app the computer uses for .txt, or shows it in its folder when no app
+       is set for .txt. Only a bare name of a file in drafts/set-aside counts. */
+    if (target === 'drafts' && name !== undefined) {
+      const text = await setAsideFile(draftsRootFor(app.getPath('userData')), name);
+      if (!text) throw fail('not-found', 'That set-aside text is no longer in the drafts folder.');
+      const problem = await shell.openPath(text);
+      if (problem) shell.showItemInFolder(text);
+      return { path: text };
+    }
     let file: string | null;
     if (target === 'data' || target === 'logs' || target === 'backups' || target === 'drafts') {
       file = await userDataTarget(target);
@@ -329,7 +360,7 @@ async function userDataTarget(target: 'data' | 'logs' | 'backups' | 'drafts'): P
       ? path.join(root, 'logs')
       : target === 'backups'
         ? backupsRootFor(root)
-        : path.join(root, 'drafts', 'set-aside');
+        : setAsideFolderFor(draftsRootFor(root));
   await fs.mkdir(folder, { recursive: true });
   if (target === 'logs') {
     const log = path.join(folder, 'main.log');

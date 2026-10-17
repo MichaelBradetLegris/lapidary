@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useApp, type EditorRequest } from '../state/store';
 
 interface Props {
@@ -32,8 +32,15 @@ function EditorPanel({ request, onSaved }: Props & { request: EditorRequest }): 
   const setAccept = useApp((s) => s.setEditorAccept);
   const close = useApp((s) => s.closeEditor);
   const editHunkText = useApp((s) => s.editHunkText);
+  const setDialogText = useApp((s) => s.setDialogText);
 
   const [text, setText] = useState(request.initial);
+
+  /* Words changed here reach no suggestion until Save, so the close guard is
+     told while they differ (apply.16, PLAN 11.3 i). */
+  const typed = text !== request.initial;
+  useEffect(() => setDialogText('edit-popover', typed), [typed, setDialogText]);
+  useEffect(() => () => setDialogText('edit-popover', false), [setDialogText]);
   const panelRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
 

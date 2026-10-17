@@ -13,8 +13,8 @@ const ACTION_LABELS: Record<NotificationAction, string> = {
 };
 
 interface Props {
-  /** what a card's button does; the card closes after it runs */
-  onAction?: (action: NotificationAction) => void;
+  /** what a card's button does, with what it acts on (`actionArg`); the card closes after it runs */
+  onAction?: (action: NotificationAction, arg?: string) => void;
 }
 
 /**
@@ -44,7 +44,7 @@ export function NotificationCards({ onAction }: Props): React.JSX.Element | null
                   onClick={() => {
                     const action = note.action;
                     dismiss(note.id);
-                    if (action) onAction(action);
+                    if (action) onAction(action, note.actionArg);
                   }}
                 >
                   {ACTION_LABELS[note.action]}

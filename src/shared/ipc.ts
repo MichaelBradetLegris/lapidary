@@ -274,14 +274,60 @@ export interface EffectivePaths {
   guidelinesPath: string | null;
 }
 
-/** The only places the renderer may ask the shell to open or reveal. */
 /**
- * What "show in folder" can point at. The last four live under userData and are
- * created on demand: `data` is the folder itself, `logs` selects main.log,
- * `backups` the chapter's own backup folder when a source path is given, and
- * `drafts` the set-aside paragraph text (setup.7a).
+ * The only places the renderer may ask the shell to open or reveal: what "show
+ * in folder" can point at. The last four live under userData and are created
+ * on demand: `data` is the folder itself, `logs` selects main.log, `backups`
+ * the chapter's own backup folder when a source path is given, and `drafts`
+ * the folder of set-aside paragraph text (setup.7a), or, given the `name` of
+ * one set-aside file, that file, opened in the computer's app for .txt files
+ * (apply.16).
  */
 export type RevealTarget = 'manuscript' | 'reviews' | 'guidelines' | 'data' | 'logs' | 'backups' | 'drafts';
+
+/**
+ * One paragraph box as it is kept on disk (apply.16, PLAN 11.3 j): the
+ * renderer's `ParagraphDraft` without the selection it opened with.
+ */
+export interface StoredDraft {
+  /** the first paragraph index of the block the box covers, which is its key */
+  key: number;
+  /** every paragraph index the block covers; usually just `key` */
+  paragraphs: number[];
+  /** what the page read over the block when the box opened */
+  initial: string;
+  /** what the box holds */
+  text: string;
+}
+
+/**
+ * `<userData>/drafts/<16 hex>.json`: the paragraph boxes left open in one
+ * chapter, as last written. The name is the first 16 hex digits of the
+ * SHA-256 of the chapter's path key, so no chapter text or name is in it.
+ */
+export interface DraftFile {
+  version: 1;
+  /** the chapter the boxes are in */
+  sourcePath: string;
+  /** the review on screen when they were written; placing them goes by the page's text */
+  reviewId: string;
+  /** ISO time of the write */
+  savedAt: string;
+  drafts: StoredDraft[];
+}
+
+/** `drafts:save`: the boxes open in a chapter now; none deletes its file. */
+export interface DraftSaveRequest {
+  sourcePath: string;
+  reviewId: string;
+  drafts: StoredDraft[];
+}
+
+/** `drafts:set-aside`: boxes that cannot be put back, written to a .txt of their own. */
+export interface SetAsideRequest {
+  sourcePath: string;
+  drafts: StoredDraft[];
+}
 
 /**
  * A button a notification card may carry, named rather than a callback so the
@@ -362,8 +408,19 @@ export interface ApiRequestMap {
   /** create the guidelines file if missing, then open it in Obsidian or the OS editor */
   'guidelines:open': { request: { via: OpenGuidelinesVia }; response: { path: string; created: boolean } };
   'guidelines:status': { request: void; response: GuidelinesStatus };
-  /** select one of the app's own folders or files in Explorer */
-  'shell:reveal': { request: { target: RevealTarget; sourcePath?: string }; response: { path: string } };
+  /**
+   * select one of the app's own folders or files in Explorer; `name` opens one
+   * set-aside file from `drafts/set-aside` instead (apply.16)
+   */
+  'shell:reveal': {
+    request: { target: RevealTarget; sourcePath?: string; name?: string };
+    response: { path: string };
+  };
+  /* Paragraph boxes kept on disk, per chapter (apply.16, PLAN 11.3 j). */
+  'drafts:load': { request: { sourcePath: string }; response: DraftFile | null };
+  'drafts:save': { request: DraftSaveRequest; response: void };
+  /** answers with the file name in `drafts/set-aside`, for the card's Show the text */
+  'drafts:set-aside': { request: SetAsideRequest; response: { name: string } };
   /* One set of channels for every provider; the payload names which one. */
   'ai:runtime': { request: { provider: Provider }; response: RuntimeStatus };
   'ai:models': { request: { provider: Provider }; response: ModelInfo[] };
@@ -406,6 +463,9 @@ const REQUEST_CHANNEL_FLAGS = {
   'guidelines:open': true,
   'guidelines:status': true,
   'shell:reveal': true,
+  'drafts:load': true,
+  'drafts:save': true,
+  'drafts:set-aside': true,
   'ai:runtime': true,
   'ai:models': true,
   'ai:review': true,

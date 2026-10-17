@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { diffToHunks } from '../../shared/diff/wordDiff';
 import { createReview } from '../../shared/review';
 import { normalizeText } from '../../shared/text/eol';
@@ -31,6 +31,13 @@ export function ManualReviewDialog({
   const askConfirm = useApp((s) => s.askConfirm);
   const [corrected, setCorrected] = useState('');
   const [busy, setBusy] = useState(false);
+  const setDialogText = useApp((s) => s.setDialogText);
+
+  /* Pasted text would be lost if the window closed, so the close guard is
+     told (apply.16, PLAN 11.3 i). */
+  const typed = corrected !== '';
+  useEffect(() => setDialogText('manual-review', typed), [typed, setDialogText]);
+  useEffect(() => () => setDialogText('manual-review', false), [setDialogText]);
 
   const decided = review.hunks.filter((h) => h.status !== 'pending').length;
 

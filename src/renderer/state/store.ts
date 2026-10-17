@@ -31,6 +31,8 @@ export interface Notification {
    */
   key?: string;
   action?: NotificationAction;
+  /** what the button acts on, such as the set-aside file Show the text opens (apply.16) */
+  actionArg?: string;
 }
 
 /* The confirm dialog's question and answers are pure and tested in shared/ui/confirm.ts (apply.6). */
@@ -127,6 +129,17 @@ export interface ReviewKept {
 export function reviewKeptAt(state: Pick<AppState, 'reviewSavedAt' | 'reviewPath'>): string | null {
   const kept = state.reviewSavedAt;
   return kept !== null && state.reviewPath !== null && kept.path === state.reviewPath ? kept.at : null;
+}
+
+/**
+ * The dialogs that can hold text the author typed, which closing the window
+ * would lose (`CloseGuardState.dialogText`, PLAN 11.3 i).
+ */
+export type DialogTextSource = 'new-chapter' | 'manual-review' | 'edit-popover';
+
+/** True while any dialog holds text the author typed. */
+export function hasDialogText(state: Pick<AppState, 'dialogText'>): boolean {
+  return Object.values(state.dialogText).some(Boolean);
 }
 
 /** True when a paragraph editor is open on this paragraph index. */
@@ -238,6 +251,14 @@ export interface AppState {
   reviewSavedAt: ReviewKept | null;
   /** a review json write is waiting or running, for any review (apply.1) */
   persistPending: boolean;
+  /** a write of kept paragraph boxes is waiting or running, for any chapter (apply.16) */
+  draftWritesPending: boolean;
+  /**
+   * which dialogs hold text the author typed: New chapter's name or text,
+   * Submit manual review's corrected text, the suggestion editor's changed
+   * words (apply.16). Read through `hasDialogText`.
+   */
+  dialogText: Record<DialogTextSource, boolean>;
   focusedHunkId: string | null;
   /** bumped whenever the focused hunk should be scrolled into view */
   focusScrollToken: number;
@@ -281,7 +302,13 @@ export interface AppState {
   setActiveComment: (id: string | null) => void;
   toggleCategory: (category: ChangeCategory) => void;
   clearCategoryFilter: () => void;
-  notify: (tone: NotificationTone, text: string, key?: string, action?: NotificationAction) => string;
+  notify: (
+    tone: NotificationTone,
+    text: string,
+    key?: string,
+    action?: NotificationAction,
+    actionArg?: string
+  ) => string;
   /**
    * Show the card for `key`, or update the one already showing in place: same
    * id, same position in the stack, new tone, text and button. For things that
@@ -321,6 +348,8 @@ export interface AppState {
   setSettingsOpen: (open: boolean) => void;
   setSetupOpen: (open: boolean) => void;
   setChapterSaving: (saving: boolean) => void;
+  /** say whether a dialog holds text the author typed; unchanged state sets nothing */
+  setDialogText: (source: DialogTextSource, typed: boolean) => void;
   /**
    * Fold the decisions into the base after Save to chapter wrote the file
    * (`savedReview`). With `written`, only when the review on screen is that
@@ -344,6 +373,12 @@ export interface AppState {
   openDraft: (paragraph: number, select?: { start: number; end: number }) => boolean;
   setDraftText: (key: number, text: string) => void;
   cancelDraft: (key: number) => void;
+  /**
+   * Open boxes kept from before (apply.16), as `placeDrafts` placed them. A box
+   * whose paragraphs another open box covers is skipped. Returns how many
+   * opened.
+   */
+  reopenDrafts: (drafts: readonly ParagraphDraft[]) => number;
   /** turn one open paragraph into hunks and close it */
   commitDraft: (key: number) => DraftOutcome;
   /** commit every open paragraph, first to last; the messages of any that could not be */
@@ -374,6 +409,8 @@ export const useApp = create<AppState>()((set, get) => ({
   reviewPath: null,
   reviewSavedAt: null,
   persistPending: false,
+  draftWritesPending: false,
+  dialogText: { 'new-chapter': false, 'manual-review': false, 'edit-popover': false },
   focusedHunkId: null,
   focusScrollToken: 0,
   hoveredHunkId: null,
@@ -497,13 +534,20 @@ export const useApp = create<AppState>()((set, get) => ({
 
   clearCategoryFilter: () => set({ hiddenCategories: [] }),
 
-  notify: (tone, text, key, action) => {
+  notify: (tone, text, key, action, actionArg) => {
     notificationSeq += 1;
     const id = `n${notificationSeq}`;
     set((state) => ({
       notifications: [
         ...(key ? state.notifications.filter((n) => n.key !== key) : state.notifications),
-        { id, tone, text, ...(key ? { key } : {}), ...(action ? { action } : {}) }
+        {
+          id,
+          tone,
+          text,
+          ...(key ? { key } : {}),
+          ...(action ? { action } : {}),
+          ...(action && actionArg !== undefined ? { actionArg } : {})
+        }
       ]
     }));
     return id;
@@ -584,6 +628,11 @@ export const useApp = create<AppState>()((set, get) => ({
   setSetupOpen: (setupOpen) => set({ setupOpen }),
 
   setChapterSaving: (chapterSaving) => set({ chapterSaving }),
+
+  setDialogText: (source, typed) =>
+    set((state) =>
+      state.dialogText[source] === typed ? {} : { dialogText: { ...state.dialogText, [source]: typed } }
+    ),
 
   /* ---------------- editing (item 3) ---------------- */
 
@@ -672,6 +721,27 @@ export const useApp = create<AppState>()((set, get) => ({
       delete next[key];
       return { drafts: next };
     }),
+
+  reopenDrafts: (incoming) => {
+    const state = get();
+    if (!state.review || incoming.length === 0) return 0;
+    const drafts = { ...state.drafts };
+    const taken = new Set(Object.values(drafts).flatMap((d) => d.paragraphs));
+    let opened = 0;
+    for (const draft of incoming) {
+      if (draft.paragraphs.some((p) => taken.has(p))) continue;
+      for (const p of draft.paragraphs) taken.add(p);
+      drafts[draft.key] = {
+        key: draft.key,
+        paragraphs: [...draft.paragraphs],
+        initial: draft.initial,
+        text: draft.text
+      };
+      opened += 1;
+    }
+    if (opened > 0) set({ drafts });
+    return opened;
+  },
 
   /**
    * The author finished a paragraph. Its changed words become manual hunks and

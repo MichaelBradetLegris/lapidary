@@ -25,6 +25,7 @@ import { SidePanel } from './components/SidePanel';
 import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
 import { ApiError, call, errorMessage } from './state/client';
+import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state/drafts';
 import { useKeyboardBindings } from './state/keyboard';
 import { useProgressLabel } from './state/progress';
 import { useApp } from './state/store';
@@ -36,6 +37,13 @@ import {
 } from './state/reviewPersistence';
 import { baseFrom, pendingSave, useSaveChapter, type SaveDeps } from './state/saveChapter';
 import { useAi } from './state/useAi';
+
+/** How kept paragraph boxes reach main (apply.16, state/drafts.ts). */
+const DRAFT_IO: DraftIo = {
+  load: (sourcePath) => call('drafts:load', { sourcePath }),
+  save: (request) => call('drafts:save', request),
+  setAside: (request) => call('drafts:set-aside', request)
+};
 
 /** Review failures the Setup screen can fix: Claude Code missing, too old, or signed out. */
 const SETUP_FAILURES: ReadonlySet<string> = new Set([
@@ -171,8 +179,10 @@ export function App(): React.JSX.Element {
         if (!(await confirmLeaveDrafts())) return;
         try {
           // A decision still waiting to be written must be on disk before
-          // its review file is read back (apply.1).
+          // its review file is read back (apply.1), and so must the paragraph
+          // boxes of the chapter being left (apply.16).
           await flushReviewWrites();
+          await flushDraftWrites();
           // Once another chapter is open, the one being left is marked in the
           // list from its review as now written, so read the marks again
           // alongside the chapter, and have them in before it shows (apply.5).
@@ -229,6 +239,7 @@ export function App(): React.JSX.Element {
         if (!(await confirmLeaveDrafts())) return;
         try {
           await flushReviewWrites();
+          await flushDraftWrites();
           const loaded = await call('reviews:load', { path: summary.path });
           // History lists only the open chapter's reviews; read that chapter,
           // under the path it is open as.
@@ -324,6 +335,12 @@ export function App(): React.JSX.Element {
   /* ---------------- review persistence (apply.1) ---------------- */
 
   useEffect(() => installReviewPersistence(), []);
+
+  /* ---------------- paragraph boxes kept on disk (apply.16) ---------------- */
+
+  /* Open boxes are written as they are typed in, and come back whenever their
+     chapter is on screen again (state/drafts.ts). */
+  useEffect(() => installDraftPersistence(DRAFT_IO), []);
 
   /* ---------------- actions ---------------- */
 
@@ -576,7 +593,7 @@ export function App(): React.JSX.Element {
             )}
           </main>
           <NotificationCards
-            onAction={(action) => {
+            onAction={(action, arg) => {
               switch (action) {
                 case 'open-settings':
                   openSettings();
@@ -586,8 +603,14 @@ export function App(): React.JSX.Element {
                   break;
                 case 'reveal-drafts':
                 case 'reveal-backups':
+                  // A set-aside card names its file, which Show the text opens (apply.16).
                   void window.api
-                    .invoke('shell:reveal', { target: action === 'reveal-drafts' ? 'drafts' : 'backups' })
+                    .invoke(
+                      'shell:reveal',
+                      action === 'reveal-drafts'
+                        ? { target: 'drafts', ...(arg ? { name: arg } : {}) }
+                        : { target: 'backups' }
+                    )
                     .then((result) => {
                       if (!result.ok) notify('error', result.error.message);
                     });
