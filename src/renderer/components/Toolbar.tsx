@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { unsavedDecisionCount } from '../../shared/diff/compose';
 import { chapterName } from '../../shared/review';
 import type { Review } from '../../shared/types';
-import { saveButtonState, unsavedDotLabel } from '../../shared/ui/save';
+import { saveButtonInput, saveButtonState, unsavedDotLabel } from '../../shared/ui/save';
 import { useBulkAction } from '../state/bulk';
 import { changedParagraphCount, isLocked, useApp } from '../state/store';
 import { IconChevronDown } from './icons';
@@ -84,13 +83,14 @@ function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): R
  * One row, in the order the author reads it: what is open, what can act on it,
  * then what writes it out. Model and effort moved into the review dialog, where
  * they are chosen once per review rather than sitting in the way all day
- * (item 6). The chapter name gives way first: it is cut short with an ellipsis
- * so the buttons stay on one row however long the name and the Save label are.
+ * (item 6). The chapter name takes the room the buttons leave and gives way
+ * first, cut short with an ellipsis; once it is down to about 8em, the last
+ * buttons move to a second row instead (app.css, `.toolbar`).
  *
  * Save to chapter and the dot before the chapter name come from
- * `saveButtonState` (apply.4), counted by `unsavedDecisionCount`: the changes
- * the chapter file does not have yet, not every decision made since the review
- * opened.
+ * `saveButtonState` (apply.4), fed by `saveButtonInput` and counted by
+ * `unsavedDecisionCount`: the changes the chapter file does not have yet, not
+ * every decision made since the review opened.
  */
 export function Toolbar({
   review,
@@ -109,15 +109,9 @@ export function Toolbar({
   const editing = useApp((s) => Object.keys(s.drafts).length);
   const changedParagraphs = useApp((s) => changedParagraphCount(s.drafts));
 
-  const unsaved = review ? unsavedDecisionCount(review.hunks) : 0;
-  const save = saveButtonState({
-    hasChapter: Boolean(review?.sourcePath),
-    unsavedDecisions: unsaved,
-    changedParagraphs,
-    saving,
-    locked
-  });
-  const dotLabel = unsavedDotLabel(unsaved);
+  const input = saveButtonInput({ review, changedParagraphs, saving, locked });
+  const save = saveButtonState(input);
+  const dotLabel = unsavedDotLabel(input.unsavedDecisions);
 
   const title = review
     ? review.sourcePath
@@ -133,7 +127,6 @@ export function Toolbar({
           {title}
         </span>
       </span>
-      <span className="spacer" />
 
       {running ? (
         <>

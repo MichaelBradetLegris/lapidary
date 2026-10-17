@@ -17,6 +17,7 @@ const read = (file: string): string => withoutComments(readFileSync(path.join(RE
 const TOOLBAR = read('components/Toolbar.tsx');
 const STATUS_BAR = read('components/StatusBar.tsx');
 const STORE = read('state/store.ts');
+const PERSIST = read('state/reviewPersistence.ts');
 const CSS = read('styles/app.css');
 
 /** Every declaration made for exactly this selector, across app.css. */
@@ -35,10 +36,14 @@ function declsFor(selector: string): Map<string, string> {
 
 describe('the Save button and the dot (apply.4)', () => {
   it('takes the label, tooltip and disabled state from saveButtonState', () => {
-    expect(TOOLBAR).toMatch(/saveButtonState\(\{/);
-    expect(TOOLBAR).toContain('unsavedDecisions: unsaved');
-    expect(TOOLBAR).toContain('unsavedDecisionCount(review.hunks)');
+    // Every input, by name: saveButtonInput's own tests hold what it does with them.
+    expect(TOOLBAR).toMatch(
+      /const input = saveButtonInput\(\{\s*review,\s*changedParagraphs,\s*saving,\s*locked\s*\}\);/
+    );
+    expect(TOOLBAR).toContain('const save = saveButtonState(input);');
+    expect(TOOLBAR).toContain('const locked = useApp(isLocked);');
     expect(TOOLBAR).toContain('changedParagraphCount(s.drafts)');
+    expect(TOOLBAR).toMatch(/\{\s*review,\s*running,\s*progressLabel,\s*saving,/);
     expect(TOOLBAR).toContain('{save.label}');
     expect(TOOLBAR).toContain('title={save.title}');
     expect(TOOLBAR).toContain('disabled={save.disabled}');
@@ -53,12 +58,15 @@ describe('the Save button and the dot (apply.4)', () => {
     expect(name).toBeGreaterThan(dot);
     expect(TOOLBAR).toMatch(/\{save\.dot \? <span className="unsaved-dot"/);
     expect(TOOLBAR).toContain('aria-label={dotLabel}');
-    expect(TOOLBAR).toContain('unsavedDotLabel(unsaved)');
+    expect(TOOLBAR).toContain('unsavedDotLabel(input.unsavedDecisions)');
     expect(TOOLBAR).toMatch(/className="toolbar__name" title=\{title\}/);
   });
 
-  it('cuts the chapter name short with an ellipsis and keeps every button on one line', () => {
-    expect(Object.fromEntries(declsFor('.toolbar__title'))).toMatchObject({ 'min-width': '0' });
+  it('cuts the chapter name short with an ellipsis, then wraps the row, never a button', () => {
+    expect(Object.fromEntries(declsFor('.toolbar__title'))).toMatchObject({
+      flex: '1 1 8em',
+      'min-width': '0'
+    });
     expect(Object.fromEntries(declsFor('.toolbar__name'))).toMatchObject({
       'min-width': '0',
       overflow: 'hidden',
@@ -66,9 +74,22 @@ describe('the Save button and the dot (apply.4)', () => {
       'white-space': 'nowrap'
     });
     expect(declsFor('.toolbar button').get('white-space')).toBe('nowrap');
-    expect(declsFor('.toolbar .progress').get('white-space')).toBe('nowrap');
-    // Nothing else in the row may wrap or shrink below its label.
-    expect(declsFor('.toolbar').get('flex-wrap')).toBeUndefined();
+    // Zoomed in, or with a review's progress showing, the last buttons move to
+    // a second row on the right instead of running out of the window; the
+    // title grows into the room a spacer used to take.
+    expect(Object.fromEntries(declsFor('.toolbar'))).toMatchObject({
+      'flex-wrap': 'wrap',
+      'justify-content': 'flex-end'
+    });
+    expect(TOOLBAR).not.toContain('className="spacer"');
+  });
+
+  it('keeps the progress label inside its own box', () => {
+    // With nowrap and less room than its words, it spilled to the left over
+    // the dot and the chapter name. It may wrap, or it must clip.
+    const progress = new Map([...declsFor('.progress'), ...declsFor('.toolbar .progress')]);
+    expect(progress.get('white-space') !== 'nowrap' || progress.get('overflow') === 'hidden').toBe(true);
+    expect(TOOLBAR).toContain('<span className="progress" aria-live="polite">');
   });
 
   it('paints the dot in --unsaved, a token of its own', () => {
@@ -92,7 +113,7 @@ describe('the status bar (apply.4)', () => {
   });
 
   it('says "Decisions kept" with the tooltip, never "Review saved"', () => {
-    expect(STATUS_BAR).toContain('<span title={KEPT_TOOLTIP}>{keptPhrase(reviewSavedAt)}</span>');
+    expect(STATUS_BAR).toContain('<span title={KEPT_TOOLTIP}>{keptPhrase(keptAt)}</span>');
     expect(STATUS_BAR).not.toContain('Review saved');
     expect(STATUS_BAR).not.toContain('toLocaleTimeString');
   });
@@ -118,6 +139,13 @@ describe('the status bar (apply.4)', () => {
 });
 
 describe('the store (apply.4)', () => {
+  it('shows the kept time of the review on screen only, recorded with the file it went to', () => {
+    // reviewKeptAt's own tests are in test/renderer/store.test.ts.
+    expect(STATUS_BAR).toContain('const keptAt = useApp(reviewKeptAt);');
+    expect(STATUS_BAR).not.toContain('s.reviewSavedAt');
+    expect(PERSIST).toContain('state.markReviewPersisted(stored.path);');
+  });
+
   it('has no dirty flag: the unsaved count is the one measure', () => {
     expect(STORE).not.toMatch(/\bdirty\b/);
   });

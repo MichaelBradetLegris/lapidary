@@ -42,7 +42,7 @@ const writer = createKeyedWriter<Pending>({
     const state = useApp.getState();
     if (state.review && reviewKey(state.review) === key) {
       if (state.reviewPath !== stored.path) useApp.setState({ reviewPath: stored.path });
-      state.markReviewPersisted();
+      state.markReviewPersisted(stored.path);
     }
   },
   // Said once per distinct failure; a card per keystroke would be noise.

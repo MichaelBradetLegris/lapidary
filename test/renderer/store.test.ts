@@ -4,7 +4,7 @@ import { createDiffReview, createReview } from '../../src/shared/review';
 import { bulkPlan } from '../../src/shared/ui/bulk';
 import { closePrompt, leavePrompt } from '../../src/shared/ui/save';
 import { modelOptions } from '../../src/renderer/state/models';
-import { isLocked, useApp, type ConfirmSpec } from '../../src/renderer/state/store';
+import { isLocked, reviewKeptAt, useApp, type ConfirmSpec } from '../../src/renderer/state/store';
 import type { Review } from '../../src/shared/types';
 
 const ORIGINAL = 'The river had began.\n\nShe nodded her head slowly.';
@@ -201,10 +201,45 @@ describe('review store', () => {
     expect(useApp.getState().find).toMatchObject({ open: false, query: '', index: -1, count: 0 });
   });
 
-  it('records when the review json was last written', () => {
+  it('records when the review json was last written, and to which file', () => {
+    useApp.getState().setReview(fresh(), 'reviews/chapter-3/a.review.json');
     expect(useApp.getState().reviewSavedAt).toBeNull();
-    useApp.getState().markReviewPersisted('2026-09-09T10:04:33.000Z');
-    expect(useApp.getState().reviewSavedAt).toBe('2026-09-09T10:04:33.000Z');
+    expect(reviewKeptAt(useApp.getState())).toBeNull();
+    useApp.getState().markReviewPersisted('reviews/chapter-3/a.review.json', '2026-09-09T10:04:33.000Z');
+    expect(useApp.getState().reviewSavedAt).toEqual({
+      path: 'reviews/chapter-3/a.review.json',
+      at: '2026-09-09T10:04:33.000Z'
+    });
+    expect(reviewKeptAt(useApp.getState())).toBe('2026-09-09T10:04:33.000Z');
+  });
+
+  it('shows the kept time only for the review it belongs to (apply.4)', () => {
+    const A = 'reviews/chapter-3/a.review.json';
+    useApp.getState().setReview(fresh(), A);
+    useApp.getState().markReviewPersisted(A, '2026-09-09T10:04:33.000Z');
+    expect(reviewKeptAt(useApp.getState())).toBe('2026-09-09T10:04:33.000Z');
+
+    // Another chapter's review, read from its own file and not written since.
+    useApp.getState().setReview(fresh(), 'reviews/chapter-4/b.review.json');
+    expect(reviewKeptAt(useApp.getState())).toBeNull();
+
+    // A chapter with no review yet: nothing has been written for it.
+    const empty = createReview({
+      sourcePath: 'C:/vault/Chapter 05.md',
+      base: fresh().base,
+      hunks: [],
+      generator: { kind: 'file' }
+    });
+    useApp.getState().setReview(empty, null);
+    expect(reviewKeptAt(useApp.getState())).toBeNull();
+
+    // Back to the first review: the time it was kept is still its own.
+    useApp.getState().setReview(fresh(), A);
+    expect(reviewKeptAt(useApp.getState())).toBe('2026-09-09T10:04:33.000Z');
+
+    // A rebase after an outside change keeps the file, and so the time.
+    useApp.getState().setReview(fresh(), useApp.getState().reviewPath);
+    expect(reviewKeptAt(useApp.getState())).toBe('2026-09-09T10:04:33.000Z');
   });
 
   it('resolves a comment through patchReview', () => {

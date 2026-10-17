@@ -112,6 +112,23 @@ export function isLocked(state: Pick<AppState, 'review' | 'aiBusyPath'>): boolea
   return Boolean(path) && state.aiBusyPath === path;
 }
 
+/** The last write of a review's json: which file, and when. */
+export interface ReviewKept {
+  path: string;
+  at: string;
+}
+
+/**
+ * When the review on screen was last written, for the status bar's "Decisions
+ * kept" (apply.4), or null. A write belongs to the file it went to, so another
+ * review, or a chapter whose review has never been written (`reviewPath`
+ * null), shows no time rather than one that is not its own.
+ */
+export function reviewKeptAt(state: Pick<AppState, 'reviewSavedAt' | 'reviewPath'>): string | null {
+  const kept = state.reviewSavedAt;
+  return kept !== null && state.reviewPath !== null && kept.path === state.reviewPath ? kept.at : null;
+}
+
 /** True when a paragraph editor is open on this paragraph index. */
 export function inDraft(drafts: Record<number, ParagraphDraft>, paragraph: number): boolean {
   return Object.values(drafts).some((d) => d.paragraphs.includes(paragraph));
@@ -214,8 +231,11 @@ export interface AppState {
   settings: Settings | null;
   review: Review | null;
   reviewPath: string | null;
-  /** wall-clock time of the last review json write, for the status bar */
-  reviewSavedAt: string | null;
+  /**
+   * the last review json write: its file and wall-clock time. The status bar
+   * reads it through `reviewKeptAt`, so it shows only for that review.
+   */
+  reviewSavedAt: ReviewKept | null;
   /** a review json write is waiting or running, for any review (apply.1) */
   persistPending: boolean;
   focusedHunkId: string | null;
@@ -308,7 +328,8 @@ export interface AppState {
    * has moved on or holds a copy that reads differently.
    */
   markSaved: (hash: string, written?: Review) => boolean;
-  markReviewPersisted: (at?: string) => void;
+  /** the review json at `path` was just written, at `at` or now */
+  markReviewPersisted: (path: string, at?: string) => void;
 
   /* ---- editing (item 3) ---- */
   setCommentStatus: (id: string, status: ReviewComment['status']) => void;
@@ -732,5 +753,5 @@ export const useApp = create<AppState>()((set, get) => ({
     return true;
   },
 
-  markReviewPersisted: (at) => set({ reviewSavedAt: at ?? new Date().toISOString() })
+  markReviewPersisted: (path, at) => set({ reviewSavedAt: { path, at: at ?? new Date().toISOString() } })
 }));

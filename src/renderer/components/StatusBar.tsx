@@ -4,7 +4,7 @@ import { PROVIDER_NAMES, type Review } from '../../shared/types';
 import { KEPT_TOOLTIP, keptPhrase, unsavedPhrase } from '../../shared/ui/save';
 import { canZoom, zoomLabel, type ZoomAction } from '../../shared/ui/zoom';
 import { call } from '../state/client';
-import { useApp } from '../state/store';
+import { reviewKeptAt, useApp } from '../state/store';
 import { IconMinus, IconPlus } from './icons';
 
 interface Props {
@@ -129,15 +129,16 @@ function ZoomControl(): React.JSX.Element {
 /**
  * The counts, then where the decisions are: "3 not saved to chapter" while the
  * chapter file is behind the page, and "Decisions kept 14:02" for the last
- * write of the review, which used to read "Review saved" and was taken for the
- * chapter (apply.4, PLAN 11.1 "Unsaved signal").
+ * write of the review on screen (`reviewKeptAt`; nothing for a chapter whose
+ * review has not been written), which used to read "Review saved" and was
+ * taken for the chapter (apply.4, PLAN 11.1 "Unsaved signal").
  */
 export function StatusBar({ review, runtimeLabel, rateLimit }: Props): React.JSX.Element {
   const counts = review ? decisionCounts(review.hunks) : { pending: 0, accepted: 0, dismissed: 0, stale: 0 };
   const unsaved = unsavedPhrase(review ? unsavedDecisionCount(review.hunks) : 0);
   const cost = review?.generator.costUsd;
   const provider = review?.generator.provider;
-  const reviewSavedAt = useApp((s) => s.reviewSavedAt);
+  const keptAt = useApp(reviewKeptAt);
   const [legendOpen, setLegendOpen] = useState(false);
 
   return (
@@ -164,7 +165,7 @@ export function StatusBar({ review, runtimeLabel, rateLimit }: Props): React.JSX
         </span>
       ) : null}
       <span className="spacer" />
-      {reviewSavedAt ? <span title={KEPT_TOOLTIP}>{keptPhrase(reviewSavedAt)}</span> : null}
+      {keptAt ? <span title={KEPT_TOOLTIP}>{keptPhrase(keptAt)}</span> : null}
       {provider || review?.generator.model ? (
         <span data-testid="status-model">
           {provider ? PROVIDER_NAMES[provider] : ''}

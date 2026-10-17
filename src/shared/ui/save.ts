@@ -14,9 +14,11 @@
  */
 
 import { APP_NAME } from '../branding';
+import { unsavedDecisionCount } from '../diff/compose';
 import type { CloseGuardState } from '../ipc';
 import { samePath } from '../paths';
 import { chapterName } from '../review';
+import type { Review } from '../types';
 import type { ConfirmChoice } from './confirm';
 
 /* ------------------------------------------------------------------ */
@@ -87,6 +89,31 @@ export interface SaveButtonInput {
   saving: boolean;
   /** a review of this chapter is running, so the page is read-only */
   locked: boolean;
+}
+
+/** What the toolbar holds when it draws Save to chapter and the dot. */
+export interface ToolbarSaveContext {
+  /** the review on screen, or null when none is open */
+  review: Pick<Review, 'sourcePath' | 'hunks'> | null;
+  changedParagraphs: number;
+  saving: boolean;
+  locked: boolean;
+}
+
+/**
+ * The toolbar's `SaveButtonInput` (apply.4): a chapter is open when the review
+ * names a file, the count is `unsavedDecisionCount` of its hunks, and the rest
+ * passes through, so a save under way and a running review both reach the
+ * button. Pure, so a test can hold every field to what the toolbar knows.
+ */
+export function saveButtonInput(context: ToolbarSaveContext): SaveButtonInput {
+  return {
+    hasChapter: Boolean(context.review?.sourcePath),
+    unsavedDecisions: context.review ? unsavedDecisionCount(context.review.hunks) : 0,
+    changedParagraphs: context.changedParagraphs,
+    saving: context.saving,
+    locked: context.locked
+  };
 }
 
 export interface SaveButtonState {

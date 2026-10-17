@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { APP_NAME } from '../../src/shared/branding';
 import type { CloseGuardState } from '../../src/shared/ipc';
+import { createDiffReview } from '../../src/shared/review';
+import type { Review } from '../../src/shared/types';
 import {
   CHAPTER_MATCHES_PAGE,
   changeCount,
@@ -15,6 +17,7 @@ import {
   needsAttention,
   PRESS_DONE_FIRST,
   PRESS_EDITOR_SAVE_FIRST,
+  saveButtonInput,
   saveButtonState,
   saveShortcutAction,
   unresponsiveDetail,
@@ -23,7 +26,8 @@ import {
   type LeaveState,
   type SaveButtonInput,
   type SaveShortcutContext,
-  type ShortcutKey
+  type ShortcutKey,
+  type ToolbarSaveContext
 } from '../../src/shared/ui/save';
 
 /* apply.2: the words and rules of Save to chapter, Ctrl+S, leaving and closing (PLAN 11.3 i). */
@@ -137,6 +141,70 @@ describe('saveButtonState', () => {
       disabled: true,
       title: 'Open a chapter to save to it.',
       dot: false
+    });
+  });
+});
+
+describe('saveButtonInput (apply.4)', () => {
+  /** The review on screen with its first `accepted` hunks accepted: two hunks in all. */
+  function onScreen(accepted: number): Pick<Review, 'sourcePath' | 'hunks'> {
+    const review = createDiffReview({
+      originalRaw: 'The river had began.\n\nShe nodded her head slowly.',
+      correctedRaw: 'The river had begun.\n\nShe nodded slowly.'
+    });
+    return {
+      sourcePath: CHAPTER,
+      hunks: review.hunks.map((h, i) => (i < accepted ? { ...h, status: 'accepted' as const } : h))
+    };
+  }
+
+  function toolbar(patch: Partial<ToolbarSaveContext> = {}): ToolbarSaveContext {
+    return { review: onScreen(0), changedParagraphs: 0, saving: false, locked: false, ...patch };
+  }
+
+  it('fills every field from what the toolbar holds', () => {
+    expect(onScreen(2).hunks).toHaveLength(2);
+    expect(saveButtonInput(toolbar({ review: onScreen(2), changedParagraphs: 3 }))).toEqual({
+      hasChapter: true,
+      unsavedDecisions: 2,
+      changedParagraphs: 3,
+      saving: false,
+      locked: false
+    });
+    expect(saveButtonInput(toolbar({ review: onScreen(1) })).unsavedDecisions).toBe(1);
+  });
+
+  it('passes a save under way and a running review through to the button', () => {
+    expect(saveButtonInput(toolbar({ saving: true }))).toMatchObject({ saving: true, locked: false });
+    expect(saveButtonInput(toolbar({ locked: true }))).toMatchObject({ saving: false, locked: true });
+
+    const review = onScreen(2);
+    expect(saveButtonState(saveButtonInput(toolbar({ review, saving: true })))).toEqual({
+      label: 'Saving…',
+      disabled: true,
+      title: 'Writing the chapter file.',
+      dot: true
+    });
+    expect(saveButtonState(saveButtonInput(toolbar({ review, locked: true })))).toEqual({
+      label: 'Save 2 changes to chapter',
+      disabled: true,
+      title: 'Wait for the review to finish, then save.',
+      dot: true
+    });
+    expect(saveButtonState(saveButtonInput(toolbar({ review }))).disabled).toBe(false);
+  });
+
+  it('has no chapter when no review is open, or for pasted text', () => {
+    expect(saveButtonInput(toolbar({ review: null }))).toEqual({
+      hasChapter: false,
+      unsavedDecisions: 0,
+      changedParagraphs: 0,
+      saving: false,
+      locked: false
+    });
+    expect(saveButtonInput(toolbar({ review: { ...onScreen(1), sourcePath: '' } }))).toMatchObject({
+      hasChapter: false,
+      unsavedDecisions: 1
     });
   });
 });

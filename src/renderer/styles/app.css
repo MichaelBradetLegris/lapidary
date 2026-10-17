@@ -256,26 +256,32 @@ input[type='text'] {
   height: 100%;
 }
 
+/* The row wraps, as the status bar does: when the buttons and the chapter name
+   at its narrowest do not fit, zoomed in or with a review's progress showing
+   in a narrow window, the last buttons move to a second row on the right
+   rather than running out of the window (apply.4). */
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
   padding: 7px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
 }
 
-/* The chapter name is the one thing in the row that gives way: it shrinks and
-   ends in an ellipsis, while the buttons keep their labels on one line, so a
-   long name and "Save 12 changes to chapter" still fit a 1100 px window at
-   125% (apply.4). The full name is in the tooltip. */
+/* The chapter name takes the room the buttons leave and is what gives way
+   first: it ends in an ellipsis, down to about 8em, before any button moves,
+   so a long name and "Save 12 changes to chapter" still share one row in a
+   1100 px window at 125% (apply.4). The full name is in the tooltip. */
 .toolbar__title {
   font-weight: 600;
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 0 1 auto;
+  flex: 1 1 8em;
   min-width: 0;
 }
 
@@ -286,8 +292,11 @@ input[type='text'] {
   white-space: nowrap;
 }
 
-.toolbar button,
-.toolbar .progress {
+/* No button label breaks in two. The progress label is left free to wrap: the
+   row wraps first, so it keeps one line, and if it is ever given less room
+   than its words they break inside its own box instead of spilling over the
+   chapter name, as they did with nowrap (apply.4). */
+.toolbar button {
   white-space: nowrap;
 }
 
