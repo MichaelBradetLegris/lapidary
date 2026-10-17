@@ -10,7 +10,9 @@ import type {
   RequestPayload,
   ResponsePayload
 } from '../shared/ipc';
-import { backupsRootFor, chapterBackupHooks } from './backups';
+import { chapterName } from '../shared/review';
+import { noBackupsYet } from '../shared/ui/backups';
+import { backupsRootFor, chapterBackupHooks, chapterBackups } from './backups';
 import { boxAnswer, createCloseGuard, messageBoxOptions } from './closeGuard';
 import {
   draftsRootFor,
@@ -131,7 +133,8 @@ export function registerCoreHandlers(): void {
       manuscriptFolder: settings.manuscriptFolder,
       reviewsFolder: await reviewsFolder(),
       reviewsFolderIsDefault: isDefaultReviewsFolder(settings.reviewsFolder),
-      guidelinesPath: guidelinesPathFor(settings)
+      guidelinesPath: guidelinesPathFor(settings),
+      backupsFolder: backupsRootFor(app.getPath('userData'))
     };
   });
 
@@ -358,7 +361,26 @@ function registerFileHandlers(): void {
 
   handle('guidelines:status', async () => guidelinesStatus(await loadSettings()));
 
-  handle('shell:reveal', async ({ target, name }) => {
+  handle('shell:reveal', async ({ target, sourcePath, name }) => {
+    /* Show backups for a chapter (apply.11): its own backup folder, which main
+       works out from the path and refuses outside the backups root, opened
+       with the newest backup selected. A chapter never yet changed by a Save
+       to chapter has no folder, and the card says so. */
+    if (target === 'backups' && sourcePath !== undefined) {
+      const shown = await chapterBackups(
+        backupsRootFor(app.getPath('userData')),
+        sourcePath,
+        caseInsensitiveFs()
+      );
+      if (!shown) throw fail('not-found', noBackupsYet(chapterName(sourcePath)));
+      if (shown.newest) {
+        shell.showItemInFolder(shown.newest);
+        return { path: shown.newest };
+      }
+      const problem = await shell.openPath(shown.folder);
+      if (problem) shell.showItemInFolder(shown.folder);
+      return { path: shown.folder };
+    }
     /* A set-aside card's Show the text opens its own file (apply.16), in the
        app the computer uses for .txt, or shows it in its folder when no app
        is set for .txt. Only a bare name of a file in drafts/set-aside counts. */
@@ -386,9 +408,9 @@ function registerFileHandlers(): void {
 
 /**
  * The userData places "show in folder" can open, created on demand so the
- * author never lands on a missing folder (setup.7a). Each chapter's backups
- * have a folder of their own (`backupFolderFor`, apply.10); showing that one
- * for the open chapter is apply.11, so until then the backups root is shown.
+ * author never lands on a missing folder (setup.7a). `backups` here is the
+ * root, for Settings; a chapter's own backup folder is shown from its path
+ * (`chapterBackups`, apply.11).
  */
 async function userDataTarget(target: 'data' | 'logs' | 'backups' | 'drafts'): Promise<string> {
   const root = app.getPath('userData');

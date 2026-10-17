@@ -365,6 +365,8 @@ input[type='text'] {
    row from growing to the height of everything in it. */
 .side {
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   background: var(--panel);
   border-left: 1px solid var(--border);
   overflow: clip;
@@ -899,12 +901,28 @@ input[type='text'] {
 }
 
 /* Two regions in a column; the one scroller when the panel is short, so it is
-   opaque too (theme.1). */
+   opaque too (theme.1). It takes the panel's height less the footer's. */
 .side__body {
-  height: 100%;
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--panel);
+}
+
+/* The footer under both regions, with Show backups (apply.11). It never
+   scrolls, in the short window's one scroller either. */
+.side__foot {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.side__foot button {
+  white-space: nowrap;
 }
 
 /* The suggestions list takes what it needs, up to about 55% of the panel, with

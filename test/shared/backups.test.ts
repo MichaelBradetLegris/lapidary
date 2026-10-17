@@ -9,6 +9,7 @@ import {
   localDayNumber,
   parseBackupFileName
 } from '../../src/shared/backups';
+import { BACKUPS_NOTE, SHOW_BACKUPS, SHOW_BACKUPS_TITLE, noBackupsYet } from '../../src/shared/ui/backups';
 
 /* apply.10: backup names and what is kept (PLAN 6.5, 11.3 h). Dates are built
    with the local-time constructor, so the tests hold in any time zone. */
@@ -279,5 +280,28 @@ describe('backupsToPrune', () => {
         }
       )
     );
+  });
+});
+
+/* apply.11: the words for finding backups. */
+describe('finding backups: the wording', () => {
+  it('puts the Settings note word for word as PLAN apply.11 gives it', () => {
+    expect(BACKUPS_NOTE).toBe(
+      'Before every Save to chapter, the version it replaces is copied here. The last 20 saves and the first save of each day for 30 days are kept. Backups stay on this computer.'
+    );
+  });
+
+  it('says the note in the same numbers as the retention it describes', () => {
+    expect(BACKUP_RETENTION).toMatchObject({ newest: 20, days: 30 });
+  });
+
+  it('names the button and the chapter with no backups plainly', () => {
+    expect(SHOW_BACKUPS).toBe('Show backups');
+    expect(noBackupsYet('Chapter 03')).toBe(
+      'Chapter 03 has no backups yet. Save to chapter makes one each time it changes the file.'
+    );
+    for (const text of [BACKUPS_NOTE, SHOW_BACKUPS, SHOW_BACKUPS_TITLE, noBackupsYet('Chapter 03')]) {
+      expect(text).not.toMatch(/accepted changes?/i);
+    }
   });
 });

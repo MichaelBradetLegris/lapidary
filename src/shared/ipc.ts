@@ -272,16 +272,24 @@ export interface EffectivePaths {
   /** true when reviewsFolder is the fallback inside the app's data directory */
   reviewsFolderIsDefault: boolean;
   guidelinesPath: string | null;
+  /**
+   * `<userData>/backups`, where every chapter has a backup folder of its own
+   * (PLAN 6.5), for the Backups row in Settings (apply.11)
+   */
+  backupsFolder: string;
 }
 
 /**
  * The only places the renderer may ask the shell to open or reveal: what "show
  * in folder" can point at. The last four live under userData and are created
  * on demand: `data` is the folder itself, `logs` selects main.log, `backups`
- * the chapter's own backup folder when a source path is given, and `drafts`
- * the folder of set-aside paragraph text (setup.7a), or, given the `name` of
- * one set-aside file, that file, opened in the computer's app for .txt files
- * (apply.16).
+ * the backups root, and `drafts` the folder of set-aside paragraph text
+ * (setup.7a), or, given the `name` of one set-aside file, that file, opened in
+ * the computer's app for .txt files (apply.16). Given a chapter's
+ * `sourcePath`, `backups` opens that chapter's own backup folder instead, with
+ * the newest backup selected: main works the folder out from the path and
+ * refuses one outside the backups root, and a chapter with no backups yet is
+ * answered `not-found` (apply.11).
  */
 export type RevealTarget = 'manuscript' | 'reviews' | 'guidelines' | 'data' | 'logs' | 'backups' | 'drafts';
 
@@ -432,7 +440,8 @@ export interface ApiRequestMap {
   'guidelines:status': { request: void; response: GuidelinesStatus };
   /**
    * select one of the app's own folders or files in Explorer; `name` opens one
-   * set-aside file from `drafts/set-aside` instead (apply.16)
+   * set-aside file from `drafts/set-aside` instead (apply.16), and
+   * `sourcePath` opens that chapter's backup folder (apply.11)
    */
   'shell:reveal': {
     request: { target: RevealTarget; sourcePath?: string; name?: string };

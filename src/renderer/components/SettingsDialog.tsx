@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useState } from 'react';
 import { openAiKeyLine } from '../../shared/ai/openai';
 import type { EffectivePaths, ModelInfo, OpenAiKeyStatus, RuntimeStatus } from '../../shared/ipc';
 import { EFFORT_LEVELS, type EffortLevel, type Settings } from '../../shared/types';
+import { BACKUPS_NOTE } from '../../shared/ui/backups';
 import { normalizeTheme, THEME_LABELS, THEMES } from '../../shared/ui/theme';
 import { call, errorMessage } from '../state/client';
 import { modelOptions } from '../state/models';
@@ -111,7 +112,7 @@ export function SettingsDialog({
       .catch((err: unknown) => setError(errorMessage(err)));
   };
 
-  const reveal = (target: 'guidelines' | 'reviews'): void => {
+  const reveal = (target: 'guidelines' | 'reviews' | 'backups'): void => {
     setError(null);
     call('shell:reveal', { target })
       .then(() => setNote(null))
@@ -155,6 +156,22 @@ export function SettingsDialog({
           folder chosen they go to the app&apos;s own data folder shown above
           {paths?.reviewsFolderIsDefault ? ' (in use now)' : ''}.
         </p>
+
+        {/* Where Save to chapter copies what it replaces (apply.11, PLAN 6.5).
+            Each chapter has a folder of its own inside; the side panel's Show
+            backups opens the open chapter's. */}
+        <div className="modal__row">
+          <span>Backups</span>
+          <span className="modal__path" title={paths?.backupsFolder}>
+            {paths?.backupsFolder ?? '…'}
+          </span>
+          <span className="modal__buttons">
+            <button type="button" onClick={() => reveal('backups')}>
+              Show in folder
+            </button>
+          </span>
+        </div>
+        <p className="modal__note">{BACKUPS_NOTE}</p>
 
         <div className="modal__row">
           <span>Guidelines file</span>

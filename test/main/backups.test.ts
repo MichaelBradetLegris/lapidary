@@ -6,10 +6,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BACKUPS_DIRNAME,
   CHAPTER_INFO_FILE,
+  assertChapterBackupFolder,
   assertOutside,
   backupFolderFor,
   backupsRootFor,
   chapterBackupHooks,
+  chapterBackups,
   listBackups,
   pruneBackups,
   writeBackup
@@ -386,5 +388,124 @@ describe('chapterBackupHooks', () => {
     expect(logged.map(([event]) => event)).toEqual(['backups.prune-failed']);
     // Neither the chapter's name nor its folder's lower-case slug, `chapter-01-<hash>`.
     expect(JSON.stringify(logged)).not.toMatch(/chapter/i);
+  });
+});
+
+/* apply.11: what Show backups opens for a chapter, worked out in main from the
+   chapter's path, never outside the backups root (PLAN 6.5). */
+describe('chapterBackups', () => {
+  it('finds nothing for a chapter never backed up, and makes no folder looking', async () => {
+    const file = await chapter('Chapter 03.md', Buffer.from('new\n'));
+    expect(await chapterBackups(backupsRoot, file, true)).toBeNull();
+    await expect(fs.stat(backupsRoot)).rejects.toThrow();
+  });
+
+  it("gives the chapter's own folder and its newest backup", async () => {
+    const file = await chapter('Chapter 01.md', Buffer.from('one\n'));
+    await writeBackup({
+      backupsRoot,
+      sourcePath: file,
+      bytes: Buffer.from('one\n'),
+      now: at(2026, 10, 17, 9),
+      ci: true
+    });
+    await writeBackup({
+      backupsRoot,
+      sourcePath: file,
+      bytes: Buffer.from('two\n'),
+      now: at(2026, 10, 17, 10),
+      ci: true
+    });
+    const folder = backupFolderFor(backupsRoot, file, true);
+    expect(await chapterBackups(backupsRoot, file, true)).toEqual({
+      folder,
+      newest: path.join(folder, backupFileName(at(2026, 10, 17, 10), 'Chapter 01.md'))
+    });
+  });
+
+  it('finds the folder whatever the case of the path, where the file system ignores case', async () => {
+    const file = await chapter('Chapter 01.md', Buffer.from('one\n'));
+    await writeBackup({
+      backupsRoot,
+      sourcePath: file,
+      bytes: Buffer.from('one\n'),
+      now: at(2026, 10, 17),
+      ci: true
+    });
+    const shown = await chapterBackups(backupsRoot, file.toUpperCase(), true);
+    expect(shown?.folder).toBe(backupFolderFor(backupsRoot, file, true));
+    expect(shown?.newest).not.toBeNull();
+  });
+
+  it("does not show one chapter's backups for a same-named chapter in another folder", async () => {
+    const a = await chapter(path.join('Part 1', 'Chapter 01.md'), Buffer.from('a\n'));
+    const b = await chapter(path.join('Part 2', 'Chapter 01.md'), Buffer.from('b\n'));
+    await writeBackup({
+      backupsRoot,
+      sourcePath: a,
+      bytes: Buffer.from('a\n'),
+      now: at(2026, 10, 17),
+      ci: true
+    });
+    expect(await chapterBackups(backupsRoot, a, true)).not.toBeNull();
+    expect(await chapterBackups(backupsRoot, b, true)).toBeNull();
+  });
+
+  it('opens a folder whose backups were deleted by hand, with nothing to select', async () => {
+    const file = await chapter('Chapter 01.md', Buffer.from('one\n'));
+    const { file: copy, folder } = await writeBackup({
+      backupsRoot,
+      sourcePath: file,
+      bytes: Buffer.from('one\n'),
+      now: at(2026, 10, 17),
+      ci: true
+    });
+    await fs.rm(copy);
+    await fs.writeFile(path.join(folder, 'my notes.txt'), 'kept by hand\n');
+    expect(await chapterBackups(backupsRoot, file, true)).toEqual({ folder, newest: null });
+  });
+
+  it('finds nothing where a file stands in place of the folder', async () => {
+    const file = await chapter('Chapter 01.md', Buffer.from('one\n'));
+    const folder = backupFolderFor(backupsRoot, file, true);
+    await fs.mkdir(backupsRoot, { recursive: true });
+    await fs.writeFile(folder, 'not a folder');
+    expect(await chapterBackups(backupsRoot, file, true)).toBeNull();
+  });
+
+  it('refuses a path that is not a full path', async () => {
+    await expect(chapterBackups(backupsRoot, 'Chapter 01.md', true)).rejects.toThrow(AppFailure);
+    await expect(chapterBackups(backupsRoot, '', true)).rejects.toThrow(AppFailure);
+    await expect(chapterBackups(backupsRoot, path.join('..', 'Chapter 01.md'), true)).rejects.toThrow(
+      AppFailure
+    );
+  });
+});
+
+describe('assertChapterBackupFolder', () => {
+  it("accepts a chapter's folder as backupFolderFor makes it", () => {
+    const folder = backupFolderFor(backupsRoot, path.join(vault, 'Chapter 01.md'), true);
+    expect(() => assertChapterBackupFolder(backupsRoot, folder, true)).not.toThrow();
+  });
+
+  it('refuses the root itself, anything above or beside it, and anything deeper', () => {
+    for (const folder of [
+      backupsRoot,
+      path.dirname(backupsRoot),
+      path.join(backupsRoot, '..'),
+      path.join(backupsRoot, 'chapter-01-12345678', '..', '..', 'drafts'),
+      `${backupsRoot}-old`,
+      path.join(`${backupsRoot}-old`, 'chapter-01-12345678'),
+      path.join(backupsRoot, 'chapter-01-12345678', 'inner'),
+      vault
+    ]) {
+      expect(() => assertChapterBackupFolder(backupsRoot, folder, true), folder).toThrow(AppFailure);
+    }
+  });
+
+  it('compares as the file system does', () => {
+    const folder = path.join(backupsRoot.toUpperCase(), 'chapter-01-12345678');
+    expect(() => assertChapterBackupFolder(backupsRoot, folder, true)).not.toThrow();
+    expect(() => assertChapterBackupFolder(backupsRoot, folder, false)).toThrow(AppFailure);
   });
 });

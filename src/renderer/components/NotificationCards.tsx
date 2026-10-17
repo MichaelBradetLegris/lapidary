@@ -1,3 +1,4 @@
+import { SHOW_BACKUPS } from '../../shared/ui/backups';
 import { useApp, type NotificationAction } from '../state/store';
 import { IconX } from './icons';
 
@@ -6,7 +7,7 @@ const ACTION_LABELS: Record<NotificationAction, string> = {
   'open-setup': 'Open Setup',
   'show-diagnostics': 'Show diagnostics',
   'reveal-drafts': 'Show the text',
-  'reveal-backups': 'Show backups',
+  'reveal-backups': SHOW_BACKUPS,
   'update-download': 'Download',
   'update-restart': 'Restart now',
   'update-open-page': 'Open the release page'

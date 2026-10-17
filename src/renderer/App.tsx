@@ -415,6 +415,23 @@ export function App(): React.JSX.Element {
       .catch((err: unknown) => notify('error', errorMessage(err)));
   }, [review, notify]);
 
+  /* Show backups (apply.11, PLAN 6.5): a chapter's own backup folder, with its
+     newest backup selected, which main works out from the chapter's path. A
+     chapter with none yet gets a card saying so rather than an error. */
+  const revealBackups = useCallback(
+    (sourcePath?: string) => {
+      void call('shell:reveal', { target: 'backups', ...(sourcePath ? { sourcePath } : {}) }).catch(
+        (err: unknown) =>
+          notify(
+            err instanceof ApiError && err.code === 'not-found' ? 'info' : 'error',
+            errorMessage(err),
+            'show-backups'
+          )
+      );
+    },
+    [notify]
+  );
+
   const chooseManuscriptFolder = useCallback(() => {
     void call('dialog:pick-folder', { title: 'Choose the manuscript folder' })
       .then((folder) => (folder ? call('settings:set', { manuscriptFolder: folder }) : null))
@@ -693,18 +710,14 @@ export function App(): React.JSX.Element {
                     setSetupOpen(true);
                     break;
                   case 'reveal-drafts':
-                  case 'reveal-backups':
                     // A set-aside card names its file, which Show the text opens (apply.16).
-                    void window.api
-                      .invoke(
-                        'shell:reveal',
-                        action === 'reveal-drafts'
-                          ? { target: 'drafts', ...(arg ? { name: arg } : {}) }
-                          : { target: 'backups' }
-                      )
-                      .then((result) => {
-                        if (!result.ok) notify('error', result.error.message);
-                      });
+                    void call('shell:reveal', { target: 'drafts', ...(arg ? { name: arg } : {}) }).catch(
+                      fail
+                    );
+                    break;
+                  case 'reveal-backups':
+                    // The save card names the chapter it saved (apply.11).
+                    revealBackups(arg);
                     break;
                   default:
                     // Diagnostics (hardening.5) and updates (release.9) wire theirs in when they land.
@@ -722,6 +735,7 @@ export function App(): React.JSX.Element {
               activeReviewPath={reviewPath}
               onSetCommentStatus={setCommentStatus}
               onOpenHistory={openHistoryEntry}
+              onShowBackups={() => revealBackups(review.sourcePath)}
             />
           ) : (
             <aside className="side" />

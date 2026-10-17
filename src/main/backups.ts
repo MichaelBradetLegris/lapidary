@@ -23,8 +23,9 @@ import { log as appLog, type LogLevel } from './log';
  * save replaces a chapter file, the bytes it replaces are copied, exactly,
  * into `<userData>/backups/<chapter slug>-<8 hex>/`; no backup, no save. After
  * the write, that folder is pruned to the newest 20 plus the first backup of
- * each day for 30 days (`backupsToPrune`). No electron import: main passes the
- * userData folder in, and the tests a temp folder.
+ * each day for 30 days (`backupsToPrune`). Show backups opens that folder
+ * (`chapterBackups`, apply.11). No electron import: main passes the userData
+ * folder in, and the tests a temp folder.
  */
 
 /** The backups root's name under userData. */
@@ -78,6 +79,53 @@ export function assertOutside(
       );
     }
   }
+}
+
+/**
+ * Throws unless `folder` is a chapter's own folder directly under the
+ * backups root: the only kind of folder Show backups opens (apply.11).
+ * `backupFolderFor` makes nothing else; this holds whatever it is handed.
+ */
+export function assertChapterBackupFolder(backupsRoot: string, folder: string, ci: boolean): void {
+  const root = path.resolve(backupsRoot);
+  const resolved = path.resolve(folder);
+  if (!isInsidePath(root, resolved, ci) || !samePath(path.dirname(resolved), root, ci)) {
+    throw fail('invalid-input', `${resolved} is not a chapter's folder in ${root}.`);
+  }
+}
+
+/** A chapter's backups as Show backups finds them. */
+export interface ChapterBackups {
+  /** the chapter's own backup folder */
+  folder: string;
+  /** its newest backup, which Explorer selects, or null when it holds none */
+  newest: string | null;
+}
+
+/**
+ * What Show backups shows for a chapter (apply.11): its own folder, worked
+ * out here from the chapter's path rather than taken from the page, and the
+ * newest backup in it. Null when the chapter has no folder yet, which is the
+ * case until a Save to chapter first changes the file.
+ */
+export async function chapterBackups(
+  backupsRoot: string,
+  sourcePath: string,
+  ci: boolean
+): Promise<ChapterBackups | null> {
+  if (typeof sourcePath !== 'string' || !path.isAbsolute(sourcePath)) {
+    throw fail('invalid-input', 'Show backups needs the full path of a chapter.');
+  }
+  const folder = backupFolderFor(backupsRoot, sourcePath, ci);
+  assertChapterBackupFolder(backupsRoot, folder, ci);
+  try {
+    if (!(await fs.stat(folder)).isDirectory()) return null;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return null;
+    throw err;
+  }
+  return { folder, newest: (await listBackups(folder))[0]?.file ?? null };
 }
 
 /** A backup on disk, from `listBackups`. */

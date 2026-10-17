@@ -85,6 +85,9 @@ function sameChapter(a: Review | null, b: Review): boolean {
   return a !== null && a.sourcePath.toLowerCase() === b.sourcePath.toLowerCase();
 }
 
+/** The card when the chapter was written; it carries Show backups when main says what it backed up. */
+export const SAVED_CARD = 'Saved to the chapter file.';
+
 /** The card when this review was replaced on screen, during the write, by a copy that reads differently. */
 export const RELOADED_WHILE_SAVING =
   'Saved to the chapter file, but the review was reloaded while saving. Save again to bring the page up to date.';
@@ -181,7 +184,13 @@ async function runSave(options: SaveOptions, deps: SaveDeps): Promise<SaveOutcom
           app().notify('info', CHAPTER_MATCHES_PAGE, SAVE_CARD);
           return 'nothing-to-save';
         }
-        app().notify('info', 'Saved to the chapter file.', SAVE_CARD);
+        // The card's Show backups opens the folder holding the version this
+        // save replaced, the newest there (apply.11, PLAN 6.5).
+        if (response.backup) {
+          app().notify('info', SAVED_CARD, SAVE_CARD, 'reveal-backups', working.sourcePath);
+        } else {
+          app().notify('info', SAVED_CARD, SAVE_CARD);
+        }
         return 'saved';
       }
 

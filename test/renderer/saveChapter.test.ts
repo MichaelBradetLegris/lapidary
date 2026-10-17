@@ -16,6 +16,7 @@ import {
   pendingSave,
   RELOADED_WHILE_SAVING,
   SAVE_CARD,
+  SAVED_CARD,
   saveChapter,
   type SaveDeps
 } from '../../src/renderer/state/saveChapter';
@@ -556,6 +557,71 @@ describe('Save to chapter (apply.3)', () => {
     expect(await first).toBe('saved');
     expect(await second).toBe('nothing-to-save');
     expect(h.requests).toHaveLength(1);
+  });
+});
+
+/* apply.11: the card after a save points at the copy of what it replaced. */
+describe('the save card and its backup (apply.11)', () => {
+  const card = () => state().notifications.at(-1);
+  const BACKUP = { name: '2026-10-17 10.00.00 Chapter 01.md', created: true };
+
+  it('carries Show backups for the chapter it saved when main made a backup', async () => {
+    state().toggleAccepted('h1');
+    const h = harness({ status: 'written', hash: 'h2', backup: BACKUP });
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('saved');
+    expect(card()).toMatchObject({
+      tone: 'info',
+      text: SAVED_CARD,
+      key: SAVE_CARD,
+      action: 'reveal-backups',
+      actionArg: SOURCE
+    });
+  });
+
+  it('carries it too when the newest backup already held the bytes and stands for this save', async () => {
+    state().toggleAccepted('h1');
+    const h = harness({ status: 'written', hash: 'h2', backup: { ...BACKUP, created: false } });
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('saved');
+    expect(card()).toMatchObject({ action: 'reveal-backups', actionArg: SOURCE });
+  });
+
+  it('names the chapter saved, after a rebase and with another chapter on screen by the end', async () => {
+    state().toggleAccepted('h1');
+    const disk: FileContent = {
+      path: SOURCE,
+      text: `${CHAPTER} Then she left.`,
+      hash: 'h3',
+      eol: 'lf',
+      bom: false,
+      trailingNewline: true
+    };
+    const reply = deferred();
+    const h = harness({ status: 'stale', disk }, reply.promise);
+    const run = saveChapter({ applyDrafts: 'ask' }, h.deps);
+    await tick();
+    await tick();
+    expect(h.requests).toHaveLength(2);
+    state().setReview(chapterReview('C:/vault/Chapter 02.md'), null);
+    reply.resolve({ status: 'written', hash: 'h4', backup: BACKUP });
+    expect(await run).toBe('saved');
+    expect(card()).toMatchObject({ text: SAVED_CARD, action: 'reveal-backups', actionArg: SOURCE });
+  });
+
+  it('has no button when the answer names no backup', async () => {
+    state().toggleAccepted('h1');
+    const h = harness({ status: 'written', hash: 'h2' });
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('saved');
+    expect(card()?.text).toBe(SAVED_CARD);
+    expect(card()?.action).toBeUndefined();
+    expect(card()?.actionArg).toBeUndefined();
+  });
+
+  it('has no button on the cards that say nothing new was written', async () => {
+    state().toggleAccepted('h1');
+    const h = harness({ status: 'written', hash: 'h1', unchanged: true });
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('nothing-to-save');
+    expect(card()).toMatchObject({ text: CHAPTER_MATCHES_PAGE });
+    expect(card()?.action).toBeUndefined();
   });
 });
 
