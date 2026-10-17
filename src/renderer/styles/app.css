@@ -1,0 +1,2160 @@
+/* Every colour in this file is a token in this block or in the dark block below
+   it, and the rules only name tokens (theme.4, PLAN 11.3 (e)), so a theme is one
+   block of values. test/renderer/themeCss.test.ts fails on a colour written out
+   anywhere else: hex, a colour function such as rgb() or oklch(), or a name such
+   as white. It also fails when a token is in one block and not the other, and
+   it pins every value, so a changed value is changed there too (and, in light,
+   on theme.4's list of light differences in PLAN.md).
+   test/renderer/themeContrast.test.ts fails when a pair is too faint to read. */
+:root {
+  --bg: #f7f5f1;
+  --panel: #fffdfa;
+  --panel-alt: #f1eee8;
+  --border: #ddd7cc;
+  /* one step darker than --border, for a dotted line that must still be seen */
+  --border-strong: #c6bfb2;
+  --ink: #23201c;
+  --ink-soft: #6d675e;
+  --ink-faint: #8a8378;
+  /* blue for text, links and small marks: a commented paragraph's number, the
+     unsaved dot, the information card's edge, the spinner, the open editor's border */
+  --accent: #3b5bdb;
+  /* blue for filled buttons and the open editor's glow, with --on-accent on it */
+  --accent-fill: #3b5bdb;
+  /* a darker blue for hover and press on blue buttons, which keep their white text */
+  --accent-hover: #2d49b8;
+  --accent-active: #243c9a;
+  --on-accent: #ffffff;
+  --accept: #2f7a4a;
+  --dismiss: #8a8378;
+  --danger: #b3261e;
+  --warn: #84681c;
+
+  /* Backgrounds that mark a place or a state. */
+  --focus-bg: #fff3bf;
+  --para-active-bg: #fff8dd;
+  --para-flash-bg: #fff6c9;
+  --selected-bg: #e7ecff;
+  --active-ring: #f2dd93;
+  --badge-pending-bg: #fff3bf;
+  --badge-pending-border: #f0dfa0;
+  --badge-pending-ink: #6b5600;
+  --find-bg: #ffe9a8;
+  --find-active-bg: #ffb64d;
+  /* the text on the active match, which is --ink-faint in the frontmatter otherwise */
+  --find-active-ink: var(--ink);
+  --warn-bg: #fdf8ec;
+  --warn-bg-strong: #fdf7e2;
+  --warn-border: #e5d49a;
+  --danger-bg: #fdeceb;
+  --editor-bg: #fbfaff;
+
+  /* Shadows are rgb(var(--shadow-rgb) / N%), each with its own strength. */
+  --shadow-rgb: 35 32 28;
+  --backdrop: rgb(35 32 28 / 42%);
+  --modal-shadow: rgb(0 0 0 / 22%);
+  --hover-overlay: rgb(0 0 0 / 8%);
+
+  /* How strongly a suggestion's colour tints its words, as color-mix() shares. */
+  --tint-pending: 9%;
+  --tint-hover: 18%;
+  --tint-decided-hover: 16%;
+
+  --font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-prose: Literata, Georgia, 'Times New Roman', serif;
+
+  --cat-spelling: #b3261e;
+  --cat-homophone: #a3341c;
+  --cat-grammar: #1f6f8b;
+  --cat-punctuation: #7a4fb5;
+  --cat-word-choice: #84681c;
+  --cat-consistency: #2f7a4a;
+  --cat-other: #6d675e;
+  color-scheme: light;
+}
+
+/* Dark: warm basalt, the same tokens with dark values (theme.5). The main
+   process sets Electron's nativeTheme.themeSource from the Appearance setting,
+   and that decides this media query, the window's background and the Windows
+   title bar together (PLAN Appendix C, "The theme rides on nativeTheme, not on
+   a data attribute"). The fonts are the same in both themes and stay above. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1a17;
+    --panel: #24221e;
+    --panel-alt: #2d2a25;
+    --border: #3b3731;
+    --border-strong: #575148;
+    --ink: #ebe6dc;
+    --ink-soft: #bdb5a8;
+    --ink-faint: #968e82;
+    --accent: #9db1ff;
+    --accent-fill: #4263eb;
+    --accent-hover: #3653d6;
+    --accent-active: #2c45b8;
+    --on-accent: #ffffff;
+    --accept: #6cc28b;
+    --dismiss: #968e82;
+    --danger: #ff8a80;
+    --warn: #e0b955;
+
+    --focus-bg: #4a3f14;
+    --para-active-bg: #2f2a1a;
+    --para-flash-bg: #3d3415;
+    --selected-bg: #26304f;
+    --active-ring: #8a7426;
+    --badge-pending-bg: #3d3415;
+    --badge-pending-border: #5c4f1f;
+    --badge-pending-ink: #e8c95a;
+    /* #5e4b10 in the plan: darker, so --ink-faint (a match in the frontmatter) reaches 3:1 */
+    --find-bg: #52420e;
+    --find-active-bg: #e09a3a;
+    --find-active-ink: #16130f;
+    --warn-bg: #33291a;
+    --warn-bg-strong: #33291a;
+    --warn-border: #5c4a22;
+    --danger-bg: #3a1f1c;
+    --editor-bg: #20222b;
+
+    --shadow-rgb: 0 0 0;
+    --backdrop: rgb(0 0 0 / 60%);
+    --modal-shadow: rgb(0 0 0 / 45%);
+    --hover-overlay: rgb(255 255 255 / 10%);
+
+    --tint-pending: 9%;
+    --tint-hover: 18%;
+    --tint-decided-hover: 16%;
+
+    --cat-spelling: #ff7b72;
+    --cat-homophone: #f2875e;
+    --cat-grammar: #5cc0e0;
+    --cat-punctuation: #b994f5;
+    --cat-word-choice: #d9b44a;
+    --cat-consistency: #6cc28b;
+    --cat-other: #a8a092;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  /* ticks in checkboxes and radio buttons, in the blue of the filled buttons */
+  accent-color: var(--accent-fill);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+/* Links in the app's blue, visited or not, rather than the browser's own link
+   colours, so they follow the theme like everything else (theme.5). */
+a,
+a:visited {
+  color: var(--accent);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--panel-alt);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--on-accent);
+}
+
+/* Blue buttons darken on hover instead of taking the generic near-white hover
+   above, which left their white text unreadable (round 5). The same goes for the
+   active tab on the Setup screen. */
+button.primary:hover:not(:disabled),
+button.setup__tab--active:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+button.primary:active:not(:disabled),
+button.setup__tab--active:active:not(:disabled) {
+  background: var(--accent-active);
+  border-color: var(--accent-active);
+}
+
+button.link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* Form controls take the theme's ink rather than the browser's field colours.
+   :where() gives these no weight, so any rule with a class still decides. The
+   password field (the OpenAI key) has no rule of its own for its background. A
+   background turns off the browser's own drawing of the field, which then falls
+   back to a 2 px inset border, dark at the top and left and light at the bottom
+   and right, so it takes the frame of the other text fields below as well. No
+   font here: .modal__key-input sets its own. */
+:where(select, input, textarea) {
+  color: var(--ink);
+}
+
+:where(input[type='password']) {
+  background-color: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+
+select,
+input[type='text'] {
+  font: inherit;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+/* ---------- layout ---------- */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.toolbar__title {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar__dirty {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar__group label {
+  color: var(--ink-soft);
+}
+
+/* The side columns keep their width at normal size and give some of it back
+   when the window is narrow in CSS pixels, which is what zooming in does, so
+   the manuscript keeps most of the room at 150% and beyond (round 5). */
+.body {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: clamp(170px, 18vw, 230px) minmax(0, 1fr) clamp(240px, 24vw, 320px);
+  min-height: 0;
+}
+
+/* Every element that scrolls has an opaque background in a colour token, even
+   where the same colour would show through anyway (theme.1). Measured on
+   2026-10-14 at 96 DPI over 25 wheel steps: a transparent scroller got no layer
+   of its own and 153 RasterTask events, re-rasterising the window as it moved;
+   an opaque one got its own OverflowScrolling layer with LCD text
+   (lcd_text_disallowed_reason none) and 41. See PLAN Appendix C, "The scrollers
+   have opaque backgrounds (LCD text while scrolling)". */
+.body--single {
+  grid-template-columns: minmax(0, 1fr);
+  overflow: auto;
+  background: var(--bg);
+}
+
+.files {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  overflow: auto;
+  padding: 10px;
+}
+
+/* The side panel does not scroll itself; two regions inside it do, one above
+   the other, so two scrollbars never sit side by side (panel.1). `clip` rather
+   than `hidden`, so nothing can scroll the panel from script either. As `clip`
+   does not make it a scroll container, `min-height: 0` is what keeps its grid
+   row from growing to the height of everything in it. */
+.side {
+  min-height: 0;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  overflow: clip;
+}
+
+/* The scroller lives inside a positioned wrapper so the notification cards can
+   be pinned to the top-right of the manuscript pane without scrolling away. */
+.center-wrap {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Opaque for LCD text while scrolling (theme.1, see the note above .body--single). */
+.center {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  display: flex;
+  align-items: stretch;
+  background: var(--bg);
+}
+
+.empty {
+  padding: 60px 20px;
+  color: var(--ink-soft);
+  max-width: 460px;
+}
+
+/* Zoomed in, the bar can run out of room. Each item stays on one line and the
+   bar wraps onto a second row, rather than every item breaking in two
+   ("6 / pending") as it did at 150% (round 5). */
+.statusbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  align-items: center;
+  padding: 5px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--ink-soft);
+}
+
+.statusbar > * {
+  white-space: nowrap;
+}
+
+.statusbar__accept {
+  color: var(--accept);
+}
+
+.statusbar__dismiss {
+  color: var(--dismiss);
+}
+
+.statusbar__stale,
+.statusbar__warn {
+  color: var(--warn);
+}
+
+/* ---------- notification cards (item 1) ---------- */
+
+.notes {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: min(420px, 70%);
+  pointer-events: none;
+}
+
+.note {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 8px 8px 11px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 6px 18px rgb(var(--shadow-rgb) / 16%);
+  animation: note-in 120ms ease-out;
+}
+
+@keyframes note-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.note--warn {
+  border-left-color: var(--warn);
+  background: var(--warn-bg);
+}
+
+.note--error {
+  border-left-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.note__text {
+  line-height: 1.45;
+}
+
+.note__close {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  padding: 2px;
+  line-height: 0;
+  color: var(--ink-faint);
+  border-radius: 3px;
+}
+
+.note__close:hover:not(:disabled) {
+  background: var(--hover-overlay);
+  color: var(--ink);
+}
+
+/* ---------- filter chips ---------- */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-alt);
+  flex: 0 0 auto;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.chip__label,
+.chip__bulk {
+  border: none;
+  border-radius: 0;
+  background: none;
+  padding: 2px 8px;
+  color: var(--cat, var(--ink));
+}
+
+.chip__bulk {
+  border-left: 1px solid var(--border);
+  color: var(--ink-soft);
+  padding: 2px 6px;
+}
+
+.chip--off {
+  opacity: 0.4;
+}
+
+/* ---------- review pane ---------- */
+
+.pane {
+  flex: 0 1 auto;
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 28px 40px 120px;
+}
+
+.pane--gutter {
+  max-width: 1220px;
+  padding-left: 22px;
+  padding-right: 22px;
+}
+
+.pane__body {
+  position: relative;
+}
+
+.pane--gutter .pane__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+  gap: 22px;
+  align-items: start;
+}
+
+/* The left padding is the rail: each paragraph's number and pen sit in it
+   (Phase 5d). It is added to the measure, not taken from it, so the line length
+   of the prose is what it was. */
+.prose {
+  font-family: var(--font-prose);
+  font-size: 17px;
+  line-height: 2.3;
+  max-width: calc(66ch + 50px);
+  padding-left: 50px;
+  margin: 0 auto;
+}
+
+.para {
+  position: relative;
+  white-space: pre-wrap;
+  margin: 0 0 1.1em;
+  border-radius: 3px;
+}
+
+.para--flash {
+  background: var(--para-flash-bg);
+  transition: background 0.6s ease;
+}
+
+.para--active {
+  background: var(--para-active-bg);
+  box-shadow: 0 0 0 6px var(--para-active-bg);
+}
+
+/* Number and pen beside each paragraph. The rail is one prose line tall, so both
+   sit level with the paragraph's first line. It is never selected or copied with
+   the prose, and the find bar skips it. */
+.para__rail {
+  position: absolute;
+  left: -50px;
+  top: 0;
+  width: 42px;
+  height: 2.3em;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  user-select: none;
+  font-family: var(--font-ui);
+  line-height: 1;
+}
+
+.para__num {
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A paragraph with an open comment: its number in the comment colour, where the
+   dot used to be. */
+.para__num--commented {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.para__pen {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--ink-faint);
+  opacity: 0.35;
+  transition: opacity 0.12s ease;
+}
+
+.para:hover .para__pen {
+  opacity: 0.75;
+}
+
+.para__pen:hover:not(:disabled),
+.para__pen:focus-visible {
+  opacity: 1;
+  color: var(--ink);
+  background: var(--panel-alt);
+}
+
+.frontmatter {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--ink-faint);
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 8px 10px;
+  margin: 0 0 1.4em;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+/* ---------- hunks ---------- */
+
+.hunk {
+  position: relative;
+  cursor: pointer;
+  border-radius: 2px;
+  --cat: var(--cat-other);
+}
+
+/* The row above the line: the ghost and, trailing it, the dismiss x (item 2).
+   The x used to be pinned to the span's top-right corner, where it sat on top of
+   the ghost whenever the ghost was the wider of the two. As part of this row it
+   cannot collide with the ghost at any width. */
+.hunk__above {
+  position: absolute;
+  top: -1.15em;
+  left: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4em;
+  max-width: 100vw;
+  /* The row is part of the suggestion, so moving the pointer from the word up
+     to the x never leaves it (round 4, item 2). It used to ignore the pointer,
+     and the x vanished on the way there. A click on the ghost toggles the
+     suggestion, as the plan has always said clicking the ghost should. */
+  pointer-events: auto;
+  /* Reaches down to the line of text, across the row's whole width, so a
+     diagonal path from the end of the word to an x that sits past it spends
+     as little time as possible outside the suggestion. */
+  padding-bottom: 0.3em;
+}
+
+/* The strip between the top of the word and the bottom of the ghost row. Without
+   it the pointer crosses a sliver that belongs to neither, the suggestion loses
+   its hover, and the x hides before it can be reached. It is only as wide as
+   the word, so it never reaches over a neighbouring one. */
+.hunk::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 0.45em;
+}
+
+.hunk__ghost {
+  display: inline-block;
+  max-width: 100%;
+  white-space: pre;
+  font-size: 0.72em;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Ghost text is decoration, not prose: it must never join a selection or the
+     offsets a selection maps to would be fiction (item 3b). */
+  user-select: none;
+  color: var(--cat);
+}
+
+/* Role, not position, decides how a ghost looks: an original the author has
+   replaced is always grey and struck through, a suggestion always carries the
+   category colour (item 6). */
+.hunk__ghost--original {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+
+.hunk__ghost--suggestion {
+  color: var(--cat);
+}
+
+.hunk__role {
+  display: inline-block;
+  margin-right: 3px;
+  font-family: var(--font-ui);
+  font-size: 0.86em;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  vertical-align: baseline;
+  opacity: 0.75;
+}
+
+.hunk__role svg {
+  vertical-align: -0.1em;
+}
+
+.hunk__tag {
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.8;
+}
+
+.hunk__caret {
+  display: inline-block;
+  width: 0;
+  border-left: 2px solid var(--cat);
+  height: 0.9em;
+  vertical-align: -0.1em;
+  margin: 0 1px;
+}
+
+/* Invisible rather than absent when not in use. An x that took no space could
+   not be hovered, so a pointer arriving where it would appear found nothing
+   there and it never showed (round 4, item 2). */
+.hunk__x {
+  opacity: 0;
+  pointer-events: auto;
+  border: none;
+  background: none;
+  padding: 0 1px;
+  font-size: 0.7em;
+  color: var(--ink-faint);
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+/* `hunk--hovered` outlives the pointer by a short grace period (state/hover.ts),
+   which covers a diagonal path from the end of the word to an x sitting past a
+   ghost wider than the word. */
+.hunk:hover .hunk__x,
+.hunk--hovered .hunk__x,
+.hunk--focused .hunk__x {
+  opacity: 1;
+}
+
+.hunk__x:hover:not(:disabled) {
+  color: var(--ink);
+  background: none;
+}
+
+/* Colour means undecided (item 5). A pending suggestion carries the category
+   colour as a 2px underline and a faint tint; nothing else on the page does, so
+   a chapter the author has worked through goes quiet. */
+.hunk--pending .hunk__live {
+  border-bottom: 2px solid var(--cat);
+  background-color: color-mix(in srgb, var(--cat) var(--tint-pending), transparent);
+}
+
+/* Accepted reads as done: the same weight of line, in the grey of the "was"
+   ghost, and no tint at all. The author read the old green line as "still
+   active", which is exactly what it should not say. */
+.hunk--accepted .hunk__live {
+  border-bottom: 2px solid var(--ink-faint);
+}
+
+.hunk--dismissed .hunk__live {
+  border-bottom: 1px dotted var(--border-strong);
+}
+
+.hunk--dismissed .hunk__ghost {
+  opacity: 0.32;
+}
+
+.hunk--pending.hunk--hovered .hunk__live {
+  background-color: color-mix(in srgb, var(--cat) var(--tint-hover), transparent);
+}
+
+/* A decided suggestion still answers the pointer, but in grey: hovering it must
+   not put the category colour back on the page. */
+.hunk--accepted.hunk--hovered .hunk__live,
+.hunk--dismissed.hunk--hovered .hunk__live {
+  background-color: color-mix(in srgb, var(--ink-faint) var(--tint-decided-hover), transparent);
+}
+
+.hunk--focused {
+  background: var(--focus-bg);
+  box-shadow: 0 0 0 2px var(--focus-bg);
+}
+
+/* In the active comment's paragraph the focus yellow sits on the paragraph's
+   own yellow, 1.05:1 in light, and the focused suggestion was hard to find. It
+   takes a hairline in the active comment's ring colour there, inside the same
+   2 px, so it covers no more of the neighbouring letters than before (theme.8). */
+.para--active .hunk--focused {
+  box-shadow:
+    0 0 0 1px var(--focus-bg),
+    0 0 0 2px var(--active-ring);
+}
+
+.hunk--uncertain .hunk__ghost::after {
+  content: '?';
+  margin-left: 2px;
+  opacity: 0.7;
+}
+
+.cat-spelling,
+.cat-typo {
+  --cat: var(--cat-spelling);
+}
+.cat-homophone {
+  --cat: var(--cat-homophone);
+}
+.cat-grammar,
+.cat-agreement,
+.cat-tense {
+  --cat: var(--cat-grammar);
+}
+.cat-punctuation {
+  --cat: var(--cat-punctuation);
+}
+.cat-word-choice,
+.cat-redundancy,
+.cat-awkward {
+  --cat: var(--cat-word-choice);
+}
+.cat-consistency {
+  --cat: var(--cat-consistency);
+}
+.cat-formatting,
+.cat-other {
+  --cat: var(--cat-other);
+}
+
+/* ---------- side panel ---------- */
+
+.side__section {
+  margin-bottom: 18px;
+}
+
+.side__section h3 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-faint);
+}
+
+.side__empty {
+  color: var(--ink-faint);
+  margin: 4px 0;
+}
+
+/* Two regions in a column; the one scroller when the panel is short, so it is
+   opaque too (theme.1). */
+.side__body {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+}
+
+/* The suggestions list takes what it needs, up to about 55% of the panel, with
+   its heading pinned above the rows that scroll. */
+.side__list {
+  flex: 0 1 auto;
+  max-height: 55%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 10px 0 6px;
+}
+
+.side__list > h3,
+.side__list > .side__empty {
+  padding: 0 10px;
+}
+
+/* The focused suggestion's details, comments, Unanchored and History: the rest
+   of the height, scrolling on its own. */
+.side__lower {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+/* A short window: the whole panel scrolls as one, with the list at its full
+   length. The test is the window's height in CSS pixels, which zoom changes and
+   a chapter does not; a test on the panel's own height switched layouts between
+   chapters in the same window, as the filter chips take one to three rows and
+   the status bar one or two. Window sizes below are outer sizes, set on the
+   real window (PLAN C.49). The smallest window, 900 by 600, is 561 px high
+   inside: two regions at 100%, with a panel of 374 to 451 px, and one scroller
+   from 110% (510 px). The default 1440 by 940 is 901 px: two regions up to
+   150% (601 px), one scroller at 175% (515 px) and 200%. */
+@media (height < 540px) {
+  .side__body {
+    display: block;
+    overflow-y: auto;
+  }
+
+  .side__list {
+    max-height: none;
+    display: block;
+  }
+
+  /* .side__list raises the weight above the .rows rule further down. */
+  .side__list .rows,
+  .side__lower {
+    overflow: visible;
+  }
+}
+
+.detail__cat {
+  color: var(--cat, var(--ink-soft));
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.detail__anchor {
+  color: var(--warn);
+}
+
+/* "Original: ... / Suggested: ..." spelled out, in the details block, the
+   tooltip and the unanchored list alike (item 6). */
+.pair {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 6px;
+  margin: 6px 0;
+}
+
+.pair dt {
+  color: var(--ink-faint);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-top: 2px;
+}
+
+.pair dd {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.pair__original {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+
+.pair__suggested {
+  color: var(--accept);
+}
+
+.detail__reason {
+  margin: 4px 0;
+  color: var(--ink-soft);
+}
+
+.detail__actions {
+  display: flex;
+  gap: 4px;
+}
+
+.comments,
+.stale {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.comment,
+.stale__item {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--cat, var(--border));
+  border-radius: 4px;
+  padding: 6px 8px;
+  background: var(--panel);
+}
+
+.comment p,
+.stale__item p {
+  margin: 4px 0;
+}
+
+.comment__head {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  text-align: left;
+}
+
+.comment__cat {
+  color: var(--cat, var(--ink-soft));
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.comment__para {
+  color: var(--ink-faint);
+}
+
+.comment blockquote {
+  margin: 4px 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+  color: var(--ink-soft);
+  font-family: var(--font-prose);
+}
+
+.comment__resolve {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-soft);
+}
+
+/* ---------- file list ---------- */
+
+.files h3 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-faint);
+}
+
+.filelist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.filelist__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  padding: 4px 6px;
+  text-align: left;
+}
+
+.filelist__item:hover {
+  background: var(--panel-alt);
+}
+
+.filelist__item--active {
+  background: var(--selected-bg);
+}
+
+.filelist__name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  font-size: 11px;
+  border-radius: 9px;
+  padding: 0 6px;
+  background: var(--panel-alt);
+  color: var(--ink-soft);
+  border: 1px solid var(--border);
+}
+
+.badge--pending {
+  background: var(--badge-pending-bg);
+  border-color: var(--badge-pending-border);
+  color: var(--badge-pending-ink);
+}
+
+.history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.history__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  padding: 3px 6px;
+  text-align: left;
+}
+
+.history__item:hover {
+  background: var(--panel-alt);
+}
+
+.history__item--active {
+  background: var(--selected-bg);
+}
+
+.history__when {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+
+/* The model beside the provider badge; the time gives way first when narrow. */
+.history__model {
+  flex: 0 1 auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+/* ---------- dialogs ---------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 20;
+}
+
+.modal {
+  background: var(--panel);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 16px 18px;
+  width: 620px;
+  max-height: 100%;
+  overflow: auto;
+  box-shadow: 0 18px 50px var(--modal-shadow);
+}
+
+.modal--wide {
+  width: min(1100px, 100%);
+}
+
+.modal--narrow {
+  width: 420px;
+}
+
+.modal__buttons {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.modal__note {
+  margin: -2px 0 12px;
+  color: var(--ink-faint);
+  line-height: 1.45;
+}
+
+.modal h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.modal__hint {
+  color: var(--ink-soft);
+  margin: 0 0 10px;
+}
+
+/* An error in place of a hint or a note: same place and size, in red. */
+.modal__hint--error,
+.modal__note--error {
+  color: var(--danger);
+}
+
+.modal__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  align-items: center;
+}
+
+.modal__row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+/* A row's name; a <label> where it names a control (Appearance, theme.7). */
+.modal__row > span:first-child,
+.modal__row > label:first-child {
+  color: var(--ink-soft);
+}
+
+.modal__path {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+/* A missing OpenAI key: the one row that blocks Start (Phase 5c). */
+.modal__path--warn {
+  color: var(--danger);
+}
+
+.modal__key-input {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.note__action {
+  margin-left: 2px;
+  font-weight: 600;
+}
+
+.paste-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.paste-field span {
+  color: var(--ink-soft);
+}
+
+.paste-field textarea {
+  font-family: var(--font-prose);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 38vh;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  resize: vertical;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+/* ---------- setup screen ---------- */
+
+.setup {
+  padding: 28px;
+  max-width: 720px;
+  margin: 0 auto;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.setup h1 {
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+
+.setup__tabs {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.setup__tab--active {
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--on-accent);
+}
+
+.cmd {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0;
+}
+
+.cmd code {
+  flex: 1 1 auto;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  min-width: 15em;
+  justify-content: flex-end;
+}
+
+/* ---------- suggestions list (items 4 and 5) ---------- */
+
+/* The list region's scroller (panel.1), opaque like every scroller (theme.1). */
+.rows {
+  flex: 1 1 auto;
+  min-height: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0 6px 0 10px;
+  overflow-y: auto;
+  background: var(--panel);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 4px;
+  padding-right: 2px;
+}
+
+.row:hover {
+  background: var(--panel-alt);
+}
+
+.row--focused {
+  background: var(--focus-bg);
+}
+
+.row__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  padding: 3px 4px;
+  text-align: left;
+}
+
+.row__main:hover:not(:disabled) {
+  background: none;
+}
+
+.row__dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cat, var(--ink-faint));
+}
+
+.row__text {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-prose);
+}
+
+.row__status {
+  flex: 0 0 auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+
+/* Matches the page: a decided suggestion is grey, not green (item 5). */
+.row--accepted .row__text {
+  color: var(--ink-soft);
+}
+
+.row--accepted .row__status {
+  color: var(--ink-faint);
+}
+
+.row--accepted .row__dot {
+  background: var(--ink-faint);
+}
+
+.row--dismissed .row__dot {
+  background: var(--border-strong);
+}
+
+/* Words the author wrote themselves, in place of a category dot (item 3). */
+.row__you {
+  flex: 0 0 auto;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 3px;
+  padding: 0 3px;
+  line-height: 1.5;
+}
+
+.row--dismissed .row__text {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+
+.row__act {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  padding: 3px;
+  line-height: 0;
+  color: var(--ink-faint);
+  border-radius: 3px;
+}
+
+.row__act:hover:not(:disabled) {
+  background: var(--border);
+  color: var(--ink);
+}
+
+.row__act--on {
+  color: var(--accept);
+}
+
+.stale__where {
+  color: var(--ink-faint);
+}
+
+/* ---------- margin notes (item 7) ---------- */
+
+.gutter {
+  position: relative;
+  min-height: 100%;
+}
+
+.note-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--cat, var(--border));
+  border-radius: 5px;
+  background: var(--panel);
+  padding: 7px 9px;
+  box-shadow: 0 1px 3px rgb(var(--shadow-rgb) / 8%);
+  transition: top 120ms ease-out;
+  cursor: pointer;
+}
+
+.note-card--active {
+  box-shadow: 0 0 0 2px var(--active-ring);
+}
+
+.note-card__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.note-card__cat {
+  color: var(--cat, var(--ink-soft));
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+}
+
+.note-card__resolve {
+  border: none;
+  background: none;
+  padding: 2px;
+  line-height: 0;
+  color: var(--ink-faint);
+  border-radius: 3px;
+}
+
+.note-card__resolve:hover:not(:disabled) {
+  background: var(--panel-alt);
+  color: var(--accept);
+}
+
+.note-card p {
+  margin: 4px 0 0;
+  line-height: 1.45;
+}
+
+.note-card blockquote {
+  margin: 4px 0 0;
+  padding-left: 7px;
+  border-left: 2px solid var(--border);
+  color: var(--ink-soft);
+  font-family: var(--font-prose);
+}
+
+.comment--active {
+  box-shadow: 0 0 0 2px var(--active-ring);
+}
+
+/* ---------- find bar (item 11) ---------- */
+
+/* A strip across the top of the manuscript pane, above the scroller, so it is
+   in view wherever the author is in the chapter (round 4). */
+.findbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.findbar input {
+  max-width: 420px;
+}
+
+/* The notification cards pin to the top-right of the same wrapper; keep them
+   clear of the strip while it is open. */
+.center-wrap--find .notes {
+  top: 56px;
+}
+
+.findbar input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+}
+
+.findbar__count {
+  flex: 0 0 auto;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  min-width: 5.5em;
+  text-align: right;
+}
+
+.findbar button {
+  line-height: 0;
+  padding: 5px 6px;
+}
+
+::highlight(find) {
+  background-color: var(--find-bg);
+}
+
+/* The text colour is set too, since the dark theme's orange is bright and needs
+   dark text. In the frontmatter this turns the active match from --ink-faint to
+   --ink in light as well. */
+::highlight(find-active) {
+  background-color: var(--find-active-bg);
+  color: var(--find-active-ink);
+}
+
+/* ---------- position strip (item 14) ---------- */
+
+.minimap {
+  flex: 0 0 14px;
+  align-self: stretch;
+  position: relative;
+}
+
+.minimap__track {
+  position: sticky;
+  top: 0;
+  width: 14px;
+}
+
+.minimap__mark {
+  position: absolute;
+  right: 3px;
+  width: 8px;
+  height: 3px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: var(--cat, var(--ink-faint));
+  opacity: 0.65;
+}
+
+.minimap__mark:hover:not(:disabled) {
+  opacity: 1;
+  width: 11px;
+  background: var(--cat, var(--ink-faint));
+}
+
+.minimap__mark--focused {
+  opacity: 1;
+  width: 12px;
+  box-shadow: 0 0 0 1px var(--ink);
+}
+
+/* ---------- hover tooltip (item 13) ---------- */
+
+.tip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  /* Hidden until the layout effect has measured and placed it. */
+  visibility: hidden;
+  z-index: 40;
+  max-width: 340px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--cat, var(--border));
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / 20%);
+  pointer-events: none;
+}
+
+.tip__head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.tip__cat {
+  color: var(--cat, var(--ink-soft));
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+}
+
+.tip__anchor {
+  color: var(--warn);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.tip__reason {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+/* ---------- legend (item 6) ---------- */
+
+.statusbar__legend {
+  position: relative;
+  display: inline-flex;
+}
+
+.statusbar__help {
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border-radius: 50%;
+  line-height: 1;
+  color: var(--ink-soft);
+}
+
+.legend {
+  position: absolute;
+  /* The status bar keeps its items on one line (.statusbar > *); the legend
+     sits inside one of them and must wrap within its own width. */
+  white-space: normal;
+  bottom: 24px;
+  left: 0;
+  z-index: 30;
+  width: 380px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 12px 34px rgb(var(--shadow-rgb) / 24%);
+}
+
+.legend h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+
+.legend p {
+  margin: 0 0 8px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.legend ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.legend li {
+  line-height: 1.5;
+}
+
+.legend__swatch {
+  display: inline-block;
+  width: 16px;
+  height: 3px;
+  vertical-align: middle;
+  border-radius: 2px;
+}
+
+.legend__swatch--pending {
+  background: var(--cat-grammar);
+}
+
+.legend__swatch--accepted {
+  background: var(--ink-faint);
+}
+
+.legend__swatch--dismissed {
+  background: none;
+  height: 0;
+  border-top: 1px dotted var(--border-strong);
+}
+
+.legend__foot {
+  margin: 9px 0 0;
+}
+
+/* ---------- editing (item 3) ---------- */
+
+/* A paragraph open for editing in place (Phase 5d). The box uses the prose
+   typeface and size so the paragraph reads the same while it is being edited;
+   the line height is tighter because there are no ghosts to make room for. */
+.para--editing {
+  margin-bottom: 1.4em;
+}
+
+.para-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.para-editor__area {
+  display: block;
+  width: 100%;
+  font-family: var(--font-prose);
+  font-size: 17px;
+  line-height: 1.75;
+  padding: 6px 9px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--editor-bg);
+  color: var(--ink);
+  resize: none;
+  overflow: hidden;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-fill) 12%, transparent);
+}
+
+.para-editor__area:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-fill) 24%, transparent);
+}
+
+.para-editor__foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.para-editor__hint {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+/* The editor popover. Floating rather than modal, because the author is editing
+   words that are still on the page behind it. */
+.editor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  z-index: 38;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  box-shadow: 0 14px 38px rgb(var(--shadow-rgb) / 26%);
+}
+
+.editor__head {
+  font-weight: 600;
+}
+
+.editor__area {
+  font-family: var(--font-prose);
+  font-size: 15px;
+  line-height: 1.5;
+  min-height: 5.4em;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  resize: vertical;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.editor__foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.editor__accept {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-soft);
+}
+
+.editor__hint {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.tip__edit {
+  pointer-events: auto;
+  border: none;
+  background: none;
+  padding: 1px 3px;
+  line-height: 0;
+  color: var(--ink-faint);
+  border-radius: 3px;
+}
+
+.tip__edit:hover:not(:disabled) {
+  background: var(--panel-alt);
+  color: var(--ink);
+}
+
+/* The tooltip carries a control now, so the pointer has to be able to reach it. */
+.tip {
+  pointer-events: auto;
+}
+
+.detail__actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ---------- resolved comments (item 4) ---------- */
+
+.note-card--resolved {
+  background: var(--panel-alt);
+  border-left-color: var(--border-strong);
+  color: var(--ink-soft);
+}
+
+.note-card--collapsed {
+  padding: 3px 8px;
+}
+
+.note-card__digest {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-faint);
+}
+
+.note-card__act {
+  border: none;
+  background: none;
+  padding: 2px;
+  line-height: 0;
+  color: var(--ink-faint);
+  border-radius: 3px;
+}
+
+.note-card__act:hover:not(:disabled) {
+  background: var(--panel-alt);
+  color: var(--ink);
+}
+
+.comment--resolved {
+  background: var(--panel-alt);
+  border-left-color: var(--border-strong);
+  color: var(--ink-soft);
+}
+
+.comment__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* ---------- toolbar menu (item 6) ---------- */
+
+.menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.menu > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.menu__list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 10px 28px rgb(var(--shadow-rgb) / 22%);
+}
+
+.menu__list button {
+  border: none;
+  background: none;
+  border-radius: 4px;
+  text-align: left;
+  padding: 5px 8px;
+}
+
+/* ---------- file list header (item 7a) ---------- */
+
+.files__head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.files__head h3 {
+  margin: 0;
+}
+
+.files__act {
+  border: none;
+  background: none;
+  padding: 3px;
+  line-height: 0;
+  color: var(--ink-faint);
+  border-radius: 3px;
+}
+
+.files__act:hover:not(:disabled) {
+  background: var(--panel-alt);
+  color: var(--ink);
+}
+
+/* ---------- new chapter dialog (item 7a) ---------- */
+
+.modal__ext {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-soft);
+}
+
+.modal__ext label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.modal__problem {
+  margin: -2px 0 10px;
+  color: var(--danger);
+}
+
+.paste-field--small textarea {
+  min-height: 15vh;
+}
+
+/* ---------- read-only while a review runs (round 3, item 3) ---------- */
+
+/* The pane stays readable but plainly out of reach: faded, and inert so no
+   click, key or hover can reach a suggestion whose working set is about to be
+   replaced. The status card says why and offers the way out. */
+.pane--locked .pane__body,
+.side--locked,
+.chips--locked {
+  opacity: 0.4;
+  filter: grayscale(0.6);
+  transition: opacity 0.2s ease;
+}
+
+/* Pinned to the bottom of the manuscript pane's non-scrolling wrapper, like the
+   notification cards are to its top-right, so it is always in view. */
+.lock-card {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: min(560px, calc(100% - 32px));
+  padding: 11px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 10px 28px rgb(var(--shadow-rgb) / 16%);
+  font-family: var(--font-ui);
+}
+
+.lock-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.lock-card__text span {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.lock-card__spinner {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: lock-spin 0.9s linear infinite;
+}
+
+@keyframes lock-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lock-card__spinner {
+    animation: none;
+  }
+}
+
+/* A suggestion row whose paragraph is open for editing: frozen until the
+   editor is done (Phase 5d). */
+.row--editing {
+  opacity: 0.5;
+}
+
+/* Unsaved decisions, in the review dialog. */
+.modal__warn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--warn-border);
+  border-radius: 6px;
+  background: var(--warn-bg-strong);
+  color: var(--warn);
+  line-height: 1.4;
+}
+
+.modal__warn button {
+  flex: none;
+}
+
+/* A warning with a command and a button under its text: "Claude Code is out of date". */
+.modal__warn--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.modal__warn--stack .cmd {
+  margin: 2px 0;
+}
+
+.modal__warn--stack .modal__note {
+  margin: 0;
+}
+
+.modal__warn--stack .modal__buttons {
+  align-self: flex-end;
+}
+
+.modal__warn code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+
+.note-card__para {
+  margin-left: 6px;
+  color: var(--ink-faint);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- zoom (round 5) ---------- */
+
+.zoom {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.zoom button {
+  border: none;
+  border-radius: 0;
+  background: none;
+  padding: 1px 6px;
+  color: var(--ink-soft);
+  line-height: 1.3;
+}
+
+.zoom__btn {
+  display: inline-flex;
+  align-items: center;
+}
+
+.zoom__level {
+  min-width: 3.4em;
+  border-left: 1px solid var(--border) !important;
+  border-right: 1px solid var(--border) !important;
+  font-variant-numeric: tabular-nums;
+}

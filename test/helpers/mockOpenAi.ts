@@ -1,0 +1,368 @@
+/**
+ * A tiny stand-in for the two OpenAI endpoints this app uses, so the OpenAI
+ * path can be exercised end to end without a real key or a network. Dev-only:
+ * nothing in `src/` imports it.
+ *
+ * - GET  /v1/models     a fixed model list mixing text and non-text models
+ * - POST /v1/responses  a streamed (SSE) or plain structured reply
+ *
+ * The API key picks the scenario, so the real app can be driven through every
+ * path from its own Settings dialog: a key containing `unauthorized` gets a 401,
+ * `ratelimit` a 429, `servererror` a 500, `malformed` a reply that is not JSON,
+ * `wrongshape` JSON of the wrong shape, `slow` a reply that trickles out over
+ * several seconds (for Cancel), and anything else the canned review.
+ *
+ * Two ways to use it:
+ *   vitest:  const mock = await startMockOpenAi(); ... mock.url ... await mock.close();
+ *   by hand: node test/helpers/mockOpenAi.ts --port 4599
+ *            (Node 22.18+ strips the types itself), then start the app with
+ *            MANUSCRIPT_REVIEW_OPENAI_BASE_URL=http://127.0.0.1:4599/v1
+ *            (a development switch: `npm run dev` honours it, a packaged build
+ *            ignores it, see src/main/devSwitches.ts)
+ *
+ * The file has no relative imports so Node can run it directly.
+ */
+
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
+
+export type Scenario =
+  'ok' | 'unauthorized' | 'ratelimit' | 'servererror' | 'malformed' | 'wrongshape' | 'slow';
+
+export interface RecordedRequest {
+  method: string;
+  path: string;
+  authorization: string;
+  body: unknown;
+}
+
+export interface MockOpenAi {
+  /** base URL to hand the SDK, ending in /v1 */
+  url: string;
+  requests: RecordedRequest[];
+  close: () => Promise<void>;
+}
+
+/**
+ * Six corrections and three comments for `samples/manuscript/Chapter 01 - The
+ * Flood.md`, numbered from 1 as the prompt numbers paragraphs (Phase 5d), in
+ * the exact shape the strict schema asks for: every property
+ * present, `quote: null` where there is no quote, and one chapter-level comment
+ * with `paragraph: null`.
+ */
+export const CANNED_REVIEW = {
+  changes: [
+    {
+      paragraph: 1,
+      before: 'had began',
+      after: 'had begun',
+      category: 'tense',
+      reason: '"Began" is the simple past; the past perfect needs "begun".'
+    },
+    {
+      paragraph: 2,
+      before: 'should of',
+      after: 'should have',
+      category: 'grammar',
+      reason: '"Should of" is a mishearing of "should have".'
+    },
+    {
+      paragraph: 3,
+      before: 'the the frayed',
+      after: 'the frayed',
+      category: 'typo',
+      reason: 'Doubled word.'
+    },
+    {
+      paragraph: 4,
+      before: 'would loose',
+      after: 'would lose',
+      category: 'homophone',
+      reason: '"Loose" means not tight; "lose" is the verb wanted here.'
+    },
+    {
+      paragraph: 7,
+      before: 'Its a sound',
+      after: "It's a sound",
+      category: 'punctuation',
+      reason: 'Contraction of "it is" needs an apostrophe.'
+    },
+    {
+      paragraph: 9,
+      before: 'water come across',
+      after: 'water came across',
+      category: 'tense',
+      reason: 'The narration is in the past tense.'
+    }
+  ],
+  comments: [
+    {
+      paragraph: 6,
+      quote: 'She nodded her head.',
+      category: 'style',
+      text: 'Consider "She nodded." A nod is always of the head.'
+    },
+    {
+      paragraph: 7,
+      quote: null,
+      category: 'pov',
+      text: 'The jump to thirty years later steps outside the scene; check that the flash-forward is intended here.'
+    },
+    {
+      paragraph: null,
+      quote: null,
+      category: 'pacing',
+      text: 'The chapter holds one tense moment well. The last two paragraphs could land harder with a shorter final line.'
+    }
+  ]
+};
+
+const MODELS = [
+  { id: 'gpt-5.5', created: 1_780_000_000, object: 'model', owned_by: 'openai' },
+  { id: 'gpt-5-mini', created: 1_755_000_000, object: 'model', owned_by: 'openai' },
+  { id: 'gpt-5', created: 1_754_000_000, object: 'model', owned_by: 'openai' },
+  // Newer than every gpt-5, to prove the default prefers the gpt-5 family.
+  { id: 'gpt-6-preview-mock', created: 1_790_000_000, object: 'model', owned_by: 'openai' },
+  { id: 'gpt-4o', created: 1_715_000_000, object: 'model', owned_by: 'system' },
+  { id: 'o3', created: 1_744_000_000, object: 'model', owned_by: 'system' },
+  { id: 'text-embedding-3-large', created: 1_705_000_000, object: 'model', owned_by: 'system' },
+  { id: 'whisper-1', created: 1_677_000_000, object: 'model', owned_by: 'openai-internal' },
+  { id: 'tts-1-hd', created: 1_699_000_000, object: 'model', owned_by: 'system' },
+  { id: 'dall-e-3', created: 1_698_000_000, object: 'model', owned_by: 'system' },
+  { id: 'gpt-image-1', created: 1_745_000_000, object: 'model', owned_by: 'system' },
+  { id: 'omni-moderation-latest', created: 1_731_000_000, object: 'model', owned_by: 'system' },
+  { id: 'gpt-4o-realtime-preview', created: 1_727_000_000, object: 'model', owned_by: 'system' }
+];
+
+export function scenarioForKey(authorization: string): Scenario {
+  const key = authorization.toLowerCase();
+  if (key.includes('unauthorized')) return 'unauthorized';
+  if (key.includes('ratelimit')) return 'ratelimit';
+  if (key.includes('servererror')) return 'servererror';
+  if (key.includes('malformed')) return 'malformed';
+  if (key.includes('wrongshape')) return 'wrongshape';
+  if (key.includes('slow')) return 'slow';
+  return 'ok';
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+function apiError(res: ServerResponse, status: number, type: string, code: string, message: string): void {
+  sendJson(res, status, { error: { message, type, param: null, code } });
+}
+
+async function readBody(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  const text = Buffer.concat(chunks).toString('utf8');
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Split a string into n roughly equal pieces, as a model's deltas would be. */
+function pieces(text: string, n: number): string[] {
+  const size = Math.max(1, Math.ceil(text.length / n));
+  const out: string[] = [];
+  for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size));
+  return out;
+}
+
+function responseObject(
+  model: string,
+  status: string,
+  text: string | null,
+  outputTokens: number
+): Record<string, unknown> {
+  return {
+    id: 'resp_mock_1',
+    object: 'response',
+    created_at: Math.floor(Date.now() / 1000),
+    status,
+    model,
+    error: null,
+    incomplete_details: null,
+    output:
+      text === null
+        ? []
+        : [
+            {
+              type: 'message',
+              id: 'msg_mock_1',
+              status: 'completed',
+              role: 'assistant',
+              content: [{ type: 'output_text', text, annotations: [] }]
+            }
+          ],
+    usage:
+      text === null
+        ? null
+        : {
+            input_tokens: 2400,
+            input_tokens_details: { cached_tokens: 400, cache_write_tokens: 0 },
+            output_tokens: outputTokens,
+            output_tokens_details: { reasoning_tokens: 180 },
+            total_tokens: 2400 + outputTokens
+          }
+  };
+}
+
+async function streamResponse(
+  res: ServerResponse,
+  model: string,
+  text: string,
+  delayMs: number
+): Promise<void> {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive'
+  });
+  let seq = 0;
+  const send = (event: Record<string, unknown>): void => {
+    res.write(
+      `event: ${String(event['type'])}\ndata: ${JSON.stringify({ ...event, sequence_number: seq++ })}\n\n`
+    );
+  };
+
+  send({ type: 'response.created', response: responseObject(model, 'in_progress', null, 0) });
+  send({ type: 'response.in_progress', response: responseObject(model, 'in_progress', null, 0) });
+  for (const delta of pieces(text, 12)) {
+    if (res.destroyed) return;
+    await sleep(delayMs);
+    send({
+      type: 'response.output_text.delta',
+      item_id: 'msg_mock_1',
+      output_index: 0,
+      content_index: 0,
+      delta,
+      logprobs: []
+    });
+  }
+  send({
+    type: 'response.output_text.done',
+    item_id: 'msg_mock_1',
+    output_index: 0,
+    content_index: 0,
+    text,
+    logprobs: []
+  });
+  send({
+    type: 'response.completed',
+    response: responseObject(model, 'completed', text, Math.ceil(text.length / 4))
+  });
+  res.end();
+}
+
+export async function startMockOpenAi(options: { port?: number; log?: boolean } = {}): Promise<MockOpenAi> {
+  const requests: RecordedRequest[] = [];
+
+  const server = createServer((req, res) => {
+    void (async () => {
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      const body = await readBody(req);
+      const authorization = String(req.headers['authorization'] ?? '');
+      requests.push({ method: req.method ?? 'GET', path: url.pathname, authorization, body });
+      const scenario = scenarioForKey(authorization);
+      if (options.log) console.log(`[mock-openai] ${req.method ?? ''} ${url.pathname} -> ${scenario}`);
+
+      if (!authorization.startsWith('Bearer ')) {
+        apiError(res, 401, 'invalid_request_error', 'missing_api_key', 'You did not provide an API key.');
+        return;
+      }
+      if (scenario === 'unauthorized') {
+        apiError(
+          res,
+          401,
+          'invalid_request_error',
+          'invalid_api_key',
+          'Incorrect API key provided: sk-...ized.'
+        );
+        return;
+      }
+      if (scenario === 'ratelimit' && url.pathname.endsWith('/responses')) {
+        res.setHeader('retry-after', '0');
+        apiError(res, 429, 'insufficient_quota', 'insufficient_quota', 'You exceeded your current quota.');
+        return;
+      }
+      if (scenario === 'servererror' && url.pathname.endsWith('/responses')) {
+        res.setHeader('retry-after', '0');
+        apiError(
+          res,
+          500,
+          'server_error',
+          'server_error',
+          'The server had an error while processing your request.'
+        );
+        return;
+      }
+
+      if (req.method === 'GET' && url.pathname === '/v1/models') {
+        sendJson(res, 200, { object: 'list', data: MODELS });
+        return;
+      }
+
+      if (req.method === 'POST' && url.pathname === '/v1/responses') {
+        const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
+        const requested = typeof request['model'] === 'string' ? request['model'] : 'gpt-5';
+        // The API answers with a dated snapshot of the model that was asked for.
+        const model = `${requested}-2026-06-01`;
+        const text =
+          scenario === 'malformed'
+            ? '{"changes": [{"paragraph": 0, "before": "had began", "after": '
+            : scenario === 'wrongshape'
+              ? JSON.stringify({ edits: [{ where: 0, what: 'had began' }] })
+              : JSON.stringify(CANNED_REVIEW);
+
+        if (request['stream'] === true) {
+          await streamResponse(res, model, text, scenario === 'slow' ? 600 : 15);
+        } else {
+          const response = responseObject(model, 'completed', text, Math.ceil(text.length / 4));
+          sendJson(res, 200, { ...response, output_text: text });
+        }
+        return;
+      }
+
+      apiError(
+        res,
+        404,
+        'invalid_request_error',
+        'not_found',
+        `No mock for ${req.method ?? ''} ${url.pathname}`
+      );
+    })();
+  });
+
+  await new Promise<void>((resolve) => server.listen(options.port ?? 0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+
+  return {
+    url: `http://127.0.0.1:${port}/v1`,
+    requests,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      })
+  };
+}
+
+/* Run directly: `node test/helpers/mockOpenAi.ts --port 4599`. */
+const invokedDirectly = /mockOpenAi\.ts$/.test(process.argv[1] ?? '');
+if (invokedDirectly) {
+  const flag = process.argv.indexOf('--port');
+  const port = flag >= 0 ? Number(process.argv[flag + 1]) : 4599;
+  void startMockOpenAi({ port, log: true }).then((mock) => {
+    console.log(`[mock-openai] listening on ${mock.url}`);
+  });
+}

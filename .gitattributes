@@ -1,0 +1,12 @@
+# Text is stored and checked out with LF everywhere, whatever core.autocrlf says,
+# so a fresh Windows clone matches Prettier's endOfLine and nothing shows as changed.
+* text=auto eol=lf
+
+*.png binary
+*.ico binary
+*.icns binary
+*.exe binary
+
+# The deliberate BOM + CRLF fixture (PLAN 4.6): Save must keep a chapter's own line
+# endings and byte order mark, and this is the chapter that proves it.
+samples/manuscript/Chapter?01*.md text eol=crlf

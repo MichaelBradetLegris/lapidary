@@ -1,0 +1,9 @@
+node_modules
+out
+dist
+release
+samples
+package-lock.json
+PLAN.md
+CLAUDE.md
+resources/GUIDELINES.default.md

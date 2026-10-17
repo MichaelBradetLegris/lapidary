@@ -1,0 +1,67 @@
+import { useApp, type NotificationAction } from '../state/store';
+import { IconX } from './icons';
+
+const ACTION_LABELS: Record<NotificationAction, string> = {
+  'open-settings': 'Open Settings',
+  'open-setup': 'Open Setup',
+  'show-diagnostics': 'Show diagnostics',
+  'reveal-drafts': 'Show the text',
+  'reveal-backups': 'Show backups',
+  'update-download': 'Download',
+  'update-restart': 'Restart now',
+  'update-open-page': 'Open the release page'
+};
+
+interface Props {
+  /** what a card's button does; the card closes after it runs */
+  onAction?: (action: NotificationAction) => void;
+}
+
+/**
+ * The message stack in the top-right corner of the manuscript pane (item 1).
+ * Cards are sized to their text, stack downwards, and only ever close on the X:
+ * no click-away and no timeout, so a save error stays until it is read. A card
+ * may carry one button, which closes it after doing its job.
+ */
+export function NotificationCards({ onAction }: Props): React.JSX.Element | null {
+  const notifications = useApp((s) => s.notifications);
+  const dismiss = useApp((s) => s.dismissNotification);
+
+  if (notifications.length === 0) return null;
+
+  return (
+    <div className="notes" role="status" aria-live="polite">
+      {notifications.map((note) => (
+        <div key={note.id} className={`note note--${note.tone}`}>
+          <span className="note__text">
+            {note.text}
+            {note.action && onAction ? (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  className="link note__action"
+                  onClick={() => {
+                    const action = note.action;
+                    dismiss(note.id);
+                    if (action) onAction(action);
+                  }}
+                >
+                  {ACTION_LABELS[note.action]}
+                </button>
+              </>
+            ) : null}
+          </span>
+          <button
+            type="button"
+            className="note__close"
+            aria-label="Dismiss message"
+            onClick={() => dismiss(note.id)}
+          >
+            <IconX size={13} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}

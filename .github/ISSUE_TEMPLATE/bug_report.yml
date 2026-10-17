@@ -1,0 +1,79 @@
+name: Bug report
+description: Something in the app does not work as it should.
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting this. Issues are public, so please do not paste chapter text, API keys, email addresses, or file paths that show your Windows user name.
+
+        To report a security problem, do not open an issue: see SECURITY.md in the repository.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: |
+        There is no About window yet. Use the version number in the file name of the installer or portable exe you ran, such as 0.1.0. Or press Windows+R, paste `%APPDATA%\ai-grammar-checker\logs\main.log`, press Enter, and find the last line that contains `app.start version=`. If you cloned the repository with Git, the commit (`git rev-parse --short HEAD` in its folder) helps too.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you run it
+      options:
+        - Installer
+        - Portable exe
+        - Development run (npm run dev or dev:clean)
+    validations:
+      required: false
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: In Windows, open Settings > System > About and copy the edition and version under "Windows specifications".
+      placeholder: Windows 11 Home, 24H2
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      description: Which service was reviewing when it happened.
+      options:
+        - Claude
+        - OpenAI (API key)
+        - Not related to a review
+    validations:
+      required: true
+  - type: input
+    id: claude-code
+    attributes:
+      label: Claude Code version
+      description: For Claude problems only. Run `claude --version` in PowerShell.
+      placeholder: 2.1.266
+    validations:
+      required: false
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. Copy any message the app showed.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics or log
+      description: |
+        To open the log, press Windows+R, paste `%APPDATA%\ai-grammar-checker\logs\main.log` and press Enter. Copy the lines from around the time it happened. The app leaves chapter text, keys and email addresses out of the log and shortens your user folder to `~`, but read the lines before you paste them.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before you submit
+      options:
+        - label: I removed manuscript text, API keys, email addresses and my Windows user name from everything above.
+          required: true

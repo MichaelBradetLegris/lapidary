@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "id": "chapter-03--2026-09-20T18-04-11-201Z",
+  "sourcePath": "D:\\Writing\\Vault\\Novel\\Chapter 03.md",
+  "createdAt": "2026-09-20T18:04:11.201Z",
+  "updatedAt": "2026-09-21T09:12:40.555Z",
+  "base": {
+    "text": "The rain had came down all night, and by morning the river was higher than anyone in the village could remember. Boats that had sat on the mud for a month now pulled at their ropes.\n\nMara walked to the bridge before the bells. She didnt look back at the house, though she knew her mother would be standing at the window with the lamp still lit.\n\nThe old ferryman waved from his boat, its paint peeling in long strips, and called something the wind took away. She raised a hand anyway.\n\n\"You're late,\" he said when she reached the landing. \"The water waits for noone, and today it is in a hurry.\"\n\nShe stepped down into the boat. It rocked, settled, and the far bank seemed to move away from them as he pushed off.\n",
+    "hash": "2a9bff09575a32efb26210b3b075f8dee2baa6ac5e6d5375594f985ec90bcb33",
+    "eol": "crlf",
+    "bom": false,
+    "trailingNewline": true
+  },
+  "generator": {
+    "kind": "claude",
+    "provider": "claude",
+    "model": "claude-opus-4-1",
+    "effort": "high",
+    "guidelinesHash": "a1b2c3",
+    "costUsd": 0.4123,
+    "usage": {
+      "input_tokens": 5120,
+      "output_tokens": 1880,
+      "cache_read_input_tokens": 0
+    },
+    "durationMs": 48211,
+    "sessionId": "00000000-0000-4000-8000-000000000001",
+    "paragraphBase": 1
+  },
+  "raw": {
+    "changes": [
+      {
+        "paragraph": 1,
+        "original": "had came",
+        "replacement": "had come",
+        "category": "grammar",
+        "reason": "past participle"
+      }
+    ],
+    "comments": []
+  },
+  "hunks": [
+    {
+      "id": "h1",
+      "start": 13,
+      "end": 17,
+      "baseSide": "original",
+      "original": "came",
+      "replacement": "come",
+      "paragraph": 0,
+      "category": "grammar",
+      "reason": "Past participle after \"had\".",
+      "source": "claude",
+      "status": "accepted",
+      "anchor": "exact"
+    },
+    {
+      "id": "h2",
+      "start": 231,
+      "end": 236,
+      "baseSide": "original",
+      "original": "didnt",
+      "replacement": "didn't",
+      "paragraph": 1,
+      "category": "spelling",
+      "reason": "Missing apostrophe.",
+      "source": "claude",
+      "status": "pending",
+      "anchor": "exact"
+    },
+    {
+      "id": "h3",
+      "start": 560,
+      "end": 565,
+      "baseSide": "original",
+      "original": "noone",
+      "replacement": "no one",
+      "paragraph": 3,
+      "category": "spelling",
+      "source": "claude",
+      "status": "dismissed",
+      "anchor": "fuzzy"
+    },
+    {
+      "id": "h4",
+      "start": 402,
+      "end": 416,
+      "baseSide": "original",
+      "original": "in long strips",
+      "replacement": "in strips",
+      "paragraph": 2,
+      "category": "redundancy",
+      "reason": "Tighter.",
+      "source": "claude",
+      "status": "accepted",
+      "anchor": "exact",
+      "edited": true
+    },
+    {
+      "id": "h5",
+      "start": 666,
+      "end": 680,
+      "baseSide": "original",
+      "original": "seemed to move",
+      "replacement": "moved",
+      "paragraph": 4,
+      "source": "manual",
+      "status": "accepted",
+      "anchor": "exact"
+    },
+    {
+      "id": "h6",
+      "start": 0,
+      "end": 0,
+      "baseSide": "original",
+      "original": "the candle had burned",
+      "replacement": "the candle had burnt",
+      "paragraph": 1,
+      "category": "typo",
+      "source": "claude",
+      "status": "pending",
+      "anchor": "stale"
+    }
+  ],
+  "comments": [
+    {
+      "id": "c1",
+      "paragraph": 1,
+      "quote": "standing at the window",
+      "category": "clarity",
+      "text": "Is the mother seen or imagined here?",
+      "status": "open"
+    },
+    {
+      "id": "c2",
+      "paragraph": 3,
+      "quote": "today it is in a hurry",
+      "category": "style",
+      "text": "Nice line.",
+      "status": "resolved"
+    },
+    {
+      "id": "c3",
+      "paragraph": null,
+      "category": "pacing",
+      "text": "The crossing could start a paragraph earlier.",
+      "status": "open"
+    }
+  ]
+}

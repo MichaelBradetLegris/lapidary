@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "outDir": "node_modules/.tmp/types-node",
+    "tsBuildInfoFile": "node_modules/.tmp/tsconfig.node.tsbuildinfo"
+  },
+  "include": [
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts",
+    "src/shared/**/*.ts",
+    "src/renderer/state/store.ts",
+    "src/renderer/state/models.ts",
+    "src/renderer/state/persist.ts",
+    "scripts/**/*.ts",
+    "test/**/*.ts",
+    "electron.vite.config.ts",
+    "vitest.config.ts",
+    "vitest.slow.config.ts"
+  ]
+}

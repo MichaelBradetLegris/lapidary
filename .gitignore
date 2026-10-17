@@ -1,0 +1,14 @@
+node_modules/
+out/
+dist/
+release/
+*.log
+.DS_Store
+samples/reviews/
+.dev-userdata/
+coverage/
+.env
+.env.*
+**/secrets.json
+.claude/settings.local.json
+*.tsbuildinfo
