@@ -2,7 +2,8 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AppFailure, explainReadError, toAppError } from '../../src/main/errors';
 import {
   ADOPT_MIN_LENGTH,
   findAdoptable,
@@ -131,6 +132,38 @@ describe('review store', () => {
     const file = path.join(root, 'x.json');
     await fs.writeFile(file, '{"version":2}');
     await expect(loadReviewFile(file)).rejects.toThrow(/Not a review file/);
+  });
+
+  it('explains a review file it cannot read as a read, naming the file (apply.24)', async () => {
+    const { path: file } = await saveReview(root, make('C:/vault/Chapter 12.md', '2026-09-08T10:00:00.000Z'));
+    const name = `the review file ${path.basename(file)}`;
+    for (const code of ['EBUSY', 'EPERM', 'EACCES']) {
+      const refused = Object.assign(new Error(`${code}: refused`), { code, path: file });
+      const read = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(refused);
+      try {
+        const err = await loadReviewFile(file).then(
+          () => null,
+          (e: unknown) => e
+        );
+        expect(err).toBeInstanceOf(AppFailure);
+        // What the IPC bridge sends on: the read words, not a failed save's.
+        const shown = toAppError(err);
+        expect(shown).toMatchObject({
+          code: 'io',
+          message: explainReadError(refused, name, process.platform)
+        });
+        expect(shown.message).not.toMatch(/replace|save again|Nothing was written|Controlled folder access/);
+      } finally {
+        read.mockRestore();
+      }
+    }
+    await fs.rm(file);
+    await expect(loadReviewFile(file)).rejects.toThrow(
+      `could not find the review file ${path.basename(file)}. It may have been renamed, moved or deleted`
+    );
+    // Words that are not the file system's are left as they were.
+    await fs.writeFile(file, '{ not json');
+    await expect(loadReviewFile(file)).rejects.toThrow(SyntaxError);
   });
 
   it('returns an empty index when the reviews folder does not exist', async () => {

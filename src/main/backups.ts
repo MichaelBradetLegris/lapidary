@@ -14,7 +14,7 @@ import { loggableErrorFields } from '../shared/diagnostics/redact';
 import type { SaveBackup } from '../shared/ipc';
 import { isInsidePath, pathKey, samePath } from '../shared/paths';
 import { chapterSlug } from '../shared/review';
-import { AppFailure, fail } from './errors';
+import { AppFailure, fail, readFailure } from './errors';
 import type { WriteHooks } from './files';
 import { log as appLog, type LogLevel } from './log';
 
@@ -109,6 +109,8 @@ export interface ChapterBackups {
  * a Save to chapter first changes the file there, and so also after the
  * chapter, its folder or the vault was renamed or moved, since the folder is
  * named by the path and the backups made before stay in the old path's folder.
+ * A folder the system will not let the app read is explained as a read
+ * (`readFailure`, apply.24).
  */
 export async function chapterBackups(
   backupsRoot: string,
@@ -120,14 +122,19 @@ export async function chapterBackups(
   }
   const folder = backupFolderFor(backupsRoot, sourcePath, ci);
   assertChapterBackupFolder(backupsRoot, folder, ci);
+  const name = `the backup folder of ${path.basename(sourcePath)}`;
   try {
     if (!(await fs.stat(folder)).isDirectory()) return null;
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT' || code === 'ENOTDIR') return null;
-    throw err;
+    throw readFailure(err, name);
   }
-  return { folder, newest: (await listBackups(folder))[0]?.file ?? null };
+  try {
+    return { folder, newest: (await listBackups(folder))[0]?.file ?? null };
+  } catch (err) {
+    throw readFailure(err, name);
+  }
 }
 
 /** A backup on disk, from `listBackups`. */

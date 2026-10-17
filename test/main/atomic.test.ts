@@ -173,9 +173,11 @@ describe('explainWriteError', () => {
   it('is what toAppError says, naming the chapter rather than the temp file', () => {
     const target = path.join(root, 'Chapter 1.md');
     const tmp = path.join(root, '.Chapter 1.md.0123456789ab.tmp');
-    const error = toAppError(errno('EPERM', tmp, target), 'win32');
+    const error = toAppError(errno('EPERM', tmp, target), { platform: 'win32' });
     expect(error.code).toBe('io');
     expect(error.message).toMatch(/replace Chapter 1\.md, even after/);
-    expect(toAppError(errno('ENOSPC', tmp), 'win32').message).toContain('disk for Chapter 1.md');
+    expect(toAppError(errno('ENOSPC', tmp), { platform: 'win32' }).message).toContain(
+      'disk for Chapter 1.md'
+    );
   });
 });

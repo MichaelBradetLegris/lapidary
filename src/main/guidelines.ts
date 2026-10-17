@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { GuidelinesInfo, GuidelinesStatus } from '../shared/ipc';
 import { styleSheetStatus } from '../shared/prompt/guidelines';
 import type { Settings } from '../shared/types';
-import { fail } from './errors';
+import { fail, readFailure } from './errors';
 import { readTextFile } from './files';
 
 /*
@@ -65,9 +65,16 @@ export async function ensureGuidelinesFile(
   }
 }
 
-/** The guidelines text, read under the same UTF-8 rules as a chapter. */
+/**
+ * The guidelines text, read under the same UTF-8 rules as a chapter. A read
+ * the system refuses is explained as a read (`readFailure`, apply.24).
+ */
 export async function readGuidelines(file: string): Promise<string> {
-  return readTextFile(file);
+  try {
+    return await readTextFile(file);
+  } catch (err) {
+    throw readFailure(err, path.basename(file));
+  }
 }
 
 /** The guidelines a review is sent, creating the file first if needed. */
@@ -80,11 +87,13 @@ export async function ensureGuidelines(settings: Settings, template: string): Pr
 export async function guidelinesStatus(settings: Settings): Promise<GuidelinesStatus> {
   const file = guidelinesPathFor(settings);
   if (!file) return { path: null, exists: false, styleSheet: 'missing' };
+  let text: string;
   try {
-    return { path: file, exists: true, styleSheet: styleSheetStatus(await readGuidelines(file)) };
+    text = await readTextFile(file);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT')
       return { path: file, exists: false, styleSheet: 'missing' };
-    throw err;
+    throw readFailure(err, path.basename(file));
   }
+  return { path: file, exists: true, styleSheet: styleSheetStatus(text) };
 }

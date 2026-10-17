@@ -96,7 +96,11 @@ export const closeGuard = createCloseGuard<BrowserWindow>({
   log
 });
 
-/** Wire the accumulated handlers into ipcMain. Call once, after all modules registered. */
+/**
+ * Wire the accumulated handlers into ipcMain. Call once, after all modules
+ * registered. A file system error that reaches here unexplained is worded as
+ * a write's; every read path explains its own first (`readFailure`, apply.24).
+ */
 export function installIpcBridge(): void {
   for (const [channel, fn] of handlers) {
     ipcMain.handle(channel, async (_event, payload: unknown): Promise<IpcResult<unknown>> => {

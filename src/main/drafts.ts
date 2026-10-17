@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { formatLocalStamp } from '../shared/backups';
-import { APP_NAME } from '../shared/branding';
 import type { DraftFile, DraftSaveRequest, SetAsideRequest } from '../shared/ipc';
 import { pathKey, samePath } from '../shared/paths';
 import {
@@ -12,7 +11,7 @@ import {
   setAsideFileName,
   setAsideText
 } from '../shared/ui/drafts';
-import { fail } from './errors';
+import { fail, readFailure } from './errors';
 import { atomicWriteFile } from './atomic';
 import { log as appLog, type LogLevel } from './log';
 
@@ -76,17 +75,12 @@ function requirePath(sourcePath: unknown): string {
 }
 
 /**
- * Why the file could not be read, in words of its own. Left to `toAppError`,
- * a refused read would be explained as a refused write ("would not let ...
- * replace", "save again"). The message names no path.
+ * How a failed read names the drafts file: its own name is a hash, which
+ * would tell the author nothing, and the message names no path. The card
+ * puts the reason after "could not be read back:", so "they" are the
+ * paragraphs left open.
  */
-function readFailure(code: string | undefined): Error {
-  const reason =
-    code === 'EBUSY' || code === 'EPERM' || code === 'EACCES'
-      ? `another program may have the file open, or ${APP_NAME} may not be allowed to read it`
-      : 'the file could not be opened';
-  return fail('io', `${reason} (${code ?? 'no error code'})`);
-}
+const DRAFTS_FILE_NAME = 'the file they are kept in';
 
 /**
  * The boxes kept for this chapter, or null when there are none. A file that
@@ -114,7 +108,7 @@ export async function loadDrafts(
     if (code === 'ENOENT') return null;
     // The renderer writes nothing over the file until it can be read (C.53).
     log('warn', 'drafts.read-failed', { code: code ?? null });
-    throw readFailure(code);
+    throw readFailure(err, DRAFTS_FILE_NAME);
   }
   let parsed: DraftFile | null;
   try {

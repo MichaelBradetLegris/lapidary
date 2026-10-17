@@ -1,7 +1,8 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AppFailure, explainReadError, toAppError } from '../../src/main/errors';
 import { ensureGuidelines, ensureGuidelinesFile, guidelinesStatus } from '../../src/main/guidelines';
 import { obsidianOpenUrl, openGuidelinesFile, type ShellApi } from '../../src/main/openGuidelines';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
@@ -69,6 +70,36 @@ describe('ensureGuidelinesFile', () => {
     await fs.writeFile(info.path, Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
     await expect(ensureGuidelines(settings(), template)).rejects.toMatchObject({ code: 'not-utf8' });
   });
+});
+
+describe('a guidelines file that cannot be read (apply.24)', () => {
+  for (const code of ['EBUSY', 'EPERM', 'EACCES']) {
+    it(`explains ${code} as a read, before a review and in Settings`, async () => {
+      const { path: file } = await ensureGuidelinesFile(settings(), template);
+      const refused = Object.assign(new Error(`${code}: refused`), { code, path: file });
+      const expected = explainReadError(refused, 'GUIDELINES.md', process.platform);
+      for (const reading of [
+        () => ensureGuidelines(settings(), template),
+        () => guidelinesStatus(settings())
+      ]) {
+        const read = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(refused);
+        try {
+          const err = await reading().then(
+            () => null,
+            (e: unknown) => e
+          );
+          expect(err).toBeInstanceOf(AppFailure);
+          const shown = toAppError(err);
+          expect(shown).toMatchObject({ code: 'io', message: expected });
+          expect(shown.message).not.toMatch(
+            /replace|save again|Nothing was written|Controlled folder access/
+          );
+        } finally {
+          read.mockRestore();
+        }
+      }
+    });
+  }
 });
 
 describe('guidelinesStatus', () => {

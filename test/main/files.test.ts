@@ -1,7 +1,9 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { explainReadError, toAppError } from '../../src/main/errors';
+import { APP_NAME } from '../../src/shared/branding';
 import {
   OpenedChapters,
   assertSavableChapter,
@@ -30,6 +32,9 @@ beforeEach(async () => {
 afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
+
+/** Words that belong to a write and must never explain a read (apply.24). */
+const WRITE_WORDS = /replace|save again|Nothing was written|Controlled folder access|second and a half/;
 
 async function put(relative: string, contents: string | Buffer): Promise<string> {
   const file = path.join(root, relative);
@@ -245,6 +250,101 @@ describe('writeChapter', () => {
     expect(result).toEqual({ status: 'written', hash: expected });
     expect(seen).toEqual([[file, expected]]);
     expect((await readChapter(file)).hash).toBe(expected);
+  });
+});
+
+describe('a refused read is explained as a read (apply.24)', () => {
+  const refused = (code: string): NodeJS.ErrnoException =>
+    Object.assign(new Error(`${code}: refused`), { code, path: path.join(root, 'c.md') });
+
+  /** What the page is shown: the IPC bridge's words, which take an unexplained error as a write's. */
+  async function shown(promise: Promise<unknown>): Promise<string> {
+    try {
+      await promise;
+    } catch (err) {
+      return toAppError(err).message;
+    }
+    throw new Error('expected a failure');
+  }
+
+  it('opening a chapter another program holds or will not let the app read', async () => {
+    const file = await put('c.md', 'one\n');
+    for (const code of ['EBUSY', 'EPERM', 'EACCES']) {
+      const read = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(refused(code));
+      try {
+        const message = await shown(readChapter(file));
+        expect(message).toBe(explainReadError(refused(code), 'c.md', process.platform));
+        expect(message).toMatch(/ read c\.md\. .*try again\. \S+ has not changed anything\.$/);
+        expect(message).not.toMatch(WRITE_WORDS);
+      } finally {
+        read.mockRestore();
+      }
+    }
+    expect(await fs.readFile(file, 'utf8')).toBe('one\n');
+  });
+
+  it('opening a chapter that is gone, or is a folder', async () => {
+    const gone = await shown(readChapter(path.join(root, 'gone.md')));
+    expect(gone).toBe(
+      `${APP_NAME} could not find gone.md. It may have been renamed, moved or deleted; if it was renamed or moved, open it again from where it is now. ${APP_NAME} has not changed anything.`
+    );
+    await fs.mkdir(path.join(root, 'folder.md'));
+    const folder = await shown(readChapter(path.join(root, 'folder.md')));
+    expect(folder).toBe(
+      `${APP_NAME} could not read folder.md, because it is a folder, not a file. ${APP_NAME} has not changed anything.`
+    );
+    for (const message of [gone, folder]) expect(message).not.toMatch(WRITE_WORDS);
+  });
+
+  it('keeps a refusal already in words, such as a file that is not UTF-8', async () => {
+    const file = await put('latin.md', Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
+    await expect(readChapter(file)).rejects.toMatchObject({ code: 'not-utf8' });
+  });
+
+  it('a save whose first read is refused says so as a read and writes nothing', async () => {
+    const file = await put('c.md', 'one\n');
+    const content = await readChapter(file);
+    const read = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(refused('EBUSY'));
+    try {
+      const message = await shown(
+        writeChapter({
+          path: file,
+          text: 'two',
+          eol: 'lf',
+          bom: false,
+          trailingNewline: true,
+          expectedHash: content.hash
+        })
+      );
+      expect(message).toBe(explainReadError(refused('EBUSY'), 'c.md', process.platform));
+      expect(message).not.toMatch(WRITE_WORDS);
+    } finally {
+      read.mockRestore();
+    }
+    expect(await fs.readFile(file, 'utf8')).toBe('one\n');
+    expect(await fs.readdir(root)).toEqual(['c.md']);
+  });
+
+  it('a save whose rename is refused keeps the write words', async () => {
+    const file = await put('c.md', 'one\n');
+    const content = await readChapter(file);
+    const message = await shown(
+      writeChapter(
+        { path: file, text: 'two', eol: 'lf', bom: false, trailingNewline: true, expectedHash: content.hash },
+        {
+          atomic: {
+            rename: (from: string, to: string) =>
+              Promise.reject(
+                Object.assign(new Error('EBUSY: refused'), { code: 'EBUSY', path: from, dest: to })
+              ),
+            sleep: () => Promise.resolve()
+          }
+        }
+      )
+    );
+    expect(message).toMatch(/ replace c\.md\b/);
+    expect(message).toMatch(/Nothing was written; the file is as it was\.$/);
+    expect(await fs.readFile(file, 'utf8')).toBe('one\n');
   });
 });
 

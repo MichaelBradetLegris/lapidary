@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BACKUPS_DIRNAME,
   CHAPTER_INFO_FILE,
@@ -16,7 +16,7 @@ import {
   pruneBackups,
   writeBackup
 } from '../../src/main/backups';
-import { AppFailure } from '../../src/main/errors';
+import { AppFailure, explainReadError, toAppError } from '../../src/main/errors';
 import { backupFileName } from '../../src/shared/backups';
 import { pathKey } from '../../src/shared/paths';
 
@@ -501,6 +501,45 @@ describe('chapterBackups', () => {
     await fs.mkdir(backupsRoot, { recursive: true });
     await fs.writeFile(folder, 'not a folder');
     expect(await chapterBackups(backupsRoot, file, true)).toBeNull();
+  });
+
+  it('explains a backup folder it cannot read as a read (apply.24)', async () => {
+    const file = await chapter('Chapter 01.md', Buffer.from('one\n'));
+    const { folder } = await writeBackup({
+      backupsRoot,
+      sourcePath: file,
+      bytes: Buffer.from('one\n'),
+      now: at(2026, 10, 17),
+      ci: true
+    });
+    const name = 'the backup folder of Chapter 01.md';
+    for (const [call, code] of [
+      ['stat', 'EPERM'],
+      ['readdir', 'EBUSY'],
+      ['readdir', 'EACCES']
+    ] as const) {
+      const refused = Object.assign(new Error(`${code}: refused`), { code, path: folder });
+      const spy =
+        call === 'stat'
+          ? vi.spyOn(fs, 'stat').mockRejectedValueOnce(refused)
+          : vi.spyOn(fs, 'readdir').mockRejectedValueOnce(refused);
+      try {
+        const err = await chapterBackups(backupsRoot, file, true).then(
+          () => null,
+          (e: unknown) => e
+        );
+        expect(err).toBeInstanceOf(AppFailure);
+        const shown = toAppError(err);
+        expect(shown).toMatchObject({
+          code: 'io',
+          message: explainReadError(refused, name, process.platform)
+        });
+        expect(shown.message).not.toMatch(/replace|save again|Nothing was written|Controlled folder access/);
+      } finally {
+        spy.mockRestore();
+      }
+    }
+    expect((await chapterBackups(backupsRoot, file, true))?.newest).not.toBeNull();
   });
 
   it('refuses a path that is not a full path', async () => {

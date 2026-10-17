@@ -15,7 +15,7 @@ import { isInsidePath, pathKey, samePath } from '../shared/paths';
 import { MAX_TEXT_BYTES, classifyBytes, encodingProblem } from '../shared/text/encoding';
 import { normalizeText, restoreText } from '../shared/text/eol';
 import { atomicWriteFile, type AtomicWriteOptions } from './atomic';
-import { fail } from './errors';
+import { fail, readFailure } from './errors';
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.obsidian', '.trash', 'out', 'dist']);
 
@@ -199,9 +199,17 @@ async function readChapterBytes(file: string): Promise<{ bytes: Buffer; content:
   };
 }
 
-/** Read a chapter, capturing everything needed to write it back byte-identically. */
+/**
+ * Read a chapter, capturing everything needed to write it back
+ * byte-identically. A read the system refuses is explained as a read
+ * (`readFailure`, apply.24).
+ */
 export async function readChapter(file: string): Promise<FileContent> {
-  return (await readChapterBytes(file)).content;
+  try {
+    return (await readChapterBytes(file)).content;
+  } catch (err) {
+    throw readFailure(err, path.basename(file));
+  }
 }
 
 /** Bytes that would be written for the given LF text and shape. */
@@ -230,7 +238,12 @@ export interface WriteHooks {
   atomic?: Pick<AtomicWriteOptions, 'rename' | 'sleep'>;
 }
 
-/** A chapter's bytes for a save, with a missing file explained. */
+/**
+ * A chapter's bytes for a save, with a missing file explained. A refused read
+ * is explained as a read, not as the write that never started: nothing was
+ * tried for a second and a half, and Controlled folder access does not block
+ * reading (apply.24).
+ */
 async function readForSave(file: string): Promise<{ bytes: Buffer; content: FileContent }> {
   return readChapterBytes(file).catch((err: unknown) => {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -239,7 +252,7 @@ async function readForSave(file: string): Promise<{ bytes: Buffer; content: File
         `The chapter is no longer at ${file}. If you renamed or moved it in Obsidian, open it again from the list; its review comes with it.`
       );
     }
-    throw err;
+    throw readFailure(err, path.basename(file));
   });
 }
 

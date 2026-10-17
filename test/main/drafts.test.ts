@@ -14,7 +14,8 @@ import {
   setAsideFile,
   setAsideFolderFor
 } from '../../src/main/drafts';
-import { AppFailure } from '../../src/main/errors';
+import { AppFailure, explainReadError } from '../../src/main/errors';
+import { APP_NAME } from '../../src/shared/branding';
 import type { StoredDraft } from '../../src/shared/ipc';
 import { pathKey } from '../../src/shared/paths';
 
@@ -174,16 +175,20 @@ describe('saving and loading', () => {
     }
   });
 
-  it('fails with words of its own when the file cannot be read at all, and leaves it there', async () => {
+  it('fails with the read words when the file cannot be read at all, and leaves it there', async () => {
     // A folder where the file should be: reading it fails, as a locked file does.
     const file = draftFileFor(draftsRoot, chapter, true);
     await fs.mkdir(file, { recursive: true });
     const { lines, log } = logger();
     const err = await failure(loadDrafts(draftsRoot, chapter, true, { log }));
     expect(err.code).toBe('io');
-    const code = /^the file could not be opened \((E[A-Z]+)\)$/.exec(err.message)?.[1];
-    expect(code).toBeDefined();
-    expect(err.message).not.toMatch(/replace|save again/);
+    const code = lines[0]?.[2]?.code;
+    expect(code).toMatch(/^E[A-Z]+$/);
+    // The shared read words (apply.24), naming no path: the file's own name is a hash.
+    expect(err.message).toBe(explainReadError({ code }, 'the file they are kept in', process.platform));
+    expect(err.message.startsWith(`${APP_NAME} could not read the file they are kept in`)).toBe(true);
+    expect(err.message).not.toMatch(/replace|save again|Nothing was written/);
+    expect(err.message).not.toContain(path.basename(file, '.json'));
     expect(lines).toEqual([['warn', 'drafts.read-failed', { code }]]);
     expect((await fs.stat(file)).isDirectory()).toBe(true);
     expect(await fs.readdir(draftsRoot)).toEqual([path.basename(file)]);
@@ -198,9 +203,12 @@ describe('saving and loading', () => {
     const read = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(busy);
     try {
       const err = await failure(loadDrafts(draftsRoot, chapter, true, { log }));
-      expect(err.message).toBe(
-        'another program may have the file open, or Lapidary may not be allowed to read it (EBUSY)'
-      );
+      expect(err.code).toBe('io');
+      expect(err.message).toBe(explainReadError(busy, 'the file they are kept in', process.platform));
+      expect(err.message).toMatch(/ read the file they are kept in\. /);
+      expect(err.message.endsWith(`${APP_NAME} has not changed anything.`)).toBe(true);
+      expect(err.message).not.toMatch(/replace|save again|Nothing was written|Controlled folder access/);
+      expect(err.message).not.toContain(path.basename(file, '.json'));
       expect(lines).toEqual([['warn', 'drafts.read-failed', { code: 'EBUSY' }]]);
     } finally {
       read.mockRestore();

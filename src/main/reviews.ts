@@ -6,7 +6,7 @@ import { commonTrailingSegments, pathKey, samePath } from '../shared/paths';
 import { chapterSlug, rehomeReview, upgradeLoadedReview } from '../shared/review';
 import type { Review } from '../shared/types';
 import { atomicWriteFile } from './atomic';
-import { fail } from './errors';
+import { fail, readFailure } from './errors';
 import { caseInsensitiveFs } from './files';
 
 /*
@@ -107,8 +107,17 @@ function isReview(value: unknown): value is Review {
   return r.version === 1 && typeof r.base === 'object' && Array.isArray(r.hunks) && Array.isArray(r.comments);
 }
 
+/**
+ * One review file. A read the system refuses is explained as a read, naming
+ * the file (`readFailure`, apply.24).
+ */
 export async function loadReviewFile(file: string): Promise<Review> {
-  const text = await fs.readFile(file, 'utf8');
+  let text: string;
+  try {
+    text = await fs.readFile(file, 'utf8');
+  } catch (err) {
+    throw readFailure(err, `the review file ${path.basename(file)}`);
+  }
   const parsed: unknown = JSON.parse(text);
   if (!isReview(parsed)) throw fail('invalid-input', `Not a review file: ${file}`);
   // Reviews written before the Phase 5b rename still say `kind: 'paste'`, and
