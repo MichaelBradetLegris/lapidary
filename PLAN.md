@@ -1607,20 +1607,20 @@ Only Windows reports these two. On macOS a shutdown reaches the app as a quit, w
 
 Checked by unit tests only; no shutdown was run.
 
-### C.56 Claude Code ends with the app (`apply.18`, 2026-10-17)
+### C.56 Claude Code ended with the app (`apply.18`, 2026-10-17)
 
-The tracked spawner of the original design (`spawnClaudeCodeProcess`, a 4 KB stderr tail appended to the classifiers' text, `killClaudeChildren()` in `will-quit`) was to be built only if Claude Code outlived the app. It does not, so it was not built, and no code changed.
+The tracked spawner of the original design (`spawnClaudeCodeProcess`, a 4 KB stderr tail appended to the classifiers' text, `killClaudeChildren()` in `will-quit`) was to be built only if Claude Code outlived the app. It did not in the one run measured, so it was not built, and no code changed.
 
 Measured once, on the unmodified build at 3df1552, in a `dev:clean` window with a scratch userData and a scratch copy of `samples/manuscript`. The app ran the author's installed Claude Code 2.1.302 (`%USERPROFILE%\.local\bin\claude.exe`) under his own sign-in, with model `haiku` (the dialog showed Haiku 5.5) and effort `low`, on a new chapter of three paragraphs:
 
 - One typed edit came first, so the close had something to keep, then Review with AI and Review without it.
-- 0.2 s later the review's `claude.exe` was a child of the app's main process, with the review's flags (`--model haiku`, `--effort low`, `--include-partial-messages`). Its whole tree was that `claude.exe` and the `conhost.exe` of its console: with `--tools ""` it starts nothing of its own.
+- 0.2 s later the review's `claude.exe` was a child of the app's main process, with the review's flags (`--model haiku`, `--effort low`, `--include-partial-messages`). In the one look, 0.9 s in, its tree was that `claude.exe` and the `conhost.exe` of its console.
 - 0.9 s into the review, WM_CLOSE went to the window. "Close Lapidary?" came 13 ms later, saying the running review would stop, with Close, keep for later focused. The review was still running when it was answered.
 - After Close, keep for later, the task's command, `Get-Process claude -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*claude-agent-sdk*' }`, found nothing at +0.07 s, +1.2 s, +4.5 s and +10 s.
 
 That command can no longer find the app's Claude Code: its filter names the SDK's bundled binary, which went with C.42. So each check also looked for three more things: every process the run had started, by process id and start time (the review's `claude.exe` and `conhost.exe`, Electron's four processes, the `node.exe` of the launcher and of the dev server, and the dev server's two `esbuild.exe`); any process whose parent was one of them; and any `claude.exe` from `%USERPROFILE%\.local\bin` that had not been running before the launch. All three were empty at the first check, begun 7 ms after the click, and stayed empty. At +10 s no `claude` process on the machine was new since the launch. The review on disk kept the typed edit, as Close, keep for later says.
 
-Which of three things ended it was not separated. Close, keep for later stops a running review (`apply.9`), and Cancel ends its process tree with `taskkill /T /F`. `will-quit` aborts whatever is still tracked (`abortAll`), which does the same. And Node starts a child without `detached` inside a job object that ends it when the app's process ends. That job lets a child's own children break away: a Node process that started `cmd /c ping` and exited took `cmd.exe` with it, while `ping` and the console's `conhost.exe` ran on. So a process Claude Code started would be ended only by `taskkill /T`, which a crash of the app would skip; with `--tools ""` it starts none.
+Which of three things ended it was not separated. Close, keep for later stops a running review (`apply.9`), and Cancel ends its process tree with `taskkill /T /F`. `will-quit` aborts whatever is still tracked (`abortAll`), which does the same. And Node starts a child without `detached` inside a job object that ends it when the app's process ends. That job lets a child's own children break away: a Node process that started `cmd /c ping` and exited took `cmd.exe` with it, while `ping` and the console's `conhost.exe` ran on. So a process Claude Code started would be ended only by `taskkill /T`, which a crash of the app would skip. None was seen in this run, and after the close no process whose parent was one of the run's was left. With `--tools ""`, `--strict-mcp-config` and `--setting-sources=` it has no tool, MCP server or hook to start one with, but no flag stops Claude Code itself from starting one.
 
 ## Appendix D: release 1.0 answers
 
