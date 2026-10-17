@@ -93,7 +93,7 @@ Alternatively, set `OPENAI_API_KEY` as an environment variable, the same way as 
 
 1. Pick a chapter on the left.
 2. Click **Review with AI**. The dialog shows the chapter's size, the provider, model and effort, your guidelines file, and what happened last time. For OpenAI it also shows where the key comes from; **Start review** stays disabled until there is one.
-3. While it runs, a card at the bottom of the page shows progress and a **Cancel review** button. A review usually takes a minute or two. The chapter is read-only until it finishes, because the result replaces the current set of suggestions; you can open other chapters meanwhile. If the page has changes that are not saved to the chapter yet, the dialog says so, because the review reads the chapter file: **Save 3 changes, then review** writes them into the chapter and then starts, so the review sees them, and **Review without them** asks first, then leaves them in the old review, which you can reopen from History.
+3. While it runs, a card at the bottom of the page shows progress and a **Cancel review** button. A review usually takes a minute or two. The chapter is read-only until it finishes, because the result replaces the current set of suggestions; you can open other chapters meanwhile. If the page has changes that are not saved to the chapter yet, the dialog says so, because the review reads the chapter file: **Save 3 changes, then review** writes them into the chapter and then starts, so the review sees them (if the save does not go through, nothing is sent and the dialog says why), and **Review without them** asks first, then leaves them in the old review, which you can reopen from History.
 4. When it finishes, each suggestion appears in the text:
    - **Pending**: your original, underlined in the category colour, with the suggestion above it.
    - **Accepted**: the suggestion, with a plain grey underline; your original floats above it after "was".
@@ -134,7 +134,7 @@ Your decisions are kept in the review automatically as you go; there is nothing 
 
 **The app itself** has no analytics, no crash reporting and no update check. Links you click open in your web browser.
 
-**What a review sends, and when.** Only when you click **Start review** does the app send the provider you chose:
+**What a review sends, and when.** Only when you start a review in the Review with AI dialog (**Start review**, or, when the page has changes not saved to the chapter, **Save 3 changes, then review** once the save has gone through, or **Review without them** once you have answered its question) does the app send the provider you chose:
 
 - the app's own review instructions;
 - your guidelines file;

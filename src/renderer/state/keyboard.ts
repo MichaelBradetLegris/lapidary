@@ -4,7 +4,7 @@ import { saveShortcutAction } from '../../shared/ui/save';
 import { editHunk } from './edit';
 import { SAVE_CARD, type SaveOptions, type SaveOutcome } from './saveChapter';
 import { scrollToElement } from './scroll';
-import { isLocked, saveShortcutContext, useApp } from './store';
+import { isModalOpen, reviewKeysActive, saveShortcutContext, useApp } from './store';
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -17,7 +17,9 @@ function isTypingTarget(target: EventTarget | null): boolean {
  * pending, d toggles dismissed, n jumps to the next commented paragraph.
  * Ctrl+F opens the find bar (item 11) and Escape closes it. Ctrl+S, or Cmd+S,
  * runs Save to chapter (apply.3), wherever the focus is, under the rules of
- * `saveShortcutAction`.
+ * `saveShortcutAction`. None of them acts behind a dialog, a question,
+ * Settings or the Setup screen (`reviewKeysActive`, `isModalOpen`; apply.20
+ * review).
  */
 export function useKeyboardBindings(save: (options: SaveOptions) => Promise<SaveOutcome>): void {
   useEffect(() => {
@@ -41,7 +43,8 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
       }
 
       if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'f') {
-        if (!state.review) return;
+        // Not behind a dialog: the focus would go to the bar behind it.
+        if (!state.review || isModalOpen(state)) return;
         state.openFind();
         event.preventDefault();
         // Pressing it again while the bar is open goes back to the box with the
@@ -68,9 +71,10 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
 
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
-      if (state.confirmSpec || state.editor) return;
-      // Read-only while a review of this chapter runs (round 3, item 3).
-      if (isLocked(state)) return;
+      // Nothing behind a dialog, a question, Settings or the Setup screen,
+      // with the suggestion editor open, or while a review of this chapter
+      // runs (round 3, item 3).
+      if (!reviewKeysActive(state)) return;
 
       const review = state.review;
       if (!review) return;

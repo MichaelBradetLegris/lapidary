@@ -530,6 +530,24 @@ export function manualBuildPrompt(n: number, reviewFrom: string | null): SavePro
 }
 
 /**
+ * What Review with AI or Submit manual review shows inside itself when the
+ * save before the review left the chapter file without the changes (apply.20
+ * review): a line saying what did not happen, then what the save's own cards
+ * said, in order. The cards sit in the corner of the manuscript pane, under
+ * the dialog's backdrop, where they cannot be read or closed while the dialog
+ * is open. Empty when the save said nothing, as after Cancel to applying
+ * paragraph boxes, which the author answered themselves.
+ */
+export function notSavedLines(action: 'review' | 'build', said: readonly string[]): string[] {
+  if (said.length === 0) return [];
+  const lead =
+    action === 'review'
+      ? 'The review has not started, because the changes were not saved.'
+      : 'The review was not built, because the changes were not saved.';
+  return [lead, ...said];
+}
+
+/**
  * Build review's question when everything decided is already in the chapter
  * file, or only dismissed: nothing would be left unsaved, but the decisions
  * leave the screen with the review. Worded as before apply.20.

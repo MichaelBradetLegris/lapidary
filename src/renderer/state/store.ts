@@ -173,6 +173,33 @@ export function isModalOpen(
   );
 }
 
+/**
+ * Whether the review pane's keys (j and k, the arrows, a, u, d, e and n) act:
+ * only with a review on screen and nothing in front of the page. Behind a
+ * dialog, a question, Settings or the Setup screen (`isModalOpen`) they
+ * changed what the author could not see: behind Review with AI, a accepted
+ * the focused suggestion, which changed the dialog's count and so its blue
+ * button, and e opened the suggestion editor over it (apply.20 review). The
+ * suggestion editor keeps the keys for its own box, and the pane is
+ * read-only while a review of the chapter runs (`isLocked`).
+ */
+export function reviewKeysActive(
+  state: Pick<
+    AppState,
+    | 'review'
+    | 'aiBusyPath'
+    | 'editor'
+    | 'confirmSpec'
+    | 'settingsOpen'
+    | 'setupOpen'
+    | 'newChapterOpen'
+    | 'manualReviewOpen'
+    | 'reviewDialogOpen'
+  >
+): boolean {
+  return state.review !== null && state.editor === null && !isModalOpen(state) && !isLocked(state);
+}
+
 /** What Ctrl+S needs to know about the page (`saveShortcutAction`, apply.3). */
 export function saveShortcutContext(state: AppState, inParagraphBox: boolean): SaveShortcutContext {
   return {

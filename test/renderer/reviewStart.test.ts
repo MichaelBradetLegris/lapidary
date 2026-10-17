@@ -7,7 +7,12 @@ import type { SaveRequest, SaveResponse } from '../../src/shared/ipc';
 import { createReview } from '../../src/shared/review';
 import type { Review } from '../../src/shared/types';
 import { historyWhen } from '../../src/shared/ui/history';
-import { manualBuildPrompt, replaceReviewPrompt, reviewWithoutPrompt } from '../../src/shared/ui/save';
+import {
+  manualBuildPrompt,
+  notSavedLines,
+  replaceReviewPrompt,
+  reviewWithoutPrompt
+} from '../../src/shared/ui/save';
 import {
   buildManualReview,
   fileReadsLikePage,
@@ -15,7 +20,12 @@ import {
   saveThenReview,
   type SaveFn
 } from '../../src/renderer/state/reviewStart';
-import { saveChapter, type SaveDeps, type SaveOutcome } from '../../src/renderer/state/saveChapter';
+import {
+  SAVE_CARD,
+  saveChapter,
+  type SaveDeps,
+  type SaveOutcome
+} from '../../src/renderer/state/saveChapter';
 import { useApp } from '../../src/renderer/state/store';
 
 /* apply.20: no stranded decisions. A new review starts from the chapter file
@@ -194,6 +204,112 @@ describe('Save N changes, then review (apply.20)', () => {
     expect(r.started).toEqual([]);
     expect(state().review?.base.hash).toBe('h1');
     expect(unsavedDecisionCount(state().review!.hunks)).toBe(1);
+  });
+});
+
+/* apply.20 review: a save that does not reach the file says why on cards in
+   the corner of the manuscript pane, under the dialog's backdrop, where they
+   could not be read or closed. The dialog is handed what they said. */
+describe('what a save that did not reach the file said, for the dialog (apply.20 review)', () => {
+  /** Records each call of `onNotSaved`. */
+  function told() {
+    const calls: string[][] = [];
+    return { onNotSaved: (lines: string[]) => calls.push(lines), calls };
+  }
+
+  it('hands Review with AI the card of the failed save, under a line saying the review has not started', async () => {
+    state().toggleAccepted('h1');
+    const t = told();
+    const r = starter();
+    expect(await saveThenReview({ save: realSave().save, start: r.start, stillWanted: open, ...t })).toBe(
+      false
+    );
+    expect(t.calls).toEqual([
+      ['The review has not started, because the changes were not saved.', 'no reply left']
+    ]);
+    expect(t.calls[0]).toEqual(notSavedLines('review', ['no reply left']));
+    expect(r.started).toEqual([]);
+  });
+
+  it('gives only the cards the save put up, the save card it replaced included, not older ones', async () => {
+    state().toggleAccepted('h1');
+    state().notify('info', 'OpenAI suggested 6 changes and 3 comments.');
+    state().notify('info', 'Saved to the chapter file.', SAVE_CARD);
+    const t = told();
+    await saveThenReview({ save: realSave().save, start: starter().start, stillWanted: open, ...t });
+    expect(t.calls).toEqual([notSavedLines('review', ['no reply left'])]);
+    // The cards themselves stay, for when the dialog has closed.
+    expect(state().notifications.map((n) => n.text)).toEqual([
+      'OpenAI suggested 6 changes and 3 comments.',
+      'no reply left'
+    ]);
+  });
+
+  it('says why a blocked save stopped: a review of the chapter running', async () => {
+    state().toggleAccepted('h1');
+    useApp.setState({ aiBusyPath: SOURCE });
+    const t = told();
+    await saveThenReview({ save: realSave().save, start: starter().start, stillWanted: open, ...t });
+    expect(t.calls).toEqual([notSavedLines('review', ['Wait for the review to finish, then save.'])]);
+  });
+
+  it('says nothing after Cancel to applying paragraph boxes, which the author answered', async () => {
+    const t = told();
+    await saveThenReview({
+      save: fakeSave('cancelled').save,
+      start: starter().start,
+      stillWanted: open,
+      ...t
+    });
+    expect(t.calls).toEqual([[]]);
+  });
+
+  it('tells nothing after a save that reached the file, or once the dialog has closed', async () => {
+    const t = told();
+    for (const outcome of ['saved', 'nothing-to-save'] as const) {
+      await saveThenReview({ save: fakeSave(outcome).save, start: starter().start, stillWanted: open, ...t });
+    }
+    state().toggleAccepted('h1');
+    await saveThenReview({ save: realSave().save, start: starter().start, stillWanted: () => false, ...t });
+    expect(t.calls).toEqual([]);
+  });
+
+  it('hands Submit manual review the card of the failed save, under a line saying the review was not built', async () => {
+    state().toggleAccepted('h1');
+    const t = told();
+    const built: string[] = [];
+    const asked = buildManualReview({
+      save: realSave().save,
+      build: () => built.push('built'),
+      stillWanted: open,
+      ...t
+    });
+    await tick();
+    state().answerChoice('confirm');
+    expect(await asked).toBe(false);
+    expect(t.calls).toEqual([
+      ['The review was not built, because the changes were not saved.', 'no reply left']
+    ]);
+    expect(built).toEqual([]);
+  });
+
+  it('tells Submit manual review nothing once it has closed, or for Build without them', async () => {
+    state().toggleAccepted('h1');
+    const t = told();
+    const closed = buildManualReview({
+      save: realSave().save,
+      build: () => {},
+      stillWanted: () => false,
+      ...t
+    });
+    await tick();
+    state().answerChoice('confirm');
+    expect(await closed).toBe(false);
+    const without = buildManualReview({ save: realSave().save, build: () => {}, stillWanted: open, ...t });
+    await tick();
+    state().answerChoice('alt');
+    expect(await without).toBe(true);
+    expect(t.calls).toEqual([]);
   });
 });
 
@@ -417,7 +533,7 @@ describe('the dialogs and App use these (apply.20)', () => {
   it('labels the review dialog from the count and saves first only when something is unsaved', () => {
     expect(REVIEW_DIALOG).toContain('const labels = reviewStartLabels(unsavedDecisions);');
     expect(REVIEW_DIALOG).toContain('const note = reviewStartNote(unsavedDecisions);');
-    expect(REVIEW_DIALOG).toContain('onClick={unsavedDecisions > 0 ? onSaveThenStart : onStart}');
+    expect(REVIEW_DIALOG).toContain('onClick={unsavedDecisions > 0 ? saveThenStart : onStart}');
     expect(REVIEW_DIALOG).toMatch(/\{labels\.secondary \? \(\s*<button[^>]*onClick=\{onStartWithout\}/);
     expect(REVIEW_DIALOG).toContain("{saving ? 'Saving…' : labels.primary}");
     expect(REVIEW_DIALOG).not.toContain('Start review');
@@ -425,7 +541,9 @@ describe('the dialogs and App use these (apply.20)', () => {
   });
 
   it('wires the review dialog to saveThenReview and reviewWithoutSaving, started only while it is open', () => {
-    expect(APP).toContain('saveThenReview({ save, start: startReview, stillWanted: reviewDialogStillOpen })');
+    expect(APP).toContain(
+      'saveThenReview({ save, start: startReview, stillWanted: reviewDialogStillOpen, onNotSaved })'
+    );
     expect(APP).toContain('reviewWithoutSaving({ start: startReview, stillWanted: reviewDialogStillOpen })');
     expect(APP).toContain('useCallback(() => useApp.getState().reviewDialogOpen, [])');
     expect(APP).toContain('onSaveThenStart={saveThenStartReview}');
@@ -436,11 +554,39 @@ describe('the dialogs and App use these (apply.20)', () => {
 
   it('builds the manual review through buildManualReview, against the review on screen then', () => {
     expect(MANUAL).toMatch(
-      /buildManualReview\(\{\s*save: onSave,\s*build: make,\s*stillWanted: \(\) => useApp\.getState\(\)\.manualReviewOpen\s*\}\)/
+      /buildManualReview\(\{\s*save: onSave,\s*build: make,\s*stillWanted: \(\) => useApp\.getState\(\)\.manualReviewOpen,\s*onNotSaved: setNotSaved\s*\}\)/
     );
     expect(MANUAL).toContain('const current = useApp.getState().review ?? review;');
     expect(MANUAL).toContain('hunks: diffToHunks(current.base.text, normalizeText(corrected).text)');
     expect(MANUAL).not.toContain('askConfirm');
     expect(APP).toContain('onSave={save}');
+  });
+
+  /* apply.20 review: the save's cards sit under the dialog's backdrop, so
+     each dialog shows what they said in a box of its own. */
+  it('shows what a save that did not reach the file said inside the review dialog, in place of the warning', () => {
+    expect(REVIEW_DIALOG).toContain('const [notSaved, setNotSaved] = useState<string[]>([]);');
+    expect(REVIEW_DIALOG).toContain('const showNotSaved = notSaved.length > 0 && unsavedDecisions > 0;');
+    expect(REVIEW_DIALOG).toMatch(/setNotSaved\(\[\]\);\s*onSaveThenStart\(setNotSaved\);/);
+    expect(REVIEW_DIALOG).toMatch(
+      /\{showNotSaved \? \(\s*<div className="modal__warn modal__warn--stack modal__warn--error" role="alert">\s*\{notSaved\.map\(/
+    );
+    expect(REVIEW_DIALOG).toMatch(/\) : note \? \(\s*<div className="modal__warn" role="alert">/);
+    expect(APP).toMatch(/\(onNotSaved: \(lines: string\[\]\) => void\) =>\s*void saveThenReview\(/);
+  });
+
+  it('shows it inside Submit manual review too, between the pasted text and the buttons', () => {
+    expect(MANUAL).toContain('const [notSaved, setNotSaved] = useState<string[]>([]);');
+    expect(MANUAL).toContain(
+      'const showNotSaved = notSaved.length > 0 && unsavedDecisionCount(review.hunks) > 0;'
+    );
+    expect(MANUAL).toMatch(/setNotSaved\(\[\]\);\s*void buildManualReview\(/);
+    expect(MANUAL).toMatch(
+      /<\/label>\s*\{showNotSaved \? \(\s*<div className="modal__warn modal__warn--stack modal__warn--error" role="alert">\s*\{notSaved\.map\(/
+    );
+    const css = readFileSync(path.join(RENDERER, 'styles/app.css'), 'utf8');
+    expect(css).toMatch(
+      /\.modal__warn--error \{\s*border-color: var\(--danger\);\s*background: var\(--danger-bg\);\s*color: var\(--danger\);\s*\}/
+    );
   });
 });

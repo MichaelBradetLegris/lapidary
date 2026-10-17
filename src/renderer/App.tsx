@@ -523,10 +523,12 @@ export function App(): React.JSX.Element {
   /* No stranded decisions (apply.20, state/reviewStart.ts): with changes not
      saved to the chapter, the dialog's blue button saves them and starts the
      review only once the file reads like the page, and "Review without them"
-     asks first. Neither starts once the dialog has been closed. */
+     asks first. Neither starts once the dialog has been closed. A save that
+     does not reach the file hands the dialog what it said (apply.20 review). */
   const reviewDialogStillOpen = useCallback(() => useApp.getState().reviewDialogOpen, []);
   const saveThenStartReview = useCallback(
-    () => void saveThenReview({ save, start: startReview, stillWanted: reviewDialogStillOpen }),
+    (onNotSaved: (lines: string[]) => void) =>
+      void saveThenReview({ save, start: startReview, stillWanted: reviewDialogStillOpen, onNotSaved }),
     [save, startReview, reviewDialogStillOpen]
   );
   const startReviewWithoutSaving = useCallback(

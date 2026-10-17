@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { unsavedDecisionCount } from '../../shared/diff/compose';
 import { diffToHunks } from '../../shared/diff/wordDiff';
 import { createReview } from '../../shared/review';
 import { normalizeText } from '../../shared/text/eol';
@@ -40,6 +41,11 @@ export function ManualReviewDialog({
   const saving = useApp((s) => s.chapterSaving);
   const [corrected, setCorrected] = useState('');
   const [busy, setBusy] = useState(false);
+  /* What a save before building said when it did not reach the chapter file.
+     Its cards sit under this dialog's backdrop, so the dialog says it instead
+     (apply.20 review). */
+  const [notSaved, setNotSaved] = useState<string[]>([]);
+  const showNotSaved = notSaved.length > 0 && unsavedDecisionCount(review.hunks) > 0;
   const setDialogText = useApp((s) => s.setDialogText);
 
   /* Pasted text would be lost if the window closed, so the close guard is
@@ -71,10 +77,12 @@ export function ManualReviewDialog({
     /* Changes not saved to the chapter are asked about first: Save then
        build, Build without them, or Cancel (apply.20). */
     setBusy(true);
+    setNotSaved([]);
     void buildManualReview({
       save: onSave,
       build: make,
-      stillWanted: () => useApp.getState().manualReviewOpen
+      stillWanted: () => useApp.getState().manualReviewOpen,
+      onNotSaved: setNotSaved
     }).finally(() => setBusy(false));
   };
 
@@ -95,6 +103,13 @@ export function ManualReviewDialog({
             placeholder="Paste the corrected chapter"
           />
         </label>
+        {showNotSaved ? (
+          <div className="modal__warn modal__warn--stack modal__warn--error" role="alert">
+            {notSaved.map((line, i) => (
+              <span key={i}>{line}</span>
+            ))}
+          </div>
+        ) : null}
         <div className="modal__actions">
           <button
             type="button"

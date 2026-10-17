@@ -2203,6 +2203,21 @@ input[type='text'] {
   align-self: flex-end;
 }
 
+/* A save before a review that did not reach the chapter file, in Review with
+   AI or Submit manual review: what its cards said, one line each. The cards
+   sit under the dialog's backdrop, so the dialog shows this instead (apply.20
+   review). */
+.modal__warn--error {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* In Submit manual review it sits between the pasted text and the buttons. */
+.paste-field + .modal__warn {
+  margin: 12px 0 0;
+}
+
 .modal__warn code {
   font-family: ui-monospace, Consolas, monospace;
   font-size: 12px;

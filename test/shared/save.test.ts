@@ -18,6 +18,7 @@ import {
   leavePrompt,
   manualBuildPrompt,
   needsAttention,
+  notSavedLines,
   PRESS_DONE_FIRST,
   PRESS_EDITOR_SAVE_FIRST,
   replaceReviewPrompt,
@@ -869,6 +870,26 @@ describe('a new review over changes not saved (apply.20)', () => {
     expect(replaceReviewPrompt(4).body).toContain('You have decided 4 suggestions');
     expect(confirmButtons(replaceReviewPrompt(4)).map((b) => b.label)).toEqual(['Cancel', 'Replace']);
   });
+
+  it('says inside the dialog what did not happen, then what the save said, in order', () => {
+    const said = [
+      'Paragraph 5 has changed.',
+      'Nothing was saved. Resolve the paragraphs above, then save again.'
+    ];
+    expect(notSavedLines('review', said)).toEqual([
+      'The review has not started, because the changes were not saved.',
+      ...said
+    ]);
+    expect(notSavedLines('build', said.slice(1))).toEqual([
+      'The review was not built, because the changes were not saved.',
+      said[1]
+    ]);
+  });
+
+  it('says nothing when the save said nothing, as after Cancel to applying paragraph boxes', () => {
+    expect(notSavedLines('review', [])).toEqual([]);
+    expect(notSavedLines('build', [])).toEqual([]);
+  });
 });
 
 describe('wording rules', () => {
@@ -890,6 +911,7 @@ describe('wording rules', () => {
       out.push(changeCount(n), unsavedPhrase(n), unsavedDotLabel(n), reviewStartNote(n));
       add(reviewStartLabels(n));
       add(replaceReviewPrompt(n));
+      out.push(...notSavedLines('review', ['x']), ...notSavedLines('build', ['x']));
       if (n > 0) {
         for (const from of ['14/10/2026', null]) {
           add(reviewWithoutPrompt(n, from));

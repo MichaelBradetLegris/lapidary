@@ -43,8 +43,12 @@ interface Props {
   unsavedDecisions: number;
   /** a Save to chapter is under way */
   saving: boolean;
-  /** "Save N changes, then review": save, then start once the file reads like the page (apply.20) */
-  onSaveThenStart: () => void;
+  /**
+   * "Save N changes, then review": save, then start once the file reads like
+   * the page (apply.20). When the save does not get there, `onNotSaved` gets
+   * the lines the dialog shows about it (apply.20 review).
+   */
+  onSaveThenStart: (onNotSaved: (lines: string[]) => void) => void;
   /** "Review without them": ask, then start from the chapter file as it is (apply.20) */
   onStartWithout: () => void;
   onApplySettings: (next: Settings) => void;
@@ -89,6 +93,9 @@ export function ReviewDialog({
 }: Props): React.JSX.Element {
   const [paths, setPaths] = useState<EffectivePaths | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /* What a save that did not reach the chapter file said. Its cards sit under
+     this dialog's backdrop, so the dialog says it instead (apply.20 review). */
+  const [notSaved, setNotSaved] = useState<string[]>([]);
   const stats = chapterStats(review.base.text);
   const previous = history[0];
   const previousCounts = previous ? historyCounts(previous, reviewPath, review) : null;
@@ -103,6 +110,11 @@ export function ReviewDialog({
   const canStart = isOpenAi ? hasKey && current !== '' : true;
   const labels = reviewStartLabels(unsavedDecisions);
   const note = reviewStartNote(unsavedDecisions);
+  const showNotSaved = notSaved.length > 0 && unsavedDecisions > 0;
+  const saveThenStart = (): void => {
+    setNotSaved([]);
+    onSaveThenStart(setNotSaved);
+  };
   const planNote = isOpenAi ? null : proPlanNote(runtime?.subscriptionType, current);
   const updateAdvice = isOpenAi
     ? null
@@ -293,8 +305,15 @@ export function ReviewDialog({
             would stay behind in the old review, out of sight in History, and
             the model would suggest fixes for text the author already fixed.
             So the blue button saves them first, and starting without them
-            asks (apply.20). */}
-        {note ? (
+            asks (apply.20). When that save does not reach the file, this box
+            says why instead, in the save's own words. */}
+        {showNotSaved ? (
+          <div className="modal__warn modal__warn--stack modal__warn--error" role="alert">
+            {notSaved.map((line, i) => (
+              <span key={i}>{line}</span>
+            ))}
+          </div>
+        ) : note ? (
           <div className="modal__warn" role="alert">
             <span>{note}</span>
           </div>
@@ -321,7 +340,7 @@ export function ReviewDialog({
             type="button"
             className="primary"
             disabled={!canStart || saving}
-            onClick={unsavedDecisions > 0 ? onSaveThenStart : onStart}
+            onClick={unsavedDecisions > 0 ? saveThenStart : onStart}
           >
             {saving ? 'Saving…' : labels.primary}
           </button>

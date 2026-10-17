@@ -1,6 +1,11 @@
 import { unsavedDecisionCount } from '../../shared/diff/compose';
 import { historyWhen } from '../../shared/ui/history';
-import { manualBuildPrompt, replaceReviewPrompt, reviewWithoutPrompt } from '../../shared/ui/save';
+import {
+  manualBuildPrompt,
+  notSavedLines,
+  replaceReviewPrompt,
+  reviewWithoutPrompt
+} from '../../shared/ui/save';
 import type { SaveOptions, SaveOutcome } from './saveChapter';
 import { useApp } from './store';
 
@@ -16,6 +21,12 @@ import { useApp } from './store';
  * Main is reached only through the `save` the caller passes (App's
  * `useSaveChapter`), so this module needs neither the DOM nor the preload
  * bridge and is tested in node.
+ *
+ * A save that leaves the file without the changes says why on cards in the
+ * corner of the manuscript pane, under the dialog's backdrop, where they
+ * cannot be read or closed while the dialog is open. So the dialog is handed
+ * what they said (`onNotSaved`, `notSavedLines`) and shows it itself (apply.20
+ * review).
  */
 
 /** Save to chapter, waited for. */
@@ -29,6 +40,23 @@ export type SaveFn = (options: SaveOptions) => Promise<SaveOutcome>;
  */
 export function fileReadsLikePage(outcome: SaveOutcome): boolean {
   return outcome === 'saved' || outcome === 'nothing-to-save';
+}
+
+/**
+ * Save to chapter, waited for, and what the cards it put up said when it left
+ * the file unlike the page: the text of every card that appeared, or replaced
+ * one with the same key, while it ran, in order. Empty after a save that
+ * reached the file.
+ */
+async function saveSaying(save: SaveFn): Promise<{ outcome: SaveOutcome; said: string[] }> {
+  const before = new Set(useApp.getState().notifications.map((n) => n.id));
+  const outcome = await save({ applyDrafts: 'ask' });
+  if (fileReadsLikePage(outcome)) return { outcome, said: [] };
+  const said = useApp
+    .getState()
+    .notifications.filter((n) => !before.has(n.id))
+    .map((n) => n.text);
+  return { outcome, said };
 }
 
 /** History's date for the review on screen, for the questions to say where its changes stay. */
@@ -48,17 +76,28 @@ export interface ReviewStartDeps {
   start: () => void;
   /** false once the author has closed the dialog, so a save that ends after that starts nothing */
   stillWanted: () => boolean;
+  /**
+   * what the dialog shows inside itself when the save left the file without
+   * the changes (`notSavedLines`; empty when the save said nothing), called
+   * only while the dialog is still open
+   */
+  onNotSaved?: (lines: string[]) => void;
 }
 
 /**
  * Review with AI's "Save N changes, then review": Save to chapter, then start
  * the review once the file reads like the page. The review on screen then
  * stands on the bytes just written (`markSaved`), so the review starts from
- * the saved text. Resolves true when the review was started.
+ * the saved text. A save that did not get there starts nothing, and the
+ * dialog is told why. Resolves true when the review was started.
  */
 export async function saveThenReview(deps: ReviewStartDeps): Promise<boolean> {
-  const outcome = await deps.save({ applyDrafts: 'ask' });
-  if (!fileReadsLikePage(outcome) || !deps.stillWanted()) return false;
+  const { outcome, said } = await saveSaying(deps.save);
+  if (!deps.stillWanted()) return false;
+  if (!fileReadsLikePage(outcome)) {
+    deps.onNotSaved?.(notSavedLines('review', said));
+    return false;
+  }
   deps.start();
   return true;
 }
@@ -69,7 +108,9 @@ export async function saveThenReview(deps: ReviewStartDeps): Promise<boolean> {
  * is pressed, it starts without asking. Resolves true when the review was
  * started.
  */
-export async function reviewWithoutSaving(deps: Omit<ReviewStartDeps, 'save'>): Promise<boolean> {
+export async function reviewWithoutSaving(
+  deps: Omit<ReviewStartDeps, 'save' | 'onNotSaved'>
+): Promise<boolean> {
   const n = unsavedOnScreen();
   if (n > 0) {
     const ok = await useApp.getState().askConfirm(reviewWithoutPrompt(n, onScreenFrom()));
@@ -88,15 +129,18 @@ export interface ManualBuildDeps {
   build: () => void;
   /** false once the author has closed Submit manual review */
   stillWanted: () => boolean;
+  /** as `ReviewStartDeps.onNotSaved`, in the words for a build */
+  onNotSaved?: (lines: string[]) => void;
 }
 
 /**
  * Submit manual review's Build review. With changes not saved to the chapter
  * it asks `manualBuildPrompt`'s question: Save then build (focused) saves and
- * builds only once the file reads like the page, Build without them builds
- * from the file as it is, Cancel builds nothing. With decisions that are all
- * in the file, or only dismissed, it asks the older "Replace the open
- * review?"; with none it builds at once. Resolves true when it built.
+ * builds only once the file reads like the page (when it does not, the dialog
+ * is told why), Build without them builds from the file as it is, Cancel
+ * builds nothing. With decisions that are all in the file, or only
+ * dismissed, it asks the older "Replace the open review?"; with none it
+ * builds at once. Resolves true when it built.
  */
 export async function buildManualReview(deps: ManualBuildDeps): Promise<boolean> {
   const state = useApp.getState();
@@ -106,7 +150,13 @@ export async function buildManualReview(deps: ManualBuildDeps): Promise<boolean>
   if (n > 0) {
     const choice = await state.askChoice(manualBuildPrompt(n, onScreenFrom()));
     if (choice === 'cancel') return false;
-    if (choice === 'confirm' && !fileReadsLikePage(await deps.save({ applyDrafts: 'ask' }))) return false;
+    if (choice === 'confirm') {
+      const { outcome, said } = await saveSaying(deps.save);
+      if (!fileReadsLikePage(outcome)) {
+        if (deps.stillWanted()) deps.onNotSaved?.(notSavedLines('build', said));
+        return false;
+      }
+    }
   } else {
     const decided = review.hunks.filter((h) => h.status !== 'pending').length;
     if (decided > 0 && !(await state.askConfirm(replaceReviewPrompt(decided)))) return false;
