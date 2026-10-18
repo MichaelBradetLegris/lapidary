@@ -3,6 +3,7 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { defaultSettings, normalizeSettings } from '../../src/shared/settings';
 import type { Settings } from '../../src/shared/types';
+import { SPLIT_USUAL_SHARE } from '../../src/shared/ui/split';
 import { createSplitWrites, type SplitIo } from '../../src/renderer/state/split';
 import { useApp } from '../../src/renderer/state/store';
 
@@ -28,6 +29,9 @@ const CSS = readFileSync(path.join(SRC, 'renderer/styles/app.css'), 'utf8').repl
 const SHORT = /@media \(height < (\d+)px\) \{([\s\S]*?)\n\}/.exec(CSS);
 const SHORT_BLOCK = SHORT?.[2] ?? '';
 const BASE = SHORT ? CSS.replace(SHORT[0], '') : CSS;
+
+/** The usual split's most, as app.css writes it. */
+const USUAL_PERCENT = `${Math.round(SPLIT_USUAL_SHARE * 100)}%`;
 
 /** Every declaration for exactly this selector in `css`, the last of each property winning. */
 function declsFor(selector: string, css = BASE): Map<string, string> {
@@ -183,11 +187,28 @@ describe('the handle in the side panel', () => {
       "'aria-valuemin': aria?.valueMin",
       "'aria-valuemax': aria?.valueMax",
       "'aria-valuetext': aria?.valueText",
-      'tabIndex: 0',
-      'title: SPLIT_TITLE'
+      'tabIndex: still ? -1 : 0',
+      'title: still ? SPLIT_TITLE_STILL : SPLIT_TITLE'
     ]) {
       expect(HANDLE, part).toContain(part);
     }
+  });
+
+  it('is disabled and out of the Tab order where it cannot move an arrow step (C.59)', () => {
+    expect(HANDLE).toContain('const still = room !== null && !splitMovable(room);');
+    expect(HANDLE).toContain("'aria-disabled': still ? true : undefined");
+    // A drag, a double-click and the keys ask whether the handle can move now.
+    expect(HANDLE).toMatch(/return now && splitMovable\(now\) \? now : null;/);
+    expect(HANDLE).toMatch(
+      /onPointerDown:[\s\S]*?event\.preventDefault\(\);\s*const dragRoom = movableRoom\(\);\s*if \(!dragRoom\) return;[\s\S]*?setPointerCapture/
+    );
+    expect(HANDLE).toMatch(
+      /onDoubleClick: \(\) => \{\s*if \(movableRoom\(\)\) void saveSplit\(null, SPLIT_IO\);/
+    );
+    // A still handle with the focus leaves the keys to the review keys, which then step.
+    expect(HANDLE).toMatch(
+      /onKeyDown:[\s\S]*?const keyRoom = movableRoom\(\);\s*if \(!keyRoom\) return;[\s\S]*?event\.preventDefault\(\);/
+    );
   });
 
   it('follows a drag with the pointer captured, keeps the focus where it was, and keeps the split where it is let go', () => {
@@ -209,10 +230,12 @@ describe('the handle in the side panel', () => {
   });
 
   it('puts back the usual split on a double-click or Enter, and moves on the keys', () => {
-    expect(HANDLE).toMatch(/onDoubleClick: \(\) => \{\s*void saveSplit\(null, SPLIT_IO\);/);
+    expect(HANDLE).toMatch(
+      /onDoubleClick: \(\) => \{\s*if \(movableRoom\(\)\) void saveSplit\(null, SPLIT_IO\);/
+    );
     expect(HANDLE).toMatch(/action\.kind === 'reset'\) \{\s*void saveSplit\(null, SPLIT_IO\);/);
     expect(HANDLE).toMatch(
-      /onKeyDown:[\s\S]*?splitKeyAction\(event, measured\.list\)[\s\S]*?event\.preventDefault\(\);/
+      /onKeyDown:[\s\S]*?splitKeyAction\(event, keyRoom\.current\)[\s\S]*?event\.preventDefault\(\);/
     );
   });
 
@@ -234,8 +257,10 @@ describe('the split in app.css', () => {
     const list = declsFor('.side__regions[data-split] > .side__list');
     expect(list.get('flex')).toBe('none');
     expect(list.get('max-height')).toBe('none');
+    // The least is never more than the usual split's most, so where the two
+    // limits cross a split set leaves the region below no less (C.59).
     expect(list.get('height')).toBe(
-      'clamp(var(--split-min), calc(var(--split) * 100%), calc(100% - var(--split-gap)))'
+      `clamp(min(var(--split-min), ${USUAL_PERCENT}), calc(var(--split) * 100%), calc(100% - var(--split-gap)))`
     );
     // Until the page has measured: splitRoom's limits for the default window
     // at 100% (test/shared/split.test.ts), and the usual split's share.
@@ -245,7 +270,7 @@ describe('the split in app.css', () => {
     expect(regions.get('--split')).toBe('0.55');
     expect(HANDLE).toMatch(/'--split-min': `\$\{room\.min\}px`, '--split-gap': `\$\{room\.gap\}px`/);
     // The usual split is unchanged: the list takes what it needs up to 55%.
-    expect(declsFor('.side__list').get('max-height')).toBe('55%');
+    expect(declsFor('.side__list').get('max-height')).toBe(USUAL_PERCENT);
   });
 
   it('gives the handle the row-resize pointer, a visible focus ring and a line in place of the border', () => {
@@ -261,6 +286,12 @@ describe('the split in app.css', () => {
     // The grip in a grey with 3:1 on the panel (themeContrast.test.ts's faint pairs).
     expect(declsFor('.side__split::after').get('background')).toBe('var(--ink-faint)');
     expect(declsFor('.side__lower').has('border-top')).toBe(false);
+    // Where it cannot move (C.59): the plain line, with no grip and the usual pointer.
+    expect(declsFor(".side__split[aria-disabled='true']").get('cursor')).toBe('default');
+    expect(declsFor(".side__split[aria-disabled='true']::after").get('display')).toBe('none');
+    expect(declsFor(".side__split[aria-disabled='true']:hover::before").get('background')).toBe(
+      'var(--border)'
+    );
     // And the pointer keeps the shape while a drag crosses anything else.
     expect(declsFor(':root.splitting *').get('cursor')).toBe('row-resize !important');
     expect(HANDLE).toContain("document.documentElement.classList.add('splitting')");

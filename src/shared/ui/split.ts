@@ -12,14 +12,23 @@
  * height. app.css draws a share with `clamp()`, with the least and the most
  * the list may have measured by the page; `splitHeight` here is the same sum.
  *
+ * Three rows each side need about 196 CSS px under the box at 100%. In a
+ * shorter panel the two limits cross, and the list has its heading and three
+ * rows or 55% of the height, whichever is less, so a split set never leaves
+ * the region below less than the usual split leaves it under a full list. A
+ * handle that could move less than an arrow step is no control (PLAN C.59).
+ *
  * Pure (CLAUDE.md rule 4). The page measures (`SplitMeasure`) and draws.
  */
 
 /** How far an arrow key moves the handle, in CSS px. */
 export const SPLIT_STEP_PX = 24;
 
-/** The rows each region keeps in view, whatever the split. */
+/** The rows each region keeps in view, where the panel has room for both. */
 export const SPLIT_MIN_ROWS = 3;
+
+/** The most the list takes under the usual split, as a share of the height (`.side__list` max-height in app.css). */
+export const SPLIT_USUAL_SHARE = 0.55;
 
 /** A row of the suggestions list, for when the list has none to measure (CSS px, at 100% on Windows). */
 export const SPLIT_ROW_PX = 22;
@@ -30,6 +39,10 @@ export const SPLIT_LABEL = 'Split between suggestions and comments';
 /** The handle's tooltip. */
 export const SPLIT_TITLE =
   'Drag to give the suggestions or the comments more room. Double-click it, or press Enter, for the usual split.';
+
+/** The handle's tooltip when the panel is too short for it to move (`splitMovable`). */
+export const SPLIT_TITLE_STILL =
+  'The panel is too short to move this line. Make the window taller, or zoom out, to give it room.';
 
 /** The keys the handle takes when it has the focus; ArrowUp and ArrowDown are review keys elsewhere. */
 export const SPLIT_KEYS: readonly string[] = ['ArrowUp', 'ArrowDown', 'Home', 'End', 'Enter'];
@@ -64,7 +77,7 @@ export interface SplitRoom {
   total: number;
   /** the list region's height now */
   current: number;
-  /** the least the list may have: its heading and three rows */
+  /** the list's heading and three rows: the least it may have where the panel has room for both (`splitMin`) */
   min: number;
   /** what the list must leave under it: the handle and three rows of the region below */
   gap: number;
@@ -80,18 +93,45 @@ export function splitRoom(measure: SplitMeasure): SplitRoom {
   };
 }
 
-/** The most the list may have. In a panel too short for both minimums, the list keeps its own. */
+/**
+ * The least the list may have: its heading and three rows, but never more
+ * than the usual split gives a full list, 55% of the height. Where the panel
+ * is too short for three rows each side, a split set then leaves the region
+ * below no less than the usual split does under a full list.
+ */
+export function splitMin(room: SplitRoom): number {
+  return Math.min(room.min, SPLIT_USUAL_SHARE * room.total);
+}
+
+/** The most the list may have. In a panel too short for both minimums, it is the least. */
 export function splitMax(room: SplitRoom): number {
-  return Math.max(room.min, room.total - room.gap);
+  return Math.max(splitMin(room), room.total - room.gap);
+}
+
+/**
+ * How far the handle can move: the height less both minimums, and none in a
+ * panel shorter than them (196 CSS px at 100%).
+ */
+export function splitTravel(room: SplitRoom): number {
+  return splitMax(room) - splitMin(room);
+}
+
+/**
+ * Whether the handle is a control: it can move at least one arrow step.
+ * Otherwise it is drawn as the plain line, out of the Tab order, and a drag,
+ * a double-click and the keys leave it alone.
+ */
+export function splitMovable(room: SplitRoom): boolean {
+  return splitTravel(room) >= SPLIT_STEP_PX;
 }
 
 /**
  * The list's height for a share of the height, as app.css draws it:
- * `clamp(min, share * 100%, 100% - gap)`, where the least wins should the two
- * limits cross.
+ * `clamp(min(min, 55%), share * 100%, 100% - gap)`, where the least wins should
+ * the two limits cross.
  */
 export function splitHeight(share: number, room: SplitRoom): number {
-  return Math.max(room.min, Math.min(share * room.total, room.total - room.gap));
+  return Math.max(splitMin(room), Math.min(share * room.total, room.total - room.gap));
 }
 
 /**
@@ -112,7 +152,7 @@ export function splitShare(height: number, room: SplitRoom): number {
  * grows to it only on a move down, and a move up leaves it where it is.
  */
 export function splitMove(room: SplitRoom, target: number): number | null {
-  const next = Math.max(room.min, Math.min(target, splitMax(room)));
+  const next = Math.max(splitMin(room), Math.min(target, splitMax(room)));
   const moved = next - room.current;
   if (Math.abs(moved) < 0.5) return null;
   if (Math.sign(moved) !== Math.sign(target - room.current)) return null;
@@ -150,13 +190,22 @@ export function splitKeyAction(
 /**
  * Whether the review keys leave a key to the handle, which has the focus: the
  * arrows step through the list everywhere else (keyboard.ts). j and k still
- * step from the handle.
+ * step from the handle, and a handle that cannot move (`aria-disabled`) takes
+ * no key, as when the window shrinks while it has the focus.
  */
 export function splitTakesKey(
   key: string,
-  target: { classList: { contains(token: string): boolean } } | null
+  target: {
+    classList: { contains(token: string): boolean };
+    getAttribute(name: string): string | null;
+  } | null
 ): boolean {
-  return target !== null && target.classList.contains('side__split') && SPLIT_KEYS.includes(key);
+  return (
+    target !== null &&
+    target.classList.contains('side__split') &&
+    target.getAttribute('aria-disabled') !== 'true' &&
+    SPLIT_KEYS.includes(key)
+  );
 }
 
 /** The handle's value for a screen reader: the list's share as a percentage, and its limits. */
@@ -171,7 +220,7 @@ export function splitAria(room: SplitRoom): {
   const valueNow = percent(room.current);
   // A list under its least, as the usual split leaves a short one, is still in range.
   return {
-    valueMin: Math.min(percent(room.min), valueNow),
+    valueMin: Math.min(percent(splitMin(room)), valueNow),
     valueMax: Math.max(percent(splitMax(room)), valueNow),
     valueNow,
     valueText: `Suggestions ${valueNow}% of the height`

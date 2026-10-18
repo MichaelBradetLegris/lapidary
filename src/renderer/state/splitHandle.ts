@@ -14,8 +14,10 @@ import {
   SPLIT_LABEL,
   SPLIT_ROW_PX,
   SPLIT_TITLE,
+  SPLIT_TITLE_STILL,
   splitAria,
   splitKeyAction,
+  splitMovable,
   splitMove,
   splitRoom,
   splitShare,
@@ -33,7 +35,9 @@ import { useApp } from './store';
  * properties on `.side__regions`. The split is drawn by CSS from the share,
  * so the line keeps its place as the window, the zoom or the chips change the
  * panel's height, with no script. In the short window's one scroller the
- * handle is hidden and app.css ignores the split (C.49).
+ * handle is hidden and app.css ignores the split (C.49). In a panel too short
+ * for it to move an arrow step, it is the plain line it replaced: disabled,
+ * out of the Tab order, and still to the pointer (C.59).
  */
 
 /** The id of the suggestions list's region, which the handle's `aria-controls` names. */
@@ -148,6 +152,7 @@ export function useSplit(): Split {
   const share = live === undefined ? saved : live;
   const room = measure ? splitRoom(measure) : null;
   const aria = room ? splitAria(room) : null;
+  const still = room !== null && !splitMovable(room);
 
   const regionsProps: Split['regionsProps'] =
     share === null
@@ -171,6 +176,14 @@ export function useSplit(): Split {
     if (keep && last !== undefined) void saveSplit(last, SPLIT_IO);
   };
 
+  /** The regions as they are now, when the handle can move; null when it cannot, or is hidden. */
+  const movableRoom = (): SplitRoom | null => {
+    const regions = regionsRef.current;
+    const measured = regions ? measureSplit(regions) : null;
+    const now = measured ? splitRoom(measured) : null;
+    return now && splitMovable(now) ? now : null;
+  };
+
   const handleProps: Split['handleProps'] = {
     className: dragging ? 'side__split side__split--dragging' : 'side__split',
     role: 'separator',
@@ -181,18 +194,19 @@ export function useSplit(): Split {
     'aria-valuemax': aria?.valueMax,
     'aria-valuenow': aria?.valueNow,
     'aria-valuetext': aria?.valueText,
-    tabIndex: 0,
-    title: SPLIT_TITLE,
+    'aria-disabled': still ? true : undefined,
+    tabIndex: still ? -1 : 0,
+    title: still ? SPLIT_TITLE_STILL : SPLIT_TITLE,
     onPointerDown: (event: PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0 || !event.isPrimary || drag.current) return;
-      const regions = regionsRef.current;
-      const measured = regions ? measureSplit(regions) : null;
-      if (!measured) return;
       /* No text selection, and the focus stays where it was, as a click in
          the focused suggestion's box leaves it (ui.5): the arrows go on
-         stepping through the list after a drag. */
+         stepping through the list after a drag. So too on a handle that
+         cannot move, which a press then leaves alone. */
       event.preventDefault();
-      drag.current = { pointerId: event.pointerId, startY: event.clientY, room: splitRoom(measured) };
+      const dragRoom = movableRoom();
+      if (!dragRoom) return;
+      drag.current = { pointerId: event.pointerId, startY: event.clientY, room: dragRoom };
       event.currentTarget.setPointerCapture(event.pointerId);
       setDragging(true);
     },
@@ -206,13 +220,14 @@ export function useSplit(): Split {
     onPointerCancel: (event: PointerEvent<HTMLDivElement>) => finish(event.pointerId, false),
     onLostPointerCapture: (event: PointerEvent<HTMLDivElement>) => finish(event.pointerId, true),
     onDoubleClick: () => {
-      void saveSplit(null, SPLIT_IO);
+      if (movableRoom()) void saveSplit(null, SPLIT_IO);
     },
     onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
-      const regions = regionsRef.current;
-      const measured = regions ? measureSplit(regions) : null;
-      if (!measured) return;
-      const action = splitKeyAction(event, measured.list);
+      /* A handle that cannot move takes no key, and the review keys have the
+         arrows back (`splitTakesKey` reads `aria-disabled`). */
+      const keyRoom = movableRoom();
+      if (!keyRoom) return;
+      const action = splitKeyAction(event, keyRoom.current);
       if (!action) return;
       // The review keys leave these to the handle (`splitTakesKey`, keyboard.ts).
       event.preventDefault();
@@ -220,7 +235,6 @@ export function useSplit(): Split {
         void saveSplit(null, SPLIT_IO);
         return;
       }
-      const keyRoom = splitRoom(measured);
       const next = splitMove(keyRoom, action.target);
       if (next !== null) void saveSplit(splitShare(next, keyRoom), SPLIT_IO);
     }
