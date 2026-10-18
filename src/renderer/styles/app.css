@@ -614,13 +614,17 @@ input[type='text'] {
 /* ---------- review pane ---------- */
 
 /* Nothing in the pane may make the manuscript scroll sideways (ui.2). `clipGhosts`
-   already stops every ghost at the right edge of the prose, and the prose wraps
-   a word too long for its line; this clips anything else at the pane's own edge,
-   in its side padding, rather than add a horizontal scrollbar. `clip` rather
-   than `hidden`, so the pane does not become a scroller of its own. `min-width: 0`
-   lets the pane give the position strip its 14 px in a narrow pane: as a flex
-   item it would otherwise stay as wide as its longest word allows and push the
-   strip out (a 900x600 window at 150%). */
+   already stops every ghost 6 px inside the pane's edge, or short of the margin
+   column, the prose wraps a word too long for its line, and the paragraph
+   editor's buttons wrap; this clips anything else at the pane's own edge, the
+   outside of its side padding, rather than add a horizontal scrollbar. Whatever
+   reaches past that edge is hidden and cannot be clicked, so anything wider than
+   a narrow column has to wrap. `clip` rather than `hidden`, so the pane does not
+   become a scroller of its own. `min-width: 0` lets the pane give the position
+   strip its 14 px in a narrow pane: as a flex item it would otherwise stay as
+   wide as its longest word allows and push the strip out (a 900x600 window at
+   150%). From 175% in that window the side columns leave the centre column
+   narrower than the pane's own padding, and it still scrolls; ui.3 widens it. */
 .pane {
   flex: 0 1 auto;
   width: 100%;
@@ -2008,8 +2012,16 @@ input[type='text'] {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-fill) 24%, transparent);
 }
 
+/* The hint, then Cancel and Done on the right. Where the column is too narrow
+   for one row, Cancel and Done wrap below the hint instead of running out of
+   the pane, which clips whatever reaches past its side padding: in a 900x600
+   window at 150% Done was out of reach (ui.2 review). The hint takes the free
+   room on a shared row; on a row of their own the buttons keep to the right by
+   Cancel's auto margin, which is zero when they do not fit, so they never spill
+   out on the left. */
 .para-editor__foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   font-family: var(--font-ui);
@@ -2018,8 +2030,13 @@ input[type='text'] {
 }
 
 .para-editor__hint {
+  flex: 1 1 8em;
   color: var(--ink-faint);
   font-size: 11px;
+}
+
+.para-editor__foot > button:first-of-type {
+  margin-left: auto;
 }
 
 /* The editor popover. Floating rather than modal, because the author is editing

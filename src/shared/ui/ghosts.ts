@@ -6,13 +6,14 @@
  * A ghost is absolutely positioned above its own words and is as wide as its
  * text, on one line. Two things can be in its way, and neither is known before
  * layout, since both depend on where the line broke: the next ghost on the same
- * line, and the right edge of the prose. A long inserted sentence ran far past
- * that edge and gave the manuscript pane a horizontal scrollbar (`ui.2`). So a
- * ghost that would run into either is given a max width and clipped with an
- * ellipsis. The full text is still in the tooltip and in the suggestions list.
+ * line, and the edge of the room the row has (`ghostEdge`). A long inserted
+ * sentence ran far past the pane and gave the manuscript a horizontal scrollbar
+ * (`ui.2`). So a ghost that would run into either is given a max width and
+ * clipped with an ellipsis. The full text is still in the tooltip and in the
+ * suggestions list.
  */
 
-/** Breathing room between one ghost and the next. */
+/** Breathing room between one ghost and the next, or the margin column. */
 export const GHOST_GAP = 10;
 
 /** Below this a clipped ghost says nothing at all, so none is cut narrower. */
@@ -20,6 +21,12 @@ export const GHOST_MIN_WIDTH = 22;
 
 /** Two rows are on the same line when their tops agree to within this many pixels. */
 export const GHOST_LINE_TOLERANCE = 3;
+
+/**
+ * Room kept between a row and the pane's edge, where the pane clips, so the x
+ * never sits on that edge or against the position strip beside it.
+ */
+export const GHOST_EDGE_MARGIN = 6;
 
 /** One ghost row as laid out: the ghost and the x that trails it. */
 export interface GhostRow {
@@ -30,11 +37,32 @@ export interface GhostRow {
   trailing: number;
 }
 
+/** What bounds the rows on the right, as laid out. */
+export interface GhostBounds {
+  /** The right edge of the pane's padding box: the pane clips anything past it. */
+  paneRight: number;
+  /** The left edge of the margin column, or null while it is not shown. */
+  marginLeft: number | null;
+}
+
+/**
+ * How far right a ghost row may reach. Not the edge of the prose's text: a
+ * one-word suggestion near the end of a line ran a little past it into the
+ * pane's side padding, which makes no scrollbar, and cutting it there turned
+ * "watermill" into "water..." (`ui.2` review). So the row may use that padding,
+ * up to `GHOST_EDGE_MARGIN` short of the pane's edge, and stops `GHOST_GAP`
+ * short of the margin column when there is one, whose notes it would cover.
+ */
+export function ghostEdge({ paneRight, marginLeft }: GhostBounds): number {
+  const pane = paneRight - GHOST_EDGE_MARGIN;
+  return marginLeft === null ? pane : Math.min(pane, marginLeft - GHOST_GAP);
+}
+
 /**
  * The max width for each row's ghost, in the order given, or null where the row
  * fits as it is. A row stops `GHOST_GAP` short of the next ghost on its line,
- * and at `edge`, the right edge of the prose. Its ghost gets what is left after
- * the trailing x, but never less than `GHOST_MIN_WIDTH`.
+ * and at `edge`, the furthest it may reach (`ghostEdge`). Its ghost gets what is
+ * left after the trailing x, rounded down, but never less than `GHOST_MIN_WIDTH`.
  */
 export function ghostMaxWidths(rows: readonly GhostRow[], edge: number): (number | null)[] {
   const result: (number | null)[] = rows.map(() => null);

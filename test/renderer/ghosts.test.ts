@@ -3,10 +3,11 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /* ui.2 (found by the M5 review): a long inserted sentence's ghost ran past the
-   right edge of the prose and gave the manuscript pane a horizontal scrollbar.
-   `clipGhosts` now stops every ghost at that edge, using the pure
-   `ghostMaxWidths` tested in test/shared/ghosts.test.ts. These are source
-   checks: the tests run without a DOM. The window check is in PLAN (ui.2). */
+   pane and gave the manuscript a horizontal scrollbar. `clipGhosts` now stops
+   every ghost inside the pane's side padding, or short of the margin column,
+   using the pure `ghostEdge` and `ghostMaxWidths` tested in
+   test/shared/ghosts.test.ts. These are source checks: the tests run without a
+   DOM. The window checks are in PLAN (ui.2). */
 
 const SRC = path.join(__dirname, '../../src');
 const withoutComments = (text: string): string =>
@@ -15,6 +16,8 @@ const read = (file: string): string => withoutComments(readFileSync(path.join(SR
 
 const GHOSTS = read('renderer/state/ghosts.ts');
 const PANE = read('renderer/components/ReviewPane.tsx');
+const NOTES = read('renderer/components/MarginNotes.tsx');
+const EDITOR = read('renderer/components/ParagraphEditor.tsx');
 const CSS = withoutComments(readFileSync(path.join(SRC, 'renderer/styles/app.css'), 'utf8'));
 
 /** Every declaration made for exactly this selector, across app.css. */
@@ -31,16 +34,27 @@ function declsFor(selector: string): Map<string, string> {
   return out;
 }
 
-describe('clipGhosts stops every ghost at the edge of the prose (ui.2)', () => {
-  it('takes its widths from ghostMaxWidths, measured against the right edge of the prose text', () => {
-    expect(GHOSTS).toContain("import { ghostMaxWidths } from '../../shared/ui/ghosts';");
-    // One definition of the gap and the minimum: the shared module's.
-    expect(GHOSTS).not.toMatch(/const (GAP|MIN_WIDTH|LINE_TOLERANCE)\b/);
-    expect(GHOSTS).toMatch(
-      /const edge =\s*prose\.getBoundingClientRect\(\)\.right -\s*\(parseFloat\(style\.paddingRight\) \|\| 0\) -\s*\(parseFloat\(style\.borderRightWidth\) \|\| 0\);/
-    );
+describe('clipGhosts keeps every ghost inside the pane (ui.2)', () => {
+  it('takes its widths from ghostMaxWidths, measured against the edge ghostEdge gives', () => {
+    expect(GHOSTS).toContain("import { ghostEdge, ghostMaxWidths } from '../../shared/ui/ghosts';");
+    // One definition of the gap, the minimum and the margin: the shared module's.
+    expect(GHOSTS).not.toMatch(/const (GAP|MIN_WIDTH|LINE_TOLERANCE|EDGE_MARGIN)\b/);
     expect(GHOSTS).toMatch(/const widths = ghostMaxWidths\(\s*measured\.map\([\s\S]*?\),\s*edge\s*\);/);
     expect(GHOSTS).toContain('ghost.style.maxWidth = `${width}px`;');
+  });
+
+  it("measures the edge at the pane's padding box, where it clips, and at the margin column", () => {
+    expect(GHOSTS).toContain("const pane = prose.closest<HTMLElement>('.pane') ?? prose;");
+    expect(GHOSTS).toContain("const margin = pane.querySelector<HTMLElement>('.gutter');");
+    expect(GHOSTS).toMatch(
+      /const edge = ghostEdge\(\{\s*paneRight:\s*pane\.getBoundingClientRect\(\)\.right - \(parseFloat\(getComputedStyle\(pane\)\.borderRightWidth\) \|\| 0\),\s*marginLeft: margin \? margin\.getBoundingClientRect\(\)\.left : null\s*\}\);/
+    );
+    // Not the right edge of the prose's text, which cut a one-word suggestion
+    // at the end of a line ("watermill" read "water...", ui.2 review).
+    expect(GHOSTS).not.toMatch(/paddingRight/);
+    // The classes it looks for are the ones the pane and the margin column carry.
+    expect(PANE).toContain("className={`pane ${showGutter ? 'pane--gutter' : ''}");
+    expect(NOTES).toContain('<div className="gutter" ref={gutterRef}>');
   });
 
   it('measures a lone ghost too, which has no neighbour but can still run past the edge', () => {
@@ -95,5 +109,15 @@ describe('Nothing in the prose scrolls sideways (ui.2)', () => {
     expect(declsFor('.pane').get('min-width')).toBe('0');
     expect(declsFor('.pane').get('flex')).toBe('0 1 auto');
     expect(declsFor('.minimap').get('flex')).toBe('0 0 14px');
+  });
+
+  it("wraps the paragraph editor's buttons below its hint where the pane would hide them", () => {
+    // At 900x600 and 150% the column is 25 px and Done ran out of the pane (ui.2 review).
+    expect(declsFor('.para-editor__foot').get('flex-wrap')).toBe('wrap');
+    expect(declsFor('.para-editor__hint').get('flex')).toBe('1 1 8em');
+    expect(declsFor('.para-editor__foot > button:first-of-type').get('margin-left')).toBe('auto');
+    // A spacer alone on a row of its own would leave an empty row.
+    expect(EDITOR).not.toContain('className="spacer"');
+    expect(EDITOR).toMatch(/<\/span>\s*<button type="button" onClick=\{close\}>\s*Cancel/);
   });
 });

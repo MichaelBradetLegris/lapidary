@@ -171,10 +171,10 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
   const showGutter = layout.width >= GUTTER_MIN_WIDTH && gutterComments.length > 0;
 
   /* Ghosts are laid out by the browser, so collisions between two of them, and
-     a ghost running past the edge of the prose, can only be found by measuring
-     (item 2, ui.2). The margin column narrows the prose as it appears, so its
-     arrival clips at once rather than a frame later, when the prose's resize
-     comes back through the observer above. */
+     a ghost running out of the pane or into the margin column, can only be
+     found by measuring (item 2, ui.2). The margin column narrows the prose as it
+     appears, so its arrival clips at once rather than a frame later, when the
+     prose's resize comes back through the observer above. */
   useLayoutEffect(() => {
     clipGhosts(proseRef.current);
   }, [blocks, layout.version, layout.width, showGutter]);

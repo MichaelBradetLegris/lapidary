@@ -93,7 +93,6 @@ export function ParagraphEditor({ draft, label, onDone }: Props): React.JSX.Elem
         <span className="para-editor__hint">
           {changed ? 'Ctrl+Enter applies, Esc cancels' : 'Nothing changed yet. Esc closes.'}
         </span>
-        <span className="spacer" />
         <button type="button" onClick={close}>
           Cancel
         </button>
