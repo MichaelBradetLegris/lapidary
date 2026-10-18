@@ -613,12 +613,22 @@ input[type='text'] {
 
 /* ---------- review pane ---------- */
 
+/* Nothing in the pane may make the manuscript scroll sideways (ui.2). `clipGhosts`
+   already stops every ghost at the right edge of the prose, and the prose wraps
+   a word too long for its line; this clips anything else at the pane's own edge,
+   in its side padding, rather than add a horizontal scrollbar. `clip` rather
+   than `hidden`, so the pane does not become a scroller of its own. `min-width: 0`
+   lets the pane give the position strip its 14 px in a narrow pane: as a flex
+   item it would otherwise stay as wide as its longest word allows and push the
+   strip out (a 900x600 window at 150%). */
 .pane {
   flex: 0 1 auto;
   width: 100%;
+  min-width: 0;
   max-width: 860px;
   margin: 0 auto;
   padding: 28px 40px 120px;
+  overflow-x: clip;
 }
 
 .pane--gutter {
@@ -640,7 +650,9 @@ input[type='text'] {
 
 /* The left padding is the rail: each paragraph's number and pen sit in it
    (Phase 5d). It is added to the measure, not taken from it, so the line length
-   of the prose is what it was. */
+   of the prose is what it was. A word longer than the line, such as a web
+   address, breaks onto the next line instead of running out of the pane (ui.2);
+   ghosts are `white-space: pre` and never wrap. */
 .prose {
   font-family: var(--font-prose);
   font-size: 17px;
@@ -648,6 +660,7 @@ input[type='text'] {
   max-width: calc(66ch + 50px);
   padding-left: 50px;
   margin: 0 auto;
+  overflow-wrap: break-word;
 }
 
 .para {

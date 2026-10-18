@@ -129,12 +129,6 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
     return () => observer.disconnect();
   }, [blocks]);
 
-  /* Ghosts are laid out by the browser, so collisions between two of them can
-     only be found by measuring (item 2). */
-  useLayoutEffect(() => {
-    clipGhosts(proseRef.current);
-  }, [blocks, layout.version, layout.width]);
-
   /* Scroll only when something asked for it: keyboard navigation, or a click in
      the suggestions list. Hover and clicks in the prose never bump the token. */
   const lastToken = useRef(focusScrollToken);
@@ -175,6 +169,15 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
   };
 
   const showGutter = layout.width >= GUTTER_MIN_WIDTH && gutterComments.length > 0;
+
+  /* Ghosts are laid out by the browser, so collisions between two of them, and
+     a ghost running past the edge of the prose, can only be found by measuring
+     (item 2, ui.2). The margin column narrows the prose as it appears, so its
+     arrival clips at once rather than a frame later, when the prose's resize
+     comes back through the observer above. */
+  useLayoutEffect(() => {
+    clipGhosts(proseRef.current);
+  }, [blocks, layout.version, layout.width, showGutter]);
 
   const marks = useMemo(() => {
     const length = Math.max(1, review.base.text.length);
