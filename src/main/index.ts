@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { APP_DATA_DIR, APP_ID, APP_NAME } from '../shared/branding';
 import { readDevSwitches, setDevSwitches } from './devSwitches';
+import { backgroundThrottling, bringForward, chromiumSwitches, showWindow } from './foreground';
 import { closeGuard, installIpcBridge, registerCoreHandlers, stopWatching } from './ipc';
 import { flushLog, initLog, log } from './log';
 import { navigationAction } from './navigation';
@@ -54,6 +55,11 @@ if (switches.userDataDir) {
   app.setPath('userData', path.join(app.getPath('appData'), APP_DATA_DIR));
 }
 
+/* A quiet test window (dev.1, src/main/foreground.ts) keeps rendering while
+   the author's windows cover it. Chromium reads its features when the app
+   gets ready, so the switch goes on the command line before that. */
+for (const [name, value] of chromiumSwitches(switches)) app.commandLine.appendSwitch(name, value);
+
 /**
  * The app owns every key it needs; the default File/Edit/View menu only got in
  * the way, since Alt revealed it over the manuscript (item 10). Removing it
@@ -97,19 +103,22 @@ function createWindow(): BrowserWindow {
       sandbox: true,
       // The defaults, stated so nobody switches them off by accident.
       webSecurity: true,
-      allowRunningInsecureContent: false
+      allowRunningInsecureContent: false,
+      // Off only for a quiet test window, which may be covered (dev.1).
+      backgroundThrottling: backgroundThrottling(switches)
     }
   });
 
   /* Show on the first painted frame, so the window never flashes blank. In the
      packaged build 'ready-to-show' never fired on Windows and the app ran with
      its window hidden, so the page finishing its load and a timer are fallbacks;
-     whichever comes first shows the window. */
+     whichever comes first shows the window. A quiet test window is shown
+     without taking the foreground (dev.1). */
   let shown = false;
   const reveal = (): void => {
     if (shown || win.isDestroyed()) return;
     shown = true;
-    win.show();
+    showWindow(win, switches.quietWindow);
   };
   win.once('ready-to-show', reveal);
   win.webContents.once('did-finish-load', reveal);
@@ -195,10 +204,7 @@ function start(): void {
 
   app.on('second-instance', () => {
     const win = BrowserWindow.getAllWindows()[0];
-    if (!win) return;
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
+    if (win) bringForward(win, switches.quietWindow);
   });
 
   app.on('window-all-closed', () => {

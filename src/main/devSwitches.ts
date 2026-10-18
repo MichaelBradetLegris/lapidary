@@ -3,11 +3,11 @@
  *
  * Each is an environment variable that helps a test run: a scratch userData
  * folder so a run cannot touch the author's real settings, a local mock in place
- * of the OpenAI API, Claude Code's stderr echoed to the terminal, and so on. A
- * packaged build ignores all of them. A variable left in someone's shell profile
- * must never redirect the stored OpenAI key to another server, or move an
- * installed app's settings. The ignored names are kept so the log can say they
- * were seen.
+ * of the OpenAI API, Claude Code's stderr echoed to the terminal, a window that
+ * stays out of the author's way, and so on. A packaged build ignores all of
+ * them. A variable left in someone's shell profile must never redirect the
+ * stored OpenAI key to another server, or move an installed app's settings.
+ * The ignored names are kept so the log can say they were seen.
  *
  * The one switch an installed build honours is the `--isolated-user-data=<dir>`
  * command-line flag. A flag has to be typed for each launch, so it cannot linger,
@@ -23,6 +23,7 @@ export const DEV_SWITCH_NAMES = [
   'MANUSCRIPT_REVIEW_OPENAI_BASE_URL',
   'MANUSCRIPT_REVIEW_DEV_NO_CLAUDE_CODE',
   'MANUSCRIPT_REVIEW_DEV_FAKE_UPDATE',
+  'MANUSCRIPT_REVIEW_DEV_QUIET_WINDOW',
   'MREV_VERBOSE'
 ] as const;
 
@@ -39,6 +40,11 @@ export interface DevSwitches {
   noClaudeCode: boolean;
   /** pretend this version is available, to exercise the update UI */
   fakeUpdate: string | null;
+  /**
+   * a test window that never takes the foreground and keeps rendering while it
+   * is covered (dev.1, src/main/foreground.ts)
+   */
+  quietWindow: boolean;
   /** echo Claude Code's stderr to the terminal */
   verbose: boolean;
   /** variables a packaged build saw and ignored, for the log */
@@ -59,6 +65,7 @@ export const NO_DEV_SWITCHES: DevSwitches = Object.freeze({
   openAiBaseUrl: null,
   noClaudeCode: false,
   fakeUpdate: null,
+  quietWindow: false,
   verbose: false,
   ignored: []
 });
@@ -102,6 +109,7 @@ export function readDevSwitches({ env, packaged, isolatedUserData }: DevSwitchIn
     openAiBaseUrl: httpUrl(env['MANUSCRIPT_REVIEW_OPENAI_BASE_URL']),
     noClaudeCode: flag(env['MANUSCRIPT_REVIEW_DEV_NO_CLAUDE_CODE']),
     fakeUpdate: text(env['MANUSCRIPT_REVIEW_DEV_FAKE_UPDATE']),
+    quietWindow: flag(env['MANUSCRIPT_REVIEW_DEV_QUIET_WINDOW']),
     verbose: flag(env['MREV_VERBOSE']),
     ignored: []
   };

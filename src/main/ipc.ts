@@ -14,6 +14,7 @@ import { chapterName } from '../shared/review';
 import { noBackupsYet } from '../shared/ui/backups';
 import { backupsRootFor, chapterBackupHooks, chapterBackups } from './backups';
 import { boxAnswer, createCloseGuard, messageBoxOptions } from './closeGuard';
+import { getDevSwitches } from './devSwitches';
 import {
   draftsRootFor,
   loadDrafts,
@@ -95,7 +96,8 @@ export const closeGuard = createCloseGuard<BrowserWindow>({
   showBox: async (win, box, signal) =>
     boxAnswer((await dialog.showMessageBox(win, { ...messageBoxOptions(box), signal })).response),
   quit: () => app.quit(),
-  log
+  log,
+  quietWindow: () => getDevSwitches().quietWindow
 });
 
 /**

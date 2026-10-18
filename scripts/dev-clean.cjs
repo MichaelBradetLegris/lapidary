@@ -19,6 +19,8 @@
  *   --claude-config <dir>  point Claude Code at this config folder
  *   --api-key-dummy        set ANTHROPIC_API_KEY to a dummy key: "API key in use"
  *   --no-claude-code       behave as if Claude Code were not installed (development builds only)
+ *   --quiet                a quiet test window: shown without taking the foreground, and kept
+ *                          rendering while covered (development builds only; PLAN dev.1)
  *   --exe <path>           run a packaged build instead of `npm run dev`
  */
 const { spawn } = require('node:child_process');
@@ -31,12 +33,18 @@ const ROOT = path.join(__dirname, '..');
 const PREFIX = appName().toLowerCase();
 const args = process.argv.slice(2);
 const WITH_VALUE = new Set(['--user-data', '--claude-config', '--exe']);
-const FLAGS = new Set(['--user-data-fresh', '--claude-config-empty', '--api-key-dummy', '--no-claude-code']);
+const FLAGS = new Set([
+  '--user-data-fresh',
+  '--claude-config-empty',
+  '--api-key-dummy',
+  '--no-claude-code',
+  '--quiet'
+]);
 
 function usage(problem) {
   if (problem) console.error(problem);
   console.error(
-    'Usage: npm run dev:clean -- [--user-data <dir> | --user-data-fresh] [--claude-config-empty | --claude-config <dir>] [--api-key-dummy] [--no-claude-code] [--exe <path>]'
+    'Usage: npm run dev:clean -- [--user-data <dir> | --user-data-fresh] [--claude-config-empty | --claude-config <dir>] [--api-key-dummy] [--no-claude-code] [--quiet] [--exe <path>]'
   );
   process.exit(problem ? 1 : 0);
 }
@@ -97,11 +105,16 @@ if (options['--no-claude-code']) {
   env.MANUSCRIPT_REVIEW_DEV_NO_CLAUDE_CODE = '1';
   console.log('Behaving as if Claude Code were not installed.');
 }
+if (options['--quiet']) {
+  env.MANUSCRIPT_REVIEW_DEV_QUIET_WINDOW = '1';
+  console.log('Quiet window: shown without taking the foreground, and kept rendering while covered.');
+}
 
 let child;
 if (options['--exe']) {
-  if (options['--no-claude-code'])
-    console.log('Note: a packaged build ignores --no-claude-code, like every development switch.');
+  for (const flag of ['--no-claude-code', '--quiet']) {
+    if (options[flag]) console.log(`Note: a packaged build ignores ${flag}, like every development switch.`);
+  }
   child = spawn(
     path.resolve(options['--exe']),
     [`--isolated-user-data=${userData}`, '--remote-debugging-port=9222'],
