@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
+  commentEditBlocked,
   commentList,
   commentPlace,
   commentsHeading,
@@ -106,6 +107,17 @@ describe('one comments list (ui.7)', () => {
     expect(commentPlace(c('x', null, 'open', 11))).toBe('unanchored (was paragraph 12)');
     expect(commentPlace(c('x', null, 'resolved', 0))).toBe('unanchored (was paragraph 1)');
     expect(commentPlace(c('x', null))).toBe('chapter');
+  });
+
+  it('says why Edit text opens no paragraph, in different words for a lost comment and a chapter one', () => {
+    const lost =
+      "That comment's paragraph is no longer in the chapter, so there is no one paragraph to edit.";
+    const chapter = 'That comment is about the chapter as a whole, so there is no one paragraph to edit.';
+    expect(commentEditBlocked(c('x', null, 'open', 11))).toBe(lost);
+    expect(commentEditBlocked(c('x', null, 'open', 0))).toBe(lost);
+    expect(commentEditBlocked(c('x', null))).toBe(chapter);
+    expect(commentEditBlocked(c('x', 11))).toBeNull();
+    expect(commentEditBlocked(c('x', 0))).toBeNull();
   });
 
   it('loses no comment and keeps each run whole and in order, whatever comes in', () => {

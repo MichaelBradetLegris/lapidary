@@ -89,6 +89,20 @@ export function commentPlace(comment: Pick<ReviewComment, 'paragraph' | 'wasPara
   return 'chapter';
 }
 
+/**
+ * Why "Edit text" on a comment opens no paragraph, or null when it has one to
+ * open: its paragraph left the file when it changed on disk (ui.7), or it is
+ * about the chapter as a whole and never had one.
+ */
+export function commentEditBlocked(
+  comment: Pick<ReviewComment, 'paragraph' | 'wasParagraph'>
+): string | null {
+  if (comment.paragraph !== null) return null;
+  return isUnanchored(comment)
+    ? "That comment's paragraph is no longer in the chapter, so there is no one paragraph to edit."
+    : 'That comment is about the chapter as a whole, so there is no one paragraph to edit.';
+}
+
 /** Comments that take a place in the margin: every anchored one, resolved or not, in reading order. */
 export function gutterComments(comments: readonly ReviewComment[]): ReviewComment[] {
   return sortComments(comments.filter((c) => c.paragraph !== null));

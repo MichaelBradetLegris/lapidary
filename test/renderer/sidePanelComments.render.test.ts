@@ -1,7 +1,9 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SidePanel } from '../../src/renderer/components/SidePanel';
+import { editFromComment } from '../../src/renderer/state/edit';
+import { useApp } from '../../src/renderer/state/store';
 import type { Hunk, Review, ReviewComment } from '../../src/shared/types';
 
 /* ui.7: the side panel's comments are one list under one heading that shows
@@ -11,8 +13,10 @@ import type { Hunk, Review, ReviewComment } from '../../src/shared/types';
    where the paragraph number goes. Resolved comments keep their quieter look
    and Unresolve, and the Unanchored heading, which lists suggestions, keeps its
    place below. The panel is rendered with react-dom/server; the effects, which
-   measure and scroll, do not run there. This file is type-checked with the
-   renderer's project (tsconfig.web.json), as it renders a component. */
+   measure and scroll, do not run there. Edit text, which says why a comment
+   with no paragraph opens none, is called on the store as its button calls it.
+   This file is type-checked with the renderer's project (tsconfig.web.json),
+   as it renders a component. */
 
 const BASE_TEXT = Array.from({ length: 14 }, (_, i) => `Paragraph ${i + 1} of the chapter.`).join('\n\n');
 
@@ -184,5 +188,48 @@ describe('the side panel lists comments under one heading (ui.7)', () => {
     expect(headings(done)).toContain('Comments (2 of 2 resolved)');
     expect(cards(done).map((card) => card.place)).toEqual(['paragraph 2', 'paragraph 5']);
     expect(text(done)).not.toContain('No comments.');
+  });
+});
+
+describe('Edit text on a comment card (ui.7)', () => {
+  const state = () => useApp.getState();
+  const comment = (id: string): ReviewComment => MIXED.find((x) => x.id === id)!;
+  const notices = (): [string, string][] => state().notifications.map((n) => [n.tone, n.text]);
+
+  beforeEach(() => {
+    state().setReview(review(MIXED));
+    state().clearNotifications();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    state().setReview(null);
+    state().clearNotifications();
+  });
+
+  it("says an unanchored comment's paragraph is no longer in the chapter, and opens nothing", () => {
+    editFromComment(comment('lost-12'));
+    expect(notices()).toEqual([
+      ['warn', "That comment's paragraph is no longer in the chapter, so there is no one paragraph to edit."]
+    ]);
+    expect(state().drafts).toEqual({});
+    expect(state().activeCommentId).toBeNull();
+  });
+
+  it('says a comment about the chapter as a whole has no one paragraph, and opens nothing', () => {
+    editFromComment(comment('chapter'));
+    expect(notices()).toEqual([
+      ['warn', 'That comment is about the chapter as a whole, so there is no one paragraph to edit.']
+    ]);
+    expect(state().drafts).toEqual({});
+    expect(state().activeCommentId).toBeNull();
+  });
+
+  it('opens the paragraph of a comment that has one, with no notice', () => {
+    vi.stubGlobal('requestAnimationFrame', () => 0);
+    editFromComment(comment('open-9'));
+    expect(notices()).toEqual([]);
+    expect(Object.values(state().drafts).map((d) => d.paragraphs)).toEqual([[8]]);
+    expect(state().activeCommentId).toBe('open-9');
   });
 });
