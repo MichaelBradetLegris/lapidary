@@ -14,6 +14,7 @@
 
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import type { ReviewComment } from '../../shared/types';
+import { isUnanchored } from '../../shared/ui/comments';
 import { hoverCancel } from './hover';
 import { scrollToElement } from './scroll';
 import { inDraft, isLocked, useApp, type AnchorRect } from './store';
@@ -67,7 +68,9 @@ export function editFromComment(comment: ReviewComment): void {
   if (!review || comment.paragraph === null) {
     state.notify(
       'warn',
-      'That comment is about the chapter as a whole, so there is no one paragraph to edit.'
+      isUnanchored(comment)
+        ? "That comment's paragraph is no longer in the chapter, so there is no one paragraph to edit."
+        : 'That comment is about the chapter as a whole, so there is no one paragraph to edit.'
     );
     return;
   }

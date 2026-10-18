@@ -130,6 +130,29 @@ describe('rebaseReview', () => {
     expect(orphaned.stats.orphanedComments).toBeGreaterThan(0);
   });
 
+  it('remembers the paragraph a lost comment had, and keeps it through later changes (ui.7)', () => {
+    const review: Review = {
+      ...build(),
+      comments: [
+        { id: 'c1', paragraph: 2, category: 'flow', text: 'This stalls.', status: 'open' },
+        { id: 'c2', paragraph: null, category: 'pacing', text: 'The whole chapter.', status: 'open' },
+        { id: 'c3', paragraph: 0, category: 'clarity', text: 'Which night?', status: 'resolved' }
+      ]
+    };
+    const truncated = ORIGINAL.split('\n\n').slice(0, 1).join('\n\n');
+    const lost = rebaseReview(review, baseOf(truncated)).review;
+    expect(lost.comments[0]).toMatchObject({ paragraph: null, wasParagraph: 2 });
+    // A comment about the whole chapter never had a paragraph, so it gains none.
+    expect(lost.comments[1]).toEqual(review.comments[1]);
+    expect(lost.comments[2]).toEqual(review.comments[2]);
+
+    // Another change on disk, the paragraph still gone: it stays lost with the same number.
+    const again = rebaseReview(lost, baseOf(`New opening.\n\n${truncated}`)).review;
+    expect(again.comments[0]).toMatchObject({ paragraph: null, wasParagraph: 2 });
+    expect(again.comments[2]?.paragraph).toBe(1);
+    expect(again.comments[2]?.wasParagraph).toBeUndefined();
+  });
+
   it('keeps a short common word anchored when a paragraph is inserted above it', () => {
     // "of" and "have" occur all over ordinary prose, so distance from the old
     // offset alone is not enough to pick the right occurrence.

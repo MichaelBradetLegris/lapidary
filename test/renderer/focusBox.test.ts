@@ -124,7 +124,7 @@ describe('where the box is (ui.5)', () => {
       'className="side__regions"',
       'className="side__section side__list"',
       'className="side__lower"',
-      '<h3>Comments ({openComments.length})</h3>',
+      '<h3>{commentsHeading(review.comments)}</h3>',
       'className="side__foot"'
     ].map(at);
     expect(order).toEqual([...order].sort((a, b) => a - b));

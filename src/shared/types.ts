@@ -79,8 +79,16 @@ export interface Hunk {
 
 export interface ReviewComment {
   id: string;
-  /** null when Claude gave no usable anchor */
+  /** null when Claude gave no usable anchor, or when the comment's paragraph left the file */
   paragraph: number | null;
+  /**
+   * The paragraph a comment had when a change to the file on disk took that
+   * paragraph away (`rebaseReview`); `paragraph` is then null. The side panel
+   * reads it as "unanchored (was paragraph 12)" and lists the comment by it
+   * (`ui.7`). Absent on a comment about the whole chapter, and on comments
+   * that lost their paragraph before 1.0, which read as about the chapter.
+   */
+  wasParagraph?: number;
   /** short excerpt Claude referenced, if any */
   quote?: string;
   category: CommentCategory;

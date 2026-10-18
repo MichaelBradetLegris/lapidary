@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { isAuthored } from '../../shared/edit';
 import type { ReviewSummary } from '../../shared/ipc';
 import { paragraphNumber } from '../../shared/prompt/chapter';
-import { groupComments } from '../../shared/ui/comments';
+import { commentList, commentPlace, commentsHeading } from '../../shared/ui/comments';
 import {
   historyCounts,
   historyWhen,
@@ -62,7 +62,7 @@ export function SidePanel({
   );
 
   const focused = review.hunks.find((h) => h.id === focusedHunkId) ?? null;
-  const { open: openComments, resolved } = useMemo(() => groupComments(review.comments), [review.comments]);
+  const comments = useMemo(() => commentList(review.comments), [review.comments]);
   const picker = useMemo(
     () => reviewPicker(history, activeReviewPath, review),
     [history, activeReviewPath, review]
@@ -104,9 +104,7 @@ export function SidePanel({
         onClick={() => scrollToParagraph(comment.paragraph, comment.id)}
       >
         <span className="comment__cat">{comment.category}</span>
-        <span className="comment__para">
-          {comment.paragraph === null ? 'chapter' : `paragraph ${paragraphNumber(comment.paragraph)}`}
-        </span>
+        <span className="comment__para">{commentPlace(comment)}</span>
       </button>
       {comment.quote ? <blockquote>{comment.quote}</blockquote> : null}
       <p>{comment.text}</p>
@@ -305,69 +303,59 @@ export function SidePanel({
           <div {...handleProps} />
 
           <div className="side__lower">
+            {/* One list under one heading that counts the resolved ones (ui.7):
+                the open comments, then those whose paragraph left the file,
+                then the resolved, which keep their quieter look and Unresolve
+                rather than disappearing (item 4). Each run is in reading
+                order, an unanchored comment by the paragraph it had. */}
             <section className="side__section">
-              <h3>Comments ({openComments.length})</h3>
-              {openComments.length === 0 && resolved.length === 0 ? (
+              <h3>{commentsHeading(review.comments)}</h3>
+              {comments.length === 0 ? (
                 <p className="side__empty">No comments.</p>
-              ) : null}
-              {openComments.length === 0 && resolved.length > 0 ? (
-                <p className="side__empty">All resolved.</p>
-              ) : null}
-              <ul className="comments">
-                {openComments.map((comment) => (
-                  <li
-                    key={comment.id}
-                    className={`comment cat-${comment.category} ${
-                      comment.id === activeCommentId ? 'comment--active' : ''
-                    }`}
-                  >
-                    {commentBody(comment)}
-                    <div className="comment__foot">
-                      <label className="comment__resolve">
-                        <input
-                          type="checkbox"
-                          checked={false}
-                          onChange={() => onSetCommentStatus(comment.id, 'resolved')}
-                        />
-                        Resolve
-                      </label>
-                      <span className="spacer" />
-                      <button type="button" className="link" onClick={() => editFromComment(comment)}>
-                        Edit text
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            {/* Resolved comments move down here rather than disappearing (item 4). */}
-            {resolved.length > 0 ? (
-              <section className="side__section">
-                <h3>Resolved comments ({resolved.length})</h3>
+              ) : (
                 <ul className="comments">
-                  {resolved.map((comment) => (
-                    <li
-                      key={comment.id}
-                      className={`comment comment--resolved cat-${comment.category} ${
-                        comment.id === activeCommentId ? 'comment--active' : ''
-                      }`}
-                    >
-                      {commentBody(comment)}
-                      <div className="comment__foot">
-                        <button
-                          type="button"
-                          className="link"
-                          onClick={() => onSetCommentStatus(comment.id, 'open')}
-                        >
-                          Unresolve
-                        </button>
-                      </div>
-                    </li>
-                  ))}
+                  {comments.map((comment) => {
+                    const resolved = comment.status === 'resolved';
+                    return (
+                      <li
+                        key={comment.id}
+                        className={`comment ${resolved ? 'comment--resolved' : ''} cat-${comment.category} ${
+                          comment.id === activeCommentId ? 'comment--active' : ''
+                        }`}
+                      >
+                        {commentBody(comment)}
+                        <div className="comment__foot">
+                          {resolved ? (
+                            <button
+                              type="button"
+                              className="link"
+                              onClick={() => onSetCommentStatus(comment.id, 'open')}
+                            >
+                              Unresolve
+                            </button>
+                          ) : (
+                            <>
+                              <label className="comment__resolve">
+                                <input
+                                  type="checkbox"
+                                  checked={false}
+                                  onChange={() => onSetCommentStatus(comment.id, 'resolved')}
+                                />
+                                Resolve
+                              </label>
+                              <span className="spacer" />
+                              <button type="button" className="link" onClick={() => editFromComment(comment)}>
+                                Edit text
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
-              </section>
-            ) : null}
+              )}
+            </section>
 
             <section className="side__section">
               <h3>Unanchored ({stale.length})</h3>
