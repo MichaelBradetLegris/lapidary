@@ -526,7 +526,15 @@ const SCROLLERS = [...new Set(RULES.filter((r) => scrolls(r.decls)).flatMap((r) 
 
 describe('scrollers (theme.1, panel.1)', () => {
   it('finds the scrollers the plan names', () => {
-    for (const name of ['.center', '.body--single', '.setup', '.rows', '.side__lower', '.side__body']) {
+    for (const name of [
+      '.center',
+      '.body--single',
+      '.setup',
+      '.rows',
+      '.side__lower',
+      '.side__body',
+      '.side__focus-body'
+    ]) {
       expect(SCROLLERS).toContain(name);
     }
   });

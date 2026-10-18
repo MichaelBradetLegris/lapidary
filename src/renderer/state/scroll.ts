@@ -91,21 +91,14 @@ export function scrollToElement(element: Element | null | undefined, block: Scro
 }
 
 /**
- * Keep the focused suggestion in view in the side panel (panel.1): its row in
- * the list and, when the panel has two regions, its details in the region below
- * (`lower`, which scrolls only then). Neither moves when it is already wholly in
- * view, so a click on the first or last visible row never slides the list under
- * the pointer; one partly or wholly out of view comes in with a small margin.
- * When the window is short and the panel scrolls as one, only the row is
- * followed: the panel is then the scroller for both, and a second scroll would
- * cancel the first.
+ * Keep the focused suggestion's row in view in the side panel's list (panel.1),
+ * in the list region or, in a short window, the panel's one scroller. It does
+ * not move when it is already wholly in view, so a click on the first or last
+ * visible row never slides the list under the pointer; one partly or wholly out
+ * of view comes in with a small margin. The suggestion's details are in a box
+ * of fixed height above the list (ui.5), which no focus moves, so only the row
+ * is followed.
  */
-export function followFocus(
-  row: Element | null | undefined,
-  lower: HTMLElement | null,
-  details: Element | null
-): void {
+export function followFocus(row: Element | null | undefined): void {
   scrollToElement(row, 'if-needed');
-  if (!lower || !details || !/(auto|scroll)/.test(getComputedStyle(lower).overflowY)) return;
-  scrollRectIntoView(lower, details.getBoundingClientRect(), 'if-needed');
 }

@@ -11,7 +11,8 @@ const MARGIN = 10;
 
 /**
  * The editor for one suggestion's replacement text (item 3a), opened from the
- * pencil in the tooltip, the details block and each row of the suggestions list.
+ * pencil in the tooltip, the focused suggestion's box and each row of the
+ * suggestions list.
  * It is a floating panel rather than a modal because the author is editing words
  * they can still see, and it places itself beside them without covering the
  * line. Prose itself is edited a paragraph at a time, in place (Phase 5d).
