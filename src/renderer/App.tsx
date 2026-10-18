@@ -722,12 +722,17 @@ export function App(): React.JSX.Element {
   const runtimeLabel =
     labelForRuntime(activeRuntime, activeProvider === 'claude' ? ai.lastFailure : null) ?? undefined;
 
+  // The first-use hint hangs over the prose when the side panel is folded
+  // (ui.3); the Setup screen has no side panel, folded or not.
+  const sideFolded = layout.side === 'strip' && !(setupOpen && claudeRuntime);
+
   const toolbar = (
     <Toolbar
       review={review}
       running={ai.running}
       progressLabel={progressLabel}
       saving={chapterSaving}
+      sideFolded={sideFolded}
       onReviewWithAi={openReviewDialog}
       onCancelReview={ai.cancel}
       onManualReview={openManualReview}

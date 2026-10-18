@@ -39,15 +39,17 @@ const zIndexes = (): number[] => [...CSS.matchAll(/z-index:\s*(\d+)/g)].map((m) 
 describe('the toolbar shows the hint (apply.12)', () => {
   it('decides with saveHintVisible from what it already draws Save to chapter with', () => {
     expect(TOOLBAR).toMatch(
-      /saveHintVisible\(\{\s*dismissedHints,\s*dismissedThisSession: hintDismissedThisSession\(SAVE_HINT_ID\),\s*hasChapter: input\.hasChapter,\s*unsavedDecisions: input\.unsavedDecisions,\s*locked,\s*saving\s*\}\)/
+      /saveHintVisible\(\{\s*dismissedHints,\s*dismissedThisSession: hintDismissedThisSession\(SAVE_HINT_ID\),\s*hasChapter: input\.hasChapter,\s*unsavedDecisions: input\.unsavedDecisions,\s*locked,\s*saving,\s*sideFolded,\s*editingParagraph: editing > 0,\s*setAside: hintSetAside\s*\}\)/
     );
     expect(TOOLBAR).toContain('useApp((s) => s.settings?.dismissedHints ?? null)');
+    expect(TOOLBAR).toContain('const editing = useApp((s) => Object.keys(s.drafts).length);');
+    expect(TOOLBAR).toContain('const hintSetAside = useSaveHintAside((s) => s.setAside);');
   });
 
   it('points the hint at Save to chapter, with the chapter on screen in its words', () => {
     expect(TOOLBAR).toMatch(/<button\s+ref=\{saveRef\}\s+type="button"\s+className="primary"/);
-    expect(TOOLBAR).toContain(
-      '<SaveHint anchor={saveRef} text={saveHintText(review.sourcePath)} onGotIt={onSaveHintDone} />'
+    expect(TOOLBAR).toMatch(
+      /<SaveHint\s+anchor=\{saveRef\}\s+text=\{saveHintText\(review\.sourcePath\)\}\s+overProse=\{sideFolded\}\s+onGotIt=\{onSaveHintDone\}\s*\/>/
     );
   });
 

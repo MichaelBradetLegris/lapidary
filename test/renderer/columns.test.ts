@@ -19,6 +19,9 @@ const HOOK = read('state/columns.ts');
 const STRIP = read('components/ColumnStrip.tsx');
 const KEYS = read('state/keyboard.ts');
 const HINT = read('components/SaveHint.tsx');
+const TOOLBAR = read('components/Toolbar.tsx');
+const STATUS = read('components/StatusBar.tsx');
+const FIND = read('components/FindBar.tsx');
 const CSS = read('styles/app.css');
 
 /** Every declaration made for exactly this selector, across app.css. */
@@ -128,6 +131,15 @@ describe('each column is in place, or a strip and a drawer (ui.3)', () => {
     expect(declsFor('.column--side.column--drawer').get('width')).toBe('var(--side-drawer)');
   });
 
+  /* ui.3 review: while a review of the chapter runs the side panel fades,
+     its own background with it, and a drawer without one let the prose show
+     through it. */
+  it('gives a drawer the page background that lies under the column in place, so a faded panel hides the prose', () => {
+    expect(declsFor('.side--locked').get('opacity')).toBe('0.4');
+    expect(declsFor('.column--drawer').get('background')).toBe('var(--bg)');
+    expect(declsFor('body').get('background')).toBe('var(--bg)');
+  });
+
   it('puts a drawer above the page but under the hint, the cards and everything else that floats', () => {
     const drawer = z('.column--drawer');
     expect(drawer).toBeGreaterThan(0);
@@ -148,7 +160,7 @@ describe('each column is in place, or a strip and a drawer (ui.3)', () => {
 
 describe('how a drawer closes (ui.3)', () => {
   it('from its strip, which opens one drawer at a time', () => {
-    expect(HOOK).toMatch(/setOpen\(toggledDrawer\(now, column\)\)/);
+    expect(HOOK).toMatch(/const next = toggledDrawer\(now, column\);[\s\S]*?setOpen\(next\);/);
     expect(APP).toContain("onToggle={() => toggleDrawer('files')}");
   });
 
@@ -167,16 +179,42 @@ describe('how a drawer closes (ui.3)', () => {
   });
 
   it('with Escape: first when the focus is in it or on its strip, else after the suggestion editor and the find bar', () => {
-    const first = KEYS.indexOf("if (event.key === 'Escape' && drawerOpen && inOpenDrawer(event.target)) {");
+    const first = KEYS.indexOf('if (drawerEscape && inOpenDrawer(event.target)) {');
     const editor = KEYS.indexOf("if (event.key === 'Escape' && state.editor && !isModalOpen(state)) {");
     const find = KEYS.indexOf("if (event.key === 'Escape' && state.find.open && !isModalOpen(state)) {");
-    const last = KEYS.indexOf("if (event.key === 'Escape' && drawerOpen) {");
+    const last = KEYS.indexOf('if (drawerEscape) {');
     expect(first).toBeGreaterThan(0);
     expect(editor).toBeGreaterThan(first);
     expect(find).toBeGreaterThan(editor);
     expect(last).toBeGreaterThan(find);
-    // Never behind a dialog, whose Escape it is.
-    expect(KEYS).toContain('const drawerOpen = useDrawer.getState().open !== null && !isModalOpen(state);');
+    expect(KEYS.match(/drawerEscape/g)).toHaveLength(3);
+  });
+
+  /* ui.3 review: with a drawer open and the focus in the find box, one Escape
+     closed the find bar and the drawer. The box's own handler runs first, at
+     React's root, and closes the bar; the window listener then found the bar
+     closed and went on to the drawer. With the Bulk menu or the legend open,
+     whose window listeners close them on Escape, the same press closed the
+     drawer as well, or the drawer under the legend first. */
+  it('with Escape, one thing a press: never behind a dialog, never one something else has taken, never under a menu', () => {
+    expect(KEYS).toMatch(
+      /const drawerEscape =\s*event\.key === 'Escape' &&\s*useDrawer\.getState\(\)\.open !== null &&\s*!isModalOpen\(state\) &&\s*!event\.defaultPrevented &&\s*!popupTakesEscape\(\);/
+    );
+    // What popupTakesEscape looks for is what the Bulk menu and the legend draw.
+    expect(HOOK).toContain("const CLOSES_ON_ESCAPE = '.menu__list, .legend';");
+    expect(HOOK).toMatch(
+      /export function popupTakesEscape\(\): boolean \{\s*return document\.querySelector\(CLOSES_ON_ESCAPE\) !== null;\s*\}/
+    );
+    expect(TOOLBAR).toContain('<div className="menu__list" role="menu">');
+    expect(STATUS).toContain('<div className="legend" ref={ref} role="dialog"');
+    // Each takes the press it closes on, so it closes no drawer whichever runs first.
+    for (const source of [TOOLBAR, STATUS]) {
+      expect(source).toMatch(
+        /const onKeyDown = \(event: KeyboardEvent\): void => \{\s*if \(event\.key !== 'Escape'\) return;\s*event\.preventDefault\(\);/
+      );
+    }
+    // The find bar's box takes it before the window listener runs.
+    expect(FIND).toMatch(/event\.key === 'Escape'\) \{\s*event\.preventDefault\(\);\s*close\(\);/);
   });
 
   it('hands the focus to the strip when it was inside the drawer', () => {
@@ -195,6 +233,44 @@ describe('the first-use hint keeps to the side panel wherever it is drawn (ui.3)
   it('is placed again when the columns are laid out again, which the toolbar may not notice', () => {
     expect(HINT).toMatch(
       /for \(const column of document\.querySelectorAll\('\.body \.side, \.body > \.center-wrap'\)\) \{\s*observer\.observe\(column\);\s*\}/
+    );
+  });
+});
+
+/* ui.3 review: with the side panel folded the hint hung over the prose until
+   Got it, at 200% in a 900 by 600 window over most of it, the paragraph
+   editor's text and Done included. When it shows is `saveHintVisible`
+   (test/shared/saveHint.test.ts) and the set-aside flag `saveHintGivesWay`
+   (test/renderer/hints.test.ts); these check how the page feeds them. */
+describe('the first-use hint gives way to the prose with the side panel folded (ui.3 review)', () => {
+  it('knows the panel is folded, on the main layout only', () => {
+    expect(APP).toContain("const sideFolded = layout.side === 'strip' && !(setupOpen && claudeRuntime);");
+    expect(APP).toContain('sideFolded={sideFolded}');
+  });
+
+  it('says it is over the prose while it is, and takes a press anywhere but on itself as the author going on', () => {
+    expect(HINT).toMatch(
+      /useEffect\(\(\) => \{\s*if \(!overProse\) return undefined;\s*useSaveHintAside\.setState\(\{ overProse: true \}\);/
+    );
+    expect(HINT).toMatch(
+      /if \(event\.target instanceof Node && ref\.current\?\.contains\(event\.target\)\) return;\s*saveHintGivesWay\(\);/
+    );
+    expect(HINT).toContain("window.addEventListener('pointerdown', onPointerDown, true);");
+    expect(HINT).toMatch(
+      /window\.removeEventListener\('pointerdown', onPointerDown, true\);\s*useSaveHintAside\.setState\(\{ overProse: false \}\);\s*\};\s*\}, \[overProse\]\);/
+    );
+  });
+
+  it('takes a review key, after it has acted, as the author going on', () => {
+    const keys = KEYS.slice(KEYS.indexOf('switch (event.key)'));
+    expect(keys).toMatch(
+      /default:\s*return;\s*\}\s*event\.preventDefault\(\);\s*saveHintGivesWay\(\);\s*\};/
+    );
+  });
+
+  it('takes a drawer opened, from the keyboard too, as the author going on', () => {
+    expect(HOOK).toMatch(
+      /const next = toggledDrawer\(now, column\);\s*if \(next !== null\) saveHintGivesWay\(\);\s*setOpen\(next\);/
     );
   });
 });

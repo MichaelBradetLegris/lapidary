@@ -429,7 +429,10 @@ input[type='text'] {
    what the window cannot spare. Hidden and inert until its strip opens it.
    Above the page, below the first-use hint (11), the notification cards (12)
    and everything else that floats, so a hint or a card is never lost behind
-   it; it is the side panel's column the hint keeps to, wherever that is drawn. */
+   it; it is the side panel's column the hint keeps to, wherever that is drawn.
+   Its background is the page's, which is what lies under the column in place:
+   while a review of the chapter runs, the side panel fades (`.side--locked`),
+   and over the prose it would otherwise let the text show through. */
 .column--drawer {
   position: absolute;
   top: 0;
@@ -438,6 +441,7 @@ input[type='text'] {
   display: flex;
   flex-direction: column;
   visibility: hidden;
+  background: var(--bg);
   box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / 20%);
 }
 

@@ -8,6 +8,7 @@ import {
   type Column,
   type ColumnLayout
 } from '../../shared/ui/columns';
+import { saveHintGivesWay } from './hints';
 
 /**
  * The side columns at narrow widths (ui.3, PLAN 7 "Narrow windows"): the page's
@@ -30,6 +31,19 @@ export const useDrawer = create<DrawerState>((set) => ({
 /** The id of a column's wrapper, which its strip's `aria-controls` names. */
 export function drawerId(column: Column): string {
   return `drawer-${column}`;
+}
+
+/**
+ * What closes on Escape in a window listener of its own, added after the
+ * keyboard bindings' and so run after them: the Bulk menu and the status bar's
+ * legend. While one of them is open, an Escape is theirs, and the drawer waits
+ * for the next press (keyboard.ts).
+ */
+const CLOSES_ON_ESCAPE = '.menu__list, .legend';
+
+/** Whether the Bulk menu or the legend is open, which an Escape closes first. */
+export function popupTakesEscape(): boolean {
+  return document.querySelector(CLOSES_ON_ESCAPE) !== null;
 }
 
 /** Whether `target` is inside the open drawer or on its strip. */
@@ -96,7 +110,11 @@ export function useColumns(hasReview: boolean): Columns {
 
   const toggle = useCallback((column: Column) => {
     const { open: now, setOpen } = useDrawer.getState();
-    setOpen(toggledDrawer(now, column));
+    const next = toggledDrawer(now, column);
+    // A drawer opened, from the keyboard too: a first-use hint over the prose
+    // gives way, rather than lying over the drawer's top (state/hints.ts).
+    if (next !== null) saveHintGivesWay();
+    setOpen(next);
   }, []);
 
   const style = useMemo(

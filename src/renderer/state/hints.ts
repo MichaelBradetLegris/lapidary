@@ -1,3 +1,4 @@
+import { create } from 'zustand';
 import { withHint } from '../../shared/ui/saveHint';
 import type { Settings } from '../../shared/types';
 import { useApp } from './store';
@@ -84,4 +85,32 @@ export function hintDismissedThisSession(id: string): boolean {
 /** The hint writes under way, for a close to wait for with the other writes (apply.9). */
 export function flushHintWrites(): Promise<void> {
   return hints.flush();
+}
+
+/*
+ * The first-use hint over the prose (ui.3 review, PLAN 7 "First-use hint").
+ * With the side panel folded, the hint hangs over the top right of the prose,
+ * and at 200% in the smallest window over most of it, so once the author goes
+ * on after it has shown it is set aside: nothing is written, and it stays away
+ * while the panel is folded until the app next starts (`saveHintVisible`).
+ */
+
+export interface SaveHintAside {
+  /** the hint is on screen over the prose; `SaveHint.tsx` keeps this up to date */
+  overProse: boolean;
+  /** set aside for the rest of the session */
+  setAside: boolean;
+}
+
+export const useSaveHintAside = create<SaveHintAside>(() => ({ overProse: false, setAside: false }));
+
+/**
+ * The author went on: a press anywhere but on the hint, a review key, or a
+ * drawer opened. A hint over the prose then gives way, and nothing else
+ * changes; the press or the key still does what it does. A hint not on screen,
+ * or over the side panel drawn in place, is left as it is, so the press or key
+ * that makes the first change, before the hint shows, never sets it aside.
+ */
+export function saveHintGivesWay(): void {
+  if (useSaveHintAside.getState().overProse) useSaveHintAside.setState({ setAside: true });
 }

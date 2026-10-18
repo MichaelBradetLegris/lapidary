@@ -1,11 +1,14 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { SAVE_HINT_GOT_IT, saveHintPlacement, type Span } from '../../shared/ui/saveHint';
+import { saveHintGivesWay, useSaveHintAside } from '../state/hints';
 
 interface Props {
   /** the toolbar's Save to chapter button, which the arrow points at */
   anchor: React.RefObject<HTMLButtonElement | null>;
   /** `saveHintText` for the chapter on screen */
   text: string;
+  /** the side panel is folded, so the hint hangs over the prose (ui.3) */
+  overProse: boolean;
   onGotIt: () => void;
 }
 
@@ -24,10 +27,10 @@ interface Props {
  * strip stays in the clear. What it may cover is the top of the side panel,
  * the chips at that end of their strip, and the find bar's last buttons when a
  * centre column too narrow for the bar lets them spill into the side panel's;
- * with the panel folded, the top of the prose and the find bar's end there,
- * and the drawer's top when it is open (PLAN 7). Got it is the way out. The
- * arrow points only at a part of Save to chapter with no toolbar button under
- * it, or the hint has none.
+ * with the panel folded, the top right of the prose and the find bar's end
+ * there, until the author goes on, when it gives way (PLAN 7). Got it is the
+ * way out. The arrow points only at a part of Save to chapter with no toolbar
+ * button under it, or the hint has none.
  *
  * It is measured where it stands and moved by writing its style, as the hover
  * card is, and measured again whenever the toolbar, the button or the columns
@@ -35,8 +38,29 @@ interface Props {
  * the side panel folding or unfolding. It takes no focus, so j, k and the
  * other keys go on working while it shows.
  */
-export function SaveHint({ anchor, text, onGotIt }: Props): React.JSX.Element {
+export function SaveHint({ anchor, text, overProse, onGotIt }: Props): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
+
+  /* Over the prose it gives way once the author goes on (ui.3 review): a press
+     anywhere but on the hint sets it aside (`saveHintGivesWay`), and so do a
+     review key (keyboard.ts) and a drawer opened from the keyboard
+     (state/columns.ts), which read `overProse`. In the capture phase, so a
+     press that a handler stops still counts; the press goes on to do what it
+     does. Added after the commit that drew the hint, so the press that made the
+     first change never counts. */
+  useEffect(() => {
+    if (!overProse) return undefined;
+    useSaveHintAside.setState({ overProse: true });
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.target instanceof Node && ref.current?.contains(event.target)) return;
+      saveHintGivesWay();
+    };
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true);
+      useSaveHintAside.setState({ overProse: false });
+    };
+  }, [overProse]);
 
   useLayoutEffect(() => {
     const hint = ref.current;

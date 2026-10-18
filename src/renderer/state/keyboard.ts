@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import { sortComments } from '../../shared/ui/comments';
 import { saveShortcutAction } from '../../shared/ui/save';
-import { closeDrawer, inOpenDrawer, useDrawer } from './columns';
+import { closeDrawer, inOpenDrawer, popupTakesEscape, useDrawer } from './columns';
 import { editHunk } from './edit';
+import { saveHintGivesWay } from './hints';
 import { SAVE_CARD, type SaveOptions, type SaveOutcome } from './saveChapter';
 import { scrollToElement } from './scroll';
 import { isModalOpen, reviewKeysActive, saveShortcutContext, useApp } from './store';
@@ -63,9 +64,19 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
          others ignore it. It never closes the find bar or the suggestion
          editor then (ui.1). A drawer open from a folded column (ui.3) takes
          Escape first when the focus is in it or on its strip, and last
-         otherwise, after the suggestion editor and the find bar. */
-      const drawerOpen = useDrawer.getState().open !== null && !isModalOpen(state);
-      if (event.key === 'Escape' && drawerOpen && inOpenDrawer(event.target)) {
+         otherwise, after the suggestion editor and the find bar. One press
+         closes one thing: an Escape something else has already taken closes
+         no drawer, such as one in the find bar's box, which closes the bar
+         before this listener runs (`preventDefault`), and nor does one
+         pressed while the Bulk menu or the legend is open, which close on it
+         in listeners of their own (`popupTakesEscape`). */
+      const drawerEscape =
+        event.key === 'Escape' &&
+        useDrawer.getState().open !== null &&
+        !isModalOpen(state) &&
+        !event.defaultPrevented &&
+        !popupTakesEscape();
+      if (drawerEscape && inOpenDrawer(event.target)) {
         closeDrawer();
         event.preventDefault();
         return;
@@ -83,7 +94,7 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
         return;
       }
 
-      if (event.key === 'Escape' && drawerOpen) {
+      if (drawerEscape) {
         closeDrawer();
         event.preventDefault();
         return;
@@ -143,6 +154,8 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
           return;
       }
       event.preventDefault();
+      // The author goes on: a first-use hint over the prose gives way (ui.3).
+      saveHintGivesWay();
     };
 
     window.addEventListener('keydown', onKeyDown);

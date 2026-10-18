@@ -24,7 +24,10 @@ function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose();
+      if (event.key !== 'Escape') return;
+      // The press is the legend's: it closes no drawer as well (keyboard.ts, ui.3).
+      event.preventDefault();
+      onClose();
     };
     const onPointerDown = (event: MouseEvent): void => {
       if (!ref.current?.contains(event.target as Node)) onClose();

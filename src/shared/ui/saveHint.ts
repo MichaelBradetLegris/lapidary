@@ -5,7 +5,8 @@
  * or the first Save to chapter that reaches the file puts it away for good, by
  * adding its id to the `dismissedHints` setting (PLAN 11.3 d). Until then it
  * shows whenever a change is not saved to the chapter; nothing else dismisses
- * it.
+ * it, though in a narrow window, with the side panel folded, it gives way to
+ * the prose (ui.3, `saveHintVisible`).
  *
  * The words, when it shows and where it sits are decided here, so each has a
  * test; `SaveHint.tsx` draws it and `state/hints.ts` writes the setting.
@@ -65,6 +66,19 @@ export interface SaveHintInput {
   locked: boolean;
   /** a Save to chapter is under way */
   saving: boolean;
+  /**
+   * The side panel is folded to a strip (ui.3), so the hint hangs over the
+   * prose rather than over the panel.
+   */
+  sideFolded: boolean;
+  /** a paragraph is open for editing in place (PLAN 7.4) */
+  editingParagraph: boolean;
+  /**
+   * The author went on after the hint had shown over the prose: pressed
+   * somewhere else, used a review key or opened a drawer (`saveHintGivesWay`
+   * in `src/renderer/state/hints.ts`). It holds for the rest of the session.
+   */
+  setAside: boolean;
 }
 
 /**
@@ -72,10 +86,17 @@ export interface SaveHintInput {
  * only until it is dismissed. While a review of the chapter runs or a save is
  * under way, Save to chapter cannot be pressed, so the hint waits; it shows
  * again afterwards unless that save put it away.
+ *
+ * With the side panel folded it hangs over the prose, so there it gives way to
+ * the prose (ui.3 review): it waits while a paragraph is open for editing, whose
+ * text and Done it would cover, and once the author has gone on after seeing it,
+ * it stays away while the panel is folded. Drawn in place, the panel is where
+ * the hint hangs, and it shows there as before.
  */
 export function saveHintVisible(input: SaveHintInput): boolean {
   if (input.dismissedHints === null) return false;
   if (input.dismissedThisSession || input.dismissedHints.includes(SAVE_HINT_ID)) return false;
+  if (input.sideFolded && (input.editingParagraph || input.setAside)) return false;
   return input.hasChapter && input.unsavedDecisions > 0 && !input.locked && !input.saving;
 }
 

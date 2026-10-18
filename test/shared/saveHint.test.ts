@@ -68,7 +68,10 @@ describe('when it shows (apply.12)', () => {
     hasChapter: true,
     unsavedDecisions: 1,
     locked: false,
-    saving: false
+    saving: false,
+    sideFolded: false,
+    editingParagraph: false,
+    setAside: false
   };
 
   it('shows the first time a change is not saved to the chapter', () => {
@@ -94,6 +97,22 @@ describe('when it shows (apply.12)', () => {
     expect(saveHintVisible({ ...base, saving: true })).toBe(false);
   });
 
+  /* ui.3 review: with the side panel folded the hint hangs over the prose, and
+     at 200% in a 900 by 600 window over most of it, the paragraph editor's
+     text and Done included. */
+  it('with the side panel folded, waits while a paragraph is open for editing', () => {
+    const folded = { ...base, sideFolded: true };
+    expect(saveHintVisible(folded)).toBe(true);
+    expect(saveHintVisible({ ...folded, editingParagraph: true })).toBe(false);
+    // Over the panel drawn in place it meets no paragraph, and shows as before.
+    expect(saveHintVisible({ ...base, editingParagraph: true })).toBe(true);
+  });
+
+  it('with the side panel folded, stays away once set aside, and shows over the panel in place again', () => {
+    expect(saveHintVisible({ ...base, sideFolded: true, setAside: true })).toBe(false);
+    expect(saveHintVisible({ ...base, setAside: true })).toBe(true);
+  });
+
   it('shows exactly when every condition holds', () => {
     fc.assert(
       fc.property(
@@ -103,7 +122,10 @@ describe('when it shows (apply.12)', () => {
           hasChapter: fc.boolean(),
           unsavedDecisions: fc.nat(30),
           locked: fc.boolean(),
-          saving: fc.boolean()
+          saving: fc.boolean(),
+          sideFolded: fc.boolean(),
+          editingParagraph: fc.boolean(),
+          setAside: fc.boolean()
         }),
         (input) => {
           const expected =
@@ -113,7 +135,8 @@ describe('when it shows (apply.12)', () => {
             input.hasChapter &&
             input.unsavedDecisions > 0 &&
             !input.locked &&
-            !input.saving;
+            !input.saving &&
+            !(input.sideFolded && (input.editingParagraph || input.setAside));
           expect(saveHintVisible(input)).toBe(expected);
         }
       ),
