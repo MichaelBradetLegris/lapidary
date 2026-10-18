@@ -7,7 +7,8 @@ import type { EffortLevel } from '../../shared/types';
 import { fail } from '../errors';
 import { claudeArgs } from './claudeOptions';
 import { endedWithoutResult, resultToError } from './claudeResult';
-import type { ProviderHooks, ProviderResult } from './types';
+import { CONNECTION_TEST_PROMPT, CONNECTION_TEST_SYSTEM_PROMPT } from './connectionTest';
+import type { ProviderHooks, ProviderResult, ProviderTestHooks, ProviderTestResult } from './types';
 
 /**
  * Talking to the user's own Claude Code (PLAN 11.3 q, C.42).
@@ -21,6 +22,8 @@ import type { ProviderHooks, ProviderResult } from './types';
  * - then the chapter as one user message;
  * - then a stream of `system`, `stream_event`, `assistant`, `rate_limit_event`
  *   and finally `result` messages.
+ *
+ * Test the connection (setup.8) is the same exchange with a one-line prompt.
  *
  * Nothing here touches credentials: Claude Code signs in on its own (CLAUDE.md
  * rule 2). No electron import; `spawn` and the executable are passed in, so
@@ -313,10 +316,107 @@ export interface CliReviewInput {
 }
 
 interface Context {
+  /** the model the `system` init message named */
+  model?: string;
   fallbackNote?: string;
   rateLimit?: RateLimitInfo;
   refusal?: string;
   assistantError?: string;
+}
+
+/** A stream event's fields that drive the progress label. */
+interface StreamEvent {
+  type?: string;
+  usage?: { output_tokens?: number };
+}
+
+/** One request to Claude: what a review and a connection test have in common. */
+interface Exchange<T> {
+  args: string[];
+  /** the fields of the `initialize` control request: the system prompt, and a review's schema */
+  init: Record<string, unknown>;
+  /** the one user message */
+  prompt: string;
+  signal: AbortSignal;
+  /** what is being asked for, in the words of a failure: "review" or "test" */
+  what: string;
+  onStreamEvent?: (event: StreamEvent) => void;
+  onRateLimit?: (info: RateLimitInfo) => void;
+  /** the `result` message has arrived */
+  onResult?: () => void;
+  /** read the `result` message; throws for a failed run */
+  finish: (message: CliMessage, context: Context) => T;
+}
+
+/** "Review cancelled.", "Test cancelled." */
+function cancelledText(what: string): string {
+  return `${what.charAt(0).toUpperCase()}${what.slice(1)} cancelled.`;
+}
+
+/**
+ * Start Claude Code, send the `initialize` request and the one user message,
+ * read its messages up to the `result`, and always end the process. Aborting
+ * `signal`, or quitting through `deps.track`, kills it and throws `cancelled`.
+ */
+async function exchange<T>(deps: CliDeps, ex: Exchange<T>): Promise<T> {
+  const run = new CliRun(deps, ex.args);
+  const controller = new AbortController();
+  const release = deps.track?.(controller) ?? ((): void => undefined);
+  const abort = (): void => controller.abort();
+  if (ex.signal.aborted) abort();
+  else ex.signal.addEventListener('abort', abort, { once: true });
+  controller.signal.addEventListener('abort', () => run.kill(), { once: true });
+
+  const context: Context = {};
+  const cancelled = cancelledText(ex.what);
+
+  try {
+    const init = await run.request('initialize', ex.init);
+    if (controller.signal.aborted) throw fail('cancelled', cancelled);
+    if (!init || init.subtype !== 'success') {
+      throw startFailure(run, init, ex.what);
+    }
+    run.sendUser(ex.prompt);
+
+    for (let message = await run.next(); message; message = await run.next()) {
+      switch (message.type) {
+        case 'stream_event': {
+          ex.onStreamEvent?.(message['event'] ?? {});
+          break;
+        }
+        case 'assistant': {
+          if (typeof message['error'] === 'string') context.assistantError = message['error'];
+          break;
+        }
+        case 'system': {
+          noteSystem(message, context);
+          break;
+        }
+        case 'rate_limit_event': {
+          context.rateLimit = toRateLimit(message['rate_limit_info']);
+          ex.onRateLimit?.(context.rateLimit);
+          break;
+        }
+        case 'result': {
+          ex.onResult?.();
+          return ex.finish(message, context);
+        }
+        default:
+          break;
+      }
+    }
+    if (controller.signal.aborted) throw fail('cancelled', cancelled);
+    throw endedEarly(run, context);
+  } catch (err) {
+    if (controller.signal.aborted) throw fail('cancelled', cancelled);
+    throw err;
+  } finally {
+    ex.signal.removeEventListener('abort', abort);
+    run.end();
+    await Promise.race([run.exit, new Promise((resolve) => setTimeout(resolve, 3000))]);
+    run.kill();
+    release();
+  }
 }
 
 /**
@@ -332,84 +432,73 @@ export async function runCliReview(
   hooks: ProviderHooks
 ): Promise<ProviderResult> {
   const progress = hooks.onProgress;
-  const run = new CliRun(
-    deps,
-    claudeArgs({ model: input.model, effort: input.effort, maxTurns: 3, partialMessages: true })
-  );
-  const controller = new AbortController();
-  const release = deps.track?.(controller) ?? ((): void => undefined);
-  const abort = (): void => controller.abort();
-  if (hooks.signal.aborted) abort();
-  else hooks.signal.addEventListener('abort', abort, { once: true });
-  controller.signal.addEventListener('abort', () => run.kill(), { once: true });
-
-  const context: Context = {};
   let tokens = 0;
   progress('starting');
-
   try {
-    const init = await run.request('initialize', {
-      systemPrompt: [input.systemPrompt],
-      jsonSchema: input.jsonSchema
+    return await exchange(deps, {
+      args: claudeArgs({ model: input.model, effort: input.effort, maxTurns: 3, partialMessages: true }),
+      init: { systemPrompt: [input.systemPrompt], jsonSchema: input.jsonSchema },
+      prompt: input.prompt,
+      signal: hooks.signal,
+      what: 'review',
+      onStreamEvent: (event) => {
+        if (event.type === 'message_delta' && event.usage?.output_tokens) {
+          tokens = event.usage.output_tokens;
+          progress('streaming', tokens);
+        } else if (event.type === 'content_block_start') {
+          progress('thinking', tokens);
+        }
+      },
+      ...(hooks.onRateLimit ? { onRateLimit: hooks.onRateLimit } : {}),
+      onResult: () => progress('parsing', tokens),
+      finish
     });
-    if (controller.signal.aborted) throw fail('cancelled', 'Review cancelled.');
-    if (!init || init.subtype !== 'success') {
-      throw startFailure(run, init);
-    }
-    run.sendUser(input.prompt);
-
-    for (let message = await run.next(); message; message = await run.next()) {
-      switch (message.type) {
-        case 'stream_event': {
-          const event = (message['event'] ?? {}) as { type?: string; usage?: { output_tokens?: number } };
-          if (event.type === 'message_delta' && event.usage?.output_tokens) {
-            tokens = event.usage.output_tokens;
-            progress('streaming', tokens);
-          } else if (event.type === 'content_block_start') {
-            progress('thinking', tokens);
-          }
-          break;
-        }
-        case 'assistant': {
-          if (typeof message['error'] === 'string') context.assistantError = message['error'];
-          break;
-        }
-        case 'system': {
-          noteSystem(message, context);
-          break;
-        }
-        case 'rate_limit_event': {
-          context.rateLimit = toRateLimit(message['rate_limit_info']);
-          hooks.onRateLimit?.(context.rateLimit);
-          break;
-        }
-        case 'result': {
-          progress('parsing', tokens);
-          return finish(message, context);
-        }
-        default:
-          break;
-      }
-    }
-    if (controller.signal.aborted) throw fail('cancelled', 'Review cancelled.');
-    throw endedEarly(run, context);
-  } catch (err) {
-    if (controller.signal.aborted) throw fail('cancelled', 'Review cancelled.');
-    throw err;
   } finally {
-    hooks.signal.removeEventListener('abort', abort);
-    run.end();
-    await Promise.race([run.exit, new Promise((resolve) => setTimeout(resolve, 3000))]);
-    run.kill();
-    release();
     progress('done', tokens);
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* The connection test (setup.8)                                       */
+/* ------------------------------------------------------------------ */
+
+/** The model the connection test asks for: the smallest, so it costs the least. */
+export const CONNECTION_TEST_MODEL = 'haiku';
+
+/**
+ * Test the connection: one very small request through the same command line
+ * as a review, so it goes wherever a review would and fails wherever one
+ * would. Haiku, one turn, no schema and no partial messages: the system prompt
+ * asks for the single word OK, and any answer that is not a failure counts.
+ * A failure throws, read as a review's is (`resultToError`, C.47). The time
+ * limit belongs to the caller (`testConnection`), which aborts `hooks.signal`.
+ */
+export async function runCliTest(deps: CliDeps, hooks: ProviderTestHooks): Promise<ProviderTestResult> {
+  return exchange(deps, {
+    args: claudeArgs({ model: CONNECTION_TEST_MODEL, maxTurns: 1 }),
+    init: { systemPrompt: [CONNECTION_TEST_SYSTEM_PROMPT] },
+    prompt: CONNECTION_TEST_PROMPT,
+    signal: hooks.signal,
+    what: 'test',
+    ...(hooks.onRateLimit ? { onRateLimit: hooks.onRateLimit } : {}),
+    finish: (message, context) => {
+      const failure = resultToError(message, context);
+      if (failure) throw failure;
+      const usage = message['modelUsage'];
+      const answered = typeof usage === 'object' && usage !== null ? Object.keys(usage)[0] : undefined;
+      const model = answered ?? context.model;
+      return model ? { model } : {};
+    }
+  });
 }
 
 function noteSystem(message: CliMessage, context: Context): void {
   const text = (key: string): string | undefined =>
     typeof message[key] === 'string' ? message[key] : undefined;
-  if (message.subtype === 'model_refusal_fallback') {
+  if (message.subtype === 'init') {
+    const model = text('model');
+    if (model) context.model = model;
+  } else if (message.subtype === 'model_refusal_fallback') {
     const category = text('api_refusal_category');
     context.fallbackNote = `Answered by ${text('fallback_model') ?? 'another model'} after ${
       text('original_model') ?? 'the chosen model'
@@ -421,7 +510,7 @@ function noteSystem(message: CliMessage, context: Context): void {
   }
 }
 
-function startFailure(run: CliRun, response: ControlResponse | null): Error {
+function startFailure(run: CliRun, response: ControlResponse | null, what: string): Error {
   const detail = run.stderrTail.trim();
   if (response && response.subtype !== 'success') {
     return fail('claude-failed', `Claude Code refused the request: ${errorText(response.error)}`);
@@ -437,7 +526,7 @@ function startFailure(run: CliRun, response: ControlResponse | null): Error {
   if (known) return known;
   return fail(
     'claude-failed',
-    `Claude Code stopped before the review started.${detail ? ` ${detail.split('\n')[0]}` : ''}`,
+    `Claude Code stopped before the ${what} started.${detail ? ` ${detail.split('\n')[0]}` : ''}`,
     detail || undefined
   );
 }

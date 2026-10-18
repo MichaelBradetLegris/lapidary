@@ -7,10 +7,15 @@ import { StatusBar } from '../../src/renderer/components/StatusBar';
 import type { RuntimeStatus } from '../../src/shared/ipc';
 import { DEFAULT_SETTINGS, type Review } from '../../src/shared/types';
 import {
+  CONNECTION_TEST_NOTE,
+  CONNECTION_TEST_RUNNING,
   PRIVACY_FOOTER,
+  canTestConnection,
+  checkedAtText,
   installAndLoginCommand,
   setupStatus,
   setupView,
+  type ConnectionTestOutcome,
   type LastFailure,
   type SetupOs,
   type SetupViewId
@@ -67,7 +72,16 @@ const CASES: ReadonlyArray<[SetupViewId, RuntimeStatus | null, LastFailure | nul
 function render(
   runtime: RuntimeStatus | null,
   lastFailure: LastFailure | null,
-  options: { os?: SetupOs; host?: SetupOs; tryAnyway?: boolean; checking?: boolean } = {}
+  options: {
+    os?: SetupOs;
+    host?: SetupOs;
+    tryAnyway?: boolean;
+    checking?: boolean;
+    /** App always gives Test the connection a handler; false leaves it out */
+    test?: boolean;
+    testing?: boolean;
+    testOutcome?: ConnectionTestOutcome;
+  } = {}
 ): string {
   return renderToStaticMarkup(
     createElement(SetupScreen, {
@@ -79,7 +93,10 @@ function render(
       host: options.host ?? 'windows',
       onCheckAgain: () => undefined,
       onClose: () => undefined,
-      ...(options.tryAnyway ? { onTryAnyway: () => undefined } : {})
+      ...(options.tryAnyway ? { onTryAnyway: () => undefined } : {}),
+      ...(options.test === false ? {} : { onTest: () => undefined }),
+      ...(options.testing ? { testing: true } : {}),
+      ...(options.testOutcome ? { testOutcome: options.testOutcome } : {})
     })
   );
 }
@@ -108,7 +125,9 @@ function buttons(html: string): string[] {
 const commands = (html: string): string[] =>
   [...html.matchAll(/<div class="cmd"><code id="[^"]+">([\s\S]*?)<\/code>/g)].map((m) => decode(m[1] ?? ''));
 
-const SIGN_IN_LIKE = /sign[\s-]*in|sign[\s-]*on|log[\s-]*in|log[\s-]*on|authori[sz]e|connect/i;
+/* "Connect", as in "Connect Claude", reads like a sign-in; the noun in Test the
+   connection (setup.8), which sends a request and signs no one in, does not. */
+const SIGN_IN_LIKE = /sign[\s-]*in|sign[\s-]*on|log[\s-]*in|log[\s-]*on|authori[sz]e|connect(?!ion)/i;
 
 describe('the Setup screen in each view (setup.7)', () => {
   it('covers every view', () => {
@@ -248,6 +267,106 @@ describe('the Setup screen in each view (setup.7)', () => {
     expect(render(claude({ state: 'not-signed-in' }), null, { checking: true })).toContain(
       '<button type="button" class="primary" disabled="">Checking…</button>'
     );
+  });
+});
+
+describe('Test the connection on the Setup screen (setup.8)', () => {
+  const NOTE = `<p class="setup__test-note">${CONNECTION_TEST_NOTE}</p>`;
+
+  it('sits beside Check again, with what it costs under the buttons, wherever Claude Code is found and not signed out', () => {
+    for (const [view, runtime, last] of CASES) {
+      const html = render(runtime, last);
+      const offered = buttons(html).includes('Test the connection');
+      expect([view, offered]).toEqual([view, canTestConnection(runtime)]);
+      expect([view, html.includes(NOTE)]).toEqual([view, offered]);
+      if (!offered) continue;
+      // In the status card, after Check again, and the note under the buttons.
+      const card = html.slice(html.indexOf('<section class="setup__status'), html.indexOf('</section>'));
+      expect(card).toMatch(
+        /<div class="setup__status-actions"><button type="button"[^>]*>Check again<\/button><button type="button">Test the connection<\/button><\/div><div class="setup__test"><p class="setup__test-note">/
+      );
+    }
+    // Offered in the views where it helps: ready, and a sign-in the last review said had ended.
+    expect(buttons(render(claude(), { code: 'claude-login-expired' }))).toContain('Test the connection');
+    expect(buttons(render(claude({ state: 'error', message: 'Timed out.' }), null))).toContain(
+      'Test the connection'
+    );
+  });
+
+  it('is the only button that names a connection, and none reads like a sign-in', () => {
+    expect(SIGN_IN_LIKE.test('Connect Claude')).toBe(true);
+    expect(SIGN_IN_LIKE.test('Reconnect')).toBe(true);
+    expect(SIGN_IN_LIKE.test('Test the connection')).toBe(false);
+    const all = CASES.flatMap(([, runtime, last]) => buttons(render(runtime, last, { tryAnyway: true })));
+    expect(new Set(all.filter((label) => /connect/i.test(label)))).toEqual(new Set(['Test the connection']));
+  });
+
+  it('is held while a test runs, keeping its label, and says it is waiting where the result will be', () => {
+    // The label stays, so the buttons keep their width and the card's text does not reflow.
+    const outcome: ConnectionTestOutcome = {
+      result: { ok: true, durationMs: 1700 },
+      finishedAt: '2026-10-18T12:02:11.000Z'
+    };
+    const html = render(claude(), null, { testing: true, testOutcome: outcome });
+    expect(html).toContain('<button type="button" disabled="">Test the connection</button>');
+    expect(html).toContain(
+      `${NOTE}<p class="setup__test-result setup__test-result--running">${CONNECTION_TEST_RUNNING}</p></div>`
+    );
+    expect(CONNECTION_TEST_RUNNING).toBe('Testing: waiting for Claude to answer…');
+    // The last result gives way to it.
+    expect(html).not.toContain('Claude answered the test');
+    expect(render(claude(), null, { testOutcome: outcome })).toContain('Claude answered the test');
+  });
+
+  it('says under the buttons how the last test went, and when', () => {
+    const at = '2026-10-18T12:02:11.000Z';
+    const ok = render(claude(), null, {
+      testOutcome: {
+        result: { ok: true, model: 'claude-haiku-4-5-20251001', durationMs: 2900 },
+        finishedAt: at
+      }
+    });
+    expect(ok).toContain(
+      `<p class="setup__test-result setup__test-result--ok">Claude answered the test at ${checkedAtText(at)}, in 2.9 s (claude-haiku-4-5-20251001).</p>`
+    );
+    const failed = render(
+      claude(),
+      { code: 'claude-not-signed-in' },
+      {
+        testOutcome: {
+          result: {
+            ok: false,
+            durationMs: 800,
+            error: { code: 'claude-not-signed-in', message: 'Claude Code is not signed in.' }
+          },
+          finishedAt: at
+        }
+      }
+    );
+    expect(failed).toContain(
+      `<p class="setup__test-result setup__test-result--failed">The test at ${checkedAtText(at)} did not go through: Claude Code is not signed in.</p>`
+    );
+    // Inside the status card, which is the live region that reads it out.
+    expect(failed.indexOf('setup__test-result')).toBeLessThan(failed.indexOf('</section>'));
+    expect(failed.indexOf('role="status"')).toBeLessThan(failed.indexOf('setup__test-result'));
+  });
+
+  it('keeps the last result in view when the button goes, and offers nothing without a handler', () => {
+    const outcome: ConnectionTestOutcome = {
+      result: {
+        ok: false,
+        durationMs: 300,
+        error: { code: 'claude-missing-binary', message: 'Not installed.' }
+      },
+      finishedAt: '2026-10-18T12:02:11.000Z'
+    };
+    const missing = render(CASES[1]?.[1] ?? null, null, { testOutcome: outcome });
+    expect(buttons(missing)).not.toContain('Test the connection');
+    expect(missing).not.toContain(NOTE);
+    expect(missing).toContain('setup__test-result--failed');
+    const noHandler = render(claude(), null, { test: false });
+    expect(buttons(noHandler)).not.toContain('Test the connection');
+    expect(noHandler).not.toContain('class="setup__test"');
   });
 });
 

@@ -10,7 +10,8 @@
  * path from its own Settings dialog: a key containing `unauthorized` gets a 401,
  * `ratelimit` a 429, `servererror` a 500, `malformed` a reply that is not JSON,
  * `wrongshape` JSON of the wrong shape, `slow` a reply that trickles out over
- * several seconds (for Cancel), and anything else the canned review.
+ * several seconds (for Cancel), or an unstreamed one that comes after them (for
+ * a connection test's time limit), and anything else the canned review.
  *
  * Two ways to use it:
  *   vitest:  const mock = await startMockOpenAi(); ... mock.url ... await mock.close();
@@ -327,6 +328,9 @@ export async function startMockOpenAi(options: { port?: number; log?: boolean } 
         if (request['stream'] === true) {
           await streamResponse(res, model, text, scenario === 'slow' ? 600 : 15);
         } else {
+          // As slow as the streamed reply, all at the end (a connection test that runs out of time).
+          if (scenario === 'slow') await sleep(600 * 12);
+          if (res.destroyed) return;
           const response = responseObject(model, 'completed', text, Math.ceil(text.length / 4));
           sendJson(res, 200, { ...response, output_text: text });
         }

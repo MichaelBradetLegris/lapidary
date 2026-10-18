@@ -1927,6 +1927,34 @@ input[type='text'] {
   white-space: nowrap;
 }
 
+/* Under the status card's text and buttons, across its width: what Test the
+   connection costs, and how the last test went (setup.8). */
+.setup__test {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.setup__test p {
+  margin: 0 0 4px;
+}
+
+.setup__test p:last-child {
+  margin-bottom: 0;
+}
+
+.setup__test-note,
+.setup__test-result--running {
+  color: var(--ink-soft);
+}
+
+.setup__test-result--ok {
+  color: var(--accept);
+}
+
+.setup__test-result--failed {
+  color: var(--danger);
+}
+
 .setup .modal__warn {
   margin-bottom: 18px;
 }

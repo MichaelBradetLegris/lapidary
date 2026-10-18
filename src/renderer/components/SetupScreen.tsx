@@ -1,10 +1,14 @@
 import { useState } from 'react';
 import type { RuntimeStatus } from '../../shared/ipc';
 import {
+  CONNECTION_TEST_NOTE,
+  CONNECTION_TEST_RUNNING,
   FULL_PATH_TEXT,
   OTHER_INSTALLS_NOTE,
   PRIVACY_FOOTER,
   advancedRows,
+  canTestConnection,
+  connectionTestLine,
   needsSetup,
   osFromUserAgent,
   otherInstalls,
@@ -14,6 +18,7 @@ import {
   setupView,
   stepsHeading,
   updateAdvice,
+  type ConnectionTestOutcome,
   type LastFailure,
   type SetupOs
 } from '../../shared/ui/setup';
@@ -37,6 +42,12 @@ interface Props {
   onClose: () => void;
   /** given when a chapter is open and nothing the check found stops a review (`canTryReviewAnyway`) */
   onTryAnyway?: () => void;
+  /** Test the connection (setup.8); offered where `canTestConnection` says, when given */
+  onTest?: () => void;
+  /** a connection test is running */
+  testing?: boolean;
+  /** the last connection test that finished */
+  testOutcome?: ConnectionTestOutcome | null;
 }
 
 const SYSTEMS: ReadonlyArray<{ id: SetupOs; label: string }> = [
@@ -49,8 +60,10 @@ const SETUP_DOCS = 'https://code.claude.com/docs/en/setup';
 
 /**
  * How Claude is set up, and what to do when it is not (setup.7, PLAN 5.6 and
- * 11.3 f). A status card says what the last check found, with Check again;
- * then, for the view, the steps on the chosen system, each command with a Copy
+ * 11.3 f). A status card says what the last check found, with Check again
+ * and, once Claude Code has been found, Test the connection, which sends one
+ * very small request and says under the buttons how it went (setup.8); then,
+ * for the view, the steps on the chosen system, each command with a Copy
  * that says when it fails; troubleshooting; Advanced, with the Claude Code
  * path and version; and the privacy footer. Everything it says comes from
  * `src/shared/ui/setup.ts`.
@@ -67,12 +80,17 @@ export function SetupScreen({
   host: givenHost,
   onCheckAgain,
   onClose,
-  onTryAnyway
+  onTryAnyway,
+  onTest,
+  testing = false,
+  testOutcome = null
 }: Props): React.JSX.Element {
   const host = givenHost ?? osFromUserAgent(navigator.userAgent);
   const [os, setOs] = useState<SetupOs>(() => initialOs ?? host);
   const view = setupView(runtime, lastFailure);
   const status = setupStatus(view, runtime, lastFailure);
+  const testable = onTest !== undefined && canTestConnection(runtime);
+  const testLine = testOutcome ? connectionTestLine(testOutcome) : null;
   const steps = setupSteps(view, runtime, os, host);
   const heading = stepsHeading(view);
   const others = view === 'not-installed' ? otherInstalls(os) : [];
@@ -113,12 +131,30 @@ export function SetupScreen({
             >
               {checking || view === 'checking' ? 'Checking…' : 'Check again'}
             </button>
+            {/* Its label stays while a test runs, so the buttons keep their
+                width and the card's text does not reflow; the line under
+                them says it is waiting, in the place of the last result. */}
+            {testable ? (
+              <button type="button" disabled={testing} onClick={onTest}>
+                Test the connection
+              </button>
+            ) : null}
             {onTryAnyway ? (
               <button type="button" onClick={onTryAnyway}>
                 Try the review anyway
               </button>
             ) : null}
           </div>
+          {testable || testing || testLine ? (
+            <div className="setup__test">
+              {testable ? <p className="setup__test-note">{CONNECTION_TEST_NOTE}</p> : null}
+              {testing ? (
+                <p className="setup__test-result setup__test-result--running">{CONNECTION_TEST_RUNNING}</p>
+              ) : testLine ? (
+                <p className={`setup__test-result setup__test-result--${testLine.tone}`}>{testLine.text}</p>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         {advice ? <UpdateNote advice={advice} /> : null}

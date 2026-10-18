@@ -7,6 +7,7 @@ import {
 import type { RuntimeStatus } from '../../src/shared/ipc';
 import {
   CLAUDE_RUNTIME_CARD,
+  CONNECTION_TEST_NOTE,
   COULD_NOT_CHECK_ADVICE,
   EXPIRED_INTRO,
   FOCUS_RECHECK_MS,
@@ -14,8 +15,10 @@ import {
   SIGNED_IN_AGAIN,
   SIGNED_OUT_INTRO,
   advancedRows,
+  canTestConnection,
   canTryReviewAnyway,
   checkedAtText,
+  connectionTestLine,
   focusRecheckDue,
   installAndLoginCommand,
   loginCommand,
@@ -36,6 +39,8 @@ import {
   setupTroubleshooting,
   setupView,
   stepsHeading,
+  testDurationText,
+  testSetupEvent,
   updateAdvice,
   updateCommand,
   type LastFailure,
@@ -586,5 +591,95 @@ describe('installs, troubleshooting and Advanced', () => {
   it('labels the status bar button by what it opens', () => {
     expect(runtimeButtonTitle('claude')).toBe('Open Setup');
     expect(runtimeButtonTitle('openai')).toBe('Open Settings');
+  });
+});
+
+describe('Test the connection (setup.8)', () => {
+  it('is offered once Claude Code is found and not definitely signed out', () => {
+    expect(canTestConnection(null)).toBe(false);
+    expect(canTestConnection(claude({ state: 'missing-binary' }))).toBe(false);
+    expect(canTestConnection(claude({ state: 'not-signed-in' }))).toBe(false);
+    expect(canTestConnection(claude())).toBe(true);
+    expect(canTestConnection(claude({ state: 'error' }))).toBe(true);
+  });
+
+  it('says what it costs', () => {
+    expect(CONNECTION_TEST_NOTE).toBe(
+      'Sends one very small request to Claude, which counts against your plan like any other.'
+    );
+  });
+
+  it('clears the last failure when it goes through, as a review does, which a re-check never does', () => {
+    const ok = { ok: true, model: 'claude-haiku-4-5-20251001', durationMs: 2900 };
+    expect(testSetupEvent(ok, claude())).toEqual({ type: 'success' });
+    // Signed in again after the sign-in ended: only a test or a review clears it.
+    expect(setupView(claude(), nextLastFailure(expired, { type: 'check', runtime: claude() }))).toBe(
+      'expired'
+    );
+    const after = nextLastFailure(
+      expired,
+      testSetupEvent(ok, claude()) ?? { type: 'check', runtime: claude() }
+    );
+    expect(after).toBeNull();
+    expect(setupView(claude(), after)).toBe('ready');
+    expect(SIGNED_IN_AGAIN).toContain('test the connection or try the review');
+  });
+
+  it('remembers a failure with the Claude Code it happened with, and forgets nothing when cancelled', () => {
+    const signedOut = {
+      ok: false,
+      durationMs: 800,
+      error: { code: 'claude-not-signed-in' as const, message: 'Claude Code is not signed in.' }
+    };
+    const event = testSetupEvent(signedOut, claude());
+    expect(event).toEqual({ type: 'failure', code: 'claude-not-signed-in', runtime: claude() });
+    expect(setupView(claude(), nextLastFailure(null, event ?? { type: 'success' }))).toBe('signed-out');
+    expect(
+      testSetupEvent(
+        { ok: false, durationMs: 10, error: { code: 'cancelled', message: 'Test cancelled.' } },
+        claude()
+      )
+    ).toBeNull();
+    expect(testSetupEvent({ ok: false, durationMs: 10 }, null)).toEqual({
+      type: 'failure',
+      code: 'unknown',
+      runtime: null
+    });
+  });
+
+  it('says how long it took, and when, in a line', () => {
+    expect(testDurationText(2949)).toBe('2.9 s');
+    expect(testDurationText(0)).toBe('0.0 s');
+    expect(testDurationText(12_400)).toBe('12 s');
+    const at = '2026-10-18T12:02:11.000Z';
+    expect(
+      connectionTestLine({
+        result: { ok: true, model: 'claude-haiku-4-5-20251001', durationMs: 2900 },
+        finishedAt: at
+      })
+    ).toEqual({
+      tone: 'ok',
+      text: `Claude answered the test at ${checkedAtText(at)}, in 2.9 s (claude-haiku-4-5-20251001).`
+    });
+    expect(connectionTestLine({ result: { ok: true, durationMs: 31_000 }, finishedAt: at }).text).toBe(
+      `Claude answered the test at ${checkedAtText(at)}, in 31 s.`
+    );
+    expect(
+      connectionTestLine({
+        result: {
+          ok: false,
+          durationMs: 60_000,
+          error: {
+            code: 'claude-failed',
+            message:
+              'Claude did not answer within 60 seconds, so the test was stopped. Try again in a minute.'
+          }
+        },
+        finishedAt: at
+      })
+    ).toEqual({
+      tone: 'failed',
+      text: `The test at ${checkedAtText(at)} did not go through: Claude did not answer within 60 seconds, so the test was stopped. Try again in a minute.`
+    });
   });
 });

@@ -94,6 +94,12 @@ const TEXT_PAIRS: Pair[] = [
   { ink: '--warn', on: '--warn-bg-strong', min: 4.5, why: 'the unsaved-decisions box in the review dialog' },
   { ink: '--unsaved', on: '--panel', min: 4.5, why: 'the count not saved to the chapter, in the status bar' },
   { ink: '--danger', on: '--danger-bg', min: 4.5, why: 'the error card' },
+  ...['--ink-soft', '--accept', '--danger'].map((ink) => ({
+    ink,
+    on: '--warn-bg',
+    min: 4.5,
+    why: "Test the connection's note and result in a Setup status card that warns (setup.8)"
+  })),
   ...each(CATEGORIES, UNDER_SUGGESTIONS).flatMap(([tint, base]) =>
     ['--tint-pending', '--tint-hover'].map((share) => ({
       ink: '--ink',
@@ -169,7 +175,7 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
         expect(() => paint(scheme, pair.on)).not.toThrow();
       }
     }
-    expect([TEXT_PAIRS.length, FAINT_PAIRS.length]).toEqual([137, 61]);
+    expect([TEXT_PAIRS.length, FAINT_PAIRS.length]).toEqual([140, 61]);
   });
 
   it('paints a tint the way color-mix() does, so the tinted pairs mean something', () => {

@@ -18,7 +18,7 @@ import {
   type ClaudeUpdateAdvice
 } from '../ai/claudeStatus';
 import { APP_NAME } from '../branding';
-import type { RuntimeStatus } from '../ipc';
+import type { ConnectionTestResult, RuntimeStatus } from '../ipc';
 import type { ErrorCode } from '../types';
 
 export type SetupViewId =
@@ -429,7 +429,7 @@ export const EXPIRED_INTRO = `Claude Code needs you to sign in again. This happe
 
 /** A sign-in failure from the last review that the check no longer finds. */
 export const SIGNED_IN_AGAIN =
-  'Claude Code now says it is signed in. If you have signed in again since, try the review: this clears once one goes through.';
+  'Claude Code now says it is signed in. If you have signed in again since, test the connection or try the review: this clears once either goes through.';
 
 export const COULD_NOT_CHECK_ADVICE =
   'Check again in a moment. If it keeps failing, try the review anyway: if something is wrong, it says what.';
@@ -741,4 +741,81 @@ export const COPY_FAILED_TEXT = 'Could not copy. Select the command and copy it 
 /** The status bar's runtime label is a button: Setup for Claude, Settings for OpenAI. */
 export function runtimeButtonTitle(provider: 'claude' | 'openai'): string {
   return provider === 'claude' ? 'Open Setup' : 'Open Settings';
+}
+
+/* ------------------------------------------------------------------ */
+/* Test the connection (setup.8)                                       */
+/* ------------------------------------------------------------------ */
+
+/** Said beside Test the connection on the Setup screen. */
+export const CONNECTION_TEST_NOTE =
+  'Sends one very small request to Claude, which counts against your plan like any other.';
+
+/** Said under the buttons while a test runs, where its result will be. */
+export const CONNECTION_TEST_RUNNING = 'Testing: waiting for Claude to answer…';
+
+/**
+ * Setup offers Test the connection once Claude Code has been found and the
+ * check has not said for certain that it is signed out: when it says ready,
+ * as after a sign-in that the last review said had ended, which only a test
+ * or a review clears, and when the check itself failed, where the test can
+ * say more. Not before the first check, nor for a missing Claude Code or a
+ * definite "signed out", where the steps say what to do and a test could
+ * only fail.
+ */
+export function canTestConnection(runtime: RuntimeStatus | null | undefined): boolean {
+  return runtime?.state === 'ready' || runtime?.state === 'error';
+}
+
+/**
+ * What a finished test does to the last failure: one that went through
+ * clears it, as a review that went through does (11.3 f); one that did not
+ * is remembered, as a review's failure is; a cancelled one, which the app's
+ * quitting causes, says nothing. `setup.6` named the success event for a
+ * review and a test alike.
+ */
+export function testSetupEvent(
+  result: ConnectionTestResult,
+  runtime: RuntimeStatus | null | undefined
+): SetupEvent | null {
+  if (result.ok) return { type: 'success' };
+  const code = result.error?.code ?? 'unknown';
+  if (code === 'cancelled') return null;
+  return { type: 'failure', code, runtime: runtime ?? null };
+}
+
+/** A finished test, with when it finished. */
+export interface ConnectionTestOutcome {
+  result: ConnectionTestResult;
+  /** ISO time */
+  finishedAt: string;
+}
+
+/** "2.9 s" under 10 seconds, "12 s" from there. */
+export function testDurationText(ms: number): string {
+  const seconds = Math.max(0, ms) / 1000;
+  return seconds < 10 ? `${seconds.toFixed(1)} s` : `${Math.round(seconds)} s`;
+}
+
+export interface ConnectionTestLine {
+  tone: 'ok' | 'failed';
+  text: string;
+}
+
+/** The line under Test the connection that says how the last test went, and when. */
+export function connectionTestLine(outcome: ConnectionTestOutcome): ConnectionTestLine {
+  const { result } = outcome;
+  const at = checkedAtText(outcome.finishedAt);
+  if (result.ok) {
+    return {
+      tone: 'ok',
+      text: `Claude answered the test at ${at}, in ${testDurationText(result.durationMs)}${
+        result.model ? ` (${result.model})` : ''
+      }.`
+    };
+  }
+  return {
+    tone: 'failed',
+    text: `The test at ${at} did not go through: ${result.error?.message ?? 'no reason was given.'}`
+  };
 }

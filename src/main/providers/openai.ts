@@ -15,7 +15,14 @@ import { buildSystemPrompt } from '../../shared/prompt/system';
 import { chapterName } from '../../shared/review';
 import { getDevSwitches } from '../devSwitches';
 import { fail } from '../errors';
-import type { ProviderHooks, ProviderResult, ReviewProvider } from './types';
+import { CONNECTION_TEST_PROMPT, CONNECTION_TEST_SYSTEM_PROMPT } from './connectionTest';
+import type {
+  ProviderHooks,
+  ProviderResult,
+  ProviderTestHooks,
+  ProviderTestResult,
+  ReviewProvider
+} from './types';
 
 /**
  * The OpenAI provider: the Responses API with strict structured outputs, on an
@@ -127,11 +134,13 @@ export function createOpenAiProvider(deps: OpenAiDeps): ReviewProvider {
   }
 
   /** The model to send: the author's choice, or the newest gpt-5 the key can see. */
-  async function resolveModel(api: OpenAI, requested: string): Promise<string> {
+  async function resolveModel(api: OpenAI, requested: string, signal?: AbortSignal): Promise<string> {
     if (requested.trim().length > 0) return requested.trim();
     const listed: OpenAiModel[] = [];
     try {
-      for await (const model of api.models.list()) listed.push({ id: model.id, created: model.created });
+      for await (const model of api.models.list(signal ? { signal } : undefined)) {
+        listed.push({ id: model.id, created: model.created });
+      }
     } catch {
       // A key that cannot list models can often still answer, so guess rather than fail.
       return 'gpt-5';
@@ -266,7 +275,34 @@ export function createOpenAiProvider(deps: OpenAiDeps): ReviewProvider {
     }
   }
 
-  return { id: 'openai', label: 'OpenAI', runtime, models, review };
+  /**
+   * Test the connection (setup.8): one plain, unstreamed request with the
+   * test's system prompt, to the model a review would use when none is
+   * chosen. Any answer counts; a refused key, a rate limit or a dead server
+   * throws as it would for a review. The time limit belongs to the caller.
+   */
+  async function test(hooks: ProviderTestHooks): Promise<ProviderTestResult> {
+    const api = await client();
+    try {
+      const model = await resolveModel(api, '', hooks.signal);
+      const response = await api.responses.create(
+        {
+          model,
+          instructions: CONNECTION_TEST_SYSTEM_PROMPT,
+          input: CONNECTION_TEST_PROMPT,
+          store: false
+        },
+        { signal: hooks.signal }
+      );
+      return { model: response.model || model };
+    } catch (err) {
+      if (hooks.signal.aborted || err instanceof APIUserAbortError)
+        throw fail('cancelled', 'Test cancelled.');
+      throw mapOpenAiError(err, 'answer the test');
+    }
+  }
+
+  return { id: 'openai', label: 'OpenAI', runtime, models, review, test };
 }
 
 /* ------------------------------------------------------------------ */

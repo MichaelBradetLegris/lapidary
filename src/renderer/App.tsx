@@ -657,6 +657,16 @@ export function App(): React.JSX.Element {
     setSetupOpen(true);
   }, [setReviewDialogOpen, setSettingsOpen, setSetupOpen, dismissNotificationsByKey]);
 
+  /* Test the connection, on the Setup screen (setup.8): one very small
+     request. A test that fails for a reason Setup can fix checks again, as a
+     review that fails so does (setup.5); Setup is open already. */
+  const { testConnection, check: checkRuntime } = ai;
+  const testClaude = useCallback(() => {
+    void testConnection('claude').then((result) => {
+      if (result?.error && SETUP_FAILURES.has(result.error.code)) checkRuntime('claude');
+    });
+  }, [testConnection, checkRuntime]);
+
   /** A new review replaces the working set, so open paragraph editors must be dealt with first. */
   const refuseWhileEditing = useCallback((): boolean => {
     const open = Object.keys(useApp.getState().drafts).length;
@@ -973,6 +983,9 @@ export function App(): React.JSX.Element {
               {...(review?.sourcePath && canTryReviewAnyway(claudeRuntime, ai.lastFailure)
                 ? { onTryAnyway: tryReviewAnyway }
                 : {})}
+              onTest={testClaude}
+              testing={ai.testing.claude ?? false}
+              testOutcome={ai.testOutcomes.claude ?? null}
             />
           </div>
           <StatusBar review={review} {...statusRuntime} rateLimit={ai.rateLimit?.message} />

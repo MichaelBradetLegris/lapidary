@@ -169,3 +169,41 @@ describe('Copy says when it fails (setup.7)', () => {
     expect(css).toMatch(/\.cmd code \{[^}]*user-select: all;/);
   });
 });
+
+describe('Test the connection, from the button to main and back (setup.8)', () => {
+  it('gives the Setup screen the test, whether one is running and how the last went', () => {
+    expect(SETUP).toMatch(
+      /onTest=\{testClaude\}\s*testing=\{ai\.testing\.claude \?\? false\}\s*testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*\/>/
+    );
+    const test = APP.slice(APP.indexOf('const testClaude = '), APP.indexOf('const refuseWhileEditing = '));
+    expect(test).toContain("void testConnection('claude').then((result) => {");
+    // A failure Setup can fix checks again, as a review's does (setup.5).
+    expect(test).toContain(
+      "if (result?.error && SETUP_FAILURES.has(result.error.code)) checkRuntime('claude');"
+    );
+    expect(APP).toContain('const { testConnection, check: checkRuntime } = ai;');
+  });
+
+  it('asks main once at a time, and moves the last failure through testSetupEvent', () => {
+    const ai = read('state/useAi.ts');
+    const test = ai.slice(ai.indexOf('const testConnection = '), ai.indexOf('const cancel = '));
+    expect(test).toContain('if (testsRunning.current.has(provider)) return null;');
+    expect(test).toContain("result = await call('ai:test', { provider });");
+    expect(test).toContain('if (result.rateLimit) setRateLimit(result.rateLimit);');
+    expect(test).toMatch(
+      /if \(provider === 'claude'\) \{\s*const event = testSetupEvent\(result, claudeRuntime\.current\);\s*if \(event\) setLastFailure\(\(prev\) => nextLastFailure\(prev, event\)\);\s*\}/
+    );
+    expect(test).toContain('finishedAt: new Date().toISOString()');
+  });
+
+  it('is answered in main by testConnection, with its controller tracked so quitting ends it', () => {
+    const main = withoutComments(readFileSync(path.join(RENDERER, '../main/ipc.ts'), 'utf8'));
+    expect(main).toContain(
+      "handle('ai:test', async ({ provider }) => {\n    const result = await testConnection(providers().get(provider), { track: registerController });"
+    );
+    const claude = withoutComments(readFileSync(path.join(RENDERER, '../main/providers/claude.ts'), 'utf8'));
+    // The same Claude Code, flags, environment and folder as a review (CLAUDE.md rule 6).
+    expect(claude).toContain('return runCliTest(cliDeps(executableCache), hooks);');
+    expect(claude).toMatch(/review: reviewChapter,\s*test: testClaude\s*\};/);
+  });
+});

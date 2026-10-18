@@ -5,7 +5,10 @@
  * stream-json --output-format stream-json`: it answers the `initialize` control
  * request, and after the user message it plays the scenario named by
  * FAKE_CLAUDE_SCENARIO. It also answers `--version` and `auth status --json`,
- * and echoes its arguments to stderr as `ARGS [...]` so the test can check them.
+ * and echoes its arguments to stderr as `ARGS [...]`, and what the `initialize`
+ * request carried as `INIT {...}`, so the test can check them. An `initialize`
+ * without a schema is a connection test (setup.8, test/main/connectionTest.test.ts),
+ * whose success is the word OK.
  *
  * Node runs it directly (22.18+ strips the types itself), so it has no relative
  * imports, like mockOpenAi.ts.
@@ -50,8 +53,20 @@ const REVIEW = {
   comments: [{ paragraph: null, category: 'pacing', text: 'The middle drags a little.' }]
 };
 
+/**
+ * Whether the `initialize` request carried an output schema. Without one the
+ * request is a connection test (setup.8), and a success is the word it asked
+ * for rather than a review.
+ */
+let withSchema = true;
+
 function play(name: string): void {
-  out({ type: 'system', subtype: 'init', model: 'claude-haiku-4-5-20251001', tools: ['StructuredOutput'] });
+  out({
+    type: 'system',
+    subtype: 'init',
+    model: 'claude-haiku-4-5-20251001',
+    tools: withSchema ? ['StructuredOutput'] : []
+  });
   if (name === 'malformed') process.stdout.write('this is not json\n{"no type": 1}\n');
   out({ type: 'stream_event', event: { type: 'content_block_start' } });
   out({ type: 'stream_event', event: { type: 'message_delta', usage: { output_tokens: 42 } } });
@@ -63,14 +78,28 @@ function play(name: string): void {
   switch (name) {
     case 'success':
     case 'malformed':
-      out({
-        ...base,
-        subtype: 'success',
-        is_error: false,
-        result: JSON.stringify(REVIEW),
-        structured_output: REVIEW,
-        modelUsage: { 'claude-haiku-4-5-20251001': { inputTokens: 900, outputTokens: 42 } }
-      });
+      out(
+        withSchema
+          ? {
+              ...base,
+              subtype: 'success',
+              is_error: false,
+              result: JSON.stringify(REVIEW),
+              structured_output: REVIEW,
+              modelUsage: { 'claude-haiku-4-5-20251001': { inputTokens: 900, outputTokens: 42 } }
+            }
+          : {
+              ...base,
+              subtype: 'success',
+              is_error: false,
+              result: 'OK',
+              modelUsage: { 'claude-haiku-4-5-20251001': { inputTokens: 21, outputTokens: 4 } }
+            }
+      );
+      break;
+    case 'no-model-usage':
+      // A success that names no model in its usage: the init message's model stands.
+      out({ ...base, subtype: 'success', is_error: false, result: 'OK' });
       break;
     case 'wrong-shape':
       out({
@@ -151,6 +180,10 @@ const rl = readline.createInterface({ input: process.stdin });
 rl.on('line', (line) => {
   const message = JSON.parse(line) as Incoming;
   if (message.type === 'control_request' && message.request?.subtype === 'initialize') {
+    withSchema = Boolean(message.request.jsonSchema);
+    process.stderr.write(
+      `INIT ${JSON.stringify({ systemPrompt: message.request.systemPrompt ?? null, hasSchema: withSchema })}\n`
+    );
     // A Claude Code that hangs at start-up: the caller's time budget has to end it.
     if (scenario === 'init-silent') return;
     if (scenario === 'init-refused') {

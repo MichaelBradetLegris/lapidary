@@ -243,6 +243,23 @@ export interface RateLimitInfo {
   message?: string;
 }
 
+/**
+ * What Test the connection found (setup.8, PLAN 5.6): one very small request,
+ * which went through or did not. A failure is an answer, not a thrown error,
+ * so the page always learns how long the test took.
+ */
+export interface ConnectionTestResult {
+  ok: boolean;
+  /** the model that answered, as the provider names it */
+  model?: string;
+  /** from the request to the answer, as the app measured it, starting the provider's program included */
+  durationMs: number;
+  /** why the test did not go through; set exactly when `ok` is false */
+  error?: AppError;
+  /** the provider's rate-limit notice, when it sent one */
+  rateLimit?: RateLimitInfo;
+}
+
 /** How "Open" opens the guidelines file: in Obsidian, or in the system's app for .md (setup.10). */
 export type OpenGuidelinesVia = 'obsidian' | 'default';
 
@@ -460,6 +477,8 @@ export interface ApiRequestMap {
   'ai:models': { request: { provider: Provider }; response: ModelInfo[] };
   'ai:review': { request: ReviewRequest; response: ReviewResponse };
   'ai:cancel': { request: { requestId: string }; response: void };
+  /** one very small request, only when the author asks (setup.8); never throws for a failed test */
+  'ai:test': { request: { provider: Provider }; response: ConnectionTestResult };
   /* The key itself only ever travels renderer -> main. Nothing sends it back. */
   'secrets:openai-status': { request: void; response: OpenAiKeyStatus };
   'secrets:openai-set': { request: { key: string }; response: OpenAiKeyStatus };
@@ -512,6 +531,7 @@ const REQUEST_CHANNEL_FLAGS = {
   'ai:models': true,
   'ai:review': true,
   'ai:cancel': true,
+  'ai:test': true,
   'secrets:openai-status': true,
   'secrets:openai-set': true,
   'secrets:openai-clear': true,

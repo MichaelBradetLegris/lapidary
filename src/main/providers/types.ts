@@ -39,6 +39,15 @@ export interface ProviderResult {
   rateLimit?: RateLimitInfo;
 }
 
+/** What a connection test is handed: the signal that ends it, and where rate-limit notices go. */
+export type ProviderTestHooks = Pick<ProviderHooks, 'signal' | 'onRateLimit'>;
+
+/** A connection test that went through. One that did not throws, as a review does. */
+export interface ProviderTestResult {
+  /** the model that answered */
+  model?: string;
+}
+
 export interface ReviewProvider {
   readonly id: Provider;
   readonly label: string;
@@ -47,4 +56,11 @@ export interface ReviewProvider {
   /** models the author may choose, in the order the dialog should show them */
   models(): Promise<ModelInfo[]>;
   review(request: ReviewRequest, hooks: ProviderHooks): Promise<ProviderResult>;
+  /**
+   * Send one very small request and say whether it went through (setup.8).
+   * Optional: a provider without one answers Test the connection with "has no
+   * connection test" (`testConnection`, connectionTest.ts). Aborted through
+   * `hooks.signal` when the test runs out of time or the app quits.
+   */
+  test?(hooks: ProviderTestHooks): Promise<ProviderTestResult>;
 }

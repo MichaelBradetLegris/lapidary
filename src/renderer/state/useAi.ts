@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   AiProgressEvent,
+  ConnectionTestResult,
   ModelInfo,
   OpenAiKeyStatus,
   RateLimitInfo,
@@ -10,7 +11,14 @@ import { PROMPT_PARAGRAPH_BASE, fromPromptNumbering } from '../../shared/prompt/
 import { guidelinesFingerprint } from '../../shared/prompt/system';
 import { createAiReview, toChangeCategory } from '../../shared/review';
 import { modelFor, type Provider, type Review, type Settings } from '../../shared/types';
-import { focusRecheckDue, nextLastFailure, type LastFailure, type SetupViewId } from '../../shared/ui/setup';
+import {
+  focusRecheckDue,
+  nextLastFailure,
+  testSetupEvent,
+  type ConnectionTestOutcome,
+  type LastFailure,
+  type SetupViewId
+} from '../../shared/ui/setup';
 import { ApiError, call } from './client';
 
 /**
@@ -37,6 +45,17 @@ export interface AiController {
   rateLimit: RateLimitInfo | null;
   /** the last Claude failure that says something about setup (setup.5, nextLastFailure) */
   lastFailure: LastFailure | null;
+  /** providers whose connection test is running (setup.8) */
+  testing: Partial<Record<Provider, boolean>>;
+  /** each provider's last finished connection test, kept for the rest of the run */
+  testOutcomes: Partial<Record<Provider, ConnectionTestOutcome>>;
+  /**
+   * Test the connection: one very small request (setup.8). Resolves with the
+   * answer, or null when a test of that provider is running already. A
+   * Claude test that went through clears the last failure, as a review that
+   * went through does; one that did not is remembered (`testSetupEvent`).
+   */
+  testConnection: (provider: Provider) => Promise<ConnectionTestResult | null>;
   check: (provider: Provider) => void;
   /**
    * The window came back to the front: check Claude again when Setup has
@@ -76,6 +95,9 @@ export function useAi(): AiController {
   const [progress, setProgress] = useState<AiProgressEvent | null>(null);
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null);
   const [lastFailure, setLastFailure] = useState<LastFailure | null>(null);
+  const [testing, setTesting] = useState<Partial<Record<Provider, boolean>>>({});
+  const [testOutcomes, setTestOutcomes] = useState<Partial<Record<Provider, ConnectionTestOutcome>>>({});
+  const testsRunning = useRef(new Set<Provider>());
   const claudeRuntime = useRef<RuntimeStatus | null>(null);
   const activeRequest = useRef<string | null>(null);
   /* When the last check of Claude started, and how many are running, for
@@ -208,6 +230,36 @@ export function useAi(): AiController {
     };
   }, []);
 
+  const testConnection = useCallback(async (provider: Provider): Promise<ConnectionTestResult | null> => {
+    if (testsRunning.current.has(provider)) return null;
+    testsRunning.current.add(provider);
+    setTesting((prev) => ({ ...prev, [provider]: true }));
+    let result: ConnectionTestResult;
+    try {
+      result = await call('ai:test', { provider });
+    } catch (err) {
+      // Main answers a failed test; only the bridge itself can throw here.
+      result = {
+        ok: false,
+        durationMs: 0,
+        error:
+          err instanceof ApiError
+            ? { code: err.code, message: err.message }
+            : { code: 'unknown', message: messageOf(err) }
+      };
+    } finally {
+      testsRunning.current.delete(provider);
+    }
+    if (result.rateLimit) setRateLimit(result.rateLimit);
+    if (provider === 'claude') {
+      const event = testSetupEvent(result, claudeRuntime.current);
+      if (event) setLastFailure((prev) => nextLastFailure(prev, event));
+    }
+    setTestOutcomes((prev) => ({ ...prev, [provider]: { result, finishedAt: new Date().toISOString() } }));
+    setTesting((prev) => ({ ...prev, [provider]: false }));
+    return result;
+  }, []);
+
   const cancel = useCallback(() => {
     const id = activeRequest.current;
     if (!id) return;
@@ -301,6 +353,9 @@ export function useAi(): AiController {
     progress,
     rateLimit,
     lastFailure,
+    testing,
+    testOutcomes,
+    testConnection,
     check,
     recheckOnFocus,
     ensureModels,
