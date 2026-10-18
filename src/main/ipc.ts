@@ -50,6 +50,7 @@ import {
   listReviews,
   loadLatestReview,
   loadReviewFile,
+  makeReviewsFolder,
   recordShown,
   resolveReviewsFolder,
   reviewIndex,
@@ -100,7 +101,9 @@ export const closeGuard = createCloseGuard<BrowserWindow>({
 /**
  * Wire the accumulated handlers into ipcMain. Call once, after all modules
  * registered. A file system error that reaches here unexplained is worded as
- * a write's; every read path explains its own first (`readFailure`, apply.24).
+ * a write that replaces a file; every read path explains its own first
+ * (`readFailure`, apply.24), and so does every write that makes a new file,
+ * a copy or a folder (`writeFailure`, apply.25).
  */
 export function installIpcBridge(): void {
   for (const [channel, fn] of handlers) {
@@ -282,7 +285,7 @@ function registerSecretHandlers(): void {
 async function reviewsFolder(): Promise<string> {
   const settings = await loadSettings();
   const folder = resolveReviewsFolder(settings.reviewsFolder, app.getPath('userData'));
-  await fs.mkdir(folder, { recursive: true });
+  await makeReviewsFolder(folder);
   return folder;
 }
 

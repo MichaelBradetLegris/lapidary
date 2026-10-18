@@ -14,10 +14,11 @@ import {
   setAsideFile,
   setAsideFolderFor
 } from '../../src/main/drafts';
-import { AppFailure, explainReadError } from '../../src/main/errors';
+import { AppFailure, explainReadError, explainWriteError } from '../../src/main/errors';
 import { APP_NAME } from '../../src/shared/branding';
 import type { StoredDraft } from '../../src/shared/ipc';
 import { pathKey } from '../../src/shared/paths';
+import { setAsideFailedCardText } from '../../src/shared/ui/drafts';
 
 /* apply.16: the drafts file of a chapter, written whole and deleted when
    empty, the set-aside .txt files, and the names Show the text may open
@@ -229,6 +230,76 @@ describe('saving and loading', () => {
     await fs.writeFile(file, JSON.stringify(foreign));
     expect(await loadDrafts(draftsRoot, chapter, true)).toBeNull();
     expect(JSON.parse(await fs.readFile(file, 'utf8'))).toEqual(foreign);
+  });
+});
+
+/* apply.25: the folders and the set-aside file are made, never retried and
+   never replacing anything, so a refusal says what was being made and to try
+   again, never "save again". */
+describe('a folder or file that cannot be made (apply.25)', () => {
+  const at = new Date(2026, 9, 17, 9, 5, 7);
+  const NOT_A_RENAME = /replace|save again|second and a half|even after|the file is as it was/;
+  const refused = (code: string, syscall: string, at: string): NodeJS.ErrnoException =>
+    Object.assign(new Error(`${code}: refused, ${syscall} '${at}'`), { code, syscall, path: at });
+
+  it('setting aside: the set-aside file, named as the card names it', async () => {
+    const name = 'Chapter 01 2026-10-17 09.05.07.txt';
+    for (const code of ['EBUSY', 'EPERM', 'EACCES']) {
+      const err = refused(code, 'open', path.join(setAsideFolderFor(draftsRoot), name));
+      const write = vi.spyOn(fs, 'writeFile').mockRejectedValueOnce(err);
+      try {
+        const shown = await failure(
+          setAsideDrafts(draftsRoot, { sourcePath: chapter, drafts: [box(1)] }, { now: at })
+        );
+        expect(shown.message).toBe(explainWriteError(err, name, process.platform, 'create'));
+        expect(shown.message).toMatch(/ create Chapter 01 2026-10-17 09\.05\.07\.txt\. .*try again\. /);
+        expect(shown.message).not.toMatch(NOT_A_RENAME);
+        // The card puts the words after "could not be set aside:".
+        expect(setAsideFailedCardText([box(1)], shown.message)).toContain(
+          `what you typed could not be set aside: ${shown.message} It is still kept`
+        );
+      } finally {
+        write.mockRestore();
+      }
+    }
+    expect(await fs.readdir(setAsideFolderFor(draftsRoot))).toEqual([]);
+  });
+
+  it('setting aside: the folder for set-aside text', async () => {
+    const err = refused('EPERM', 'mkdir', setAsideFolderFor(draftsRoot));
+    const mkdir = vi.spyOn(fs, 'mkdir').mockRejectedValueOnce(err);
+    try {
+      const shown = await failure(
+        setAsideDrafts(draftsRoot, { sourcePath: chapter, drafts: [box(1)] }, { now: at })
+      );
+      expect(shown.message).toBe(
+        explainWriteError(err, 'the folder for set-aside text', process.platform, 'folder')
+      );
+      expect(shown.message).not.toMatch(NOT_A_RENAME);
+    } finally {
+      mkdir.mockRestore();
+    }
+    await expect(fs.stat(setAsideFolderFor(draftsRoot))).rejects.toThrow();
+  });
+
+  it('keeping boxes: the folder they are kept in', async () => {
+    const err = refused('EACCES', 'mkdir', draftsRoot);
+    const mkdir = vi.spyOn(fs, 'mkdir').mockRejectedValueOnce(err);
+    try {
+      const shown = await failure(
+        saveDrafts(draftsRoot, { sourcePath: chapter, reviewId: 'r1', drafts: [box(1)] }, true)
+      );
+      expect(shown.message).toBe(
+        explainWriteError(err, 'the folder they are kept in', process.platform, 'folder')
+      );
+      expect(shown.message).toMatch(
+        / create the folder they are kept in\. .*try again\. .*Nothing was written\.$/
+      );
+      expect(shown.message).not.toMatch(NOT_A_RENAME);
+    } finally {
+      mkdir.mockRestore();
+    }
+    await expect(fs.stat(draftsRoot)).rejects.toThrow();
   });
 });
 

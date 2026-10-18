@@ -11,7 +11,7 @@ import {
   setAsideFileName,
   setAsideText
 } from '../shared/ui/drafts';
-import { fail, readFailure } from './errors';
+import { fail, readFailure, writeFailure } from './errors';
 import { atomicWriteFile } from './atomic';
 import { log as appLog, type LogLevel } from './log';
 
@@ -81,6 +81,18 @@ function requirePath(sourcePath: unknown): string {
  * paragraphs left open.
  */
 const DRAFTS_FILE_NAME = 'the file they are kept in';
+
+/**
+ * How a failed write names the drafts folder, which a first box written
+ * makes (apply.25). The card puts the reason after "could not be kept:".
+ */
+const DRAFTS_FOLDER_NAME = 'the folder they are kept in';
+
+/**
+ * How a failed write names the set-aside folder (apply.25). The card puts the
+ * reason after "what you typed could not be set aside:".
+ */
+const SET_ASIDE_FOLDER_NAME = 'the folder for set-aside text';
 
 /**
  * The boxes kept for this chapter, or null when there are none. A file that
@@ -161,7 +173,11 @@ export async function saveDrafts(
       text: d.text
     }))
   };
-  await fs.mkdir(draftsRoot, { recursive: true });
+  try {
+    await fs.mkdir(draftsRoot, { recursive: true });
+  } catch (err) {
+    throw writeFailure(err, 'folder', DRAFTS_FOLDER_NAME);
+  }
   await atomicWriteFile(file, Buffer.from(`${JSON.stringify(kept, null, 2)}\n`, 'utf8'));
 }
 
@@ -193,7 +209,13 @@ export async function setAsideDrafts(
   const text = setAsideText(sourcePath, request.drafts, now);
   const bytes = Buffer.from(platform === 'win32' ? text.replace(/\n/g, '\r\n') : text, 'utf8');
   const folder = setAsideFolderFor(draftsRoot);
-  await fs.mkdir(folder, { recursive: true });
+  // Neither write is retried or replaces anything, so a refusal says what was
+  // being made and to try again (apply.25).
+  try {
+    await fs.mkdir(folder, { recursive: true });
+  } catch (err) {
+    throw writeFailure(err, 'folder', SET_ASIDE_FOLDER_NAME);
+  }
   for (let seq = 1; seq <= MAX_PER_SECOND; seq += 1) {
     const name = setAsideFileName(sourcePath, now, seq);
     const file = path.join(folder, name);
@@ -202,7 +224,7 @@ export async function setAsideDrafts(
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'EEXIST') continue;
       await fs.rm(file, { force: true }).catch(() => undefined);
-      throw err;
+      throw writeFailure(err, 'create', name);
     }
     log('info', 'drafts.set-aside', { boxes: request.drafts.length });
     return { name, file };

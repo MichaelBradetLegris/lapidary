@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { explainReadError, toAppError } from '../../src/main/errors';
+import { explainReadError, explainWriteError, toAppError } from '../../src/main/errors';
 import { APP_NAME } from '../../src/shared/branding';
 import {
   OpenedChapters,
@@ -35,6 +35,19 @@ afterEach(async () => {
 
 /** Words that belong to a write and must never explain a read (apply.24). */
 const WRITE_WORDS = /replace|save again|Nothing was written|Controlled folder access|second and a half/;
+
+/** Words that belong to replacing a file and must never explain making a new one (apply.25). */
+const NOT_A_RENAME = /replace|save again|second and a half|even after|the file is as it was/;
+
+/** What the page is shown: the IPC bridge's words, which take an unexplained error as a write's. */
+async function shown(promise: Promise<unknown>): Promise<string> {
+  try {
+    await promise;
+  } catch (err) {
+    return toAppError(err).message;
+  }
+  throw new Error('expected a failure');
+}
 
 async function put(relative: string, contents: string | Buffer): Promise<string> {
   const file = path.join(root, relative);
@@ -81,8 +94,72 @@ describe('listChapters', () => {
     expect(files.map((f) => f.relativePath)).toEqual(['Chapter 1.md']);
   });
 
-  it('returns nothing for a folder that is not there', async () => {
-    expect(await listChapters(path.join(root, 'nope'), null)).toEqual([]);
+  /* apply.25: a manuscript folder that cannot be read is not a folder with no
+     chapters, so the list is told why instead of being given nothing. */
+  it('says so when the manuscript folder is not there', async () => {
+    const err = await listChapters(path.join(root, 'nope'), null).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(toAppError(err)).toMatchObject({
+      code: 'io',
+      message: `${APP_NAME} could not find the manuscript folder nope. It may have been renamed, moved or deleted. ${APP_NAME} has not changed anything.`
+    });
+  });
+
+  it('explains a manuscript folder another program holds, or the account may not read, as a read', async () => {
+    await put('Chapter 1.md', 'a');
+    const name = `the manuscript folder ${path.basename(root)}`;
+    for (const code of ['EBUSY', 'EPERM', 'EACCES']) {
+      const refused = Object.assign(new Error(`${code}: refused, scandir '${root}'`), {
+        code,
+        syscall: 'scandir',
+        path: root
+      });
+      const readdir = vi.spyOn(fs, 'readdir').mockRejectedValueOnce(refused);
+      try {
+        const err = await listChapters(root, null).then(
+          () => null,
+          (e: unknown) => e
+        );
+        // What the IPC bridge sends on: the read words, naming the folder.
+        const shown = toAppError(err);
+        expect(shown).toMatchObject({
+          code: 'io',
+          message: explainReadError(refused, name, process.platform)
+        });
+        expect(shown.message).toMatch(
+          / read the manuscript folder mrev-files-\S+\. .*\S+ has not changed anything\.$/
+        );
+        expect(shown.message).not.toMatch(WRITE_WORDS);
+      } finally {
+        readdir.mockRestore();
+      }
+    }
+    // Readable again: the chapters are there.
+    expect((await listChapters(root, null)).map((f) => f.relativePath)).toEqual(['Chapter 1.md']);
+  });
+
+  it('still skips a subfolder it cannot read', async () => {
+    await put('Chapter 1.md', 'a');
+    await put('locked/Chapter 2.md', 'b');
+    await put('open/Chapter 3.md', 'c');
+    const locked = path.join(root, 'locked');
+    const real = fs.readdir.bind(fs) as (dir: string, options: { withFileTypes: true }) => Promise<unknown>;
+    const readdir = vi
+      .spyOn(fs, 'readdir')
+      .mockImplementation(((dir: string, options: { withFileTypes: true }) =>
+        path.resolve(dir) === path.resolve(locked)
+          ? Promise.reject(Object.assign(new Error('EBUSY: refused'), { code: 'EBUSY', path: dir }))
+          : real(dir, options)) as unknown as typeof fs.readdir);
+    try {
+      expect((await listChapters(root, null)).map((f) => f.relativePath)).toEqual([
+        'Chapter 1.md',
+        'open/Chapter 3.md'
+      ]);
+    } finally {
+      readdir.mockRestore();
+    }
   });
 });
 
@@ -256,16 +333,6 @@ describe('writeChapter', () => {
 describe('a refused read is explained as a read (apply.24)', () => {
   const refused = (code: string): NodeJS.ErrnoException =>
     Object.assign(new Error(`${code}: refused`), { code, path: path.join(root, 'c.md') });
-
-  /** What the page is shown: the IPC bridge's words, which take an unexplained error as a write's. */
-  async function shown(promise: Promise<unknown>): Promise<string> {
-    try {
-      await promise;
-    } catch (err) {
-      return toAppError(err).message;
-    }
-    throw new Error('expected a failure');
-  }
 
   it('opening a chapter another program holds or will not let the app read', async () => {
     const file = await put('c.md', 'one\n');
@@ -455,6 +522,57 @@ describe('a refused read is explained as a read (apply.24)', () => {
     expect(message).toMatch(/Nothing was written; the file is as it was\.$/);
     expect(await fs.readFile(file, 'utf8')).toBe('one\n');
   });
+
+  /* apply.25: Controlled folder access, or a folder the account may not add
+     files to, refuses the new version before any rename, which is never
+     retried, so the words claim no second and a half. */
+  it('a save whose new version cannot be made in the folder says so, claiming no retries', async () => {
+    const file = await put('c.md', 'one\n');
+    const content = await readChapter(file);
+    let refused: NodeJS.ErrnoException | undefined;
+    const open = vi.spyOn(fs, 'open').mockImplementationOnce((target) => {
+      refused = Object.assign(new Error(`EPERM: operation not permitted, open '${String(target)}'`), {
+        code: 'EPERM',
+        syscall: 'open',
+        path: String(target)
+      });
+      return Promise.reject(refused);
+    });
+    const renames: string[] = [];
+    try {
+      const message = await shown(
+        writeChapter(
+          {
+            path: file,
+            text: 'two',
+            eol: 'lf',
+            bom: false,
+            trailingNewline: true,
+            expectedHash: content.hash
+          },
+          {
+            atomic: {
+              rename: (from: string, to: string) => {
+                renames.push(to);
+                return fs.rename(from, to);
+              },
+              sleep: () => Promise.resolve()
+            }
+          }
+        )
+      );
+      expect(refused?.path).toMatch(/[\\/]\.c\.md\.[0-9a-f]{12}\.tmp$/);
+      expect(message).toBe(explainWriteError(refused, 'c.md', process.platform));
+      expect(message).toMatch(/ write the new version of c\.md into its folder\. /);
+      expect(message).not.toMatch(/second and a half|even after/);
+      expect(message).toMatch(/save again\. .*Nothing was written; the file is as it was\.$/);
+    } finally {
+      open.mockRestore();
+    }
+    expect(renames).toEqual([]);
+    expect(await fs.readFile(file, 'utf8')).toBe('one\n');
+    expect(await fs.readdir(root)).toEqual(['c.md']);
+  });
 });
 
 describe('writeChapter backup hooks (apply.10, PLAN 11.3 h)', () => {
@@ -642,6 +760,47 @@ describe('creating a chapter', () => {
   it('does not double an extension the author typed', async () => {
     const file = await createChapter(root, 'Chapter 04.md', 'md', '');
     expect(file.name).toBe('Chapter 04.md');
+  });
+
+  /* apply.25: creating is never retried and replaces nothing, so a refusal
+     says what was being made and to try again, never "save again". */
+  it('says what it was making when the system refuses, and to try again', async () => {
+    const created = path.join(root, 'Chapter 05.md');
+    for (const code of ['EBUSY', 'EPERM', 'EACCES']) {
+      const refused = Object.assign(new Error(`${code}: refused, open '${created}'`), {
+        code,
+        syscall: 'open',
+        path: created
+      });
+      const write = vi.spyOn(fs, 'writeFile').mockRejectedValueOnce(refused);
+      try {
+        const message = await shown(createChapter(root, 'Chapter 05', 'md', 'One line.'));
+        expect(message).toBe(explainWriteError(refused, 'Chapter 05.md', process.platform, 'create'));
+        expect(message).toMatch(/ create Chapter 05\.md\. .*try again\. .*Nothing was written\.$/);
+        expect(message).not.toMatch(NOT_A_RENAME);
+      } finally {
+        write.mockRestore();
+      }
+    }
+    const folder = Object.assign(new Error(`EPERM: refused, mkdir '${root}'`), {
+      code: 'EPERM',
+      syscall: 'mkdir',
+      path: root
+    });
+    const mkdir = vi.spyOn(fs, 'mkdir').mockRejectedValueOnce(folder);
+    try {
+      const message = await shown(createChapter(root, 'Chapter 05', 'md', 'One line.'));
+      expect(message).toBe(
+        explainWriteError(folder, `the manuscript folder ${path.basename(root)}`, process.platform, 'folder')
+      );
+      expect(message).toMatch(
+        / create the manuscript folder mrev-files-\S+\. .*try again\. .*Nothing was written\.$/
+      );
+      expect(message).not.toMatch(NOT_A_RENAME);
+    } finally {
+      mkdir.mockRestore();
+    }
+    expect(await fs.readdir(root)).toEqual([]);
   });
 
   it('never overwrites an existing file', async () => {

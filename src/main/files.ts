@@ -15,7 +15,7 @@ import { isInsidePath, pathKey, samePath } from '../shared/paths';
 import { MAX_TEXT_BYTES, classifyBytes, encodingProblem } from '../shared/text/encoding';
 import { normalizeText, restoreText } from '../shared/text/eol';
 import { atomicWriteFile, type AtomicWriteOptions } from './atomic';
-import { fail, readFailure } from './errors';
+import { fail, readFailure, writeFailure } from './errors';
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.obsidian', '.trash', 'out', 'dist']);
 
@@ -100,10 +100,18 @@ function isHidden(name: string): boolean {
   return name.startsWith('.');
 }
 
+/** How a message names the manuscript folder: "the manuscript folder Novel". */
+export function manuscriptFolderName(folder: string): string {
+  return `the manuscript folder ${path.basename(path.resolve(folder)) || path.resolve(folder)}`;
+}
+
 /**
  * Every `.md` and `.txt` under `folder`, skipping dot-folders, the reviews
  * folder and any files named in `excludeFiles` (the guidelines file is not a
- * chapter).
+ * chapter). A subfolder that cannot be read is skipped; the manuscript folder
+ * itself must be, or the list would say it holds no chapters, so a read the
+ * system refuses there, or a folder that is not there, is explained as a read
+ * (`readFailure`, apply.25).
  */
 export async function listChapters(
   folder: string,
@@ -114,11 +122,12 @@ export async function listChapters(
   const excluded = reviewsFolder ? path.resolve(reviewsFolder) : null;
   const skipFiles = new Set(excludeFiles.map((f) => path.resolve(f).toLowerCase()));
 
-  const walk = async (dir: string): Promise<void> => {
+  const walk = async (dir: string, top: boolean): Promise<void> => {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (top) throw readFailure(err, manuscriptFolderName(folder));
       return;
     }
     for (const entry of entries) {
@@ -126,7 +135,7 @@ export async function listChapters(
       if (entry.isDirectory()) {
         if (isHidden(entry.name) || SKIP_DIRS.has(entry.name)) continue;
         if (excluded && path.resolve(full) === excluded) continue;
-        await walk(full);
+        await walk(full, false);
         continue;
       }
       if (!entry.isFile()) continue;
@@ -144,7 +153,7 @@ export async function listChapters(
     }
   };
 
-  await walk(folder);
+  await walk(folder, true);
   return out.sort((a, b) => a.relativePath.localeCompare(b.relativePath, undefined, { numeric: true }));
 }
 
@@ -425,14 +434,20 @@ export async function createChapter(
     'utf8'
   );
 
-  await fs.mkdir(folder, { recursive: true });
+  // Neither write is retried or replaces anything, so a refusal says what was
+  // being made and to try again (apply.25).
+  try {
+    await fs.mkdir(folder, { recursive: true });
+  } catch (err) {
+    throw writeFailure(err, 'folder', manuscriptFolderName(folder));
+  }
   try {
     await fs.writeFile(verdict.file, bytes, { flag: 'wx' });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
       throw fail('invalid-input', `A file with this name already exists: ${path.basename(verdict.file)}`);
     }
-    throw err;
+    throw writeFailure(err, 'create', path.basename(verdict.file));
   }
 
   const stat = await fs.stat(verdict.file);

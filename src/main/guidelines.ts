@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { GuidelinesInfo, GuidelinesStatus } from '../shared/ipc';
 import { styleSheetStatus } from '../shared/prompt/guidelines';
 import type { Settings } from '../shared/types';
-import { fail, readFailure } from './errors';
+import { fail, readFailure, writeFailure } from './errors';
 import { readTextFile } from './files';
 
 /*
@@ -47,7 +47,13 @@ export async function ensureGuidelinesFile(
     throw fail('not-configured', 'Choose a manuscript folder before using the guidelines file.');
   }
   assertGuidelinesFile(target);
-  await fs.mkdir(path.dirname(target), { recursive: true });
+  // Neither write is retried or replaces anything, so a refusal says what was
+  // being made and to try again (apply.25).
+  try {
+    await fs.mkdir(path.dirname(target), { recursive: true });
+  } catch (err) {
+    throw writeFailure(err, 'folder', `the folder for ${path.basename(target)}`);
+  }
   try {
     await fs.copyFile(template, target, constants.COPYFILE_EXCL);
     return { path: target, created: true };
@@ -61,7 +67,7 @@ export async function ensureGuidelinesFile(
       );
       if (!templateThere) throw fail('not-found', `The guidelines template is missing at ${template}`);
     }
-    throw err;
+    throw writeFailure(err, 'copy', path.basename(target));
   }
 }
 

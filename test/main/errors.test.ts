@@ -6,7 +6,9 @@ import {
   explainWriteError,
   readFailure,
   toAppError,
-  type FileOperation
+  writeFailure,
+  type FileOperation,
+  type MakeKind
 } from '../../src/main/errors';
 import { APP_NAME } from '../../src/shared/branding';
 
@@ -285,5 +287,162 @@ describe('readFailure', () => {
     const argument = Object.assign(new TypeError('bad path'), { code: 'ERR_INVALID_ARG_TYPE' });
     expect(readFailure(argument, 'Ch.md')).toBe(argument);
     expect(readFailure('odd', 'Ch.md')).toEqual(new Error('odd'));
+  });
+});
+
+/* apply.25: a write that makes something new, a file, a copy or a folder, is
+   never retried and replaces nothing, so its words say what was being made
+   and to try again; a temp file that could not be made is not retried
+   either. Only a refused rename claims a second and a half. */
+
+const CFA = `If that keeps happening, Windows Security's Controlled folder access may be blocking ${APP_NAME}: allow it under Windows Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled folder access.`;
+
+/** Words that belong to replacing a file, and the retries only a rename gets. */
+const REPLACE_WORDS = /replace|save again|second and a half|even after|the file is as it was/;
+
+/** A read's words, which a write that makes something must never have; "try again" is a write's too now. */
+const READ_ONLY_WORDS = /\bread (Chapter|it|the)\b|could not find|has not changed anything/;
+
+/** The exact words for each kind that makes something, on Windows and Linux. */
+const MADE: Record<MakeKind, { name: string; win32: string; linux: string }> = {
+  create: {
+    name: 'Chapter 1.md',
+    win32: `Windows would not let ${APP_NAME} create Chapter 1.md. Another program may be holding its folder, or your Windows account may not be allowed to add files to it. Wait a moment and try again. ${CFA} Nothing was written.`,
+    linux: `${APP_NAME} is not allowed to create Chapter 1.md. Check that its folder is writable, then try again. Nothing was written.`
+  },
+  copy: {
+    name: 'GUIDELINES.md',
+    win32: `Windows would not let ${APP_NAME} create GUIDELINES.md from the template. Another program may be holding its folder, or your Windows account may not be allowed to add files to it. Wait a moment and try again. ${CFA} Nothing was written.`,
+    linux: `${APP_NAME} is not allowed to create GUIDELINES.md from the template. Check that its folder is writable, then try again. Nothing was written.`
+  },
+  folder: {
+    name: 'the review folder of Chapter 1.md',
+    win32: `Windows would not let ${APP_NAME} create the review folder of Chapter 1.md. Another program may be holding the folder it goes in, or your Windows account may not be allowed to add folders there. Wait a moment and try again. ${CFA} Nothing was written.`,
+    linux: `${APP_NAME} is not allowed to create the review folder of Chapter 1.md. Check that the folder it goes in is writable, then try again. Nothing was written.`
+  }
+};
+
+describe('toAppError, by what the write was making (apply.25)', () => {
+  for (const [kind, expected] of Object.entries(MADE) as [MakeKind, (typeof MADE)[MakeKind]][]) {
+    it(`${kind}: a refusal says what was being made, claims no retries and says to try again`, () => {
+      for (const code of ['EBUSY', 'EPERM', 'EACCES']) {
+        for (const platform of ['win32', 'linux'] as const) {
+          const error = toAppError(errno(code), {
+            operation: 'write',
+            write: kind,
+            name: expected.name,
+            platform
+          });
+          expect(error.code).toBe('io');
+          expect(error.message, `${code} ${platform}`).toBe(expected[platform]);
+          expect(error.message).not.toMatch(REPLACE_WORDS);
+          expect(error.message).not.toMatch(READ_ONLY_WORDS);
+          // Controlled folder access blocks creating files too.
+          expect(error.message.includes('Controlled folder access')).toBe(platform === 'win32');
+        }
+      }
+    });
+
+    it(`${kind}: a full disk and a read-only drive, and nothing else`, () => {
+      for (const platform of ['win32', 'linux'] as const) {
+        const context = { operation: 'write', write: kind, name: expected.name, platform } as const;
+        expect(toAppError(errno('ENOSPC'), context).message).toBe(
+          `There is no space left on the disk for ${expected.name}. Free some space and try again.`
+        );
+        expect(toAppError(errno('EROFS'), context).message).toBe(
+          `${APP_NAME} cannot create ${expected.name}, because the drive is read-only. Nothing was written.`
+        );
+        for (const code of ['ENOENT', 'ENOTDIR', 'EISDIR', 'EEXIST', 'EIO', 'UNKNOWN']) {
+          expect(toAppError(errno(code), context).message, code).toBe(raw(code));
+        }
+      }
+    });
+  }
+
+  it('takes a write as replacing a file when nothing says otherwise', () => {
+    for (const code of Object.keys(TABLE)) {
+      for (const platform of ['win32', 'linux'] as const) {
+        const err = errno(code);
+        expect(toAppError(err, { platform })).toEqual(toAppError(err, { write: 'replace', platform }));
+      }
+    }
+  });
+
+  it('words a read as a read whatever kind of write is named', () => {
+    for (const kind of ['replace', 'create', 'copy', 'folder'] as const) {
+      for (const platform of ['win32', 'linux'] as const) {
+        const err = errno('EBUSY');
+        expect(toAppError(err, { operation: 'read', write: kind, platform })).toEqual(
+          toAppError(err, { operation: 'read', platform })
+        );
+      }
+    }
+  });
+
+  it('claims no retries for a temp file that could not be made; a refused rename still does', () => {
+    const dir = path.join(path.sep, 'vault');
+    const tmp = path.join(dir, '.Chapter 1.md.0123456789ab.tmp');
+    const target = path.join(dir, 'Chapter 1.md');
+    const opened = (code: string): NodeJS.ErrnoException =>
+      Object.assign(new Error(`${code}: refused, open '${tmp}'`), { code, syscall: 'open', path: tmp });
+    for (const code of ['EBUSY', 'EPERM', 'EACCES']) {
+      expect(toAppError(opened(code), { platform: 'win32' }).message).toBe(
+        `Windows would not let ${APP_NAME} write the new version of Chapter 1.md into its folder. Another program may be holding the folder, or your Windows account may not be allowed to add files to it. Wait a moment and save again. ${CFA} Nothing was written; the file is as it was.`
+      );
+      expect(toAppError(opened(code), { platform: 'linux' }).message).toBe(
+        `${APP_NAME} is not allowed to write the new version of Chapter 1.md into its folder. Check that the folder is writable, then save again. Nothing was written; the file is as it was.`
+      );
+      const renamed = Object.assign(new Error(`${code}: refused, rename`), {
+        code,
+        syscall: 'rename',
+        path: tmp,
+        dest: target
+      });
+      expect(toAppError(renamed, { platform: 'win32' }).message).toMatch(
+        /^Windows would not let \S+ replace Chapter 1\.md, even after trying for a second and a half\. /
+      );
+    }
+    // A full disk is worded as before, and a file that is not a temp file keeps the rename's words.
+    expect(toAppError(opened('ENOSPC'), { platform: 'win32' }).message).toBe(
+      'There is no space left on the disk for Chapter 1.md. Free some space and save again. Nothing was written; the file is as it was.'
+    );
+    expect(toAppError(errno('EPERM'), { platform: 'win32' }).message).toMatch(/even after trying/);
+  });
+});
+
+describe('writeFailure (apply.25)', () => {
+  it('carries the words for what was being made through the IPC bridge', () => {
+    for (const kind of ['create', 'copy', 'folder'] as const) {
+      for (const code of ['EBUSY', 'EPERM', 'EACCES', 'ENOSPC', 'EROFS']) {
+        for (const platform of ['win32', 'linux'] as const) {
+          const err = errno(code);
+          const failure = writeFailure(err, kind, 'the folder for GUIDELINES.md', { platform });
+          expect(failure).toBeInstanceOf(AppFailure);
+          // What the bridge sends: no kind, so a replace unless already explained.
+          expect(toAppError(failure)).toEqual(
+            toAppError(err, { write: kind, name: 'the folder for GUIDELINES.md', platform })
+          );
+          expect(toAppError(failure).message).not.toMatch(REPLACE_WORDS);
+        }
+      }
+    }
+  });
+
+  it('names the file by its own name when not told', () => {
+    expect(writeFailure(errno('EPERM'), 'create', undefined, { platform: 'linux' }).message).toBe(
+      `${APP_NAME} is not allowed to create Chapter 1.md. Check that its folder is writable, then try again. Nothing was written.`
+    );
+  });
+
+  it('leaves alone an error it has no words for, so its code can still be tested', () => {
+    for (const code of ['EEXIST', 'ENOENT', 'EIO']) {
+      const err = errno(code);
+      expect(writeFailure(err, 'create')).toBe(err);
+    }
+    const refusal = new AppFailure('invalid-input', 'Already there.');
+    expect(writeFailure(refusal, 'create')).toBe(refusal);
+    const argument = Object.assign(new TypeError('bad path'), { code: 'ERR_INVALID_ARG_TYPE' });
+    expect(writeFailure(argument, 'folder')).toBe(argument);
+    expect(writeFailure('odd', 'copy')).toEqual(new Error('odd'));
   });
 });

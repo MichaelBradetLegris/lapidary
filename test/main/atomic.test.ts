@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RENAME_BACKOFF_MS, atomicWriteFile, type TargetCheck } from '../../src/main/atomic';
 import { explainWriteError, toAppError } from '../../src/main/errors';
 import { readChapter, writeChapter } from '../../src/main/files';
@@ -168,6 +168,42 @@ describe('explainWriteError', () => {
     expect(explainWriteError(errno('EROFS'), 'Ch.md', 'linux')).toMatch(/^Ch\.md is on a read-only drive/);
     expect(explainWriteError(errno('ENOENT'), 'Ch.md', 'win32')).toBeNull();
     expect(explainWriteError(new Error('plain'), 'Ch.md', 'win32')).toBeNull();
+  });
+
+  /* apply.25: only the rename is retried. A temp file the folder will not take
+     is refused once, before any rename, and the words say so. */
+  it('words a temp file that could not be made without the retries only a rename gets', async () => {
+    const target = path.join(root, 'Chapter 1.md');
+    await fs.writeFile(target, 'old');
+    let refused: NodeJS.ErrnoException | undefined;
+    const open = vi.spyOn(fs, 'open').mockImplementationOnce((file) => {
+      refused = Object.assign(new Error(`EPERM: operation not permitted, open '${String(file)}'`), {
+        code: 'EPERM',
+        syscall: 'open',
+        path: String(file)
+      });
+      return Promise.reject(refused);
+    });
+    const { calls, rename } = refusing('EPERM');
+    const { waits, sleep } = recordSleeps();
+    try {
+      const err = await atomicWriteFile(target, Buffer.from('new'), { rename, sleep }).then(
+        () => null,
+        (e: unknown) => e
+      );
+      expect(err).toBe(refused);
+      for (const platform of ['win32', 'linux'] as const) {
+        const message = toAppError(err, { platform }).message;
+        expect(message).toMatch(/ write the new version of Chapter 1\.md into its folder\. /);
+        expect(message).not.toMatch(/second and a half|even after/);
+      }
+    } finally {
+      open.mockRestore();
+    }
+    expect(calls).toEqual([]);
+    expect(waits).toEqual([]);
+    expect(await fs.readFile(target, 'utf8')).toBe('old');
+    expect(await leftovers()).toEqual([]);
   });
 
   it('is what toAppError says, naming the chapter rather than the temp file', () => {

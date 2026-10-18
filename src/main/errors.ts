@@ -27,6 +27,17 @@ export function fail(code: ErrorCode, message: string, detail?: string): AppFail
 /** What the app was doing with a file when the error came (apply.24). */
 export type FileOperation = 'read' | 'write';
 
+/**
+ * What a write was making (apply.25). `replace` is a file written whole
+ * through a temp file and a rename (`atomicWriteFile`): a refused rename is
+ * retried for about a second and a half, and a temp file that cannot be
+ * created is not. The others are never retried and replace nothing: `create`
+ * a new file made with the exclusive-create flag (a new chapter, set-aside
+ * text), `copy` a file copied from a template that way (the guidelines file),
+ * `folder` a folder made before writing in it.
+ */
+export type WriteKind = 'replace' | 'create' | 'copy' | 'folder';
+
 export interface ErrorContext {
   /**
    * `write` unless said otherwise: an error that reaches the IPC bridge
@@ -34,6 +45,12 @@ export interface ErrorContext {
    * `read`, through `readFailure`, before its error gets that far.
    */
   operation?: FileOperation;
+  /**
+   * For a write, what it was making: `replace` unless said otherwise. Every
+   * write that makes something new says so, through `writeFailure`, before
+   * its error gets to the IPC bridge (apply.25).
+   */
+  write?: WriteKind;
   /** how the message names the file; by default its name in the error */
   name?: string;
   /**
@@ -59,7 +76,7 @@ export function toAppError(err: unknown, context: ErrorContext = {}): AppError {
     const explained =
       context.operation === 'read'
         ? explainReadError(err, name, platform, context.reopen ?? false)
-        : explainWriteError(err, name, platform);
+        : explainWriteError(err, name, platform, context.write ?? 'replace');
     if (explained) return { code: 'io', message: explained, detail: err.stack ?? undefined };
     const code: ErrorCode = isFsError(err) ? 'io' : 'unknown';
     return { code, message: err.message, detail: err.stack ?? undefined };
@@ -89,6 +106,35 @@ export function readFailure(err: unknown, name?: string, options: ReadFailureOpt
   return new AppFailure(explained.code, explained.message, explained.detail);
 }
 
+/** A write that makes something new: what `writeFailure` takes. */
+export type MakeKind = Exclude<WriteKind, 'replace'>;
+
+/**
+ * A failed write that was making something new (apply.25), as an error that
+ * keeps its words all the way to the page: what was being made, that nothing
+ * was retried and nothing replaced, and "try again". `name` is how the
+ * message names it (by default its own name). An error with no such words
+ * (an `ENOENT`, say), and one that is not the file system's, is left as it
+ * is, so a caller can still test its code, and the IPC bridge words it as
+ * before.
+ */
+export function writeFailure(
+  err: unknown,
+  kind: MakeKind,
+  name?: string,
+  options: Pick<ErrorContext, 'platform'> = {}
+): Error {
+  if (!(err instanceof Error)) return new Error(String(err));
+  if (err instanceof AppFailure || systemCode(err) === undefined) return err;
+  const explained = explainWriteError(
+    err,
+    name ?? fileNameOf(err),
+    options.platform ?? process.platform,
+    kind
+  );
+  return explained === null ? err : new AppFailure('io', explained, err.stack ?? undefined);
+}
+
 function errnoCode(err: unknown): string | undefined {
   const code = (err as NodeJS.ErrnoException | null)?.code;
   return typeof code === 'string' ? code : undefined;
@@ -109,6 +155,9 @@ function isFsError(err: Error): boolean {
   return code !== undefined && /^(ENOENT|EACCES|EPERM|EBUSY|EISDIR|ENOTDIR|EEXIST)$/.test(code);
 }
 
+/** The temp file `atomicWriteFile` writes beside its target: `.<name>.<12 hex>.tmp`. */
+const TEMP_FILE = /^\.(.+)\.[0-9a-f]{12}\.tmp$/;
+
 /**
  * The file a failed read or write was aimed at. A refused rename names the
  * temp file as `path` and the target as `dest`; a temp file is
@@ -117,29 +166,95 @@ function isFsError(err: Error): boolean {
 function fileNameOf(err: Error): string {
   const e = err as NodeJS.ErrnoException & { dest?: string };
   const base = path.basename(e.dest ?? e.path ?? '');
-  return /^\.(.+)\.[0-9a-f]{12}\.tmp$/.exec(base)?.[1] ?? (base || 'the file');
+  return TEMP_FILE.exec(base)?.[1] ?? (base || 'the file');
 }
 
 /**
- * Plain words for the ways Windows and other systems refuse a write (files.4).
- * Every write goes through a temp file and a rename, so when one of these
- * happens the file itself is untouched, and the message says so. Null for any
- * other error.
+ * Whether the error is about the temp file itself, which could not be
+ * created, rather than the rename that replaces the target (that one names
+ * the target as `dest`). Only the rename is retried (apply.25).
  */
-export function explainWriteError(err: unknown, fileName: string, platform: NodeJS.Platform): string | null {
+function isTempFileError(err: unknown): boolean {
+  const e = err as (NodeJS.ErrnoException & { dest?: string }) | null;
+  return typeof e?.path === 'string' && e.dest === undefined && TEMP_FILE.test(path.basename(e.path));
+}
+
+/** The way out when Windows Security blocks the app; it blocks creating files as well as changing them. */
+const CONTROLLED_FOLDER_ACCESS = `If that keeps happening, Windows Security's Controlled folder access may be blocking ${APP_NAME}: allow it under Windows Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled folder access.`;
+
+/**
+ * Plain words for the ways Windows and other systems refuse a write (files.4),
+ * saying what the write was making (`kind`, apply.25). A file is replaced
+ * through a temp file and a rename, so when one of these happens the file
+ * itself is untouched, and the message says so; only a refused rename was
+ * retried, so only it says so. A new file, a copy or a folder replaces
+ * nothing and was never retried; its words say what was being made and to
+ * try again, since only Save to chapter is saved again. Null for any other
+ * error.
+ */
+export function explainWriteError(
+  err: unknown,
+  fileName: string,
+  platform: NodeJS.Platform,
+  kind: WriteKind = 'replace'
+): string | null {
+  if (kind !== 'replace') return explainMakeError(err, fileName, platform, kind);
   const code = errnoCode(err);
   const unchanged = 'Nothing was written; the file is as it was.';
   switch (code) {
     case 'EPERM':
     case 'EACCES':
     case 'EBUSY':
+      if (isTempFileError(err)) {
+        return platform === 'win32'
+          ? `Windows would not let ${APP_NAME} write the new version of ${fileName} into its folder. Another program may be holding the folder, or your Windows account may not be allowed to add files to it. Wait a moment and save again. ${CONTROLLED_FOLDER_ACCESS} ${unchanged}`
+          : `${APP_NAME} is not allowed to write the new version of ${fileName} into its folder. Check that the folder is writable, then save again. ${unchanged}`;
+      }
       return platform === 'win32'
-        ? `Windows would not let ${APP_NAME} replace ${fileName}, even after trying for a second and a half. Another program may have it open: close it there, or wait a moment, and save again. If that keeps happening, Windows Security's Controlled folder access may be blocking ${APP_NAME}: allow it under Windows Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled folder access. ${unchanged}`
+        ? `Windows would not let ${APP_NAME} replace ${fileName}, even after trying for a second and a half. Another program may have it open: close it there, or wait a moment, and save again. ${CONTROLLED_FOLDER_ACCESS} ${unchanged}`
         : `${APP_NAME} is not allowed to replace ${fileName}. Check that the file and its folder are writable, and that no other program is holding it, then save again. ${unchanged}`;
     case 'ENOSPC':
       return `There is no space left on the disk for ${fileName}. Free some space and save again. ${unchanged}`;
     case 'EROFS':
       return `${fileName} is on a read-only drive, so it cannot be saved there. ${unchanged}`;
+    default:
+      return null;
+  }
+}
+
+/**
+ * The words for a write that was making something new (apply.25): `name` is
+ * the file or, for a folder, words that say which folder it is ("the review
+ * folder of Chapter 12.md"). It never starts a sentence. A disk that filled
+ * up part way may have left part of a new file, so that one does not say
+ * nothing was written.
+ */
+function explainMakeError(
+  err: unknown,
+  name: string,
+  platform: NodeJS.Platform,
+  kind: MakeKind
+): string | null {
+  const made = kind === 'copy' ? `${name} from the template` : name;
+  const nothing = 'Nothing was written.';
+  switch (errnoCode(err)) {
+    case 'EPERM':
+    case 'EACCES':
+    case 'EBUSY':
+      if (platform === 'win32') {
+        const why =
+          kind === 'folder'
+            ? 'Another program may be holding the folder it goes in, or your Windows account may not be allowed to add folders there.'
+            : 'Another program may be holding its folder, or your Windows account may not be allowed to add files to it.';
+        return `Windows would not let ${APP_NAME} create ${made}. ${why} Wait a moment and try again. ${CONTROLLED_FOLDER_ACCESS} ${nothing}`;
+      }
+      return `${APP_NAME} is not allowed to create ${made}. Check that ${
+        kind === 'folder' ? 'the folder it goes in' : 'its folder'
+      } is writable, then try again. ${nothing}`;
+    case 'ENOSPC':
+      return `There is no space left on the disk for ${name}. Free some space and try again.`;
+    case 'EROFS':
+      return `${APP_NAME} cannot create ${name}, because the drive is read-only. ${nothing}`;
     default:
       return null;
   }

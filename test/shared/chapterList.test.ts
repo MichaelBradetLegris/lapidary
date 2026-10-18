@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { commitDecisions } from '../../src/shared/diff/compose';
 import { createDiffReview } from '../../src/shared/review';
 import type { Hunk, Review, ReviewComment } from '../../src/shared/types';
-import { chapterListMarks } from '../../src/shared/ui/chapterList';
+import {
+  NO_CHAPTERS,
+  NO_FOLDER_CHOSEN,
+  READ_LIST_AGAIN,
+  chapterListMarks,
+  chapterListNotice
+} from '../../src/shared/ui/chapterList';
 import { saveButtonInput, saveButtonState, unsavedDotLabel } from '../../src/shared/ui/save';
 
 /* apply.5: the dot and the badge beside a chapter in the chapter list. */
@@ -128,5 +134,42 @@ describe('chapterListMarks (apply.5)', () => {
       expect(marks.unsaved > 0).toBe(toolbar.dot);
       expect(marks.dotLabel).toBe(unsavedDotLabel(marks.unsaved));
     }
+  });
+});
+
+/* apply.25: what the list says when it has no rows. A manuscript folder that
+   could not be read is not a folder with no chapters. */
+describe('chapterListNotice (apply.25)', () => {
+  const problem =
+    'Windows would not let Lapidary read the manuscript folder Novel. Another program may have it open, such as a sync, backup or antivirus tool, or your Windows account may not be allowed to read it. Close it there, or wait a moment, and try again. Lapidary has not changed anything.';
+
+  it('asks for a folder while none is chosen, whatever else is known', () => {
+    for (const p of [null, problem]) {
+      expect(chapterListNotice({ configured: false, count: 0, problem: p })).toEqual({
+        text: 'No manuscript folder chosen yet.',
+        action: 'choose-folder'
+      });
+    }
+    expect(NO_FOLDER_CHOSEN).toBe('No manuscript folder chosen yet.');
+  });
+
+  it('shows why the folder could not be read in place of the empty-folder line, with Try again', () => {
+    expect(chapterListNotice({ configured: true, count: 0, problem })).toEqual({
+      text: problem,
+      action: 'read-again'
+    });
+    expect(READ_LIST_AGAIN).toBe('Try again');
+  });
+
+  it('says the folder holds no chapters only when it was read and holds none', () => {
+    expect(chapterListNotice({ configured: true, count: 0, problem: null })).toEqual({
+      text: NO_CHAPTERS,
+      action: null
+    });
+    expect(NO_CHAPTERS).toBe('No .md or .txt files in that folder.');
+  });
+
+  it('shows the rows when there are some', () => {
+    expect(chapterListNotice({ configured: true, count: 3, problem: null })).toBeNull();
   });
 });

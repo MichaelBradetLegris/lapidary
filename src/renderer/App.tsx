@@ -107,6 +107,13 @@ const PAGE_WRITES: PageWrites = {
   failures: () => [...reviewWriteFailures(), ...draftWriteFailures()]
 };
 
+/**
+ * The card of a chapter that could not be opened, such as one whose review
+ * another program holds (apply.25): the next try replaces it, and an open
+ * that works closes it.
+ */
+const OPEN_CHAPTER_CARD = 'open-chapter';
+
 /** Review failures the Setup screen can fix: Claude Code missing, too old, or signed out. */
 const SETUP_FAILURES: ReadonlySet<string> = new Set([
   'claude-not-signed-in',
@@ -139,6 +146,7 @@ export function App(): React.JSX.Element {
   const questionOpen = useApp((s) => s.confirmSpec !== null);
 
   const [files, setFiles] = useState<ChapterFile[]>([]);
+  const [filesProblem, setFilesProblem] = useState<string | null>(null);
   const [index, setIndex] = useState<Record<string, ReviewSummary>>({});
   const [history, setHistory] = useState<ReviewSummary[]>([]);
 
@@ -175,10 +183,23 @@ export function App(): React.JSX.Element {
     if (ticket === indexSeq.current) setIndex(next);
   }, []);
 
+  /* The chapter list. A manuscript folder that cannot be read shows main's
+     words where the empty-folder line would be, with Try again (apply.25).
+     Only the newest answer is kept, as for the marks. */
+  const filesSeq = useRef(0);
   const refreshFiles = useCallback(() => {
+    const ticket = ++filesSeq.current;
     void call('files:list', undefined)
-      .then(setFiles)
-      .catch(() => setFiles([]));
+      .then((list) => {
+        if (ticket !== filesSeq.current) return;
+        setFiles(list);
+        setFilesProblem(null);
+      })
+      .catch((err: unknown) => {
+        if (ticket !== filesSeq.current) return;
+        setFiles([]);
+        setFilesProblem(errorMessage(err));
+      });
     void refreshIndex();
   }, [refreshIndex]);
 
@@ -257,23 +278,26 @@ export function App(): React.JSX.Element {
           const marked = refreshIndex();
           const content = await call('files:read', { path: file.path });
           const base = baseFrom(content);
+          // The review the chapter opens with. One that cannot be read fails
+          // here, before anything on screen changes: the card says why and
+          // the page stays on what was open, since opening another review,
+          // or a blank one, would let the next decision write a new review
+          // that becomes current over it (apply.25). A chapter whose reviews
+          // folder is not there yet opens on a blank review, as before.
+          const latest = await call('reviews:load-latest', { sourcePath: file.path, hash: base.hash });
           let loaded: { path: string | null; review: Review } | null = null;
-          let adoptedFrom: string | undefined;
           let asOnDisk = false;
-          try {
-            const latest = await call('reviews:load-latest', { sourcePath: file.path, hash: base.hash });
-            // The review is stored under this exact path from now on, however
-            // the path was spelled when it was made (files.1).
-            if (latest) {
-              loaded = { path: latest.path, review: rehomeReview(latest.review, file.path) };
-              asOnDisk = loaded.review === latest.review;
-            }
-            adoptedFrom = latest?.adoptedFrom;
-          } catch {
-            // A missing or unreadable review folder must not stop the chapter opening.
+          // The review is stored under this exact path from now on, however
+          // the path was spelled when it was made (files.1).
+          if (latest) {
+            loaded = { path: latest.path, review: rehomeReview(latest.review, file.path) };
+            asOnDisk = loaded.review === latest.review;
           }
+          const adoptedFrom = latest?.adoptedFrom;
 
           await marked;
+          // An open that worked closes the card of one that did not.
+          dismissNotificationsByKey(OPEN_CHAPTER_CARD);
           if (!loaded) {
             setReview(
               createReview({ sourcePath: file.path, base, hunks: [], generator: { kind: 'file' } }),
@@ -293,11 +317,12 @@ export function App(): React.JSX.Element {
           }
           refreshHistory(file.path);
         } catch (err) {
-          fail(err);
+          // Nothing on screen has changed. Another try replaces this card.
+          notify('error', errorMessage(err), OPEN_CHAPTER_CARD);
         }
       })();
     },
-    [setReview, notify, refreshHistory, refreshFiles, refreshIndex, fail, leaveDeps]
+    [setReview, notify, dismissNotificationsByKey, refreshHistory, refreshFiles, refreshIndex, leaveDeps]
   );
 
   const openHistoryEntry = useCallback(
@@ -694,8 +719,10 @@ export function App(): React.JSX.Element {
             index={index}
             review={review}
             configured={Boolean(settings?.manuscriptFolder)}
+            problem={filesProblem}
             onOpen={openChapter}
             onChooseFolder={chooseManuscriptFolder}
+            onReadAgain={refreshFiles}
             onNewChapter={() => setNewChapterOpen(true)}
           />
 

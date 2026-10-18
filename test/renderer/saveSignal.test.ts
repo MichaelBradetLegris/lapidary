@@ -151,7 +151,9 @@ describe('the status bar (apply.4)', () => {
    wiring. */
 describe('the chapter list (apply.5)', () => {
   it('marks each row with chapterListMarks, live for the open chapter only', () => {
-    expect(FILE_LIST).toContain("import { chapterListMarks } from '../../shared/ui/chapterList';");
+    expect(FILE_LIST).toContain(
+      "import { READ_LIST_AGAIN, chapterListMarks, chapterListNotice } from '../../shared/ui/chapterList';"
+    );
     expect(FILE_LIST).toContain('const activePath = review?.sourcePath ?? null;');
     expect(FILE_LIST).toContain('const open = file.path === activePath;');
     expect(FILE_LIST).toContain(

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppFailure, explainReadError, toAppError } from '../../src/main/errors';
+import { AppFailure, explainReadError, explainWriteError, toAppError } from '../../src/main/errors';
 import {
   ADOPT_MIN_LENGTH,
   findAdoptable,
@@ -11,6 +11,7 @@ import {
   listReviews,
   loadLatestReview,
   loadReviewFile,
+  makeReviewsFolder,
   recordShown,
   resolveReviewsFolder,
   reviewIndex,
@@ -686,5 +687,258 @@ describe('a review written by 0.1.0', () => {
     expect(rebased.comments).toEqual(raw.comments);
     await saveReview(root, rebased, file);
     expect(await loadReviewFile(file)).toEqual(rebased);
+  });
+});
+
+/* apply.25: a review file that is there but cannot be read, because another
+   program holds it open or the system will not let the app read it, is not
+   a file that is not a review. The chapter does not open on another review,
+   or on none, which the next decision would make current over it. */
+describe('a review file that cannot be read (apply.25)', () => {
+  const source = 'C:/vault/Chapter 12.md';
+  const folder = (): string => path.join(root, 'chapter-12');
+
+  function busy(file: string, code = 'EBUSY'): NodeJS.ErrnoException {
+    return Object.assign(new Error(`${code}: resource busy or locked, open '${file}'`), {
+      code,
+      syscall: 'open',
+      path: file
+    });
+  }
+
+  /** Every read of `file` refused with `code`, as while another program holds it with no sharing. */
+  function hold(file: string, code = 'EBUSY') {
+    const real = fs.readFile.bind(fs) as (...args: unknown[]) => Promise<unknown>;
+    return vi
+      .spyOn(fs, 'readFile')
+      .mockImplementation(((target: unknown, ...rest: unknown[]) =>
+        typeof target === 'string' && path.resolve(target) === path.resolve(file)
+          ? Promise.reject(busy(file, code))
+          : real(target, ...rest)) as unknown as typeof fs.readFile);
+  }
+
+  async function failure(promise: Promise<unknown>): Promise<unknown> {
+    return promise.then(
+      () => {
+        throw new Error('expected a failure');
+      },
+      (e: unknown) => e
+    );
+  }
+
+  /** The folder as it stands: every name, and each file's bytes. */
+  async function snapshot(): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    for (const name of (await fs.readdir(folder())).sort()) {
+      out[name] = await fs.readFile(path.join(folder(), name), 'utf8');
+    }
+    return out;
+  }
+
+  /** Two reviews of the chapter, the newer recorded as the one it opens with. */
+  async function twoReviews(): Promise<{ older: string; newer: string }> {
+    const { path: older } = await saveReview(root, make(source, T1, [pendingHunk]));
+    const { path: newer } = await saveReview(root, make(source, T2, [pendingHunk]));
+    return { older, newer };
+  }
+
+  for (const code of ['EBUSY', 'EPERM', 'EACCES']) {
+    it(`explains ${code} on the review a chapter opens with, read for the first time, and picks no other`, async () => {
+      const { newer } = await twoReviews();
+      const before = await snapshot();
+      const held = hold(newer, code);
+      try {
+        const err = await failure(loadLatestReview(root, source));
+        expect(err).toBeInstanceOf(AppFailure);
+        const shown = toAppError(err);
+        expect(shown).toMatchObject({
+          code: 'io',
+          message: explainReadError(
+            busy(newer, code),
+            `the review file ${path.basename(newer)}`,
+            process.platform
+          )
+        });
+        expect(shown.message).not.toMatch(/replace|save again|Nothing was written|Controlled folder access/);
+      } finally {
+        held.mockRestore();
+      }
+      expect(await snapshot()).toEqual(before);
+      // Released: the chapter opens with it again.
+      expect((await loadLatestReview(root, source))?.path).toBe(newer);
+    });
+  }
+
+  it('explains it when the review was read before and is held since, as when its entry is cached', async () => {
+    const { newer } = await twoReviews();
+    expect((await loadLatestReview(root, source))?.path).toBe(newer);
+    const held = hold(newer);
+    try {
+      const shown = toAppError(await failure(loadLatestReview(root, source)));
+      expect(shown.message).toBe(
+        explainReadError(busy(newer), `the review file ${path.basename(newer)}`, process.platform)
+      );
+    } finally {
+      held.mockRestore();
+    }
+    expect((await loadLatestReview(root, source))?.path).toBe(newer);
+  });
+
+  it('explains it when nothing is recorded, rather than open the review last decided in', async () => {
+    const { older, newer } = await twoReviews();
+    await fs.rm(path.join(folder(), '.last-open.json'));
+    const held = hold(newer);
+    try {
+      const shown = toAppError(await failure(loadLatestReview(root, source)));
+      expect(shown.message).toContain(`the review file ${path.basename(newer)}`);
+    } finally {
+      held.mockRestore();
+    }
+    // Once read, a file unchanged since is known by its entry, held or not.
+    const heldOlder = hold(older);
+    try {
+      expect((await loadLatestReview(root, source))?.path).toBe(newer);
+    } finally {
+      heldOlder.mockRestore();
+    }
+  });
+
+  it('explains an older review held before it was ever read, when nothing is recorded', async () => {
+    // Whose it is, and when it was decided in, cannot be told.
+    const { path: older } = await saveReview(root, make(source, T1, [pendingHunk]));
+    await saveReview(root, make(source, T2, [pendingHunk]));
+    await fs.rm(path.join(folder(), '.last-open.json'));
+    const held = hold(older);
+    try {
+      const shown = toAppError(await failure(loadLatestReview(root, source)));
+      expect(shown.message).toContain(`the review file ${path.basename(older)}`);
+    } finally {
+      held.mockRestore();
+    }
+  });
+
+  it('opens the review recorded as last on screen when only another file cannot be read', async () => {
+    const { older, newer } = await twoReviews();
+    const held = hold(older);
+    try {
+      expect((await loadLatestReview(root, source))?.path).toBe(newer);
+    } finally {
+      held.mockRestore();
+    }
+  });
+
+  it('explains a chapter folder it cannot list', async () => {
+    await twoReviews();
+    const refused = Object.assign(new Error(`EBUSY: refused, scandir '${folder()}'`), {
+      code: 'EBUSY',
+      syscall: 'scandir',
+      path: folder()
+    });
+    const readdir = vi.spyOn(fs, 'readdir').mockRejectedValueOnce(refused);
+    try {
+      const shown = toAppError(await failure(loadLatestReview(root, source)));
+      expect(shown.message).toBe(
+        explainReadError(refused, 'the review folder of Chapter 12.md', process.platform)
+      );
+    } finally {
+      readdir.mockRestore();
+    }
+  });
+
+  it('still skips a file that is not a review, and opens with the one that is', async () => {
+    const { newer } = await twoReviews();
+    await fs.writeFile(path.join(folder(), 'junk.review.json'), '{ not json');
+    await fs.writeFile(path.join(folder(), 'other.review.json'), '{"version":2}');
+    await fs.mkdir(path.join(folder(), 'a folder.review.json'));
+    await fs.rm(path.join(folder(), '.last-open.json'));
+    expect((await loadLatestReview(root, source))?.path).toBe(newer);
+  });
+
+  it('is left out of History and the list marks, which still show the rest', async () => {
+    const { older, newer } = await twoReviews();
+    const held = hold(newer);
+    try {
+      expect((await listReviews(root, source)).map((s) => s.path)).toEqual([older]);
+      expect((await reviewIndex(root, [source]))[source]?.path).toBe(older);
+    } finally {
+      held.mockRestore();
+    }
+  });
+
+  it('is never written over unread, nor copied into a new entry that would open in its place', async () => {
+    const { newer } = await twoReviews();
+    const before = await snapshot();
+    const decided = { ...(await loadReviewFile(newer)), decidedAt: '2026-09-09T00:00:00.000Z' };
+    const held = hold(newer);
+    try {
+      const shown = toAppError(await failure(saveReview(root, decided, newer)));
+      expect(shown.message).toBe(
+        explainReadError(busy(newer), `the review file ${path.basename(newer)}`, process.platform)
+      );
+    } finally {
+      held.mockRestore();
+    }
+    expect(await snapshot()).toEqual(before);
+    // Readable again: written in place, and still the review the chapter opens with.
+    expect((await saveReview(root, decided, newer)).path).toBe(newer);
+    expect((await loadLatestReview(root, source))?.review.decidedAt).toBe('2026-09-09T00:00:00.000Z');
+    expect(await fs.readdir(folder())).toHaveLength(Object.keys(before).length);
+  });
+});
+
+/* apply.25: the store's folders are made, never retried and never replacing
+   anything, so a refusal says which folder and to try again. */
+describe('a review folder that cannot be made (apply.25)', () => {
+  const NOT_A_RENAME = /replace|save again|second and a half|even after|the file is as it was/;
+
+  it('says which chapter folder could not be made when a review is saved', async () => {
+    const dir = path.join(root, 'chapter-12');
+    const refused = Object.assign(new Error(`EPERM: refused, mkdir '${dir}'`), {
+      code: 'EPERM',
+      syscall: 'mkdir',
+      path: dir
+    });
+    const mkdir = vi.spyOn(fs, 'mkdir').mockRejectedValueOnce(refused);
+    try {
+      const err = await saveReview(root, make('C:/vault/Chapter 12.md', T1)).then(
+        () => null,
+        (e: unknown) => e
+      );
+      expect(err).toBeInstanceOf(AppFailure);
+      const message = toAppError(err).message;
+      expect(message).toBe(
+        explainWriteError(refused, 'the review folder of Chapter 12.md', process.platform, 'folder')
+      );
+      expect(message).toMatch(
+        / create the review folder of Chapter 12\.md\. .*try again\. .*Nothing was written\.$/
+      );
+      expect(message).not.toMatch(NOT_A_RENAME);
+    } finally {
+      mkdir.mockRestore();
+    }
+    await expect(fs.access(dir)).rejects.toThrow();
+  });
+
+  it('says the reviews folder could not be made, naming where it goes', async () => {
+    const folder = path.join(root, 'reviews');
+    const refused = Object.assign(new Error(`EACCES: refused, mkdir '${folder}'`), {
+      code: 'EACCES',
+      syscall: 'mkdir',
+      path: folder
+    });
+    const mkdir = vi.spyOn(fs, 'mkdir').mockRejectedValueOnce(refused);
+    try {
+      const err = await makeReviewsFolder(folder).then(
+        () => null,
+        (e: unknown) => e
+      );
+      expect(toAppError(err).message).toBe(
+        explainWriteError(refused, `the reviews folder ${folder}`, process.platform, 'folder')
+      );
+    } finally {
+      mkdir.mockRestore();
+    }
+    await makeReviewsFolder(folder);
+    expect((await fs.stat(folder)).isDirectory()).toBe(true);
   });
 });

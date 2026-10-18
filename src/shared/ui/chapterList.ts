@@ -7,6 +7,8 @@
  * chapter is marked from the review on screen instead, so its dot comes and
  * goes with each decision, as the toolbar's does, and its badge counts what is
  * still pending rather than what was pending when the list was last read.
+ * `chapterListNotice` is the line the list shows when it has no rows to show
+ * (apply.25).
  *
  * Pure (CLAUDE.md rule 4), so every case has a test without a DOM.
  */
@@ -53,4 +55,31 @@ export function chapterListMarks(
     dotLabel: unsavedDotLabel(unsaved),
     pending: summary ? summary.pendingCount : null
   };
+}
+
+/** The list's line while no manuscript folder is chosen. */
+export const NO_FOLDER_CHOSEN = 'No manuscript folder chosen yet.';
+
+/** The list's line for a manuscript folder that holds no chapters. */
+export const NO_CHAPTERS = 'No .md or .txt files in that folder.';
+
+/** The button beside a list that could not be read, which reads it again. */
+export const READ_LIST_AGAIN = 'Try again';
+
+/**
+ * What the chapter list shows in place of its rows, or null when it shows
+ * rows (apply.25). `problem` is why the manuscript folder could not be read,
+ * in main's words, which then stand where the empty-folder line would: a
+ * folder another program holds, or one the account may not read, is not a
+ * folder without chapters. `action` is the button under the line.
+ */
+export function chapterListNotice(input: {
+  configured: boolean;
+  count: number;
+  problem: string | null;
+}): { text: string; action: 'choose-folder' | 'read-again' | null } | null {
+  if (!input.configured) return { text: NO_FOLDER_CHOSEN, action: 'choose-folder' };
+  if (input.problem !== null) return { text: input.problem, action: 'read-again' };
+  if (input.count === 0) return { text: NO_CHAPTERS, action: null };
+  return null;
 }

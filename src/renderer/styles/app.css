@@ -2188,6 +2188,15 @@ input[type='text'] {
   color: var(--ink);
 }
 
+/* Why the manuscript folder could not be read (apply.25): in the text colour,
+   not the empty list's faint one, and broken anywhere, since a folder name
+   can be longer than the column is wide. */
+.files__problem {
+  color: var(--ink);
+  margin: 4px 0 8px;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- new chapter dialog (item 7a) ---------- */
 
 .modal__ext {
