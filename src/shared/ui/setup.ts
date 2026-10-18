@@ -6,7 +6,17 @@
  * runtime. Pure (CLAUDE.md rule 4), so every precedence rule has a test.
  */
 
-import { claudeUpdateAdvice, isOutdated, quoteForShell, type ClaudeUpdateAdvice } from '../ai/claudeStatus';
+import {
+  CLAUDE_UPDATE_COMMAND,
+  MIN_CLAUDE_CODE,
+  RECOMMENDED_CLAUDE_CODE,
+  claudeUpdateAdvice,
+  isOutdated,
+  quoteForShell,
+  signedInElsewhereMessage,
+  type ClaudeCredential,
+  type ClaudeUpdateAdvice
+} from '../ai/claudeStatus';
 import { APP_NAME } from '../branding';
 import type { RuntimeStatus } from '../ipc';
 import type { ErrorCode } from '../types';
@@ -155,6 +165,16 @@ export function loginCommand(executablePath: string | undefined, os: SetupOs): C
   };
 }
 
+/** `claude update`, and the full-path form when the path is known. */
+export function updateCommand(executablePath: string | undefined, os: SetupOs): CommandAdvice {
+  const windows = os === 'windows';
+  const quoted = executablePath ? quoteForShell(executablePath, windows) : null;
+  return {
+    command: CLAUDE_UPDATE_COMMAND,
+    fullPathCommand: quoted ? (windows ? `& ${quoted} update` : `${quoted} update`) : null
+  };
+}
+
 /** Anthropic's installer, then sign-in through the path it installs to, in one line. */
 export function installAndLoginCommand(os: SetupOs): string {
   return os === 'windows'
@@ -187,3 +207,472 @@ export const SIGNED_OUT_INTRO = `Claude Code is not signed in. If reviews worked
 export const NOT_INSTALLED_INTRO = `${APP_NAME} reviews with Claude through Claude Code, Anthropic's free command-line tool. It needs a Claude plan or an API key, and ${APP_NAME} does not include it: install it with the command below, which also signs you in.`;
 
 export const PRIVACY_FOOTER = `${APP_NAME} never sees your Claude password or sign-in token. You sign in with Anthropic, in Claude Code and your browser.`;
+
+/* ------------------------------------------------------------------ */
+/* The Setup screen, its launch card and its entry points (setup.7)    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Where Review with AI goes when Claude is the provider (PLAN 11.3 f). Setup
+ * stands in front of the review dialog only when Claude Code is missing or
+ * says for certain that it is signed out. A check that failed or ran out of
+ * time, or a Claude Code that is too old, opens the dialog with a warning: the
+ * review may still go through, and if it does not, it says why.
+ */
+export function reviewGate(runtime: RuntimeStatus | null | undefined): 'setup' | 'dialog' {
+  return runtime?.state === 'missing-binary' || runtime?.state === 'not-signed-in' ? 'setup' : 'dialog';
+}
+
+/** The views where Setup has something for the author to do. */
+const TO_DO: ReadonlySet<SetupViewId> = new Set([
+  'not-installed',
+  'signed-out',
+  'expired',
+  'could-not-check',
+  'outdated'
+]);
+
+/** Setup has something for the author to do: install, sign in, update, or check again. */
+export function needsSetup(view: SetupViewId): boolean {
+  return TO_DO.has(view);
+}
+
+/**
+ * Setup offers "Try the review anyway" when its view is not ready but nothing
+ * the check found stops a review: a check that failed, a Claude Code that is
+ * too old, a usage limit, or a sign-in failure from the last review that
+ * Claude Code no longer reports.
+ */
+export function canTryReviewAnyway(
+  runtime: RuntimeStatus | null | undefined,
+  last: LastFailure | null
+): boolean {
+  if (!runtime || reviewGate(runtime) === 'setup') return false;
+  const view = setupView(runtime, last);
+  return view !== 'ready' && view !== 'api-key';
+}
+
+/** The least time between two checks that the window coming back to the front starts. */
+export const FOCUS_RECHECK_MS = 3000;
+
+export interface FocusRecheckInput {
+  view: SetupViewId;
+  /** Claude is the provider, or the Setup screen is open */
+  claudeInUse: boolean;
+  /** a check of Claude is running */
+  inFlight: boolean;
+  /** Date.now() when the last check of Claude started, whatever started it, or null */
+  lastCheckAt: number | null;
+  now: number;
+}
+
+/**
+ * Check Claude again as the window comes back to the front? Only while Setup
+ * has something for the author to do, which they may just have done in a
+ * terminal; only while Claude is in use; never over a check that is running;
+ * and at most every 3 s, however often the window comes and goes.
+ */
+export function focusRecheckDue(input: FocusRecheckInput): boolean {
+  if (!input.claudeInUse || input.inFlight || !TO_DO.has(input.view)) return false;
+  return input.lastCheckAt === null || input.now - input.lastCheckAt >= FOCUS_RECHECK_MS;
+}
+
+/** The key of the card that says at launch that Claude is not ready (section 7). */
+export const CLAUDE_RUNTIME_CARD = 'claude-runtime';
+
+export interface RuntimeCard {
+  tone: 'info' | 'warn';
+  text: string;
+}
+
+/** Too old for the app, as the check found, or for the last review, as it said. */
+function outdatedLine(runtime: RuntimeStatus | null | undefined): string {
+  const version = runtime?.cliVersion;
+  if (runtime?.state === 'error' && version) {
+    return `Claude Code ${version} is older than ${APP_NAME} needs (${runtime.minCliVersion ?? MIN_CLAUDE_CODE} or newer).`;
+  }
+  return `The last review said that Claude Code${version ? ` ${version}` : ''} is too old for it.`;
+}
+
+/**
+ * The launch card's words, which its Open Setup button follows, or null when
+ * the card has nothing to say and goes (by its key): Claude is ready, or the
+ * view is one Setup cannot change.
+ */
+export function runtimeCard(
+  view: SetupViewId,
+  runtime: RuntimeStatus | null | undefined
+): RuntimeCard | null {
+  switch (view) {
+    case 'not-installed':
+      return { tone: 'warn', text: 'Claude Code is not installed, so reviews with Claude cannot run yet.' };
+    case 'signed-out':
+      return { tone: 'warn', text: 'Claude Code is not signed in, so reviews with Claude cannot run yet.' };
+    case 'expired':
+      return {
+        tone: 'warn',
+        text: `Your Claude sign-in has ended. This happens from time to time, and nothing in ${APP_NAME} is lost.`
+      };
+    case 'outdated':
+      return {
+        tone: 'warn',
+        text: `${outdatedLine(runtime)} Reviews with Claude may fail until it is updated.`
+      };
+    case 'could-not-check':
+      return { tone: 'info', text: `${APP_NAME} could not check Claude Code.` };
+    default:
+      return null;
+  }
+}
+
+/**
+ * What Review with AI says above its buttons when Claude is the provider and
+ * Setup has something to say about it, or null. The dialog opens in these
+ * views (`reviewGate`), so this is the warning 11.3 (f) gives it, with Open
+ * Setup beside it.
+ */
+export function reviewDialogWarning(
+  runtime: RuntimeStatus | null | undefined,
+  last: LastFailure | null
+): string | null {
+  if (!runtime) return null;
+  switch (setupView(runtime, last)) {
+    case 'could-not-check':
+      return `${APP_NAME} could not check Claude Code, so this review may fail. If it does, it says why.`;
+    case 'outdated':
+      return `${outdatedLine(runtime)} The review may fail until it is updated.`;
+    case 'expired':
+      return 'The last review said your Claude sign-in had ended. If you have signed in again since, go ahead.';
+    case 'signed-out':
+      return 'The last review said Claude Code was not signed in. If you have signed in since, go ahead.';
+    case 'usage-limit':
+      return "The last review stopped at your Claude plan's usage limit. If the limit has reset since, go ahead.";
+    default:
+      return null;
+  }
+}
+
+export type SetupTone = 'ok' | 'warn' | 'pending';
+
+/** The status card at the top of the Setup screen. */
+export interface SetupStatus {
+  tone: SetupTone;
+  title: string;
+  /** one paragraph each */
+  lines: string[];
+}
+
+export const EXPIRED_INTRO = `Claude Code needs you to sign in again. This happens from time to time, and nothing in ${APP_NAME} is lost.`;
+
+/** A sign-in failure from the last review that the check no longer finds. */
+export const SIGNED_IN_AGAIN =
+  'Claude Code now says it is signed in. If you have signed in again since, try the review: this clears once one goes through.';
+
+export const COULD_NOT_CHECK_ADVICE =
+  'Check again in a moment. If it keeps failing, try the review anyway: if something is wrong, it says what.';
+
+export const USAGE_LIMIT_TEXT =
+  "The last review stopped because your Claude plan's usage limit was reached. The limit resets on its own, at the time Claude Code's message gave. Nothing here needs setting up.";
+
+function claudeCode(runtime: RuntimeStatus | null | undefined): string {
+  return runtime?.cliVersion ? `Claude Code ${runtime.cliVersion}` : 'Claude Code';
+}
+
+function readyLine(runtime: RuntimeStatus | null | undefined): string {
+  if (runtime?.credential === 'cloud') {
+    return `${claudeCode(runtime)} is signed in through your cloud provider. Review with AI can use Claude.`;
+  }
+  const who = runtime?.email ? ` as ${runtime.email}` : '';
+  const plan = runtime?.subscriptionType ? ` (${runtime.subscriptionType})` : '';
+  return `${claudeCode(runtime)} is signed in${who}${plan}. Review with AI can use Claude.`;
+}
+
+function apiKeyLines(runtime: RuntimeStatus | null | undefined): string[] {
+  const source = runtime?.apiKeySource && runtime.apiKeySource !== 'none' ? runtime.apiKeySource : null;
+  return [
+    `${claudeCode(runtime)} signs in with an API key${source ? ` (${source})` : ''}, so reviews are billed by the token to the Anthropic Console account the key belongs to, not to a Claude plan.`,
+    ...(source === 'ANTHROPIC_API_KEY'
+      ? [
+          `To use your Claude plan instead, remove ANTHROPIC_API_KEY from your environment and start ${APP_NAME} again.`
+        ]
+      : [])
+  ];
+}
+
+/** The status card: the view in a few words, what was found, and the plan warning when there is one. */
+export function setupStatus(
+  view: SetupViewId,
+  runtime: RuntimeStatus | null | undefined,
+  last: LastFailure | null = null
+): SetupStatus {
+  const plan = runtime?.planWarning ? [runtime.planWarning] : [];
+  // The last review's sign-in failure outranks a check that says ready (setupView).
+  const signedInNow = runtime?.state === 'ready' && last !== null ? [SIGNED_IN_AGAIN] : [];
+  switch (view) {
+    case 'checking':
+      return {
+        tone: 'pending',
+        title: 'Checking Claude Code…',
+        lines: [
+          `${APP_NAME} is asking Claude Code for its version and its sign-in. This sends nothing to Claude and uses none of your plan.`
+        ]
+      };
+    case 'not-installed':
+      return { tone: 'warn', title: 'Claude Code is not installed', lines: [NOT_INSTALLED_INTRO] };
+    case 'signed-out': {
+      const elsewhere =
+        runtime?.message !== undefined && runtime.message === signedInElsewhereMessage(runtime.authMethod)
+          ? [runtime.message]
+          : [];
+      return {
+        tone: 'warn',
+        title: 'Claude Code is not signed in',
+        lines: [SIGNED_OUT_INTRO, ...elsewhere, ...signedInNow, ...plan]
+      };
+    }
+    case 'expired':
+      return {
+        tone: 'warn',
+        title: 'Your Claude sign-in has ended',
+        lines: [EXPIRED_INTRO, ...signedInNow, ...plan]
+      };
+    case 'could-not-check':
+      return {
+        tone: 'warn',
+        title: 'Could not check Claude Code',
+        lines: [runtime?.message ?? 'Claude Code did not answer.', COULD_NOT_CHECK_ADVICE]
+      };
+    case 'outdated':
+      return { tone: 'warn', title: 'Claude Code is out of date', lines: [outdatedLine(runtime), ...plan] };
+    case 'usage-limit':
+      return { tone: 'warn', title: 'Claude usage limit reached', lines: [USAGE_LIMIT_TEXT, ...plan] };
+    case 'api-key':
+      return {
+        tone: plan.length ? 'warn' : 'ok',
+        title: 'Claude is ready, with an API key',
+        lines: [...apiKeyLines(runtime), ...plan]
+      };
+    case 'ready':
+      return plan.length
+        ? { tone: 'warn', title: 'Claude Code is signed in, on a plan that cannot run it', lines: plan }
+        : { tone: 'ok', title: 'Claude is ready', lines: [readyLine(runtime)] };
+  }
+}
+
+/** One step on the Setup screen, with the command it asks for when there is one. */
+export interface SetupStep {
+  text: string;
+  command?: CommandAdvice;
+}
+
+/** Said before a command's full-path form, as the review dialog's update note says it. */
+export const FULL_PATH_TEXT = 'If the terminal does not recognise claude, use this instead:';
+
+function comeBack(when: string): string {
+  return `Come back to ${APP_NAME} ${when}. It checks again as its window comes back to the front, or press Check again.`;
+}
+
+/** The heading over the steps, or null when the view has none. */
+export function stepsHeading(view: SetupViewId): string | null {
+  switch (view) {
+    case 'not-installed':
+      return 'Install Claude Code';
+    case 'signed-out':
+      return 'Sign in to Claude Code';
+    case 'expired':
+      return 'Sign in again';
+    case 'outdated':
+      return 'Update Claude Code';
+    default:
+      return null;
+  }
+}
+
+/**
+ * The steps for the view, on the system chosen: open a terminal, run the one
+ * command (with its full-path form where the terminal may not find `claude`),
+ * come back. Anthropic's installer signs in as it finishes (11.3 f).
+ */
+export function setupSteps(
+  view: SetupViewId,
+  runtime: RuntimeStatus | null | undefined,
+  os: SetupOs
+): SetupStep[] {
+  const terminal: SetupStep = { text: openTerminalHint(os) };
+  switch (view) {
+    case 'not-installed':
+      return [
+        terminal,
+        {
+          text: 'Paste this line and press Enter. It installs Claude Code, then opens your browser so that you can sign in with your Claude account:',
+          command: { command: installAndLoginCommand(os), fullPathCommand: null }
+        },
+        { text: comeBack('once the terminal says you are signed in') }
+      ];
+    case 'signed-out':
+    case 'expired':
+      return [
+        terminal,
+        {
+          text: 'Run this, then sign in with your Claude account in the browser window it opens:',
+          command: loginCommand(runtime?.executablePath, os)
+        },
+        { text: comeBack('once the terminal says you are signed in') }
+      ];
+    case 'outdated':
+      return [
+        terminal,
+        { text: 'Run this to update Claude Code:', command: updateCommand(runtime?.executablePath, os) },
+        { text: comeBack('once the update has finished') }
+      ];
+    default:
+      return [];
+  }
+}
+
+export interface OtherInstall {
+  name: string;
+  command: string;
+}
+
+/** Package managers that install Claude Code where the app finds it. npm is not one on Windows. */
+export function otherInstalls(os: SetupOs): OtherInstall[] {
+  switch (os) {
+    case 'windows':
+      return [{ name: 'WinGet', command: 'winget install Anthropic.ClaudeCode' }];
+    case 'mac':
+      return [{ name: 'Homebrew', command: 'brew install --cask claude-code' }];
+    case 'linux':
+      return [];
+  }
+}
+
+export const OTHER_INSTALLS_NOTE =
+  'Other ways to install. These do not sign you in, so run claude auth login once they have finished.';
+
+export interface TroubleItem {
+  question: string;
+  answer: string;
+}
+
+const NOT_RECOGNISED: TroubleItem = {
+  question: 'The terminal says it does not recognise claude',
+  answer:
+    'Close the terminal and open a new one, so that it finds the folder Claude Code was installed to. Or use the full-path form of the command, shown under it.'
+};
+
+const NO_BROWSER: TroubleItem = {
+  question: 'No browser window opened',
+  answer:
+    'Claude Code prints a sign-in link in the terminal: open it in your browser. If the browser then shows a code, paste it into the terminal.'
+};
+
+const STILL_SIGNED_OUT: TroubleItem = {
+  question: `Signed in, but ${APP_NAME} still says not signed in`,
+  answer: `Press Check again. ${APP_NAME} starts Claude Code without your Claude Code settings, so a sign-in kept there, such as an apiKeyHelper or an env block in ~/.claude/settings.json, does not reach it. Sign in with the command above, or set ANTHROPIC_API_KEY in your environment and start ${APP_NAME} again.`
+};
+
+const PLANS: TroubleItem = {
+  question: 'Which Claude plans work?',
+  answer: `Pro, Max, Team and Enterprise plans can run Claude Code; the free plan cannot. Without a plan, Claude Code can use an Anthropic API key: set ANTHROPIC_API_KEY in your environment, then start ${APP_NAME} again. Reviews are then billed by the token to the Console account the key belongs to.`
+};
+
+/** The npm question, Windows only: `claude.cmd` reads as not installed (setup.3). */
+const NPM_ON_WINDOWS: TroubleItem = {
+  question: 'Installed Claude Code with npm?',
+  answer: `On Windows, ${APP_NAME} runs only claude.exe, which Anthropic's installer and WinGet put in place. npm installs claude.cmd instead, a script ${APP_NAME} cannot start without a shell, so a copy installed only with npm shows here as not installed. Install with the command above as well; the two can stay side by side.`
+};
+
+const COULD_NOT_CHECK: TroubleItem = {
+  question: 'It keeps saying it could not check',
+  answer:
+    'Claude Code may be busy updating itself, or slow to start the first time. Wait a minute and press Check again. If that does not help, run claude --version in a terminal to see whether it answers, or try the review anyway: if something is wrong, it says what.'
+};
+
+function updateElsewhere(os: SetupOs): TroubleItem {
+  const how =
+    os === 'mac'
+      ? 'A copy installed with Homebrew updates with brew upgrade --cask claude-code.'
+      : os === 'windows'
+        ? 'A copy installed with WinGet updates with winget upgrade Anthropic.ClaudeCode.'
+        : 'A copy installed by a package manager updates through that package manager.';
+  return { question: 'claude update says it cannot update this copy', answer: how };
+}
+
+/** Questions people run into in this view, each with its answer. */
+export function setupTroubleshooting(view: SetupViewId, os: SetupOs): TroubleItem[] {
+  switch (view) {
+    case 'not-installed':
+      return [NOT_RECOGNISED, NO_BROWSER, PLANS, ...(os === 'windows' ? [NPM_ON_WINDOWS] : [])];
+    case 'signed-out':
+    case 'expired':
+      return [NOT_RECOGNISED, NO_BROWSER, STILL_SIGNED_OUT, PLANS];
+    case 'outdated':
+      return [NOT_RECOGNISED, updateElsewhere(os)];
+    case 'could-not-check':
+      return [COULD_NOT_CHECK];
+    default:
+      return [];
+  }
+}
+
+const CREDENTIAL_WORDS: Readonly<Record<ClaudeCredential, string>> = {
+  subscription: 'a Claude plan',
+  'api-key': 'an API key',
+  cloud: 'a cloud provider'
+};
+
+const LOOKS_IN: Readonly<Record<SetupOs, string>> = {
+  windows:
+    "%USERPROFILE%\\.local\\bin\\claude.exe, where Anthropic's installer puts it, then each folder on PATH. Only claude.exe counts, not npm's claude.cmd.",
+  mac: "~/.local/bin, where Anthropic's installer puts it, then each folder on PATH, then /opt/homebrew/bin and /usr/local/bin.",
+  linux:
+    "~/.local/bin, where Anthropic's installer puts it, then each folder on PATH, then /usr/bin and /usr/local/bin."
+};
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** "14:02:11" in local time, from an ISO time; the text itself when it is not one. */
+export function checkedAtText(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+}
+
+export interface AdvancedRow {
+  label: string;
+  value: string;
+}
+
+/** Setup's Advanced section: which Claude Code, which version, and how it signs in. */
+export function advancedRows(runtime: RuntimeStatus | null | undefined, os: SetupOs): AdvancedRow[] {
+  const signsIn = [
+    runtime?.credential ? CREDENTIAL_WORDS[runtime.credential] : null,
+    // `auth status` says "none" when signed out, which is no method to name.
+    runtime?.authMethod && runtime.authMethod !== 'none' ? `auth method ${runtime.authMethod}` : null
+  ].filter((part): part is string => part !== null);
+  return [
+    { label: 'Claude Code', value: runtime?.executablePath ?? 'not found' },
+    {
+      label: 'Version',
+      value: runtime?.cliVersion ?? (runtime?.executablePath ? 'could not be read' : 'none')
+    },
+    {
+      label: 'Needs',
+      value: `${runtime?.minCliVersion ?? MIN_CLAUDE_CODE} or newer, and ${RECOMMENDED_CLAUDE_CODE} or newer for the newest models`
+    },
+    ...(signsIn.length ? [{ label: 'Signs in with', value: signsIn.join(', ') }] : []),
+    ...(runtime?.checkedAt ? [{ label: 'Last checked', value: checkedAtText(runtime.checkedAt) }] : []),
+    { label: 'Looks in', value: LOOKS_IN[os] }
+  ];
+}
+
+/** What a Copy button says when the clipboard refused the command. */
+export const COPY_FAILED_TEXT = 'Could not copy. Select the command and copy it yourself.';
+
+/** The status bar's runtime label is a button: Setup for Claude, Settings for OpenAI. */
+export function runtimeButtonTitle(provider: 'claude' | 'openai'): string {
+  return provider === 'claude' ? 'Open Setup' : 'Open Settings';
+}

@@ -10,7 +10,7 @@ import { PROMPT_PARAGRAPH_BASE, fromPromptNumbering } from '../../shared/prompt/
 import { guidelinesFingerprint } from '../../shared/prompt/system';
 import { createAiReview, toChangeCategory } from '../../shared/review';
 import { modelFor, type Provider, type Review, type Settings } from '../../shared/types';
-import { nextLastFailure, type LastFailure } from '../../shared/ui/setup';
+import { focusRecheckDue, nextLastFailure, type LastFailure, type SetupViewId } from '../../shared/ui/setup';
 import { ApiError, call } from './client';
 
 /**
@@ -38,6 +38,12 @@ export interface AiController {
   /** the last Claude failure that says something about setup (setup.5, nextLastFailure) */
   lastFailure: LastFailure | null;
   check: (provider: Provider) => void;
+  /**
+   * The window came back to the front: check Claude again when Setup has
+   * something for the author to do, Claude is in use, and the last check
+   * started at least 3 s ago (setup.7, `focusRecheckDue`).
+   */
+  recheckOnFocus: (claudeInUse: boolean, view: SetupViewId) => void;
   /** fetch a provider's model list if it is ready and has not been fetched yet */
   ensureModels: (provider: Provider) => void;
   refreshKeyStatus: () => void;
@@ -72,6 +78,10 @@ export function useAi(): AiController {
   const [lastFailure, setLastFailure] = useState<LastFailure | null>(null);
   const claudeRuntime = useRef<RuntimeStatus | null>(null);
   const activeRequest = useRef<string | null>(null);
+  /* When the last check of Claude started, and how many are running, for
+     the re-check as the window comes back to the front (setup.7). */
+  const claudeCheckAt = useRef<number | null>(null);
+  const claudeChecking = useRef(0);
 
   const loadModels = useCallback((provider: Provider) => {
     setModelsLoading((prev) => ({ ...prev, [provider]: true }));
@@ -110,14 +120,35 @@ export function useAi(): AiController {
   const check = useCallback(
     (provider: Provider) => {
       setChecking(true);
+      if (provider === 'claude') {
+        claudeCheckAt.current = Date.now();
+        claudeChecking.current += 1;
+      }
       call('ai:runtime', { provider })
         .then((status) => apply(status, true))
         .catch((err: unknown) => {
           apply({ provider, state: 'error', message: messageOf(err) }, false);
         })
-        .finally(() => setChecking(false));
+        .finally(() => {
+          if (provider === 'claude') claudeChecking.current -= 1;
+          setChecking(false);
+        });
     },
     [apply]
+  );
+
+  const recheckOnFocus = useCallback(
+    (claudeInUse: boolean, view: SetupViewId) => {
+      const due = focusRecheckDue({
+        view,
+        claudeInUse,
+        inFlight: claudeChecking.current > 0,
+        lastCheckAt: claudeCheckAt.current,
+        now: Date.now()
+      });
+      if (due) check('claude');
+    },
+    [check]
   );
 
   const refreshKeyStatus = useCallback(() => {
@@ -140,12 +171,19 @@ export function useAi(): AiController {
   useEffect(() => {
     let alive = true;
     for (const provider of ['claude', 'openai'] as const) {
+      if (provider === 'claude') {
+        claudeCheckAt.current = Date.now();
+        claudeChecking.current += 1;
+      }
       call('ai:runtime', { provider })
         .then((status) => {
           if (alive) apply(status, provider === 'claude');
         })
         .catch((err: unknown) => {
           if (alive) apply({ provider, state: 'error', message: messageOf(err) }, false);
+        })
+        .finally(() => {
+          if (provider === 'claude') claudeChecking.current -= 1;
         });
     }
     call('secrets:openai-status', undefined)
@@ -264,6 +302,7 @@ export function useAi(): AiController {
     rateLimit,
     lastFailure,
     check,
+    recheckOnFocus,
     ensureModels,
     refreshKeyStatus,
     keyChanged,

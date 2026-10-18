@@ -10,6 +10,10 @@ import { IconMinus, IconPlus } from './icons';
 interface Props {
   review: Review | null;
   runtimeLabel?: string;
+  /** the label is a button: Setup for Claude, Settings for OpenAI (setup.7) */
+  onRuntime?: () => void;
+  /** what the button opens, as its tooltip */
+  runtimeTitle?: string;
   rateLimit?: string | undefined;
 }
 
@@ -138,7 +142,13 @@ function ZoomControl(): React.JSX.Element {
  * review has not been written), which used to read "Review saved" and was
  * taken for the chapter (apply.4, PLAN 11.1 "Unsaved signal").
  */
-export function StatusBar({ review, runtimeLabel, rateLimit }: Props): React.JSX.Element {
+export function StatusBar({
+  review,
+  runtimeLabel,
+  onRuntime,
+  runtimeTitle,
+  rateLimit
+}: Props): React.JSX.Element {
   const counts = review ? decisionCounts(review.hunks) : { pending: 0, accepted: 0, dismissed: 0, stale: 0 };
   const unsaved = unsavedPhrase(review ? unsavedDecisionCount(review.hunks) : 0);
   const cost = review?.generator.costUsd;
@@ -192,7 +202,15 @@ export function StatusBar({ review, runtimeLabel, rateLimit }: Props): React.JSX
         </span>
       ) : null}
       {rateLimit ? <span className="statusbar__warn">{rateLimit}</span> : null}
-      {runtimeLabel ? <span>{runtimeLabel}</span> : null}
+      {runtimeLabel ? (
+        onRuntime ? (
+          <button type="button" className="statusbar__runtime" title={runtimeTitle} onClick={onRuntime}>
+            {runtimeLabel}
+          </button>
+        ) : (
+          <span>{runtimeLabel}</span>
+        )
+      ) : null}
       <ZoomControl />
     </footer>
   );

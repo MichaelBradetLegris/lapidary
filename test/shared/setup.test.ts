@@ -1,15 +1,43 @@
 import { describe, expect, it } from 'vitest';
+import {
+  FREE_PLAN_WARNING,
+  NOT_SIGNED_IN_MESSAGE,
+  signedInElsewhereMessage
+} from '../../src/shared/ai/claudeStatus';
 import type { RuntimeStatus } from '../../src/shared/ipc';
 import {
+  CLAUDE_RUNTIME_CARD,
+  COULD_NOT_CHECK_ADVICE,
+  EXPIRED_INTRO,
+  FOCUS_RECHECK_MS,
+  NOT_INSTALLED_INTRO,
+  SIGNED_IN_AGAIN,
+  SIGNED_OUT_INTRO,
+  advancedRows,
+  canTryReviewAnyway,
+  checkedAtText,
+  focusRecheckDue,
   installAndLoginCommand,
   loginCommand,
+  needsSetup,
   nextLastFailure,
   openTerminalHint,
   osFromUserAgent,
+  otherInstalls,
+  reviewDialogWarning,
+  reviewGate,
+  runtimeButtonTitle,
+  runtimeCard,
   runtimeLabel,
+  setupStatus,
+  setupSteps,
+  setupTroubleshooting,
   setupView,
+  stepsHeading,
   updateAdvice,
-  type LastFailure
+  updateCommand,
+  type LastFailure,
+  type SetupViewId
 } from '../../src/shared/ui/setup';
 
 /* setup.6: what the Setup screen shows, and when a failure stops counting. */
@@ -164,5 +192,288 @@ describe('commands', () => {
     expect(openTerminalHint('windows')).toContain('PowerShell');
     expect(openTerminalHint('mac')).toContain('Terminal');
     expect(openTerminalHint('linux')).toContain('Ctrl+Alt+T');
+  });
+});
+
+/* setup.7: the Setup screen's words, the launch card, the review gate and the
+   re-check as the window comes back to the front. */
+
+const VIEWS: readonly SetupViewId[] = [
+  'checking',
+  'not-installed',
+  'signed-out',
+  'expired',
+  'could-not-check',
+  'outdated',
+  'usage-limit',
+  'api-key',
+  'ready'
+];
+
+describe('reviewGate', () => {
+  it('stands Setup in front of the dialog only for a missing or a definitely signed-out Claude Code', () => {
+    expect(reviewGate(claude({ state: 'missing-binary' }))).toBe('setup');
+    expect(reviewGate(claude({ state: 'not-signed-in' }))).toBe('setup');
+    expect(reviewGate(claude({ state: 'error' }))).toBe('dialog');
+    expect(reviewGate(claude({ state: 'error', cliVersion: '2.1.200' }))).toBe('dialog');
+    expect(reviewGate(claude())).toBe('dialog');
+    // The first check has not answered yet: the dialog, whose list is loading.
+    expect(reviewGate(null)).toBe('dialog');
+  });
+
+  it('offers "Try the review anyway" wherever the dialog would open and the view is not ready', () => {
+    expect(canTryReviewAnyway(claude({ state: 'error' }), null)).toBe(true);
+    expect(canTryReviewAnyway(claude({ state: 'error', cliVersion: '2.1.200' }), null)).toBe(true);
+    expect(canTryReviewAnyway(claude(), expired)).toBe(true);
+    expect(canTryReviewAnyway(claude(), { code: 'claude-usage-limit' })).toBe(true);
+    expect(canTryReviewAnyway(claude({ state: 'missing-binary' }), null)).toBe(false);
+    expect(canTryReviewAnyway(claude({ state: 'not-signed-in' }), null)).toBe(false);
+    expect(canTryReviewAnyway(claude(), null)).toBe(false);
+    expect(canTryReviewAnyway(claude({ credential: 'api-key' }), null)).toBe(false);
+    expect(canTryReviewAnyway(null, null)).toBe(false);
+  });
+});
+
+describe('focusRecheckDue', () => {
+  const due = (patch: Partial<Parameters<typeof focusRecheckDue>[0]> = {}): boolean =>
+    focusRecheckDue({
+      view: 'signed-out',
+      claudeInUse: true,
+      inFlight: false,
+      lastCheckAt: 10_000,
+      now: 10_000 + FOCUS_RECHECK_MS,
+      ...patch
+    });
+
+  it('checks again 3 s after the last check started, and not before', () => {
+    expect(FOCUS_RECHECK_MS).toBe(3000);
+    expect(due()).toBe(true);
+    expect(due({ now: 10_000 + FOCUS_RECHECK_MS - 1 })).toBe(false);
+    expect(due({ lastCheckAt: null })).toBe(true);
+  });
+
+  it('never over a check that is running, and only while Claude is in use', () => {
+    expect(due({ inFlight: true })).toBe(false);
+    expect(due({ claudeInUse: false })).toBe(false);
+  });
+
+  it('only while Setup has something for the author to do', () => {
+    const views = VIEWS.filter((view) => due({ view }));
+    expect(views).toEqual(['not-installed', 'signed-out', 'expired', 'could-not-check', 'outdated']);
+    expect(VIEWS.filter(needsSetup)).toEqual(views);
+  });
+});
+
+describe('the launch card', () => {
+  it('has a key of its own', () => {
+    expect(CLAUDE_RUNTIME_CARD).toBe('claude-runtime');
+  });
+
+  it('says what is wrong in each view with something to do, and nothing otherwise', () => {
+    expect(runtimeCard('not-installed', claude({ state: 'missing-binary' }))).toEqual({
+      tone: 'warn',
+      text: 'Claude Code is not installed, so reviews with Claude cannot run yet.'
+    });
+    expect(runtimeCard('signed-out', claude({ state: 'not-signed-in' }))?.text).toBe(
+      'Claude Code is not signed in, so reviews with Claude cannot run yet.'
+    );
+    expect(runtimeCard('expired', claude())?.text).toContain('nothing in Lapidary is lost');
+    expect(runtimeCard('outdated', claude({ state: 'error', cliVersion: '2.1.200' }))?.text).toBe(
+      'Claude Code 2.1.200 is older than Lapidary needs (2.1.266 or newer). Reviews with Claude may fail until it is updated.'
+    );
+    expect(runtimeCard('could-not-check', claude({ state: 'error' }))).toEqual({
+      tone: 'info',
+      text: 'Lapidary could not check Claude Code.'
+    });
+    for (const view of ['checking', 'usage-limit', 'api-key', 'ready'] as const) {
+      expect(runtimeCard(view, claude()), view).toBeNull();
+    }
+  });
+});
+
+describe('reviewDialogWarning', () => {
+  it('warns in the views the dialog opens in with something wrong', () => {
+    expect(reviewDialogWarning(claude({ state: 'error' }), null)).toBe(
+      'Lapidary could not check Claude Code, so this review may fail. If it does, it says why.'
+    );
+    expect(reviewDialogWarning(claude({ state: 'error', cliVersion: '2.1.200' }), null)).toContain(
+      'older than Lapidary needs'
+    );
+    expect(reviewDialogWarning(claude(), { code: 'claude-outdated' })).toBe(
+      'The last review said that Claude Code 2.1.283 is too old for it. The review may fail until it is updated.'
+    );
+    expect(reviewDialogWarning(claude(), expired)).toContain('sign-in had ended');
+    expect(reviewDialogWarning(claude(), { code: 'claude-not-signed-in' })).toContain('not signed in');
+    expect(reviewDialogWarning(claude(), { code: 'claude-usage-limit' })).toContain('usage limit');
+  });
+
+  it('says nothing when Claude is ready, or before the first check', () => {
+    expect(reviewDialogWarning(claude(), null)).toBeNull();
+    expect(reviewDialogWarning(claude({ credential: 'api-key' }), null)).toBeNull();
+    expect(reviewDialogWarning(null, null)).toBeNull();
+  });
+});
+
+describe('setupStatus', () => {
+  it('gives every view a title and at least one line', () => {
+    for (const view of VIEWS) {
+      const status = setupStatus(view, claude());
+      expect(status.title, view).not.toBe('');
+      expect(status.lines.length, view).toBeGreaterThan(0);
+    }
+  });
+
+  it('leads a missing Claude Code with what it is and that the app does not include it', () => {
+    const status = setupStatus('not-installed', claude({ state: 'missing-binary' }));
+    expect(status).toEqual({
+      tone: 'warn',
+      title: 'Claude Code is not installed',
+      lines: [NOT_INSTALLED_INTRO]
+    });
+    expect(NOT_INSTALLED_INTRO).toContain("Anthropic's free command-line tool");
+    expect(NOT_INSTALLED_INTRO).toContain('Lapidary does not include it');
+  });
+
+  it('opens a signed-out view with the words of 11.3 (f), and keeps a sign-in Lapidary does not load', () => {
+    expect(setupStatus('signed-out', claude({ state: 'not-signed-in' })).lines).toEqual([SIGNED_OUT_INTRO]);
+    expect(SIGNED_OUT_INTRO).toBe(
+      'Claude Code is not signed in. If reviews worked before, your sign-in has ended; this happens from time to time and nothing in Lapidary is lost.'
+    );
+    const elsewhere = claude({
+      state: 'not-signed-in',
+      authMethod: 'api_key_helper',
+      message: signedInElsewhereMessage('api_key_helper')
+    });
+    expect(setupStatus('signed-out', elsewhere).lines).toEqual([
+      SIGNED_OUT_INTRO,
+      signedInElsewhereMessage('api_key_helper')
+    ]);
+    // The check's own "Open Setup" words are not repeated on Setup.
+    expect(
+      setupStatus('signed-out', claude({ state: 'not-signed-in', message: NOT_SIGNED_IN_MESSAGE })).lines
+    ).toEqual([SIGNED_OUT_INTRO]);
+  });
+
+  it('says when the check now finds a sign-in that the last review said had gone', () => {
+    expect(setupStatus('expired', claude(), expired).lines).toEqual([EXPIRED_INTRO, SIGNED_IN_AGAIN]);
+    expect(setupStatus('expired', claude({ state: 'not-signed-in' }), expired).lines).toEqual([
+      EXPIRED_INTRO
+    ]);
+  });
+
+  it("names the account and plan when ready, and the key's source with an API key", () => {
+    expect(
+      setupStatus('ready', claude({ email: 'ann@example.com', subscriptionType: 'Claude Max' }))
+    ).toEqual({
+      tone: 'ok',
+      title: 'Claude is ready',
+      lines: [
+        'Claude Code 2.1.283 is signed in as ann@example.com (Claude Max). Review with AI can use Claude.'
+      ]
+    });
+    const key = setupStatus('api-key', claude({ credential: 'api-key', apiKeySource: 'ANTHROPIC_API_KEY' }));
+    expect(key.lines[0]).toContain('signs in with an API key (ANTHROPIC_API_KEY)');
+    expect(key.lines[1]).toContain('remove ANTHROPIC_API_KEY');
+  });
+
+  it('turns a free plan into a warning', () => {
+    const status = setupStatus('ready', claude({ planWarning: FREE_PLAN_WARNING }));
+    expect(status.tone).toBe('warn');
+    expect(status.lines).toEqual([FREE_PLAN_WARNING]);
+  });
+
+  it("shows a check that failed in the check's own words, with what to do", () => {
+    expect(setupStatus('could-not-check', claude({ state: 'error', message: 'Timed out.' })).lines).toEqual([
+      'Timed out.',
+      COULD_NOT_CHECK_ADVICE
+    ]);
+  });
+});
+
+describe('setupSteps', () => {
+  it('installs and signs in with one line, on the system chosen', () => {
+    const steps = setupSteps('not-installed', claude({ state: 'missing-binary' }), 'windows');
+    expect(steps.map((step) => step.command?.command)).toEqual([
+      undefined,
+      installAndLoginCommand('windows'),
+      undefined
+    ]);
+    expect(steps[0]?.text).toBe(openTerminalHint('windows'));
+    expect(setupSteps('not-installed', null, 'mac')[1]?.command?.command).toBe(installAndLoginCommand('mac'));
+  });
+
+  it('signs in with claude auth login, with the full-path form, in both sign-in views', () => {
+    for (const view of ['signed-out', 'expired'] as const) {
+      expect(setupSteps(view, claude(), 'windows')[1]?.command).toEqual(loginCommand(PATH, 'windows'));
+    }
+  });
+
+  it('updates an old Claude Code with claude update', () => {
+    expect(setupSteps('outdated', claude({ cliVersion: '2.1.200' }), 'windows')[1]?.command).toEqual({
+      command: 'claude update',
+      fullPathCommand: `& '${PATH}' update`
+    });
+    expect(updateCommand(undefined, 'linux')).toEqual({ command: 'claude update', fullPathCommand: null });
+  });
+
+  it('has no steps where there is nothing to run', () => {
+    for (const view of ['checking', 'could-not-check', 'usage-limit', 'api-key', 'ready'] as const) {
+      expect(setupSteps(view, claude(), 'windows'), view).toEqual([]);
+      expect(stepsHeading(view), view).toBeNull();
+    }
+  });
+});
+
+describe('installs, troubleshooting and Advanced', () => {
+  it('offers WinGet and Homebrew, and never npm', () => {
+    expect(otherInstalls('windows')).toEqual([
+      { name: 'WinGet', command: 'winget install Anthropic.ClaudeCode' }
+    ]);
+    expect(otherInstalls('mac')).toEqual([{ name: 'Homebrew', command: 'brew install --cask claude-code' }]);
+    expect(otherInstalls('linux')).toEqual([]);
+    for (const os of ['windows', 'mac', 'linux'] as const) {
+      expect(JSON.stringify(otherInstalls(os))).not.toMatch(/npm/);
+    }
+  });
+
+  it("explains, on Windows only, why npm's claude.cmd reads as not installed", () => {
+    const npm = (os: 'windows' | 'mac'): string | undefined =>
+      setupTroubleshooting('not-installed', os).find((item) => /npm/.test(item.question))?.answer;
+    expect(npm('windows')).toContain('claude.cmd');
+    expect(npm('windows')).toContain('not installed');
+    expect(npm('mac')).toBeUndefined();
+  });
+
+  it('has troubleshooting for each view with something to do', () => {
+    for (const view of VIEWS) {
+      expect(setupTroubleshooting(view, 'windows').length > 0, view).toBe(needsSetup(view));
+    }
+  });
+
+  it('lists the Claude Code path and version, and where it looks', () => {
+    const checkedAt = new Date(2026, 9, 18, 14, 2, 11).toISOString();
+    const rows = advancedRows(
+      claude({ credential: 'subscription', authMethod: 'claude.ai', checkedAt }),
+      'windows'
+    );
+    expect(Object.fromEntries(rows.map((row) => [row.label, row.value]))).toEqual({
+      'Claude Code': PATH,
+      Version: '2.1.283',
+      Needs: '2.1.266 or newer, and 2.1.283 or newer for the newest models',
+      'Signs in with': 'a Claude plan, auth method claude.ai',
+      'Last checked': '14:02:11',
+      'Looks in': expect.stringContaining('claude.exe') as unknown
+    });
+    expect(
+      advancedRows(null, 'linux')
+        .map((row) => row.value)
+        .slice(0, 2)
+    ).toEqual(['not found', 'none']);
+    expect(checkedAtText('not a time')).toBe('not a time');
+  });
+
+  it('labels the status bar button by what it opens', () => {
+    expect(runtimeButtonTitle('claude')).toBe('Open Setup');
+    expect(runtimeButtonTitle('openai')).toBe('Open Settings');
   });
 });

@@ -244,7 +244,7 @@ describe('the first-use hint keeps to the side panel wherever it is drawn (ui.3)
    (test/renderer/hints.test.ts); these check how the page feeds them. */
 describe('the first-use hint gives way to the prose with the side panel folded (ui.3 review)', () => {
   it('knows the panel is folded, on the main layout only', () => {
-    expect(APP).toContain("const sideFolded = layout.side === 'strip' && !(setupOpen && claudeRuntime);");
+    expect(APP).toContain("const sideFolded = layout.side === 'strip' && !setupOpen;");
     expect(APP).toContain('sideFolded={sideFolded}');
   });
 

@@ -52,10 +52,11 @@ describe('confirm dialog layer (apply.6 review)', () => {
     expect(CONFIRM).toContain('className="modal-backdrop modal-backdrop--confirm"');
   });
 
-  it('renders the confirm dialog last in the main view, after every dialog and the editor', () => {
-    // The main view: the four dialogs are made just before its return (ui.4).
-    const main = APP.slice(APP.indexOf('const newChapterDialog = '));
-    const components = [...main.matchAll(/<([A-Z]\w*)/g)].map((m) => m[1]);
+  it('renders the confirm dialog last in each layout, after every dialog and the editor', () => {
+    // The four dialogs are made just before the two returns (ui.4): the
+    // Setup screen's (setup.7) and the main view's.
+    const made = APP.slice(APP.indexOf('const newChapterDialog = '));
+    const components = [...made.matchAll(/<([A-Z]\w*)/g)].map((m) => m[1]);
     expect(components).toEqual(
       expect.arrayContaining([
         'EditPopover',
@@ -65,11 +66,17 @@ describe('confirm dialog layer (apply.6 review)', () => {
         'SettingsDialog'
       ])
     );
-    expect(components.at(-1)).toBe('ConfirmDialog');
-    expect(components.filter((name) => name === 'ConfirmDialog')).toHaveLength(1);
-    const layout = main.slice(main.lastIndexOf('return ('));
-    expect(layout.indexOf('<EditPopover')).toBeLessThan(layout.indexOf('{newChapterDialog}'));
-    expect(layout.indexOf('{settingsDialog}')).toBeLessThan(layout.indexOf('<ConfirmDialog />'));
+    const setupStart = made.indexOf('if (setupOpen) {');
+    const mainStart = made.lastIndexOf('return (');
+    expect(setupStart).toBeGreaterThan(0);
+    for (const layout of [made.slice(setupStart, mainStart), made.slice(mainStart)]) {
+      const names = [...layout.matchAll(/<([A-Z]\w*)/g)].map((m) => m[1]);
+      expect(names.at(-1)).toBe('ConfirmDialog');
+      expect(names.filter((name) => name === 'ConfirmDialog')).toHaveLength(1);
+      expect(layout.indexOf('{settingsDialog}')).toBeLessThan(layout.indexOf('<ConfirmDialog />'));
+    }
+    const main = made.slice(mainStart);
+    expect(main.indexOf('<EditPopover')).toBeLessThan(main.indexOf('{newChapterDialog}'));
   });
 
   it('focuses the default with its focus ring showing, however the question was opened', () => {

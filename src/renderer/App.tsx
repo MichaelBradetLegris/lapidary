@@ -6,7 +6,15 @@ import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
 import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
 import { rebaseCardText } from '../shared/ui/rebase';
 import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
-import { runtimeLabel as labelForRuntime } from '../shared/ui/setup';
+import {
+  CLAUDE_RUNTIME_CARD,
+  canTryReviewAnyway,
+  reviewGate,
+  runtimeButtonTitle,
+  runtimeCard,
+  runtimeLabel as labelForRuntime,
+  setupView
+} from '../shared/ui/setup';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
 import { bodyClassName, columnClassName } from '../shared/ui/columns';
 import { shellInert } from '../shared/ui/dialog';
@@ -51,7 +59,7 @@ import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { useKeyboardBindings } from './state/keyboard';
 import { useProgressLabel } from './state/progress';
 import { reviewWithoutSaving, saveThenReview } from './state/reviewStart';
-import { useApp } from './state/store';
+import { useApp, type NotificationAction } from './state/store';
 import {
   flushReviewWrites,
   installReviewPersistence,
@@ -142,6 +150,7 @@ export function App(): React.JSX.Element {
   const setSettings = useApp((s) => s.setSettings);
   const setReview = useApp((s) => s.setReview);
   const notify = useApp((s) => s.notify);
+  const upsertNotification = useApp((s) => s.upsertNotification);
   const dismissNotificationsByKey = useApp((s) => s.dismissNotificationsByKey);
   const setNewChapterOpen = useApp((s) => s.setNewChapterOpen);
   const setManualReviewOpen = useApp((s) => s.setManualReviewOpen);
@@ -175,6 +184,52 @@ export function App(): React.JSX.Element {
   }, [settings, claudeRuntime, setSettings]);
 
   const fail = useCallback((err: unknown) => notify('error', errorMessage(err)), [notify]);
+
+  /* ---------------- Claude's setup (setup.7, PLAN 5.6) ---------------- */
+
+  const activeProvider = settings?.provider ?? 'claude';
+  const claudeView = setupView(claudeRuntime, ai.lastFailure);
+  const claudeInUse = activeProvider === 'claude' || setupOpen;
+  const settingsLoaded = settings !== null;
+
+  /* The launch card (section 7): once the settings and Claude's first check
+     are in, a card says what Setup has to do when Claude is the provider,
+     with Open Setup, unless Setup is open already. While it is up, a later
+     check keeps its words current, and a check with nothing left to say
+     withdraws it by its key. Closed with its X, it stays closed. */
+  const runtimeCardRaised = useRef(false);
+  useEffect(() => {
+    if (!claudeRuntime || !settingsLoaded) return;
+    const card = runtimeCard(claudeView, claudeRuntime);
+    if (!card) {
+      dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);
+    } else {
+      const { notifications, setupOpen: onSetup } = useApp.getState();
+      const showing = notifications.some((n) => n.key === CLAUDE_RUNTIME_CARD);
+      if (showing || (!runtimeCardRaised.current && activeProvider === 'claude' && !onSetup)) {
+        upsertNotification(CLAUDE_RUNTIME_CARD, card.tone, card.text, 'open-setup');
+      }
+    }
+    runtimeCardRaised.current = true;
+  }, [
+    claudeRuntime,
+    claudeView,
+    settingsLoaded,
+    activeProvider,
+    upsertNotification,
+    dismissNotificationsByKey
+  ]);
+
+  /* Back from a terminal where the author installed, signed in or updated:
+     check again as the window comes back to the front, while Setup has
+     something to do and Claude is in use, at most every 3 s
+     (`focusRecheckDue`). */
+  const { recheckOnFocus } = ai;
+  useEffect(() => {
+    const onFocus = (): void => recheckOnFocus(claudeInUse, claudeView);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [recheckOnFocus, claudeInUse, claudeView]);
 
   /* ---------------- loading ---------------- */
 
@@ -584,12 +639,16 @@ export function App(): React.JSX.Element {
     setSettingsOpen(true);
   }, [setReviewDialogOpen, setSetupOpen, setSettingsOpen]);
 
-  /**
-   * The dialog collects provider, model and effort before anything is sent
-   * (item 6). The Claude Setup screen only stands in front of it when Claude is
-   * the provider; OpenAI's only prerequisite is a key, which the dialog itself
-   * shows, and a card points at Settings when there is none (Phase 5c).
-   */
+  /* The Setup screen, from the launch card, the status bar, Settings or the
+     review dialog's warning (setup.7). The launch card has done its job once
+     Setup is open, which says the same at length, so it goes. */
+  const openSetup = useCallback(() => {
+    setReviewDialogOpen(false);
+    setSettingsOpen(false);
+    dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);
+    setSetupOpen(true);
+  }, [setReviewDialogOpen, setSettingsOpen, setSetupOpen, dismissNotificationsByKey]);
+
   /** A new review replaces the working set, so open paragraph editors must be dealt with first. */
   const refuseWhileEditing = useCallback((): boolean => {
     const open = Object.keys(useApp.getState().drafts).length;
@@ -607,13 +666,22 @@ export function App(): React.JSX.Element {
     setManualReviewOpen(true);
   }, [refuseWhileEditing, setManualReviewOpen]);
 
+  /**
+   * The dialog collects provider, model and effort before anything is sent
+   * (item 6). The Claude Setup screen stands in front of it only when Claude
+   * is the provider and Claude Code is missing or definitely signed out; a
+   * check that failed or an old Claude Code opens the dialog with a warning
+   * (`reviewGate`, setup.7, 11.3 f). OpenAI's only prerequisite is a key,
+   * which the dialog itself shows, and a card points at Settings when there is
+   * none (Phase 5c).
+   */
   const openReviewDialog = useCallback(() => {
     const current = useApp.getState().review;
     if (!current?.sourcePath) return;
     if (refuseWhileEditing()) return;
     const provider = settings?.provider ?? 'claude';
-    if (provider === 'claude' && claudeRuntime && claudeRuntime.state !== 'ready') {
-      setSetupOpen(true);
+    if (provider === 'claude' && reviewGate(claudeRuntime) === 'setup') {
+      openSetup();
       return;
     }
     if (provider === 'openai' && ai.keyStatus && !ai.keyStatus.configured) {
@@ -625,7 +693,7 @@ export function App(): React.JSX.Element {
       );
     }
     setReviewDialogOpen(true);
-  }, [settings, claudeRuntime, ai.keyStatus, notify, setReviewDialogOpen, refuseWhileEditing, setSetupOpen]);
+  }, [settings, claudeRuntime, ai.keyStatus, notify, setReviewDialogOpen, refuseWhileEditing, openSetup]);
 
   /**
    * Run a review. The chapter's review is read-only until it returns (round 3,
@@ -689,7 +757,7 @@ export function App(): React.JSX.Element {
         // Setup can fix these: re-check, then show what to do (setup.5).
         if (err instanceof ApiError && SETUP_FAILURES.has(err.code)) {
           ai.check('claude');
-          setSetupOpen(true);
+          openSetup();
         }
         if (err instanceof ApiError && err.code === 'cancelled') {
           notify('info', 'Review cancelled.');
@@ -703,7 +771,7 @@ export function App(): React.JSX.Element {
         fail(err);
       })
       .finally(() => useApp.getState().setAiBusy(null));
-  }, [ai, adoptReview, notify, setReviewDialogOpen, fail, refreshFiles, setSetupOpen]);
+  }, [ai, adoptReview, notify, setReviewDialogOpen, fail, refreshFiles, openSetup]);
 
   /* No stranded decisions (apply.20, state/reviewStart.ts): with changes not
      saved to the chapter, the dialog's blue button saves them and starts the
@@ -721,14 +789,20 @@ export function App(): React.JSX.Element {
     [startReview, reviewDialogStillOpen]
   );
 
-  const activeProvider = settings?.provider ?? 'claude';
+  /* Setup's "Try the review anyway": nothing the check found stops a review,
+     so the dialog opens, with its warning (11.3 f). */
+  const tryReviewAnyway = useCallback(() => {
+    setSetupOpen(false);
+    openReviewDialog();
+  }, [setSetupOpen, openReviewDialog]);
+
   const activeRuntime = ai.runtimes[activeProvider];
   const runtimeLabel =
     labelForRuntime(activeRuntime, activeProvider === 'claude' ? ai.lastFailure : null) ?? undefined;
 
   // The first-use hint hangs over the prose when the side panel is folded
   // (ui.3); the Setup screen has no side panel, folded or not.
-  const sideFolded = layout.side === 'strip' && !(setupOpen && claudeRuntime);
+  const sideFolded = layout.side === 'strip' && !setupOpen;
 
   const toolbar = (
     <Toolbar
@@ -747,28 +821,44 @@ export function App(): React.JSX.Element {
     />
   );
 
-  if (setupOpen && claudeRuntime) {
-    return (
-      <div className="app-shell">
-        {/* Closing the window can ask its question here too, with a review
-            still open behind Setup (apply.9 review), so this layout has the
-            dialog and goes inert under it, as the one below does. */}
-        <div className="app-shell__page" inert={questionOpen}>
-          {toolbar}
-          <div className="body body--single">
-            <SetupScreen
-              runtime={claudeRuntime}
-              checking={ai.checking}
-              onCheckAgain={() => ai.check('claude')}
-              onClose={() => setSetupOpen(false)}
-            />
-          </div>
-          <StatusBar review={review} {...(runtimeLabel ? { runtimeLabel } : {})} />
-        </div>
-        <ConfirmDialog />
-      </div>
-    );
-  }
+  /* What a card's button does (setup.7a), in either layout: the notification
+     cards show over the Setup screen too (setup.7). */
+  const onCardAction = useCallback(
+    (action: NotificationAction, arg?: string) => {
+      switch (action) {
+        case 'open-settings':
+          openSettings();
+          break;
+        case 'open-setup':
+          openSetup();
+          break;
+        case 'reveal-drafts':
+          // A set-aside card names its file, which Show the text opens (apply.16).
+          void call('shell:reveal', { target: 'drafts', ...(arg ? { name: arg } : {}) }).catch(fail);
+          break;
+        case 'reveal-backups':
+          // The save card names the chapter it saved (apply.11).
+          revealBackups(arg);
+          break;
+        case 'reveal-all-backups':
+          // The no-backups card: the backups root, as in Settings (apply.11).
+          revealBackups();
+          break;
+        default:
+          // Diagnostics (hardening.5) and updates (release.9) wire theirs in when they land.
+          break;
+      }
+    },
+    [openSettings, openSetup, fail, revealBackups]
+  );
+
+  /* The status bar's runtime label is a button: Setup for Claude, Settings
+     for OpenAI (setup.7). */
+  const statusRuntime = {
+    ...(runtimeLabel ? { runtimeLabel } : {}),
+    onRuntime: activeProvider === 'claude' ? openSetup : openSettings,
+    runtimeTitle: runtimeButtonTitle(activeProvider)
+  };
 
   /* The four dialogs, each drawn only when it can be. They sit outside the
      page, which is inert while one of them is open, so Tab and Shift+Tab go
@@ -823,6 +913,8 @@ export function App(): React.JSX.Element {
         onOpenSettings={openSettings}
         onCheckClaude={() => ai.check('claude')}
         checking={ai.checking}
+        claudeLastFailure={ai.lastFailure}
+        onOpenSetup={openSetup}
         onStart={startReview}
         onClose={() => setReviewDialogOpen(false)}
       />
@@ -840,16 +932,51 @@ export function App(): React.JSX.Element {
           refreshFiles();
         }}
         onClose={() => setSettingsOpen(false)}
-        onOpenSetup={() => {
-          setSettingsOpen(false);
-          setSetupOpen(true);
-        }}
+        onOpenSetup={openSetup}
       />
     ) : null;
   const inert = shellInert({
     dialog: [newChapterDialog, manualReviewDialog, reviewDialog, settingsDialog].some((d) => d !== null),
     question: questionOpen
   });
+
+  /* The Setup screen in place of the chapter list, the prose and the side
+     panel (setup.7). The rest is as in the layout below: the toolbar, the
+     status bar, the notification cards over the screen, the dialogs over the
+     page, inert under them, and the question over everything. Closing the
+     window can ask its question here too, with a review still open behind
+     Setup (apply.9 review), and Settings, from the toolbar or a card, opens
+     over it. */
+  if (setupOpen) {
+    return (
+      <div className="app-shell">
+        <div className="app-shell__page" inert={inert.page}>
+          {toolbar}
+          <div className="body body--single">
+            <SetupScreen
+              runtime={claudeRuntime}
+              lastFailure={ai.lastFailure}
+              checking={ai.checking}
+              onCheckAgain={() => ai.check('claude')}
+              onClose={() => setSetupOpen(false)}
+              {...(review?.sourcePath && canTryReviewAnyway(claudeRuntime, ai.lastFailure)
+                ? { onTryAnyway: tryReviewAnyway }
+                : {})}
+            />
+            <NotificationCards onAction={onCardAction} />
+          </div>
+          <StatusBar review={review} {...statusRuntime} rateLimit={ai.rateLimit?.message} />
+        </div>
+        <div className="app-shell__dialogs" inert={inert.dialogs}>
+          {newChapterDialog}
+          {manualReviewDialog}
+          {reviewDialog}
+          {settingsDialog}
+        </div>
+        <ConfirmDialog />
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -914,35 +1041,7 @@ export function App(): React.JSX.Element {
                 </div>
               )}
             </main>
-            <NotificationCards
-              onAction={(action, arg) => {
-                switch (action) {
-                  case 'open-settings':
-                    openSettings();
-                    break;
-                  case 'open-setup':
-                    setSetupOpen(true);
-                    break;
-                  case 'reveal-drafts':
-                    // A set-aside card names its file, which Show the text opens (apply.16).
-                    void call('shell:reveal', { target: 'drafts', ...(arg ? { name: arg } : {}) }).catch(
-                      fail
-                    );
-                    break;
-                  case 'reveal-backups':
-                    // The save card names the chapter it saved (apply.11).
-                    revealBackups(arg);
-                    break;
-                  case 'reveal-all-backups':
-                    // The no-backups card: the backups root, as in Settings (apply.11).
-                    revealBackups();
-                    break;
-                  default:
-                    // Diagnostics (hardening.5) and updates (release.9) wire theirs in when they land.
-                    break;
-                }
-              }}
-            />
+            <NotificationCards onAction={onCardAction} />
             <LockCard label={progressLabel} onCancel={ai.cancel} />
           </div>
 
@@ -974,11 +1073,7 @@ export function App(): React.JSX.Element {
           </div>
         </div>
 
-        <StatusBar
-          review={review}
-          {...(runtimeLabel ? { runtimeLabel } : {})}
-          rateLimit={ai.rateLimit?.message}
-        />
+        <StatusBar review={review} {...statusRuntime} rateLimit={ai.rateLimit?.message} />
         <HunkTooltip />
         <EditPopover onSaved={(message, tone) => notify(tone ?? 'info', message, 'edit')} />
       </div>

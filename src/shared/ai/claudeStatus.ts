@@ -190,6 +190,15 @@ export const NOT_SIGNED_IN_MESSAGE = 'Claude Code is not signed in. Open Setup f
 export const FREE_PLAN_WARNING =
   'This Claude account is on the free plan, which cannot run Claude Code. Reviews need a Pro or Max plan, or an API key.';
 
+/**
+ * `auth status` says signed in, but the review would have no sign-in: it lives
+ * in Claude Code's own settings, which the app does not load (11.3 c). The
+ * Setup screen shows these words, as they say more than "not signed in".
+ */
+export function signedInElsewhereMessage(authMethod: string | undefined): string {
+  return `Claude Code is signed in through its own settings (${authMethod ?? 'unknown'}), which ${APP_NAME} does not load. Sign in with the command below instead.`;
+}
+
 function credentialFromAuthMethod(method: string | undefined): ClaudeCredential | undefined {
   switch (method) {
     case 'claude.ai':
@@ -234,9 +243,7 @@ export function classifyClaude(input: {
   if (account?.tokenSource === 'none') {
     return {
       state: 'not-signed-in',
-      message: auth?.loggedIn
-        ? `Claude Code is signed in through its own settings (${auth.authMethod ?? 'unknown'}), which ${APP_NAME} does not load. Sign in with the command below instead.`
-        : NOT_SIGNED_IN_MESSAGE
+      message: auth?.loggedIn ? signedInElsewhereMessage(auth.authMethod) : NOT_SIGNED_IN_MESSAGE
     };
   }
   if (auth?.loggedIn) return ready(credentialFromAuthMethod(auth.authMethod));

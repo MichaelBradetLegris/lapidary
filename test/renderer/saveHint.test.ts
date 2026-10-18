@@ -144,21 +144,39 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
     // With the side panel folded to a strip (ui.3), its drawer's column lies
     // over the prose's edge, so there the hint may meet them: see
     // test/renderer/columns.test.ts.
-    const wrap = APP.indexOf('<div className={`center-wrap');
-    const find = APP.indexOf('<FindBar />');
-    const cards = APP.indexOf('<NotificationCards');
-    const lock = APP.indexOf('<LockCard');
-    const side = APP.indexOf('<SidePanel');
+    // The main layout, the last App returns: the Setup screen's has its
+    // cards in its own column (setup.7, below).
+    const main = APP.slice(APP.lastIndexOf('return ('));
+    const wrap = main.indexOf('<div className={`center-wrap');
+    const find = main.indexOf('<FindBar />');
+    const cards = main.indexOf('<NotificationCards');
+    const lock = main.indexOf('<LockCard');
+    const side = main.indexOf('<SidePanel');
     expect(wrap).toBeGreaterThan(0);
     expect(find).toBeGreaterThan(wrap);
     expect(cards).toBeGreaterThan(find);
     expect(lock).toBeGreaterThan(cards);
     expect(side).toBeGreaterThan(lock);
-    expect(APP.slice(lock, side)).toMatch(/\/>\s*<\/div>/);
+    expect(main.slice(lock, side)).toMatch(/\/>\s*<\/div>/);
     expect(declsFor('.center-wrap').get('position')).toBe('relative');
     expect(declsFor('.notes').get('position')).toBe('absolute');
     expect(parseFloat(declsFor('.notes').get('right') ?? '')).toBeGreaterThanOrEqual(0);
     expect(declsFor('.findbar').get('position')).toBeUndefined();
+  });
+
+  it('stays under the cards on the Setup screen, where they sit in the flow above it (setup.7)', () => {
+    // No side panel there: the hint takes the toolbar's width, and the cards
+    // are at the top of the Setup column, positioned so their layer counts.
+    const setup = APP.slice(APP.indexOf('if (setupOpen) {'), APP.lastIndexOf('return ('));
+    expect(setup).toMatch(
+      /<div className="body body--single">\s*<SetupScreen[\s\S]*?\/>\s*<NotificationCards /
+    );
+    const notes = declsFor('.body--single > .notes');
+    expect(notes.get('position')).toBe('relative');
+    expect(notes.get('inset')).toBe('auto');
+    expect(Number(declsFor('.save-hint').get('z-index'))).toBeLessThan(
+      Number(declsFor('.notes').get('z-index'))
+    );
   });
 
   it('draws in tokens only, so both themes reach it', () => {

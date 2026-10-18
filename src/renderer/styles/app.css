@@ -522,7 +522,8 @@ input[type='text'] {
    (lcd_text_disallowed_reason none) and 41. See PLAN Appendix C, "The scrollers
    have opaque backgrounds (LCD text while scrolling)". */
 .body--single {
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   overflow: auto;
   background: var(--bg);
 }
@@ -603,6 +604,22 @@ input[type='text'] {
 
 .statusbar__unsaved {
   color: var(--unsaved);
+}
+
+/* The provider's readiness is a button that opens Setup, or Settings for
+   OpenAI (setup.7), drawn as the text it was, underlined under the pointer. */
+.statusbar__runtime {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-underline-offset: 2px;
+}
+
+.statusbar__runtime:hover:not(:disabled) {
+  background: none;
+  color: var(--ink);
+  text-decoration: underline;
 }
 
 .statusbar__stale,
@@ -1806,25 +1823,112 @@ input[type='text'] {
   color: var(--ink);
 }
 
-/* ---------- setup screen ---------- */
+/* ---------- setup screen (setup.7) ---------- */
+
+/* The Setup screen takes the place of the chapter list, the prose and the
+   side panel, in .body--single. The notification cards sit at the top of it,
+   above the screen and in the flow, so they never cover its Close or its
+   Check again, and the screen scrolls under them (.setup). Positioned, though
+   not moved, so that they keep their layer over the first-use hint. */
+.body--single > .notes {
+  position: relative;
+  inset: auto;
+  align-self: center;
+  width: 100%;
+  max-width: 720px;
+  padding: 12px 28px 0;
+}
 
 .setup {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
   padding: 28px;
   max-width: 720px;
   margin: 0 auto;
   overflow: auto;
   background: var(--bg);
+  line-height: 1.45;
 }
 
 .setup h1 {
   font-size: 20px;
+  margin: 0;
+}
+
+.setup h2 {
+  font-size: 15px;
+  margin: 0 0 6px;
+}
+
+.setup p {
   margin: 0 0 8px;
+}
+
+.setup__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* What the last check found: a card with the state's colour at its edge, as
+   the notification cards have, and Check again beside it. */
+.setup__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px 16px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.setup__status--ok {
+  border-left-color: var(--accept);
+}
+
+.setup__status--warn {
+  border-color: var(--warn-border);
+  border-left-color: var(--warn);
+  background: var(--warn-bg);
+}
+
+.setup__status-text {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.setup__status-text p:last-child {
+  margin-bottom: 0;
+}
+
+.setup__status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.setup__status-actions button {
+  white-space: nowrap;
+}
+
+.setup .modal__warn {
+  margin-bottom: 18px;
+}
+
+.setup__section {
+  margin-bottom: 18px;
 }
 
 .setup__tabs {
   display: flex;
   gap: 6px;
-  margin: 12px 0;
+  margin: 8px 0 12px;
 }
 
 .setup__tab--active {
@@ -1833,23 +1937,112 @@ input[type='text'] {
   color: var(--on-accent);
 }
 
+.setup__steps {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.setup__steps li {
+  margin-bottom: 10px;
+}
+
+.setup__steps p {
+  margin: 0 0 4px;
+}
+
+.setup__note {
+  color: var(--ink-soft);
+}
+
+.setup__others {
+  margin-top: 6px;
+}
+
+.setup__other {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.setup__trouble {
+  margin: 0 0 6px;
+}
+
+.setup__trouble summary,
+.setup__advanced summary {
+  cursor: pointer;
+}
+
+.setup__trouble p {
+  margin: 4px 0 8px 16px;
+  color: var(--ink-soft);
+}
+
+.setup__advanced {
+  margin-bottom: 18px;
+}
+
+.setup__advanced summary {
+  font-weight: 600;
+}
+
+.setup__advanced dl {
+  margin: 8px 0 0;
+}
+
+.setup__row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.setup__row dt {
+  color: var(--ink-soft);
+}
+
+.setup__row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.setup__footer {
+  color: var(--ink-soft);
+}
+
+/* A command to copy. A long one wraps rather than scrolling, so all of it can
+   be read; the copy is the command as it is. One click on it selects the whole
+   command, for copying by hand when the clipboard refuses (setup.7). */
 .cmd {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   align-items: center;
   margin: 6px 0;
 }
 
 .cmd code {
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-width: 0;
   font-family: ui-monospace, Consolas, monospace;
   font-size: 12px;
   background: var(--panel-alt);
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 5px 8px;
-  overflow-x: auto;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.cmd button {
+  white-space: nowrap;
+}
+
+.cmd__failed {
+  flex: 1 0 100%;
+  color: var(--danger);
 }
 
 .progress {

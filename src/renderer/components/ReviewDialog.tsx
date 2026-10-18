@@ -9,6 +9,7 @@ import type {
 } from '../../shared/ipc';
 import { proPlanNote } from '../../shared/ai/claudeModels';
 import { claudeUpdateAdvice } from '../../shared/ai/claudeStatus';
+import { reviewDialogWarning, type LastFailure } from '../../shared/ui/setup';
 import { chapterStats } from '../../shared/text/stats';
 import { historyCounts, historyWhen } from '../../shared/ui/history';
 import { REVIEW_BUTTON_SELECTOR } from '../../shared/ui/dialog';
@@ -27,7 +28,7 @@ import {
 import { call, errorMessage } from '../state/client';
 import { modelOptions, selectedModel } from '../state/models';
 import { useDialogEscape, useDialogFocus } from '../state/dialog';
-import { Command } from './Command';
+import { UpdateNote } from './UpdateNote';
 
 interface Props {
   review: Review;
@@ -60,6 +61,10 @@ interface Props {
   onCheckClaude: () => void;
   /** true while a runtime check is running */
   checking: boolean;
+  /** the last Claude failure that says something about setup, for the warning (setup.7) */
+  claudeLastFailure: LastFailure | null;
+  /** close this dialog and open the Setup screen (setup.7) */
+  onOpenSetup: () => void;
   onStart: () => void;
   onClose: () => void;
 }
@@ -89,6 +94,8 @@ export function ReviewDialog({
   onOpenSettings,
   onCheckClaude,
   checking,
+  claudeLastFailure,
+  onOpenSetup,
   onStart,
   onClose
 }: Props): React.JSX.Element {
@@ -118,6 +125,7 @@ export function ReviewDialog({
     onSaveThenStart(setNotSaved);
   };
   const planNote = isOpenAi ? null : proPlanNote(runtime?.subscriptionType, current);
+  const claudeWarning = isOpenAi ? null : reviewDialogWarning(runtime, claudeLastFailure);
   const updateAdvice = isOpenAi
     ? null
     : claudeUpdateAdvice(
@@ -228,28 +236,19 @@ export function ReviewDialog({
             {planNote}
           </p>
         ) : null}
-        {updateAdvice ? (
-          <div className="modal__warn modal__warn--stack" role="note" data-testid="claude-update-note">
-            <span>
-              Claude Code {updateAdvice.installed} is out of date, so it may not offer the newest models.
-              Version {updateAdvice.recommended} or newer is recommended. To update it, run this in a
-              terminal, then check again:
-            </span>
-            <Command text={updateAdvice.command} />
-            {updateAdvice.fullPathCommand ? (
-              <>
-                <span className="modal__note">
-                  If the terminal does not recognise <code>claude</code>, use this instead:
-                </span>
-                <Command text={updateAdvice.fullPathCommand} />
-              </>
-            ) : null}
-            <span className="modal__buttons">
-              <button type="button" disabled={checking} onClick={onCheckClaude}>
-                {checking ? 'Checking…' : 'Check again'}
-              </button>
-            </span>
+        {/* Claude is the provider and Setup has something to say, but nothing
+            the check found stops a review: the dialog opens with a warning
+            and Open Setup rather than Setup itself (setup.7, 11.3 f). An
+            out-of-date Claude Code has its commands in Setup then. */}
+        {claudeWarning ? (
+          <div className="modal__warn" role="note" data-testid="claude-setup-warning">
+            <span>{claudeWarning}</span>
+            <button type="button" onClick={onOpenSetup}>
+              Open Setup
+            </button>
           </div>
+        ) : updateAdvice ? (
+          <UpdateNote advice={updateAdvice} checking={checking} onCheckAgain={onCheckClaude} />
         ) : null}
         {runtime?.state === 'ready' && runtime.message && isOpenAi ? (
           <p className="modal__note">{runtime.message}</p>
