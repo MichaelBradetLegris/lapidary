@@ -1,11 +1,41 @@
 /**
- * The rules that make a dialog behave as one (ui.1): when Escape closes it,
- * and where the focus goes when it closes. Pure, so they are tested in node;
- * the hooks that apply them are in `src/renderer/state/dialog.ts`.
+ * The rules that make a dialog behave as one (ui.1, ui.4): when Escape closes
+ * it, what is inert while it is open, and where the focus goes when it
+ * closes. Pure, so they are tested in node; the hooks that apply them are in
+ * `src/renderer/state/dialog.ts`, and App applies `shellInert`.
  */
 
 /** The toolbar's Settings button, where the focus goes when Settings closes and where it was is gone. */
 export const SETTINGS_BUTTON_SELECTOR = '[data-opens="settings"]';
+
+/** The toolbar's Review with AI button, the same for Review with AI (ui.4). */
+export const REVIEW_BUTTON_SELECTOR = '[data-opens="review"]';
+
+/** The toolbar's Submit manual review button, the same for that dialog (ui.4). */
+export const MANUAL_REVIEW_BUTTON_SELECTOR = '[data-opens="manual-review"]';
+
+/** The + in the chapter list's header, the same for New chapter (ui.4). */
+export const NEW_CHAPTER_BUTTON_SELECTOR = '[data-opens="new-chapter"]';
+
+/** Which of the window's two layers under a question are inert. */
+export interface ShellInert {
+  /** everything but the dialogs and the question */
+  page: boolean;
+  /** Settings, New chapter, Review with AI and Submit manual review */
+  dialogs: boolean;
+}
+
+/**
+ * What is inert while a dialog or a question is open (ui.4). The page is,
+ * under either, so nothing behind the backdrop can take the focus, a click or
+ * a screen reader, and Tab and Shift+Tab, finding nothing else in the window,
+ * go round the open dialog's controls, from the last to the first and back.
+ * A question is asked over everything, a dialog included, so the dialogs are
+ * inert under it too (apply.7 review). The question itself never is.
+ */
+export function shellInert(open: { dialog: boolean; question: boolean }): ShellInert {
+  return { page: open.dialog || open.question, dialogs: open.question };
+}
 
 /** The parts of a keydown event the Escape rule reads. */
 export interface DialogKey {

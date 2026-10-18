@@ -257,10 +257,18 @@ input[type='text'] {
   height: 100%;
 }
 
-/* Everything but the confirm dialog, made inert while a question is open
-   (apply.7 review). It has no box, so its children lay out in .app-shell's
-   column as before. */
+/* Everything but the dialogs and the confirm dialog, made inert while a
+   dialog or a question is open (apply.7 review, ui.4). It has no box, so its
+   children lay out in .app-shell's column as before. */
 .app-shell__page {
+  display: contents;
+}
+
+/* Settings, New chapter, Review with AI and Submit manual review, kept out of
+   the page so that it can be inert under them, and made inert themselves
+   while a question is open (ui.4). No box either: each dialog's backdrop is
+   fixed over the whole window, at its own layer (.modal-backdrop). */
+.app-shell__dialogs {
   display: contents;
 }
 

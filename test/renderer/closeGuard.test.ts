@@ -845,7 +845,9 @@ describe('the wiring (apply.9)', () => {
     );
     expect(layouts).toHaveLength(2);
     for (const layout of layouts) {
-      expect(layout).toContain('<div className="app-shell__page" inert={questionOpen}>');
+      // The main layout's page is inert under a dialog too, and under a
+      // question through `shellInert` (ui.4, test/shared/dialog.test.ts).
+      expect(layout).toMatch(/<div className="app-shell__page" inert=\{(questionOpen|inert\.page)\}>/);
       expect(layout.match(/<ConfirmDialog \/>/g)).toHaveLength(1);
       expect(layout).toMatch(/<ConfirmDialog \/>\s*<\/div>\s*$/);
     }

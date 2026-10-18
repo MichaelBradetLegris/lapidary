@@ -11,6 +11,7 @@ import { proPlanNote } from '../../shared/ai/claudeModels';
 import { claudeUpdateAdvice } from '../../shared/ai/claudeStatus';
 import { chapterStats } from '../../shared/text/stats';
 import { historyCounts, historyWhen } from '../../shared/ui/history';
+import { REVIEW_BUTTON_SELECTOR } from '../../shared/ui/dialog';
 import { reviewStartLabels, reviewStartNote } from '../../shared/ui/save';
 import {
   EFFORT_LEVELS,
@@ -25,7 +26,7 @@ import {
 } from '../../shared/types';
 import { call, errorMessage } from '../state/client';
 import { modelOptions, selectedModel } from '../state/models';
-import { useDialogEscape } from '../state/dialog';
+import { useDialogEscape, useDialogFocus } from '../state/dialog';
 import { Command } from './Command';
 
 interface Props {
@@ -136,8 +137,11 @@ export function ReviewDialog({
   }, [provider, onNeedModels]);
 
   /* Escape closes it, as in Settings (ui.1). A question asked over it, such
-     as "Review without them", takes Escape for itself. */
+     as "Review without them", takes Escape for itself. The focus goes into
+     its box as it opens and back to Review with AI when it closes, and the
+     page behind it is inert meanwhile, so Tab stays inside it (ui.4). */
   useDialogEscape(boxRef, onClose);
+  useDialogFocus(boxRef, REVIEW_BUTTON_SELECTOR);
 
   const update = (patch: Partial<Settings>): void => {
     call('settings:set', patch)
@@ -155,7 +159,7 @@ export function ReviewDialog({
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Review with AI">
-      <div className="modal" ref={boxRef}>
+      <div className="modal" ref={boxRef} tabIndex={-1}>
         <h2>Review with AI</h2>
         <p className="modal__hint">
           {stats.paragraphs} paragraph{stats.paragraphs === 1 ? '' : 's'}, {stats.words.toLocaleString()} word

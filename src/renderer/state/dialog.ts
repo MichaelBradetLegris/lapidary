@@ -6,7 +6,8 @@ import { useApp } from './store';
  * What a dialog needs to behave as one (ui.1): Escape closes it, and the focus
  * goes into it as it opens and back where it was when it closes. The rules are
  * in `src/shared/ui/dialog.ts`. The page's own keys already do nothing behind
- * a dialog (`reviewKeysActive`, `isModalOpen`).
+ * a dialog (`reviewKeysActive`, `isModalOpen`), and App makes the page inert
+ * under it, so Tab stays inside it (`shellInert`, ui.4).
  */
 
 /** Whether the key was pressed inside a `role="dialog"` other than the one holding `box` (`inOtherDialog`). */
@@ -44,19 +45,25 @@ export function useDialogEscape(box: RefObject<HTMLElement | null>, onClose: () 
 }
 
 /**
- * The focus goes into the dialog as it opens, on `box` (give it
- * `tabIndex={-1}`), so Tab starts inside it and the arrow keys scroll it. When
- * it closes, the focus goes back where it was, or to what `fallbackSelector`
- * finds (`focusReturnTarget`).
+ * The focus goes into the dialog as it opens, on `first` when it is given,
+ * such as New chapter's name field, else on `box` (give it `tabIndex={-1}`),
+ * so Tab starts inside it and the arrow keys scroll it. Where it was is read
+ * in the commit that makes the page inert under the dialog, before the
+ * browser takes the focus off it (ui.4). When the dialog closes, the focus
+ * goes back there, or to what `fallbackSelector` finds (`focusReturnTarget`).
  */
-export function useDialogFocus(box: RefObject<HTMLElement | null>, fallbackSelector: string): void {
+export function useDialogFocus(
+  box: RefObject<HTMLElement | null>,
+  fallbackSelector: string,
+  first?: RefObject<HTMLElement | null>
+): void {
   const returnTo = useRef<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
     const active = document.activeElement;
     returnTo.current = active instanceof HTMLElement ? active : null;
-    box.current?.focus({ preventScroll: true });
-  }, [box]);
+    (first?.current ?? box.current)?.focus({ preventScroll: true });
+  }, [box, first]);
 
   /* After the commit that removed the dialog, so the page is as it will
      stay when the focus lands. */

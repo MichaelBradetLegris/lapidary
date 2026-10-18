@@ -29,6 +29,7 @@ interface Props {
  * suggestion editor, which waits under it, inert (EditPopover). The focus goes
  * into its box as it opens, so Tab starts inside it and the arrow keys scroll
  * it, and back where it was, the Settings button as a rule, when it closes.
+ * The page behind it is inert meanwhile, so Tab stays inside it (ui.4).
  */
 export function SettingsDialog({
   settings,

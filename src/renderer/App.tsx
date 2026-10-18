@@ -9,6 +9,7 @@ import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
 import { runtimeLabel as labelForRuntime } from '../shared/ui/setup';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
 import { bodyClassName, columnClassName } from '../shared/ui/columns';
+import { shellInert } from '../shared/ui/dialog';
 import type { ApiEventMap, ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
 import { PROVIDER_NAMES, type Review } from '../shared/types';
 import { ColumnStrip } from './components/ColumnStrip';
@@ -766,12 +767,94 @@ export function App(): React.JSX.Element {
     );
   }
 
+  /* The four dialogs, each drawn only when it can be. They sit outside the
+     page, which is inert while one of them is open, so Tab and Shift+Tab go
+     round the dialog's own controls and nothing behind its backdrop can take
+     the focus; a question makes the dialogs inert too (ui.4, `shellInert`). */
+  const newChapterDialog = newChapterOpen ? (
+    <NewChapterDialog
+      onClose={() => setNewChapterOpen(false)}
+      onCreated={(file) => {
+        setNewChapterOpen(false);
+        refreshFiles();
+        openChapter(file);
+        // made from the chapter list's +, perhaps in its drawer (ui.3)
+        closeDrawer('files');
+        notify('info', `Created ${file.name}.`);
+      }}
+    />
+  ) : null;
+  const manualReviewDialog =
+    manualReviewOpen && review?.sourcePath ? (
+      <ManualReviewDialog
+        review={review}
+        onClose={() => setManualReviewOpen(false)}
+        onLoadCorrected={loadCorrectedFromFile}
+        onSave={save}
+        onCreated={(next) => {
+          adoptReview(next);
+          notify(
+            'info',
+            `Built ${next.hunks.length} suggestion${next.hunks.length === 1 ? '' : 's'} from your text.`
+          );
+        }}
+      />
+    ) : null;
+  const reviewDialog =
+    reviewDialogOpen && review && settings ? (
+      <ReviewDialog
+        review={review}
+        settings={settings}
+        models={ai.models}
+        modelsLoading={ai.modelsLoading}
+        runtimes={ai.runtimes}
+        keyStatus={ai.keyStatus}
+        history={history}
+        reviewPath={reviewPath}
+        unsavedDecisions={unsavedDecisionCount(review.hunks)}
+        saving={chapterSaving}
+        onSaveThenStart={saveThenStartReview}
+        onStartWithout={startReviewWithoutSaving}
+        onApplySettings={setSettings}
+        onNeedModels={ai.ensureModels}
+        onOpenSettings={openSettings}
+        onCheckClaude={() => ai.check('claude')}
+        checking={ai.checking}
+        onStart={startReview}
+        onClose={() => setReviewDialogOpen(false)}
+      />
+    ) : null;
+  const settingsDialog =
+    settingsOpen && settings ? (
+      <SettingsDialog
+        settings={settings}
+        models={ai.models.claude ?? []}
+        runtime={claudeRuntime}
+        keyStatus={ai.keyStatus}
+        onKeyChanged={ai.keyChanged}
+        onApply={(next) => {
+          setSettings(next);
+          refreshFiles();
+        }}
+        onClose={() => setSettingsOpen(false)}
+        onOpenSetup={() => {
+          setSettingsOpen(false);
+          setSetupOpen(true);
+        }}
+      />
+    ) : null;
+  const inert = shellInert({
+    dialog: [newChapterDialog, manualReviewDialog, reviewDialog, settingsDialog].some((d) => d !== null),
+    question: questionOpen
+  });
+
   return (
     <div className="app-shell">
-      {/* Everything but the question. While one is open this is inert, so Tab,
-          a click or a screen reader cannot reach the page behind it (apply.7
-          review; the dialog is apply.6's). It lays out nothing of its own. */}
-      <div className="app-shell__page" inert={questionOpen}>
+      {/* Everything but the dialogs and the question. While either is open
+          this is inert, so Tab, a click or a screen reader cannot reach the
+          page behind it (apply.7 review for the question, ui.4 for the
+          dialogs; the question is apply.6's). It lays out nothing of its own. */}
+      <div className="app-shell__page" inert={inert.page}>
         {toolbar}
         {review ? <FilterChips review={review} /> : null}
 
@@ -895,75 +978,14 @@ export function App(): React.JSX.Element {
         />
         <HunkTooltip />
         <EditPopover onSaved={(message, tone) => notify(tone ?? 'info', message, 'edit')} />
-        {newChapterOpen ? (
-          <NewChapterDialog
-            onClose={() => setNewChapterOpen(false)}
-            onCreated={(file) => {
-              setNewChapterOpen(false);
-              refreshFiles();
-              openChapter(file);
-              // made from the chapter list's +, perhaps in its drawer (ui.3)
-              closeDrawer('files');
-              notify('info', `Created ${file.name}.`);
-            }}
-          />
-        ) : null}
-        {manualReviewOpen && review?.sourcePath ? (
-          <ManualReviewDialog
-            review={review}
-            onClose={() => setManualReviewOpen(false)}
-            onLoadCorrected={loadCorrectedFromFile}
-            onSave={save}
-            onCreated={(next) => {
-              adoptReview(next);
-              notify(
-                'info',
-                `Built ${next.hunks.length} suggestion${next.hunks.length === 1 ? '' : 's'} from your text.`
-              );
-            }}
-          />
-        ) : null}
-        {reviewDialogOpen && review && settings ? (
-          <ReviewDialog
-            review={review}
-            settings={settings}
-            models={ai.models}
-            modelsLoading={ai.modelsLoading}
-            runtimes={ai.runtimes}
-            keyStatus={ai.keyStatus}
-            history={history}
-            reviewPath={reviewPath}
-            unsavedDecisions={unsavedDecisionCount(review.hunks)}
-            saving={chapterSaving}
-            onSaveThenStart={saveThenStartReview}
-            onStartWithout={startReviewWithoutSaving}
-            onApplySettings={setSettings}
-            onNeedModels={ai.ensureModels}
-            onOpenSettings={openSettings}
-            onCheckClaude={() => ai.check('claude')}
-            checking={ai.checking}
-            onStart={startReview}
-            onClose={() => setReviewDialogOpen(false)}
-          />
-        ) : null}
-        {settingsOpen && settings ? (
-          <SettingsDialog
-            settings={settings}
-            models={ai.models.claude ?? []}
-            runtime={claudeRuntime}
-            keyStatus={ai.keyStatus}
-            onKeyChanged={ai.keyChanged}
-            onApply={(next) => {
-              setSettings(next);
-              refreshFiles();
-            }}
-            onClose={() => setSettingsOpen(false)}
-            onOpenSetup={() => {
-              setSettingsOpen(false);
-              setSetupOpen(true);
-            }}
-          />
-        ) : null}
+      </div>
+      {/* The dialogs, over the page; inert under a question. Like the page,
+          it lays out nothing of its own. */}
+      <div className="app-shell__dialogs" inert={inert.dialogs}>
+        {newChapterDialog}
+        {manualReviewDialog}
+        {reviewDialog}
+        {settingsDialog}
       </div>
       {/* Last, above everything: a question can be asked from any dialog above. */}
       <ConfirmDialog />

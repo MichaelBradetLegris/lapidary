@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { unsavedDecisionCount } from '../../shared/diff/compose';
 import { diffToHunks } from '../../shared/diff/wordDiff';
 import { createReview } from '../../shared/review';
 import { normalizeText } from '../../shared/text/eol';
 import type { Review } from '../../shared/types';
+import { MANUAL_REVIEW_BUTTON_SELECTOR } from '../../shared/ui/dialog';
+import { useDialogFocus } from '../state/dialog';
 import { buildManualReview } from '../state/reviewStart';
 import type { SaveOptions, SaveOutcome } from '../state/saveChapter';
 import { useApp } from '../state/store';
@@ -29,6 +31,10 @@ interface Props {
  * The pasted text is compared with the chapter file, so changes on the page
  * that the file does not have yet are asked about before building: Save then
  * build, Build without them, or Cancel (apply.20, `buildManualReview`).
+ *
+ * The focus goes into its box as it opens and back to the toolbar button that
+ * opened it when it closes; the page behind it is inert meanwhile, so Tab
+ * stays among its controls (`useDialogFocus`, ui.4).
  */
 export function ManualReviewDialog({
   review,
@@ -40,7 +46,8 @@ export function ManualReviewDialog({
   const notify = useApp((s) => s.notify);
   const saving = useApp((s) => s.chapterSaving);
   const [corrected, setCorrected] = useState('');
-  const [busy, setBusy] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(boxRef, MANUAL_REVIEW_BUTTON_SELECTOR);
   /* What a save before building said when it did not reach the chapter file.
      Its cards sit under this dialog's backdrop, so the dialog says it instead
      (apply.20 review). */
@@ -75,20 +82,22 @@ export function ManualReviewDialog({
     };
 
     /* Changes not saved to the chapter are asked about first: Save then
-       build, Build without them, or Cancel (apply.20). */
-    setBusy(true);
+       build, Build without them, or Cancel (apply.20). Build review is not
+       disabled while the question is open: the dialog is inert under it, and
+       a button disabled then could not take back the focus when Cancel
+       answers it (ui.4); during the save that follows, `saving` disables it. */
     setNotSaved([]);
     void buildManualReview({
       save: onSave,
       build: make,
       stillWanted: () => useApp.getState().manualReviewOpen,
       onNotSaved: setNotSaved
-    }).finally(() => setBusy(false));
+    });
   };
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Submit manual review">
-      <div className="modal modal--wide">
+      <div className="modal modal--wide" ref={boxRef} tabIndex={-1}>
         <h2>Submit manual review</h2>
         <p className="modal__hint">
           Paste a corrected version of this chapter. Every difference from what is on disk becomes a
@@ -125,7 +134,7 @@ export function ManualReviewDialog({
           <button type="button" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" className="primary" disabled={busy || saving} onClick={build}>
+          <button type="button" className="primary" disabled={saving} onClick={build}>
             {saving ? 'Saving…' : 'Build review'}
           </button>
         </div>

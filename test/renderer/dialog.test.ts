@@ -39,13 +39,17 @@ describe('Settings is a modal (ui.1)', () => {
     expect(settings).toContain('<div className="modal" ref={boxRef} tabIndex={-1}>');
   });
 
-  it('notes where the focus was, then moves it into the box as the dialog opens', () => {
+  it('notes where the focus was, then moves it into the box, or onto the field given, as the dialog opens', () => {
     const hook = dialog.slice(dialog.indexOf('export function useDialogFocus'));
-    const opening = hook.slice(hook.indexOf('useLayoutEffect('), hook.indexOf('}, [box]);'));
+    const end = hook.indexOf('}, [box, first]);');
+    expect(end).toBeGreaterThan(-1);
+    const opening = hook.slice(hook.indexOf('useLayoutEffect('), end);
     const noted = opening.indexOf('const active = document.activeElement;');
     expect(noted).toBeGreaterThan(-1);
     expect(opening).toContain('returnTo.current = active instanceof HTMLElement ? active : null;');
-    expect(opening.indexOf('box.current?.focus({ preventScroll: true });')).toBeGreaterThan(noted);
+    expect(
+      opening.indexOf('(first?.current ?? box.current)?.focus({ preventScroll: true });')
+    ).toBeGreaterThan(noted);
   });
 
   it('hands the focus back in the cleanup that runs once the dialog has gone', () => {
@@ -106,8 +110,83 @@ describe('Settings is a modal (ui.1)', () => {
   it('gives Review with AI the same Escape', () => {
     const review = read('components/ReviewDialog.tsx');
     expect(review).toContain('useDialogEscape(boxRef, onClose);');
-    expect(review).toContain('<div className="modal" ref={boxRef}>');
+    expect(review).toContain('<div className="modal" ref={boxRef} tabIndex={-1}>');
     expect(review).not.toContain("addEventListener('keydown'");
+  });
+});
+
+/* ui.4 (found by theme.8's Tab walk): Tab from a dialog's last control went
+   on to the toolbar behind its backdrop, and Shift+Tab from its first to the
+   status bar's Zoom in, in every dialog but the question. The page is now
+   inert under each of them (`shellInert`, checked with App's layout in
+   confirmDialog.test.ts), which leaves Tab nowhere to go but round the
+   dialog; each takes the focus as it opens and hands it back to its opener
+   when it closes. The window checks are in PLAN. */
+describe('Every dialog takes the focus and hands it back (ui.4)', () => {
+  const dialogs = [
+    {
+      file: 'components/SettingsDialog.tsx',
+      hook: 'useDialogFocus(boxRef, SETTINGS_BUTTON_SELECTOR);',
+      box: '<div className="modal" ref={boxRef} tabIndex={-1}>'
+    },
+    {
+      file: 'components/ReviewDialog.tsx',
+      hook: 'useDialogFocus(boxRef, REVIEW_BUTTON_SELECTOR);',
+      box: '<div className="modal" ref={boxRef} tabIndex={-1}>'
+    },
+    {
+      file: 'components/ManualReviewDialog.tsx',
+      hook: 'useDialogFocus(boxRef, MANUAL_REVIEW_BUTTON_SELECTOR);',
+      box: '<div className="modal modal--wide" ref={boxRef} tabIndex={-1}>'
+    },
+    {
+      file: 'components/NewChapterDialog.tsx',
+      hook: 'useDialogFocus(boxRef, NEW_CHAPTER_BUTTON_SELECTOR, nameRef);',
+      box: '<div className="modal" ref={boxRef} tabIndex={-1}>'
+    }
+  ];
+
+  for (const { file, hook, box } of dialogs) {
+    it(`${file}: focus hook on a box that can take the focus`, () => {
+      const source = read(file);
+      expect(source).toContain(hook);
+      expect(source).toContain(box);
+      expect(source.match(/useDialogFocus\(/g)).toHaveLength(1);
+    });
+  }
+
+  it('puts the focus of New chapter in its name field through the hook only', () => {
+    const source = read('components/NewChapterDialog.tsx');
+    expect(source).toMatch(/<input\s+ref=\{nameRef\}\s+type="text"/);
+    expect(source).not.toContain('nameRef.current?.focus(');
+  });
+
+  it('marks each opener for its selector', () => {
+    const toolbar = read('components/Toolbar.tsx');
+    expect(toolbar).toMatch(
+      /<button type="button" data-opens="review" disabled=\{!review\?\.sourcePath\} onClick=\{onReviewWithAi\}>\s*Review with AI\s*<\/button>/
+    );
+    expect(toolbar).toMatch(
+      /<button\s+type="button"\s+data-opens="manual-review"[^>]*onClick=\{onManualReview\}\s*>\s*Submit manual review\s*<\/button>/
+    );
+    expect(read('components/FileList.tsx')).toMatch(
+      /<button\s+type="button"\s+className="files__act"\s+data-opens="new-chapter"\s+aria-label="New chapter"[^>]*onClick=\{onNewChapter\}\s*>/
+    );
+  });
+
+  it('moves the focus to Bulk before its menu item goes, so a question hands it back there', () => {
+    const toolbar = read('components/Toolbar.tsx');
+    const run = toolbar.slice(toolbar.indexOf('const run = '), toolbar.indexOf('runBulk(action);'));
+    const focus = run.indexOf('buttonRef.current?.focus({ preventScroll: true });');
+    expect(focus).toBeGreaterThan(-1);
+    expect(run.indexOf('setOpen(false);')).toBeGreaterThan(focus);
+    expect(toolbar).toMatch(/<span className="menu" ref=\{ref\}>\s*<button\s+ref=\{buttonRef\}/);
+  });
+
+  it('leaves Build review enabled while its question is open, so Cancel can hand the focus back to it', () => {
+    const manual = read('components/ManualReviewDialog.tsx');
+    expect(manual).toContain('<button type="button" className="primary" disabled={saving} onClick={build}>');
+    expect(manual).not.toMatch(/\bbusy\b/);
   });
 });
 

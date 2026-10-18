@@ -53,7 +53,8 @@ describe('confirm dialog layer (apply.6 review)', () => {
   });
 
   it('renders the confirm dialog last in the main view, after every dialog and the editor', () => {
-    const main = APP.slice(APP.lastIndexOf('return ('));
+    // The main view: the four dialogs are made just before its return (ui.4).
+    const main = APP.slice(APP.indexOf('const newChapterDialog = '));
     const components = [...main.matchAll(/<([A-Z]\w*)/g)].map((m) => m[1]);
     expect(components).toEqual(
       expect.arrayContaining([
@@ -66,6 +67,9 @@ describe('confirm dialog layer (apply.6 review)', () => {
     );
     expect(components.at(-1)).toBe('ConfirmDialog');
     expect(components.filter((name) => name === 'ConfirmDialog')).toHaveLength(1);
+    const layout = main.slice(main.lastIndexOf('return ('));
+    expect(layout.indexOf('<EditPopover')).toBeLessThan(layout.indexOf('{newChapterDialog}'));
+    expect(layout.indexOf('{settingsDialog}')).toBeLessThan(layout.indexOf('<ConfirmDialog />'));
   });
 
   it('focuses the default with its focus ring showing, however the question was opened', () => {
@@ -81,14 +85,19 @@ describe('confirm dialog layer (apply.6 review)', () => {
 
 /* apply.7 review: Tab from the leave question reached the toolbar's Save
    behind it, and Enter there saved the chapter with the question still open. */
-describe('the question holds the keyboard (apply.7 review)', () => {
+describe('the question holds the keyboard (apply.7 review), and so does every dialog (ui.4)', () => {
   const main = APP.slice(APP.lastIndexOf('return ('));
-  const page = '<div className="app-shell__page" inert={questionOpen}>';
+  const page = '<div className="app-shell__page" inert={inert.page}>';
+  const dialogs = '<div className="app-shell__dialogs" inert={inert.dialogs}>';
 
-  it('makes everything in the window but the question inert while one is open', () => {
+  it('makes everything in the window but the dialogs and the question inert while either is open', () => {
     expect(APP).toContain('const questionOpen = useApp((s) => s.confirmSpec !== null);');
+    // What is open is what is drawn, so the page is never inert under nothing.
+    expect(APP).toMatch(
+      /const inert = shellInert\(\{\s*dialog: \[newChapterDialog, manualReviewDialog, reviewDialog, settingsDialog\]\.some\(\(d\) => d !== null\),\s*question: questionOpen\s*\}\);/
+    );
     expect(main.indexOf(page)).toBeGreaterThan(main.indexOf('<div className="app-shell">'));
-    const inside = main.slice(main.indexOf(page));
+    const inside = main.slice(main.indexOf(page), main.indexOf(dialogs));
     for (const name of [
       '{toolbar}',
       '<FilterChips',
@@ -98,21 +107,39 @@ describe('the question holds the keyboard (apply.7 review)', () => {
       '<SidePanel',
       '<StatusBar',
       '<HunkTooltip',
-      '<EditPopover',
-      '<NewChapterDialog',
-      '<ManualReviewDialog',
-      '<ReviewDialog',
-      '<SettingsDialog'
+      '<EditPopover'
     ]) {
       expect(inside.indexOf(name), name).toBeGreaterThan(0);
     }
-    // The wrapper closes just before the question, which stays outside it
-    // (the `{}` is a JSX comment with its text taken out).
-    expect(main).toMatch(/<\/div>\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*<\/div>\s*\);\s*\}\s*$/);
+    // The page closes just before the dialogs' wrapper, which holds the four
+    // dialogs and closes just before the question, which stays outside both
+    // (each `{}` is a JSX comment with its text taken out).
+    expect(main).toMatch(
+      /<\/div>\s*(\{\s*\}\s*)?<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*<\/div>\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*<\/div>\s*\);\s*\}\s*$/
+    );
+    for (const name of ['<NewChapterDialog', '<ManualReviewDialog', '<ReviewDialog', '<SettingsDialog']) {
+      expect(main, name).not.toContain(name);
+    }
   });
 
-  it('gives the wrapper no box, so the layout is as it was', () => {
+  it('makes each dialog only where it is drawn, from the flag that opens it', () => {
+    const made = APP.slice(
+      APP.indexOf('const newChapterDialog = '),
+      APP.indexOf('const inert = shellInert(')
+    );
+    expect(made).toMatch(/const newChapterDialog = newChapterOpen \? \(\s*<NewChapterDialog/);
+    expect(made).toMatch(
+      /const manualReviewDialog =\s*manualReviewOpen && review\?\.sourcePath \? \(\s*<ManualReviewDialog/
+    );
+    expect(made).toMatch(
+      /const reviewDialog =\s*reviewDialogOpen && review && settings \? \(\s*<ReviewDialog/
+    );
+    expect(made).toMatch(/const settingsDialog =\s*settingsOpen && settings \? \(\s*<SettingsDialog/);
+  });
+
+  it('gives both wrappers no box, so the layout is as it was', () => {
     expect(CSS).toMatch(/\.app-shell__page\s*\{\s*display:\s*contents;\s*\}/);
+    expect(CSS).toMatch(/\.app-shell__dialogs\s*\{\s*display:\s*contents;\s*\}/);
   });
 
   it('puts the focus back where it was when the question closes, if that is still there', () => {

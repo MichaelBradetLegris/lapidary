@@ -5,7 +5,9 @@ import {
   type ChapterFile,
   type NameCheck
 } from '../../shared/ipc';
+import { NEW_CHAPTER_BUTTON_SELECTOR } from '../../shared/ui/dialog';
 import { call, errorMessage } from '../state/client';
+import { useDialogFocus } from '../state/dialog';
 import { useApp } from '../state/store';
 
 interface Props {
@@ -20,6 +22,10 @@ interface Props {
  * name is taken" is visible before Create is reachable. That is a courtesy, not
  * the guarantee: the file is written with the exclusive-create flag, so even a
  * race with Obsidian cannot overwrite an existing chapter (CLAUDE.md rule 1).
+ *
+ * The focus goes into the name field as it opens and back to the + that opened
+ * it when it closes; the page behind it is inert meanwhile, so Tab stays among
+ * its controls (`useDialogFocus`, ui.4).
  */
 export function NewChapterDialog({ onCreated, onClose }: Props): React.JSX.Element {
   const [name, setName] = useState('');
@@ -28,13 +34,12 @@ export function NewChapterDialog({ onCreated, onClose }: Props): React.JSX.Eleme
   const [answer, setAnswer] = useState<{ name: string; extension: string; result: NameCheck } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const trimmed = name.trim();
   const setDialogText = useApp((s) => s.setDialogText);
 
-  useEffect(() => {
-    nameRef.current?.focus();
-  }, []);
+  useDialogFocus(boxRef, NEW_CHAPTER_BUTTON_SELECTOR, nameRef);
 
   /* A name or text typed here would be lost if the window closed, so the
      close guard is told (apply.16, PLAN 11.3 i). */
@@ -78,7 +83,7 @@ export function NewChapterDialog({ onCreated, onClose }: Props): React.JSX.Eleme
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="New chapter">
-      <div className="modal">
+      <div className="modal" ref={boxRef} tabIndex={-1}>
         <h2>New chapter</h2>
         <p className="modal__hint">
           The file is created in the manuscript folder. An existing file is never touched.

@@ -34,6 +34,7 @@ interface Props {
 function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const runBulk = useBulkAction();
 
   useEffect(() => {
@@ -55,7 +56,11 @@ function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): R
     };
   }, [open]);
 
+  /* The item goes with the menu, so the focus moves to Bulk first: the
+     question the action asks then hands it back there when it closes, not to
+     nothing (ui.4). */
   const run = (action: 'accept' | 'dismiss' | 'reset'): void => {
+    buttonRef.current?.focus({ preventScroll: true });
     setOpen(false);
     runBulk(action);
   };
@@ -63,6 +68,7 @@ function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): R
   return (
     <span className="menu" ref={ref}>
       <button
+        ref={buttonRef}
         type="button"
         disabled={disabled}
         title={title}
@@ -170,13 +176,16 @@ export function Toolbar({
           </button>
         </>
       ) : (
-        <button type="button" disabled={!review?.sourcePath} onClick={onReviewWithAi}>
+        // Where the focus goes when Review with AI closes (REVIEW_BUTTON_SELECTOR, ui.4).
+        <button type="button" data-opens="review" disabled={!review?.sourcePath} onClick={onReviewWithAi}>
           Review with AI
         </button>
       )}
 
+      {/* The same for Submit manual review (MANUAL_REVIEW_BUTTON_SELECTOR, ui.4). */}
       <button
         type="button"
+        data-opens="manual-review"
         disabled={!review?.sourcePath || locked}
         title="Paste a corrected version of this chapter and turn the differences into suggestions"
         onClick={onManualReview}

@@ -3,7 +3,11 @@ import {
   dialogTakesEscape,
   focusReturnTarget,
   inOtherDialog,
+  MANUAL_REVIEW_BUTTON_SELECTOR,
+  NEW_CHAPTER_BUTTON_SELECTOR,
+  REVIEW_BUTTON_SELECTOR,
   SETTINGS_BUTTON_SELECTOR,
+  shellInert,
   type DialogOwner,
   type Focusable
 } from '../../src/shared/ui/dialog';
@@ -94,5 +98,46 @@ describe('focusReturnTarget (ui.1)', () => {
 
   it('names the toolbar Settings button as the fallback for Settings', () => {
     expect(SETTINGS_BUTTON_SELECTOR).toBe('[data-opens="settings"]');
+  });
+
+  it('names the opener of each other dialog as its fallback, one selector each (ui.4)', () => {
+    expect(REVIEW_BUTTON_SELECTOR).toBe('[data-opens="review"]');
+    expect(MANUAL_REVIEW_BUTTON_SELECTOR).toBe('[data-opens="manual-review"]');
+    expect(NEW_CHAPTER_BUTTON_SELECTOR).toBe('[data-opens="new-chapter"]');
+    const all = [
+      SETTINGS_BUTTON_SELECTOR,
+      REVIEW_BUTTON_SELECTOR,
+      MANUAL_REVIEW_BUTTON_SELECTOR,
+      NEW_CHAPTER_BUTTON_SELECTOR
+    ];
+    expect(new Set(all).size).toBe(all.length);
+  });
+});
+
+/* ui.4 (found by theme.8's Tab walk): Tab from a dialog's last control went
+   on to the toolbar behind its backdrop, and Shift+Tab from its first to the
+   status bar's Zoom in. */
+describe('shellInert (ui.4)', () => {
+  it('leaves everything live with nothing open', () => {
+    expect(shellInert({ dialog: false, question: false })).toEqual({ page: false, dialogs: false });
+  });
+
+  it('makes the page inert under a dialog, and leaves the dialogs live', () => {
+    expect(shellInert({ dialog: true, question: false })).toEqual({ page: true, dialogs: false });
+  });
+
+  it('makes the page and the dialogs inert under a question, with or without a dialog open', () => {
+    expect(shellInert({ dialog: false, question: true })).toEqual({ page: true, dialogs: true });
+    expect(shellInert({ dialog: true, question: true })).toEqual({ page: true, dialogs: true });
+  });
+
+  it('never leaves the page live while anything covers it, nor makes a dialog inert with no question over it', () => {
+    for (const dialog of [false, true]) {
+      for (const question of [false, true]) {
+        const inert = shellInert({ dialog, question });
+        expect(inert.page, `dialog ${dialog}, question ${question}`).toBe(dialog || question);
+        expect(inert.dialogs, `dialog ${dialog}, question ${question}`).toBe(question);
+      }
+    }
   });
 });
