@@ -67,7 +67,7 @@ const CASES: ReadonlyArray<[SetupViewId, RuntimeStatus | null, LastFailure | nul
 function render(
   runtime: RuntimeStatus | null,
   lastFailure: LastFailure | null,
-  options: { os?: SetupOs; tryAnyway?: boolean; checking?: boolean } = {}
+  options: { os?: SetupOs; host?: SetupOs; tryAnyway?: boolean; checking?: boolean } = {}
 ): string {
   return renderToStaticMarkup(
     createElement(SetupScreen, {
@@ -75,6 +75,8 @@ function render(
       lastFailure,
       checking: options.checking ?? false,
       os: options.os ?? 'windows',
+      // This machine, as the user agent would say; Node's own says neither.
+      host: options.host ?? 'windows',
       onCheckAgain: () => undefined,
       onClose: () => undefined,
       ...(options.tryAnyway ? { onTryAnyway: () => undefined } : {})
@@ -189,6 +191,32 @@ describe('the Setup screen in each view (setup.7)', () => {
     expect(text(html)).toContain('Which Claude plans work?');
   });
 
+  it("gives the full-path forms only on this machine's own tab (setup.7 review)", () => {
+    // This machine's Windows path, quoted for a Mac or Linux terminal, would run nowhere.
+    for (const os of ['mac', 'linux'] as const) {
+      const signedOut = render(claude({ state: 'not-signed-in' }), null, { os, host: 'windows' });
+      expect(commands(signedOut)).toEqual(['claude auth login']);
+      expect(text(signedOut)).not.toContain('If the terminal does not recognise claude');
+      // Advanced still names the Claude Code found here.
+      expect(text(signedOut)).toContain(`Claude Code ${PATH}`);
+      const tooOld = render(claude({ state: 'error', cliVersion: '2.1.200' }), null, { os, host: 'windows' });
+      expect(commands(tooOld)).toEqual(['claude update']);
+      const older = render(claude({ cliVersion: '2.1.270', credential: 'subscription' }), null, {
+        os,
+        host: 'windows'
+      });
+      expect(older).toContain('data-testid="claude-update-note"');
+      expect(commands(older)).toEqual(['claude update']);
+    }
+    // The tab of the system the user agent names is chosen first, with them.
+    const home = '/Users/ann/.local/bin/claude'; // check-public: allow
+    const mac = render(claude({ state: 'not-signed-in', executablePath: home }), null, {
+      os: 'mac',
+      host: 'mac'
+    });
+    expect(commands(mac)).toEqual(['claude auth login', `'${home}' auth login`]);
+  });
+
   it('updates an old Claude Code from its steps, without the update note as well', () => {
     const html = render(claude({ state: 'error', cliVersion: '2.1.200' }), null);
     expect(commands(html)).toEqual(['claude update', `& '${PATH}' update`]);
@@ -295,6 +323,20 @@ describe('the review dialog with Claude not quite ready (setup.7)', () => {
     expect(html).toContain('data-testid="claude-setup-warning"');
     expect(text(html)).toContain('Lapidary could not check Claude Code, so this review may fail.');
     expect(buttons(html)).toContain('Open Setup');
+  });
+
+  it('says Claude Code is missing or signed out when a check open over it finds so, with Open Setup (setup.7 review)', () => {
+    const missing = dialog(
+      { provider: 'claude', state: 'missing-binary', message: 'Claude Code is not installed.' },
+      null
+    );
+    expect(missing).toContain('data-testid="claude-setup-warning"');
+    expect(text(missing)).toContain('Claude Code is not installed, so this review cannot run yet.');
+    expect(buttons(missing)).toContain('Open Setup');
+    const signedOut = dialog(claude({ state: 'not-signed-in' }), null);
+    expect(text(signedOut)).toContain('Claude Code is not signed in, so this review cannot run yet.');
+    expect(text(signedOut)).not.toContain('The last review said');
+    expect(buttons(signedOut)).toContain('Open Setup');
   });
 
   it('leaves an old Claude Code below the minimum to Setup, and keeps the update note above it', () => {

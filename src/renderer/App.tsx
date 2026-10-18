@@ -12,6 +12,7 @@ import {
   reviewGate,
   runtimeButtonTitle,
   runtimeCard,
+  runtimeCardAction,
   runtimeLabel as labelForRuntime,
   setupView
 } from '../shared/ui/setup';
@@ -195,27 +196,34 @@ export function App(): React.JSX.Element {
   /* The launch card (section 7): once the settings and Claude's first check
      are in, a card says what Setup has to do when Claude is the provider,
      with Open Setup, unless Setup is open already. While it is up, a later
-     check keeps its words current, and a check with nothing left to say
-     withdraws it by its key. Closed with its X, it stays closed. */
-  const runtimeCardRaised = useRef(false);
+     check keeps its words current; a check with nothing left to say, OpenAI
+     as the provider or Setup open withdraws it by its key. Only the first
+     check may put it up, so once closed with its X it stays closed
+     (`runtimeCardAction`). */
+  const runtimeCardPastLaunch = useRef(false);
   useEffect(() => {
     if (!claudeRuntime || !settingsLoaded) return;
     const card = runtimeCard(claudeView, claudeRuntime);
-    if (!card) {
+    const showing = useApp.getState().notifications.some((n) => n.key === CLAUDE_RUNTIME_CARD);
+    const action = runtimeCardAction({
+      card,
+      showing,
+      pastLaunch: runtimeCardPastLaunch.current,
+      provider: activeProvider,
+      setupOpen
+    });
+    runtimeCardPastLaunch.current = true;
+    if (action === 'withdraw') {
       dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);
-    } else {
-      const { notifications, setupOpen: onSetup } = useApp.getState();
-      const showing = notifications.some((n) => n.key === CLAUDE_RUNTIME_CARD);
-      if (showing || (!runtimeCardRaised.current && activeProvider === 'claude' && !onSetup)) {
-        upsertNotification(CLAUDE_RUNTIME_CARD, card.tone, card.text, 'open-setup');
-      }
+    } else if (card && (action === 'raise' || action === 'update')) {
+      upsertNotification(CLAUDE_RUNTIME_CARD, card.tone, card.text, 'open-setup');
     }
-    runtimeCardRaised.current = true;
   }, [
     claudeRuntime,
     claudeView,
     settingsLoaded,
     activeProvider,
+    setupOpen,
     upsertNotification,
     dismissNotificationsByKey
   ]);
@@ -942,17 +950,20 @@ export function App(): React.JSX.Element {
 
   /* The Setup screen in place of the chapter list, the prose and the side
      panel (setup.7). The rest is as in the layout below: the toolbar, the
-     status bar, the notification cards over the screen, the dialogs over the
-     page, inert under them, and the question over everything. Closing the
+     status bar, the notification cards, here at the top of the screen and
+     before it, so they never cover its Close or Check again, the dialogs over
+     the page, inert under them, and the question over everything. Closing the
      window can ask its question here too, with a review still open behind
      Setup (apply.9 review), and Settings, from the toolbar or a card, opens
-     over it. */
+     over it. The suggestion editor is not drawn here, but its words are kept
+     in the store and come back with it (`EditorRequest.text`). */
   if (setupOpen) {
     return (
       <div className="app-shell">
         <div className="app-shell__page" inert={inert.page}>
           {toolbar}
           <div className="body body--single">
+            <NotificationCards onAction={onCardAction} />
             <SetupScreen
               runtime={claudeRuntime}
               lastFailure={ai.lastFailure}
@@ -963,7 +974,6 @@ export function App(): React.JSX.Element {
                 ? { onTryAnyway: tryReviewAnyway }
                 : {})}
             />
-            <NotificationCards onAction={onCardAction} />
           </div>
           <StatusBar review={review} {...statusRuntime} rateLimit={ai.rateLimit?.message} />
         </div>

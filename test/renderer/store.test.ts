@@ -4,7 +4,14 @@ import { createDiffReview, createReview } from '../../src/shared/review';
 import { bulkPlan } from '../../src/shared/ui/bulk';
 import { closePrompt, leavePrompt } from '../../src/shared/ui/save';
 import { modelOptions } from '../../src/renderer/state/models';
-import { isLocked, reviewKeptAt, useApp, type ConfirmSpec } from '../../src/renderer/state/store';
+import {
+  editorText,
+  hasDialogText,
+  isLocked,
+  reviewKeptAt,
+  useApp,
+  type ConfirmSpec
+} from '../../src/renderer/state/store';
 import type { Review } from '../../src/shared/types';
 
 const ORIGINAL = 'The river had began.\n\nShe nodded her head slowly.';
@@ -344,6 +351,55 @@ describe('editing', () => {
     expect(useApp.getState().editor).toEqual(request);
     useApp.getState().closeEditor();
     expect(useApp.getState().editor).toBeNull();
+  });
+
+  it('keeps the words typed in the editor in the store, through the Setup screen (setup.7 review)', () => {
+    const request = { kind: 'suggestion' as const, hunkId: 'h1', initial: 'As he tilted', anchor: null };
+    const state = useApp.getState;
+    state().openEditor(request);
+    expect(editorText(state().editor!)).toBe('As he tilted');
+    expect(hasDialogText(state())).toBe(false);
+    state().setEditorText('He tilted');
+    expect(editorText(state().editor!)).toBe('He tilted');
+    expect(hasDialogText(state())).toBe(true);
+    // Setup takes the panel off the page; the words and the close question's count stay.
+    state().setSetupOpen(true);
+    expect(editorText(state().editor!)).toBe('He tilted');
+    expect(hasDialogText(state())).toBe(true);
+    state().setSetupOpen(false);
+    expect(editorText(state().editor!)).toBe('He tilted');
+    // The pencil again on the same suggestion moves the editor and keeps them.
+    const anchor = { left: 10, top: 20, width: 30, height: 16 };
+    state().openEditor({ ...request, anchor });
+    expect(state().editor).toEqual({ ...request, anchor, text: 'He tilted' });
+    // Typing the suggestion's own words back leaves nothing typed.
+    state().setEditorText('As he tilted');
+    expect(hasDialogText(state())).toBe(false);
+    state().setEditorText('He leant');
+    state().closeEditor();
+    expect(hasDialogText(state())).toBe(false);
+    // Another review on screen closes it.
+    state().openEditor(request);
+    state().setEditorText('He leant');
+    state().setReview(chapterReview());
+    expect(state().editor).toBeNull();
+    expect(hasDialogText(state())).toBe(false);
+  });
+
+  it('starts the editor afresh on another suggestion', () => {
+    const state = useApp.getState;
+    state().setReview(fresh());
+    const [first, second] = state().review!.hunks;
+    state().openEditor({ kind: 'suggestion', hunkId: first!.id, initial: first!.replacement, anchor: null });
+    state().setEditorText('typed');
+    state().openEditor({
+      kind: 'suggestion',
+      hunkId: second!.id,
+      initial: second!.replacement,
+      anchor: null
+    });
+    expect(editorText(state().editor!)).toBe(second!.replacement);
+    expect(hasDialogText(state())).toBe(false);
   });
 });
 

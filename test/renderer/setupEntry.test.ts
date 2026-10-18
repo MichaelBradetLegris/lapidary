@@ -40,6 +40,30 @@ describe('every layout has the cards, the dialogs and the question (setup.7)', (
     });
   }
 
+  it('puts the cards at the top of the Setup column, before the screen, which scrolls across the whole width', () => {
+    // Before it in the flow, so a card raised over Setup, such as the one a
+    // failed review opens it with, is above its title and never covers Close
+    // (setup.7 review: drawn after it, the cards sat at the foot).
+    expect(SETUP).toMatch(
+      /<div className="body body--single">\s*<NotificationCards onAction=\{onCardAction\} \/>\s*<SetupScreen\s/
+    );
+    const css = withoutComments(readFileSync(path.join(RENDERER, 'styles/app.css'), 'utf8'));
+    const rule = (selector: string): string =>
+      css.match(new RegExp(`(?:^|\\n)${selector.replace(/[.>]/g, (c) => `\\${c}`)} \\{([^}]*)\\}`))?.[1] ??
+      '';
+    expect(rule('.body--single > .notes')).not.toContain('order:');
+    expect(rule('.body--single > .notes')).toContain('flex: none;');
+    // The scroller is the full width under the cards; the page in it is the centred column.
+    expect(rule('.setup')).toContain('overflow: auto;');
+    expect(rule('.setup')).toContain('width: 100%;');
+    expect(rule('.setup')).not.toContain('max-width');
+    expect(rule('.setup__page')).toContain('max-width: 720px;');
+    expect(rule('.setup__page')).toContain('margin: 0 auto;');
+    expect(read('components/SetupScreen.tsx')).toMatch(
+      /<div className="setup" data-view=\{view\}>\s*<div className="setup__page">/
+    );
+  });
+
   it('shows Setup whenever it is open, the first check still running included', () => {
     expect(SETUP).toMatch(/<SetupScreen\s+runtime=\{claudeRuntime\}\s+lastFailure=\{ai\.lastFailure\}/);
     expect(APP).not.toContain('setupOpen && claudeRuntime');
@@ -81,15 +105,27 @@ describe('gating and entry points (setup.7)', () => {
 
   it('raises the launch card under its key with Open Setup, and withdraws it by the key', () => {
     const card = APP.slice(
-      APP.indexOf('const runtimeCardRaised = '),
+      APP.indexOf('const runtimeCardPastLaunch = '),
       APP.indexOf('const { recheckOnFocus } = ai;')
     );
+    expect(card).toContain('const runtimeCardPastLaunch = useRef(false);');
     expect(card).toContain('const card = runtimeCard(claudeView, claudeRuntime);');
-    expect(card).toMatch(/if \(!card\) \{\s*dismissNotificationsByKey\(CLAUDE_RUNTIME_CARD\);/);
-    expect(card).toContain("upsertNotification(CLAUDE_RUNTIME_CARD, card.tone, card.text, 'open-setup');");
-    // Raised once, at launch, for Claude; kept current only while it is up.
     expect(card).toContain(
-      "if (showing || (!runtimeCardRaised.current && activeProvider === 'claude' && !onSetup)) {"
+      'const showing = useApp.getState().notifications.some((n) => n.key === CLAUDE_RUNTIME_CARD);'
+    );
+    // What to do comes from runtimeCardAction (test/shared/setup.test.ts). Only
+    // the first check may raise it, so the run is marked past launch after
+    // every check that reaches the decision (setup.7 review): without that, a
+    // card closed with its X came back on the next check.
+    expect(card).toMatch(
+      /const action = runtimeCardAction\(\{\s*card,\s*showing,\s*pastLaunch: runtimeCardPastLaunch\.current,\s*provider: activeProvider,\s*setupOpen\s*\}\);\s*runtimeCardPastLaunch\.current = true;/
+    );
+    expect(card).toMatch(
+      /if \(action === 'withdraw'\) \{\s*dismissNotificationsByKey\(CLAUDE_RUNTIME_CARD\);\s*\} else if \(card && \(action === 'raise' \|\| action === 'update'\)\) \{\s*upsertNotification\(CLAUDE_RUNTIME_CARD, card\.tone, card\.text, 'open-setup'\);/
+    );
+    // A switch to OpenAI, and Setup opening, run the decision again.
+    expect(card).toMatch(
+      /\}, \[\s*claudeRuntime,\s*claudeView,\s*settingsLoaded,\s*activeProvider,\s*setupOpen,\s*upsertNotification,\s*dismissNotificationsByKey\s*\]\);/
     );
   });
 

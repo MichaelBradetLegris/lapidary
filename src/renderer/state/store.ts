@@ -73,6 +73,18 @@ export interface EditorRequest {
   hunkId: string;
   initial: string;
   anchor: AnchorRect | null;
+  /**
+   * the words in the box once the author has typed, `initial` until then.
+   * Kept here rather than in the panel, so the Setup screen, which takes the
+   * panel off the page with the rest of the main view, gives them back as
+   * typed when it closes (`setup.7` review).
+   */
+  text?: string;
+}
+
+/** The words in the suggestion editor's box. */
+export function editorText(request: EditorRequest): string {
+  return request.text ?? request.initial;
 }
 
 /** What an edit did, so the caller can put the right card on screen. */
@@ -133,13 +145,22 @@ export function reviewKeptAt(state: Pick<AppState, 'reviewSavedAt' | 'reviewPath
 
 /**
  * The dialogs that can hold text the author typed, which closing the window
- * would lose (`CloseGuardState.dialogText`, PLAN 11.3 i).
+ * would lose (`CloseGuardState.dialogText`, PLAN 11.3 i). The suggestion
+ * editor's words are read from its request instead (`hasDialogText`).
  */
-export type DialogTextSource = 'new-chapter' | 'manual-review' | 'edit-popover';
+export type DialogTextSource = 'new-chapter' | 'manual-review';
 
-/** True while any dialog holds text the author typed. */
-export function hasDialogText(state: Pick<AppState, 'dialogText'>): boolean {
-  return Object.values(state.dialogText).some(Boolean);
+/**
+ * True while any dialog holds text the author typed, the suggestion editor
+ * included, whether or not it is drawn: the Setup screen leaves it off the
+ * page, with its words kept (`EditorRequest.text`).
+ */
+export function hasDialogText(state: Pick<AppState, 'dialogText' | 'editor'>): boolean {
+  const editor = state.editor;
+  return (
+    Object.values(state.dialogText).some(Boolean) ||
+    (editor !== null && editorText(editor) !== editor.initial)
+  );
 }
 
 /** True when a paragraph editor is open on this paragraph index. */
@@ -288,8 +309,8 @@ export interface AppState {
   draftWritesPending: boolean;
   /**
    * which dialogs hold text the author typed: New chapter's name or text,
-   * Submit manual review's corrected text, the suggestion editor's changed
-   * words (apply.16). Read through `hasDialogText`.
+   * Submit manual review's corrected text (apply.16). Read through
+   * `hasDialogText`, which counts the suggestion editor's changed words too.
    */
   dialogText: Record<DialogTextSource, boolean>;
   focusedHunkId: string | null;
@@ -395,7 +416,10 @@ export interface AppState {
 
   /* ---- editing (item 3) ---- */
   setCommentStatus: (id: string, status: ReviewComment['status']) => void;
+  /** open the editor; on the suggestion it is already open on, the words typed stay */
   openEditor: (request: EditorRequest) => void;
+  /** the words in the editor's box, as the author types them */
+  setEditorText: (text: string) => void;
   closeEditor: () => void;
   setEditorAccept: (accept: boolean) => void;
   /** rewrite a suggestion's replacement text (item 3a) */
@@ -442,7 +466,7 @@ export const useApp = create<AppState>()((set, get) => ({
   reviewSavedAt: null,
   persistPending: false,
   draftWritesPending: false,
-  dialogText: { 'new-chapter': false, 'manual-review': false, 'edit-popover': false },
+  dialogText: { 'new-chapter': false, 'manual-review': false },
   focusedHunkId: null,
   focusScrollToken: 0,
   hoveredHunkId: null,
@@ -685,8 +709,17 @@ export const useApp = create<AppState>()((set, get) => ({
     const state = get();
     const hunk = state.review?.hunks.find((h) => h.id === editor.hunkId);
     if (!hunk || frozen(state, hunk)) return;
-    set({ editor });
+    // The pencil again on the suggestion being edited moves the editor and
+    // keeps what was typed, as when the panel kept the words itself.
+    const open = state.editor;
+    const typed = open?.hunkId === editor.hunkId && editor.text === undefined ? open.text : undefined;
+    set({ editor: typed === undefined ? editor : { ...editor, text: typed } });
   },
+
+  setEditorText: (text) =>
+    set((state) =>
+      state.editor && editorText(state.editor) !== text ? { editor: { ...state.editor, text } } : {}
+    ),
 
   closeEditor: () => set({ editor: null }),
 

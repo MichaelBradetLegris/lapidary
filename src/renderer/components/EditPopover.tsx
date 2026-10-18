@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { isModalOpen, useApp, type EditorRequest } from '../state/store';
+import { useLayoutEffect, useRef } from 'react';
+import { editorText, isModalOpen, useApp, type EditorRequest } from '../state/store';
 
 interface Props {
   /** how the result is announced, as a notification card */
@@ -23,6 +23,11 @@ const MARGIN = 10;
  * Ctrl+Enter, behind Settings, Review with AI, New chapter or Submit manual
  * review. It keeps its words for when the dialog closes (ui.1 review).
  *
+ * The words live in the store (`EditorRequest.text`), not here: the Setup
+ * screen takes the main view off the page, this panel with it, and they must
+ * be there as typed when it closes, and count for the close question
+ * meanwhile (`hasDialogText`, setup.7 review).
+ *
  * Saving never writes anything to the chapter. It changes a hunk, which is what
  * keeps an edit reversible and re-anchorable (CLAUDE.md rules 1 and 5).
  */
@@ -39,26 +44,23 @@ function EditorPanel({ request, onSaved }: Props & { request: EditorRequest }): 
   const setAccept = useApp((s) => s.setEditorAccept);
   const close = useApp((s) => s.closeEditor);
   const editHunkText = useApp((s) => s.editHunkText);
-  const setDialogText = useApp((s) => s.setDialogText);
+  const setText = useApp((s) => s.setEditorText);
   const covered = useApp(isModalOpen);
 
-  const [text, setText] = useState(request.initial);
-
-  /* Words changed here reach no suggestion until Save, so the close guard is
-     told while they differ (apply.16, PLAN 11.3 i). */
-  const typed = text !== request.initial;
-  useEffect(() => setDialogText('edit-popover', typed), [typed, setDialogText]);
-  useEffect(() => () => setDialogText('edit-popover', false), [setDialogText]);
+  /* Words changed here reach no suggestion until Save; the close guard reads
+     them from the store while they differ (apply.16, PLAN 11.3 i). */
+  const text = editorText(request);
   const panelRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
   /* Place the panel beside the words, clamped to the window. Measured after
      layout and written straight to the style, so opening it can never scroll
-     the pane out from under the author. */
+     the pane out from under the author. Typing keeps the anchor, so only an
+     opening places it and selects the words, not every keystroke. */
+  const anchor = request.anchor;
   useLayoutEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
-    const anchor = request.anchor;
     const height = panel.offsetHeight;
     const left = anchor
       ? Math.max(MARGIN, Math.min(window.innerWidth - WIDTH - MARGIN, anchor.left))
@@ -73,7 +75,7 @@ function EditorPanel({ request, onSaved }: Props & { request: EditorRequest }): 
     panel.style.visibility = 'visible';
     areaRef.current?.focus();
     areaRef.current?.select();
-  }, [request]);
+  }, [anchor]);
 
   const save = (): void => {
     const outcome = editHunkText(request.hunkId, text, accept);

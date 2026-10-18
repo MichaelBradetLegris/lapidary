@@ -166,14 +166,16 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
 
   it('stays under the cards on the Setup screen, where they sit in the flow above it (setup.7)', () => {
     // No side panel there: the hint takes the toolbar's width, and the cards
-    // are at the top of the Setup column, positioned so their layer counts.
+    // are at the top of the Setup column, before the screen in the flow,
+    // positioned so their layer counts.
     const setup = APP.slice(APP.indexOf('if (setupOpen) {'), APP.lastIndexOf('return ('));
     expect(setup).toMatch(
-      /<div className="body body--single">\s*<SetupScreen[\s\S]*?\/>\s*<NotificationCards /
+      /<div className="body body--single">\s*<NotificationCards onAction=\{onCardAction\} \/>\s*<SetupScreen\s/
     );
     const notes = declsFor('.body--single > .notes');
     expect(notes.get('position')).toBe('relative');
     expect(notes.get('inset')).toBe('auto');
+    expect(notes.get('order')).toBeUndefined();
     expect(Number(declsFor('.save-hint').get('z-index'))).toBeLessThan(
       Number(declsFor('.notes').get('z-index'))
     );

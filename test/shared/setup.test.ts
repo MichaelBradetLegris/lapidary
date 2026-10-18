@@ -24,10 +24,12 @@ import {
   openTerminalHint,
   osFromUserAgent,
   otherInstalls,
+  pathForTab,
   reviewDialogWarning,
   reviewGate,
   runtimeButtonTitle,
   runtimeCard,
+  runtimeCardAction,
   runtimeLabel,
   setupStatus,
   setupSteps,
@@ -181,11 +183,30 @@ describe('commands', () => {
   });
 
   it('advises claude update for an older Claude Code, as the review dialog does', () => {
-    expect(updateAdvice(claude({ cliVersion: '2.1.266' }), 'windows')).toMatchObject({
+    expect(updateAdvice(claude({ cliVersion: '2.1.266' }), 'windows', 'windows')).toMatchObject({
       command: 'claude update',
       fullPathCommand: `& '${PATH}' update`
     });
-    expect(updateAdvice(claude(), 'windows')).toBeNull();
+    expect(updateAdvice(claude(), 'windows', 'windows')).toBeNull();
+  });
+
+  it("gives this machine's path only on its own system's tab (setup.7 review)", () => {
+    // A Windows path quoted for a Mac or Linux terminal runs nowhere.
+    expect(pathForTab(claude(), 'windows', 'windows')).toBe(PATH);
+    expect(pathForTab(claude(), 'mac', 'windows')).toBeUndefined();
+    expect(pathForTab(claude(), 'linux', 'windows')).toBeUndefined();
+    expect(pathForTab(claude({ executablePath: '/usr/local/bin/claude' }), 'windows', 'mac')).toBeUndefined();
+    expect(pathForTab(claude({ executablePath: '/usr/local/bin/claude' }), 'mac', 'mac')).toBe(
+      '/usr/local/bin/claude'
+    );
+    for (const os of ['mac', 'linux'] as const) {
+      expect(updateAdvice(claude({ cliVersion: '2.1.266' }), os, 'windows')).toEqual({
+        installed: '2.1.266',
+        recommended: '2.1.283',
+        command: 'claude update',
+        fullPathCommand: null
+      });
+    }
   });
 
   it('says how to open a terminal on each system', () => {
@@ -291,7 +312,70 @@ describe('the launch card', () => {
   });
 });
 
+describe('the launch card after a check (runtimeCardAction)', () => {
+  const card = runtimeCard('signed-out', claude({ state: 'not-signed-in' }));
+  const act = (patch: Partial<Parameters<typeof runtimeCardAction>[0]> = {}) =>
+    runtimeCardAction({
+      card,
+      showing: false,
+      pastLaunch: false,
+      provider: 'claude',
+      setupOpen: false,
+      ...patch
+    });
+
+  it('is put up by the first check only, with Claude the provider and Setup closed', () => {
+    expect(act()).toBe('raise');
+    expect(act({ pastLaunch: true })).toBe('none');
+    expect(act({ provider: 'openai' })).toBe('none');
+    expect(act({ setupOpen: true })).toBe('none');
+    expect(act({ card: null })).toBe('none');
+  });
+
+  it('stays closed once closed with its X: a later check, or each focus re-check, puts nothing up', () => {
+    // Raised at launch, then closed: the store no longer shows it.
+    expect(act()).toBe('raise');
+    for (let check = 0; check < 3; check += 1) {
+      expect(act({ pastLaunch: true, showing: false })).toBe('none');
+    }
+  });
+
+  it('keeps its words current while it is up', () => {
+    expect(act({ showing: true, pastLaunch: true })).toBe('update');
+  });
+
+  it('is taken away once nothing is left to do, when OpenAI becomes the provider, or when Setup opens', () => {
+    expect(act({ showing: true, pastLaunch: true, card: null })).toBe('withdraw');
+    expect(act({ showing: true, pastLaunch: true, provider: 'openai' })).toBe('withdraw');
+    expect(act({ showing: true, pastLaunch: true, setupOpen: true })).toBe('withdraw');
+    // Back on Claude, or Setup closed, it does not come back.
+    expect(act({ showing: false, pastLaunch: true })).toBe('none');
+  });
+});
+
 describe('reviewDialogWarning', () => {
+  it('says what the check found when it finds Claude Code missing or signed out (setup.7 review)', () => {
+    // The dialog can be open over such a check: its Provider list, Check again or a focus re-check.
+    expect(reviewDialogWarning(claude({ state: 'missing-binary' }), null)).toBe(
+      'Claude Code is not installed, so this review cannot run yet.'
+    );
+    expect(reviewDialogWarning(claude({ state: 'not-signed-in' }), null)).toBe(
+      'Claude Code is not signed in, so this review cannot run yet.'
+    );
+    expect(reviewDialogWarning(claude({ state: 'not-signed-in' }), { code: 'claude-not-signed-in' })).toBe(
+      'Claude Code is not signed in, so this review cannot run yet.'
+    );
+    expect(reviewDialogWarning(claude({ state: 'not-signed-in' }), expired)).toBe(
+      'Your Claude sign-in has ended, so this review cannot run until you sign in again.'
+    );
+    const signedOut: LastFailure = { code: 'claude-not-signed-in' };
+    for (const runtime of [claude({ state: 'missing-binary' }), claude({ state: 'not-signed-in' })]) {
+      for (const last of [null, expired, signedOut]) {
+        expect(reviewDialogWarning(runtime, last)).not.toMatch(/The last review said|go ahead/);
+      }
+    }
+  });
+
   it('warns in the views the dialog opens in with something wrong', () => {
     expect(reviewDialogWarning(claude({ state: 'error' }), null)).toBe(
       'Lapidary could not check Claude Code, so this review may fail. If it does, it says why.'
@@ -392,24 +476,51 @@ describe('setupStatus', () => {
 
 describe('setupSteps', () => {
   it('installs and signs in with one line, on the system chosen', () => {
-    const steps = setupSteps('not-installed', claude({ state: 'missing-binary' }), 'windows');
+    const steps = setupSteps('not-installed', claude({ state: 'missing-binary' }), 'windows', 'windows');
     expect(steps.map((step) => step.command?.command)).toEqual([
       undefined,
       installAndLoginCommand('windows'),
       undefined
     ]);
     expect(steps[0]?.text).toBe(openTerminalHint('windows'));
-    expect(setupSteps('not-installed', null, 'mac')[1]?.command?.command).toBe(installAndLoginCommand('mac'));
+    expect(setupSteps('not-installed', null, 'mac', 'windows')[1]?.command?.command).toBe(
+      installAndLoginCommand('mac')
+    );
   });
 
   it('signs in with claude auth login, with the full-path form, in both sign-in views', () => {
     for (const view of ['signed-out', 'expired'] as const) {
-      expect(setupSteps(view, claude(), 'windows')[1]?.command).toEqual(loginCommand(PATH, 'windows'));
+      expect(setupSteps(view, claude(), 'windows', 'windows')[1]?.command).toEqual(
+        loginCommand(PATH, 'windows')
+      );
     }
   });
 
+  it("gives the full-path form only on this machine's own tab (setup.7 review)", () => {
+    for (const os of ['mac', 'linux'] as const) {
+      expect(setupSteps('signed-out', claude({ state: 'not-signed-in' }), os, 'windows')[1]?.command).toEqual(
+        {
+          command: 'claude auth login',
+          fullPathCommand: null
+        }
+      );
+      expect(setupSteps('outdated', claude({ cliVersion: '2.1.200' }), os, 'windows')[1]?.command).toEqual({
+        command: 'claude update',
+        fullPathCommand: null
+      });
+    }
+    const home = '/home/ann/.local/bin/claude'; // check-public: allow
+    const posix = claude({ state: 'not-signed-in', executablePath: home });
+    expect(setupSteps('signed-out', posix, 'linux', 'linux')[1]?.command?.fullPathCommand).toBe(
+      `'${home}' auth login`
+    );
+    expect(setupSteps('signed-out', posix, 'windows', 'linux')[1]?.command?.fullPathCommand).toBeNull();
+  });
+
   it('updates an old Claude Code with claude update', () => {
-    expect(setupSteps('outdated', claude({ cliVersion: '2.1.200' }), 'windows')[1]?.command).toEqual({
+    expect(
+      setupSteps('outdated', claude({ cliVersion: '2.1.200' }), 'windows', 'windows')[1]?.command
+    ).toEqual({
       command: 'claude update',
       fullPathCommand: `& '${PATH}' update`
     });
@@ -418,7 +529,7 @@ describe('setupSteps', () => {
 
   it('has no steps where there is nothing to run', () => {
     for (const view of ['checking', 'could-not-check', 'usage-limit', 'api-key', 'ready'] as const) {
-      expect(setupSteps(view, claude(), 'windows'), view).toEqual([]);
+      expect(setupSteps(view, claude(), 'windows', 'windows'), view).toEqual([]);
       expect(stepsHeading(view), view).toBeNull();
     }
   });

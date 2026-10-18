@@ -1827,28 +1827,38 @@ input[type='text'] {
 
 /* The Setup screen takes the place of the chapter list, the prose and the
    side panel, in .body--single. The notification cards sit at the top of it,
-   above the screen and in the flow, so they never cover its Close or its
-   Check again, and the screen scrolls under them (.setup). Positioned, though
-   not moved, so that they keep their layer over the first-use hint. */
+   before the screen and in the flow, so they never cover its Close or its
+   Check again, and they stay in view while the screen scrolls below them
+   (.setup). Positioned, though not moved, so that they keep their layer over
+   the first-use hint. */
 .body--single > .notes {
   position: relative;
   inset: auto;
+  flex: none;
   align-self: center;
   width: 100%;
   max-width: 720px;
   padding: 12px 28px 0;
 }
 
+/* The scroller takes the whole width under the cards, so the wheel scrolls
+   it over the margins too and its scrollbar is at the window's edge; the page
+   inside is the centred column (setup.7 review). The gutter is kept on both
+   sides, so the page stays centred under the cards whether or not it scrolls. */
 .setup {
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
-  padding: 28px;
-  max-width: 720px;
-  margin: 0 auto;
   overflow: auto;
+  scrollbar-gutter: stable both-edges;
   background: var(--bg);
   line-height: 1.45;
+}
+
+.setup__page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 28px;
 }
 
 .setup h1 {

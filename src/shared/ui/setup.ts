@@ -182,12 +182,32 @@ export function installAndLoginCommand(os: SetupOs): string {
     : 'curl -fsSL https://claude.ai/install.sh | bash && ~/.local/bin/claude auth login';
 }
 
-/** `claude update` advice for an older Claude Code, as the review dialog already shows it. */
+/**
+ * The Claude Code path for the commands of the system chosen in Setup's tabs:
+ * the one found on this machine, on this machine's own tab only. On another
+ * system's tab it would be this machine's path in that system's syntax, such
+ * as a Windows path quoted for a Mac terminal, which runs nowhere, so that
+ * tab gives no full-path form (`setup.7` review).
+ */
+export function pathForTab(
+  runtime: RuntimeStatus | null | undefined,
+  os: SetupOs,
+  host: SetupOs
+): string | undefined {
+  return os === host ? runtime?.executablePath : undefined;
+}
+
+/**
+ * `claude update` advice for an older Claude Code, as the review dialog
+ * already shows it, on the system chosen in Setup's tabs; the full-path form
+ * only on `host`'s own tab (`pathForTab`).
+ */
 export function updateAdvice(
   runtime: RuntimeStatus | null | undefined,
-  os: SetupOs
+  os: SetupOs,
+  host: SetupOs
 ): ClaudeUpdateAdvice | null {
-  return claudeUpdateAdvice(runtime?.cliVersion, runtime?.executablePath, os === 'windows');
+  return claudeUpdateAdvice(runtime?.cliVersion, pathForTab(runtime, os, host), os === 'windows');
 }
 
 /** How to open a terminal, for someone who never has. */
@@ -325,17 +345,60 @@ export function runtimeCard(
   }
 }
 
+/** What a check does to the launch card: put it up, keep its words current, take it away, or nothing. */
+export type RuntimeCardAction = 'raise' | 'update' | 'withdraw' | 'none';
+
+export interface RuntimeCardInput {
+  /** the card's words for the view, or null when it has nothing to say (`runtimeCard`) */
+  card: RuntimeCard | null;
+  /** the card is on screen */
+  showing: boolean;
+  /** an earlier check in this run has had its chance to put the card up */
+  pastLaunch: boolean;
+  provider: 'claude' | 'openai';
+  setupOpen: boolean;
+}
+
+/**
+ * The launch card after a check (5.6, section 7). Only the first check of the
+ * run, with the settings in, may put it up: when Claude is the provider, Setup
+ * is not open and there is something to do. While it is up, a later check
+ * keeps its words current. It is taken away by its key when nothing is left to
+ * do, when OpenAI becomes the provider, and when Setup is open, which says the
+ * same at length. Once closed with its X, or taken away, it stays away.
+ */
+export function runtimeCardAction(input: RuntimeCardInput): RuntimeCardAction {
+  if (!input.card || input.provider !== 'claude' || input.setupOpen) {
+    return input.showing ? 'withdraw' : 'none';
+  }
+  if (input.showing) return 'update';
+  return input.pastLaunch ? 'none' : 'raise';
+}
+
 /**
  * What Review with AI says above its buttons when Claude is the provider and
- * Setup has something to say about it, or null. The dialog opens in these
- * views (`reviewGate`), so this is the warning 11.3 (f) gives it, with Open
- * Setup beside it.
+ * Setup has something to say about it, or null, with Open Setup beside it.
+ * Review with AI opens the dialog only where nothing the check found stops a
+ * review (`reviewGate`), and there this is the warning 11.3 (f) gives it. The
+ * dialog can still be open over a check that finds Claude Code missing or
+ * signed out: the first check answering after it opened, its Provider list
+ * switched to Claude, or its Check again or the window coming back to the
+ * front answering so. That check is what it says
+ * then, not the last review (`setup.7` review).
  */
 export function reviewDialogWarning(
   runtime: RuntimeStatus | null | undefined,
   last: LastFailure | null
 ): string | null {
   if (!runtime) return null;
+  if (runtime.state === 'missing-binary') {
+    return 'Claude Code is not installed, so this review cannot run yet.';
+  }
+  if (runtime.state === 'not-signed-in') {
+    return last?.code === 'claude-login-expired'
+      ? 'Your Claude sign-in has ended, so this review cannot run until you sign in again.'
+      : 'Claude Code is not signed in, so this review cannot run yet.';
+  }
   switch (setupView(runtime, last)) {
     case 'could-not-check':
       return `${APP_NAME} could not check Claude Code, so this review may fail. If it does, it says why.`;
@@ -490,15 +553,18 @@ export function stepsHeading(view: SetupViewId): string | null {
 
 /**
  * The steps for the view, on the system chosen: open a terminal, run the one
- * command (with its full-path form where the terminal may not find `claude`),
- * come back. Anthropic's installer signs in as it finishes (11.3 f).
+ * command (with its full-path form where the terminal may not find `claude`,
+ * on `host`'s own tab only: the path is this machine's, `pathForTab`), come
+ * back. Anthropic's installer signs in as it finishes (11.3 f).
  */
 export function setupSteps(
   view: SetupViewId,
   runtime: RuntimeStatus | null | undefined,
-  os: SetupOs
+  os: SetupOs,
+  host: SetupOs
 ): SetupStep[] {
   const terminal: SetupStep = { text: openTerminalHint(os) };
+  const path = pathForTab(runtime, os, host);
   switch (view) {
     case 'not-installed':
       return [
@@ -515,14 +581,14 @@ export function setupSteps(
         terminal,
         {
           text: 'Run this, then sign in with your Claude account in the browser window it opens:',
-          command: loginCommand(runtime?.executablePath, os)
+          command: loginCommand(path, os)
         },
         { text: comeBack('once the terminal says you are signed in') }
       ];
     case 'outdated':
       return [
         terminal,
-        { text: 'Run this to update Claude Code:', command: updateCommand(runtime?.executablePath, os) },
+        { text: 'Run this to update Claude Code:', command: updateCommand(path, os) },
         { text: comeBack('once the update has finished') }
       ];
     default:

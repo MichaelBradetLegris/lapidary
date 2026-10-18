@@ -26,8 +26,13 @@ interface Props {
   lastFailure: LastFailure | null;
   /** a check is running */
   checking: boolean;
-  /** the system whose commands show first; the user agent's when left out */
+  /** the system whose commands show first; `host` when left out */
   os?: SetupOs;
+  /**
+   * the system this machine runs, the user agent's when left out: only its
+   * own tab gives the full-path forms, since the path is this machine's
+   */
+  host?: SetupOs;
   onCheckAgain: () => void;
   onClose: () => void;
   /** given when a chapter is open and nothing the check found stops a review (`canTryReviewAnyway`) */
@@ -59,134 +64,140 @@ export function SetupScreen({
   lastFailure,
   checking,
   os: initialOs,
+  host: givenHost,
   onCheckAgain,
   onClose,
   onTryAnyway
 }: Props): React.JSX.Element {
-  const [os, setOs] = useState<SetupOs>(() => initialOs ?? osFromUserAgent(navigator.userAgent));
+  const host = givenHost ?? osFromUserAgent(navigator.userAgent);
+  const [os, setOs] = useState<SetupOs>(() => initialOs ?? host);
   const view = setupView(runtime, lastFailure);
   const status = setupStatus(view, runtime, lastFailure);
-  const steps = setupSteps(view, runtime, os);
+  const steps = setupSteps(view, runtime, os, host);
   const heading = stepsHeading(view);
   const others = view === 'not-installed' ? otherInstalls(os) : [];
   // The steps of an outdated view already update it, and a missing one has no version.
-  const advice = view === 'outdated' || view === 'not-installed' ? null : updateAdvice(runtime, os);
+  const advice = view === 'outdated' || view === 'not-installed' ? null : updateAdvice(runtime, os, host);
   const trouble = setupTroubleshooting(view, os);
 
+  // The whole width scrolls, so the wheel works over the margins and the
+  // scrollbar sits at the window's edge; the page inside is a centred column.
   return (
     <div className="setup" data-view={view}>
-      <div className="setup__head">
-        <h1>Set up Claude</h1>
-        <button type="button" onClick={onClose}>
-          Close
-        </button>
-      </div>
-
-      <section
-        className={`setup__status setup__status--${status.tone}`}
-        role="status"
-        aria-live="polite"
-        aria-label="Claude status"
-      >
-        <div className="setup__status-text">
-          <h2>{status.title}</h2>
-          {status.lines.map((line) => (
-            <p key={line}>{line}</p>
-          ))}
-        </div>
-        <div className="setup__status-actions">
-          <button
-            type="button"
-            className={needsSetup(view) ? 'primary' : undefined}
-            disabled={checking || view === 'checking'}
-            onClick={onCheckAgain}
-          >
-            {checking || view === 'checking' ? 'Checking…' : 'Check again'}
+      <div className="setup__page">
+        <div className="setup__head">
+          <h1>Set up Claude</h1>
+          <button type="button" onClick={onClose}>
+            Close
           </button>
-          {onTryAnyway ? (
-            <button type="button" onClick={onTryAnyway}>
-              Try the review anyway
-            </button>
-          ) : null}
         </div>
-      </section>
 
-      {advice ? <UpdateNote advice={advice} /> : null}
-
-      {heading ? (
-        <section className="setup__section">
-          <h2>{heading}</h2>
-          <div className="setup__tabs" role="group" aria-label="Your system">
-            {SYSTEMS.map((system) => (
-              <button
-                key={system.id}
-                type="button"
-                className={os === system.id ? 'setup__tab--active' : ''}
-                aria-pressed={os === system.id}
-                onClick={() => setOs(system.id)}
-              >
-                {system.label}
-              </button>
+        <section
+          className={`setup__status setup__status--${status.tone}`}
+          role="status"
+          aria-live="polite"
+          aria-label="Claude status"
+        >
+          <div className="setup__status-text">
+            <h2>{status.title}</h2>
+            {status.lines.map((line) => (
+              <p key={line}>{line}</p>
             ))}
           </div>
-          <ol className="setup__steps">
-            {steps.map((step) => (
-              <li key={step.text}>
-                <p>{step.text}</p>
-                {step.command ? <Command text={step.command.command} /> : null}
-                {step.command?.fullPathCommand ? (
-                  <>
-                    <p className="setup__note">{FULL_PATH_TEXT}</p>
-                    <Command text={step.command.fullPathCommand} />
-                  </>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-          {others.length > 0 ? (
-            <div className="setup__others">
-              <p className="setup__note">{OTHER_INSTALLS_NOTE}</p>
-              {others.map((other) => (
-                <div key={other.name} className="setup__other">
-                  <span>{other.name}</span>
-                  <Command text={other.command} />
-                </div>
+          <div className="setup__status-actions">
+            <button
+              type="button"
+              className={needsSetup(view) ? 'primary' : undefined}
+              disabled={checking || view === 'checking'}
+              onClick={onCheckAgain}
+            >
+              {checking || view === 'checking' ? 'Checking…' : 'Check again'}
+            </button>
+            {onTryAnyway ? (
+              <button type="button" onClick={onTryAnyway}>
+                Try the review anyway
+              </button>
+            ) : null}
+          </div>
+        </section>
+
+        {advice ? <UpdateNote advice={advice} /> : null}
+
+        {heading ? (
+          <section className="setup__section">
+            <h2>{heading}</h2>
+            <div className="setup__tabs" role="group" aria-label="Your system">
+              {SYSTEMS.map((system) => (
+                <button
+                  key={system.id}
+                  type="button"
+                  className={os === system.id ? 'setup__tab--active' : ''}
+                  aria-pressed={os === system.id}
+                  onClick={() => setOs(system.id)}
+                >
+                  {system.label}
+                </button>
               ))}
             </div>
-          ) : null}
-        </section>
-      ) : null}
+            <ol className="setup__steps">
+              {steps.map((step) => (
+                <li key={step.text}>
+                  <p>{step.text}</p>
+                  {step.command ? <Command text={step.command.command} /> : null}
+                  {step.command?.fullPathCommand ? (
+                    <>
+                      <p className="setup__note">{FULL_PATH_TEXT}</p>
+                      <Command text={step.command.fullPathCommand} />
+                    </>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+            {others.length > 0 ? (
+              <div className="setup__others">
+                <p className="setup__note">{OTHER_INSTALLS_NOTE}</p>
+                {others.map((other) => (
+                  <div key={other.name} className="setup__other">
+                    <span>{other.name}</span>
+                    <Command text={other.command} />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
-      {trouble.length > 0 ? (
-        <section className="setup__section">
-          <h2>Troubleshooting</h2>
-          {trouble.map((item) => (
-            <details key={item.question} className="setup__trouble">
-              <summary>{item.question}</summary>
-              <p>{item.answer}</p>
-            </details>
-          ))}
-        </section>
-      ) : null}
+        {trouble.length > 0 ? (
+          <section className="setup__section">
+            <h2>Troubleshooting</h2>
+            {trouble.map((item) => (
+              <details key={item.question} className="setup__trouble">
+                <summary>{item.question}</summary>
+                <p>{item.answer}</p>
+              </details>
+            ))}
+          </section>
+        ) : null}
 
-      <details className="setup__advanced">
-        <summary>Advanced</summary>
-        <dl>
-          {advancedRows(runtime, os).map((row) => (
-            <div key={row.label} className="setup__row">
-              <dt>{row.label}</dt>
-              <dd>{row.value}</dd>
-            </div>
-          ))}
-        </dl>
-      </details>
+        <details className="setup__advanced">
+          <summary>Advanced</summary>
+          <dl>
+            {advancedRows(runtime, os).map((row) => (
+              <div key={row.label} className="setup__row">
+                <dt>{row.label}</dt>
+                <dd>{row.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
 
-      <p className="setup__footer">
-        {PRIVACY_FOOTER}{' '}
-        <a href={SETUP_DOCS} target="_blank" rel="noreferrer">
-          Anthropic&apos;s setup guide for Claude Code
-        </a>
-      </p>
+        <p className="setup__footer">
+          {PRIVACY_FOOTER}{' '}
+          <a href={SETUP_DOCS} target="_blank" rel="noreferrer">
+            Anthropic&apos;s setup guide for Claude Code
+          </a>
+        </p>
+      </div>
     </div>
   );
 }
