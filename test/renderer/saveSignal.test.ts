@@ -202,7 +202,7 @@ describe('the chapter list (apply.5)', () => {
 describe('History (apply.5)', () => {
   it('takes the highlight and the pending badge of each row from historyCounts', () => {
     expect(SIDE_PANEL).toMatch(
-      /import \{ historyCounts, historyWhen, [^}]*\} from '\.\.\/\.\.\/shared\/ui\/history';/
+      /import \{\s*historyCounts,\s*historyWhen,[^}]*\} from '\.\.\/\.\.\/shared\/ui\/history';/
     );
     expect(SIDE_PANEL).toContain('const counts = historyCounts(entry, activeReviewPath, review);');
     expect(SIDE_PANEL).toContain(

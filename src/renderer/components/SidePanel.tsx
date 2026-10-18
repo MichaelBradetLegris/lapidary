@@ -3,7 +3,13 @@ import { isAuthored } from '../../shared/edit';
 import type { ReviewSummary } from '../../shared/ipc';
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import { groupComments } from '../../shared/ui/comments';
-import { historyCounts, historyWhen, NO_REVIEWS_YET, reviewPicker } from '../../shared/ui/history';
+import {
+  historyCounts,
+  historyWhen,
+  NO_REVIEWS_YET,
+  pickerHoldsKey,
+  reviewPicker
+} from '../../shared/ui/history';
 import { groupSuggestions, summaryLine } from '../../shared/ui/suggestions';
 import { SHOW_BACKUPS, SHOW_BACKUPS_TITLE } from '../../shared/ui/backups';
 import { PROVIDER_NAMES, type Hunk, type Review, type ReviewComment } from '../../shared/types';
@@ -138,7 +144,19 @@ export function SidePanel({
             title={pickedLabel}
             value={picker.selected}
             disabled={picker.choices.length === 0}
-            onChange={(event) => chooseReview(event.target.value)}
+            onKeyDown={(event) => {
+              /* The arrows, Home, End and the page keys would open another
+                 review at every press, and the arrows are review keys too;
+                 Alt+Down, F4 and Space still open the list (apply.26 review). */
+              if (pickerHoldsKey(event)) event.preventDefault();
+            }}
+            onChange={(event) => {
+              /* A choice hands the focus back to the page, as a History row's
+                 click leaves it on a button, so j, k, a and the arrows act on
+                 the suggestions at once: a focused select takes them as typing. */
+              event.currentTarget.blur();
+              chooseReview(event.target.value);
+            }}
           >
             {picker.choices.length === 0 ? (
               <option value="">{NO_REVIEWS_YET}</option>

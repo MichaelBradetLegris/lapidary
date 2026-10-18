@@ -11,10 +11,11 @@
  * Pure (CLAUDE.md rule 4), so every case has a test without a DOM.
  */
 
-import { decisionCounts } from '../diff/compose';
+import { decisionCounts, unsavedDecisionCount } from '../diff/compose';
 import type { ReviewSummary } from '../ipc';
 import { samePath } from '../paths';
 import { PROVIDER_NAMES, type Review } from '../types';
+import { unsavedPhrase } from './save';
 
 /**
  * A review's date as History shows it: the computer's own date and time
@@ -65,6 +66,11 @@ export function historyCounts(
  * One review in the selector: History's date, then the provider (or the kind,
  * "manual" or "file", for a review no model wrote), the model when there is
  * one, and the pending count when there is one, as a History row shows them.
+ * Then, unlike History, the changes the chapter file does not have yet, in
+ * the status bar's words ("2 not saved to chapter"), when there are any: the
+ * chapter list's dot, Save and the leave and close questions go by the review
+ * on screen, so changes left in another review of the chapter show only here
+ * (apply.26 review).
  */
 export function reviewChoiceLabel(choice: {
   createdAt: string;
@@ -72,6 +78,7 @@ export function reviewChoiceLabel(choice: {
   provider?: ReviewSummary['provider'] | undefined;
   model?: string | undefined;
   pendingCount: number;
+  unsavedCount: number;
 }): string {
   const parts = [
     historyWhen(choice.createdAt),
@@ -79,7 +86,37 @@ export function reviewChoiceLabel(choice: {
   ];
   if (choice.model) parts.push(choice.model);
   if (choice.pendingCount > 0) parts.push(`${choice.pendingCount} pending`);
+  if (choice.unsavedCount > 0) parts.push(unsavedPhrase(choice.unsavedCount));
   return parts.join(' · ');
+}
+
+/**
+ * Keys that, on Windows, change a closed select at once, which in the review
+ * selector would open another review at every press. The arrows are also the
+ * review keys that move between suggestions, so the selector holds these back
+ * while no modifier is held (apply.26 review). Alt+Down, Alt+Up, F4 and Space
+ * still open its list, where the arrows only move the highlight until Enter or
+ * a click chooses.
+ */
+const PICKER_STEP_KEYS = new Set([
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'PageUp',
+  'PageDown',
+  'Home',
+  'End'
+]);
+
+/** True for a key the review selector holds back (`preventDefault`) while its list is closed. */
+export function pickerHoldsKey(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+}): boolean {
+  return !event.altKey && !event.ctrlKey && !event.metaKey && PICKER_STEP_KEYS.has(event.key);
 }
 
 /** The warning mark's tooltip when the review on screen is not the newest. */
@@ -109,8 +146,9 @@ export interface ReviewPicker {
 /**
  * The selector at the very top of the side panel (apply.26): the open
  * chapter's reviews as History lists them, newest first, with the one on screen
- * selected and counted from the page (`historyCounts`), and a warning when that
- * one is not the newest by `createdAt`. Choosing another switches to it.
+ * selected and counted from the page (`historyCounts`), each with its changes
+ * not saved to the chapter (`reviewChoiceLabel`), and a warning when the one on
+ * screen is not the newest by `createdAt`. Choosing another switches to it.
  *
  * `history` is History as last read, which can still be another chapter's for
  * a moment after a chapter opens, so only the entries of the review's own
@@ -125,14 +163,19 @@ export function reviewPicker(
   review: Pick<Review, 'sourcePath' | 'createdAt' | 'generator' | 'hunks'>
 ): ReviewPicker {
   const own = history.filter((entry) => samePath(entry.sourcePath, review.sourcePath, true));
-  const choices: ReviewChoice[] = own.map((entry) => ({
-    value: entry.path,
-    label: reviewChoiceLabel({
-      ...entry,
-      pendingCount: historyCounts(entry, reviewPath, review).pendingCount
-    }),
-    createdAt: entry.createdAt
-  }));
+  const choices: ReviewChoice[] = own.map((entry) => {
+    const counts = historyCounts(entry, reviewPath, review);
+    return {
+      value: entry.path,
+      label: reviewChoiceLabel({
+        ...entry,
+        pendingCount: counts.pendingCount,
+        // The review on screen from the page, as its pending count; the others as last written.
+        unsavedCount: counts.onScreen ? unsavedDecisionCount(review.hunks) : entry.unsavedCount
+      }),
+      createdAt: entry.createdAt
+    };
+  });
   let selected = own.find((entry) => historyCounts(entry, reviewPath, review).onScreen)?.path;
   if (selected === undefined) {
     const blank = reviewPath === null && review.generator.kind === 'file' && review.hunks.length === 0;
@@ -145,7 +188,8 @@ export function reviewPicker(
         generatorKind: review.generator.kind,
         provider: review.generator.provider,
         model: review.generator.model,
-        pendingCount: decisionCounts(review.hunks).pending
+        pendingCount: decisionCounts(review.hunks).pending,
+        unsavedCount: unsavedDecisionCount(review.hunks)
       }),
       createdAt: review.createdAt
     });

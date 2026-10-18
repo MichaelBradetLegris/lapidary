@@ -9,9 +9,11 @@ import {
   historyWhen,
   NO_REVIEWS_YET,
   notNewestText,
+  pickerHoldsKey,
   reviewChoiceLabel,
   reviewPicker
 } from '../../src/shared/ui/history';
+import { unsavedPhrase } from '../../src/shared/ui/save';
 
 /* apply.5: the numbers History and the Review with AI dialog's "Last reviewed"
    line give a review, live for the review on screen. */
@@ -177,8 +179,9 @@ describe('reviewPicker (apply.26)', () => {
     const picker = reviewPicker(history(), ON_SCREEN, onScreen());
     expect(picker.choices.map((c) => c.label)).toEqual([
       `${historyWhen(T_NEWEST)} · Claude · claude-haiku-4-5`,
-      // The review on screen is counted from the page, as its History row is.
-      `${historyWhen(T_ON_SCREEN)} · Claude · claude-haiku-4-5 · 2 pending`,
+      // The review on screen is counted from the page, as its History row is;
+      // its accepted suggestion is not in the chapter file yet.
+      `${historyWhen(T_ON_SCREEN)} · Claude · claude-haiku-4-5 · 2 pending · 1 not saved to chapter`,
       `${historyWhen(T_OLDER)} · manual · 1 pending`
     ]);
     expect(picker.choices.map((c) => c.value)).toEqual([NEWEST, ON_SCREEN, OLDER]);
@@ -188,9 +191,85 @@ describe('reviewPicker (apply.26)', () => {
         generatorKind: 'openai',
         provider: 'openai',
         model: 'gpt-5-mini',
-        pendingCount: 12
+        pendingCount: 12,
+        unsavedCount: 0
       })
     ).toBe(`${historyWhen(T_OLDER)} · OpenAI · gpt-5-mini · 12 pending`);
+    expect(
+      reviewChoiceLabel({
+        createdAt: T_OLDER,
+        generatorKind: 'manual',
+        pendingCount: 0,
+        unsavedCount: 3
+      })
+    ).toBe(`${historyWhen(T_OLDER)} · manual · 3 not saved to chapter`);
+  });
+
+  /* apply.26 review: the chapter list's dot, Save and the leave and close
+     questions go by the review on screen, so changes left in another review of
+     the chapter are shown only on its entry here. */
+  it('counts the changes not saved to the chapter, the review on screen from the page and the others as last written', () => {
+    const written = [
+      summary(NEWEST, T_NEWEST, { pendingCount: 0, unsavedCount: 0 }),
+      // Last written with five; the page has one since.
+      summary(ON_SCREEN, T_ON_SCREEN, { unsavedCount: 5 }),
+      summary(OLDER, T_OLDER, {
+        generatorKind: 'manual',
+        provider: undefined,
+        model: undefined,
+        pendingCount: 1,
+        unsavedCount: 2
+      })
+    ];
+    expect(reviewPicker(written, ON_SCREEN, onScreen()).choices.map((c) => c.label)).toEqual([
+      `${historyWhen(T_NEWEST)} · Claude · claude-haiku-4-5`,
+      `${historyWhen(T_ON_SCREEN)} · Claude · claude-haiku-4-5 · 2 pending · ${unsavedPhrase(1)}`,
+      `${historyWhen(T_OLDER)} · manual · 1 pending · ${unsavedPhrase(2)}`
+    ]);
+    // The decision turned back on the page: nothing unsaved, whatever was written.
+    const back = { ...review(), createdAt: T_ON_SCREEN };
+    expect(reviewPicker(written, ON_SCREEN, back).choices[1]!.label).toBe(
+      `${historyWhen(T_ON_SCREEN)} · Claude · claude-haiku-4-5 · 3 pending`
+    );
+    // Another review on screen: this one is counted as last written.
+    const newest = { ...review(), createdAt: T_NEWEST };
+    expect(reviewPicker(written, NEWEST, newest).choices[1]!.label).toBe(
+      `${historyWhen(T_ON_SCREEN)} · Claude · claude-haiku-4-5 · 3 pending · ${unsavedPhrase(5)}`
+    );
+    // A review on screen that History does not have yet is counted from the page too.
+    const fresh: Review = {
+      ...decided({ 1: 'accepted', 2: 'accepted' }),
+      createdAt: '2026-10-17T18:00:00.000Z'
+    };
+    expect(reviewPicker(written, null, fresh).choices[0]!.label).toBe(
+      `${historyWhen('2026-10-17T18:00:00.000Z')} · manual · 1 pending · ${unsavedPhrase(2)}`
+    );
+  });
+
+  it('holds back the keys that would change the closed selector, and lets the ones that open it through', () => {
+    const press = (key: string, mods: { altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean } = {}) =>
+      pickerHoldsKey({ key, altKey: false, ctrlKey: false, metaKey: false, ...mods });
+    // Each of these opens another review at once on Windows.
+    for (const key of [
+      'ArrowUp',
+      'ArrowDown',
+      'ArrowLeft',
+      'ArrowRight',
+      'PageUp',
+      'PageDown',
+      'Home',
+      'End'
+    ]) {
+      expect(press(key)).toBe(true);
+    }
+    // Alt+Down, Alt+Up, F4 and Space open the list; Enter, Escape and Tab do their own work.
+    expect(press('ArrowDown', { altKey: true })).toBe(false);
+    expect(press('ArrowUp', { altKey: true })).toBe(false);
+    for (const key of ['F4', ' ', 'Enter', 'Escape', 'Tab']) expect(press(key)).toBe(false);
+    // Nothing else is touched: Ctrl and Cmd shortcuts, and the letter keys.
+    expect(press('Home', { ctrlKey: true })).toBe(false);
+    expect(press('ArrowDown', { metaKey: true })).toBe(false);
+    for (const key of ['j', 'k', 'a', 'u', 'd', 'e', 'n', '1']) expect(press(key)).toBe(false);
   });
 
   it('selects the review on screen and marks it when another was made later', () => {

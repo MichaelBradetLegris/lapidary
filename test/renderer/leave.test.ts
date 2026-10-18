@@ -414,7 +414,24 @@ describe('the wiring (apply.7)', () => {
     expect(side).toContain('<span className="history__when">{historyWhen(entry.createdAt)}</span>');
     // The selector's entries come from reviewPicker, which dates them by historyWhen.
     expect(side).toContain('reviewPicker(history, activeReviewPath, review)');
-    expect(side).toContain('onChange={(event) => chooseReview(event.target.value)}');
+  });
+
+  /* apply.26 review: a focused select takes the review keys as typing, and on
+     Windows the arrows change a closed one at once, opening another review. */
+  it('holds back the keys that would step the selector, and gives the focus back to the page after a choice', () => {
+    const side = readFileSync(path.join(__dirname, '../../src/renderer/components/SidePanel.tsx'), 'utf8');
+    const start = side.indexOf('className="review-picker"');
+    expect(start).toBeGreaterThan(0);
+    const select = side.slice(start, side.indexOf('</select>', start));
+    expect(select).toMatch(
+      /onKeyDown=\{\(event\) => \{[^}]*if \(pickerHoldsKey\(event\)\) event\.preventDefault\(\);\s*\}\}/
+    );
+    // The focus leaves the select before the review is opened, and the selector opens nothing else.
+    expect(select).toMatch(
+      /onChange=\{\(event\) => \{[^}]*event\.currentTarget\.blur\(\);\s*chooseReview\(event\.target\.value\);\s*\}\}/
+    );
+    expect(side.match(/chooseReview\(/g)).toHaveLength(1);
+    expect(side).toContain('const chooseReview = (value: string): void => {');
   });
 
   it('saves first through Save to chapter, and no longer reads History to ask', () => {
