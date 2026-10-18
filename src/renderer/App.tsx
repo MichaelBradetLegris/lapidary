@@ -3,7 +3,6 @@ import { composeReview, unsavedDecisionCount } from '../shared/diff/compose';
 import { rebaseReview } from '../shared/diff/rebase';
 import { proPreselection } from '../shared/ai/claudeModels';
 import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
-import { historyWhen } from '../shared/ui/history';
 import { rebaseCardText } from '../shared/ui/rebase';
 import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
 import { runtimeLabel as labelForRuntime } from '../shared/ui/setup';
@@ -229,22 +228,17 @@ export function App(): React.JSX.Element {
 
   /* ---------------- leaving (apply.7, state/leave.ts) ---------------- */
 
-  /* The leave prompt dates a review the chapter will not open with as History
-     does, from History as last read. */
-  const historyRef = useRef<ReviewSummary[]>([]);
-  useEffect(() => {
-    historyRef.current = history;
-  }, [history]);
-  const leaveDeps = useMemo<LeaveDeps>(() => ({ save, history: () => historyRef.current }), [save]);
+  const leaveDeps = useMemo<LeaveDeps>(() => ({ save }), [save]);
 
   /* ---------------- opening a chapter ---------------- */
 
-  /* Opening a chapter or a History entry lets a save under way end first, then
-     asks when something on screen is not saved to the chapter: Save first,
-     Keep for later or Cancel (`beforeLeaving`). Clicking what is already open
-     asks nothing and only writes what is waiting (PLAN 11.3 i). The open
-     chapter is already open only while the review it opens with is on screen;
-     clicked from another of its reviews, it opens that one. */
+  /* Opening a chapter or another review of the open one lets a save under way
+     end first; another chapter then asks when something on screen is not
+     saved to the chapter: Save first, Keep for later or Cancel
+     (`beforeLeaving`). Another review of the open chapter, from History or
+     the selector, asks nothing (apply.26). Clicking what is already open, the
+     open chapter whichever of its reviews is on screen, asks nothing and only
+     writes what is waiting (PLAN 11.3 i). */
   const openChapter = useCallback(
     (file: ChapterFile) => {
       void (async () => {
@@ -309,10 +303,7 @@ export function App(): React.JSX.Element {
   const openHistoryEntry = useCallback(
     (summary: ReviewSummary) => {
       void (async () => {
-        const decision = await beforeLeaving(
-          { kind: 'review', id: summary.id, when: historyWhen(summary.createdAt) },
-          leaveDeps
-        );
+        const decision = await beforeLeaving({ kind: 'review', id: summary.id }, leaveDeps);
         if (decision === 'stay') return;
         try {
           await flushReviewWrites();
@@ -333,6 +324,11 @@ export function App(): React.JSX.Element {
             setReview(rebased, loaded.path);
             notify('info', rebaseCardText('history', stats));
           }
+          // The chapter opens with this review from now on, the last on
+          // screen (apply.26). Main records it without touching the review;
+          // a record that cannot be written leaves the chapter opening with
+          // the review last decided in, and nothing is lost.
+          void call('reviews:shown', { sourcePath, path: loaded.path }).catch(() => undefined);
           // The review just left is no longer counted from the page, so read
           // History again, now that its last decisions are on disk (apply.5).
           refreshHistory(sourcePath);
@@ -414,7 +410,6 @@ export function App(): React.JSX.Element {
       io: CLOSE_GUARD_IO,
       writes: PAGE_WRITES,
       save,
-      history: () => historyRef.current,
       cancelReview
     }),
     [save, cancelReview]

@@ -11,6 +11,7 @@ import {
   listReviews,
   loadLatestReview,
   loadReviewFile,
+  recordShown,
   resolveReviewsFolder,
   reviewIndex,
   saveReview
@@ -272,15 +273,127 @@ describe('reviews belong to one chapter file', () => {
   });
 });
 
-describe('the current review', () => {
-  it('is the one last decided in, while History stays in creation order', async () => {
-    const source = 'C:/vault/Chapter 12.md';
+/* apply.26: a chapter opens with the review last on screen for it. */
+describe('the review a chapter opens with', () => {
+  const source = 'C:/vault/Chapter 12.md';
+  const lastOpenFile = (): string => path.join(root, 'chapter-12', '.last-open.json');
+
+  /** What the chapter opens with, as `reviews:load-latest` and the list's marks pick it. */
+  async function opensWith(chapter = source): Promise<{ load?: string; index?: string }> {
+    const load = (await loadLatestReview(root, chapter))?.review.createdAt;
+    const index = (await reviewIndex(root, [chapter]))[chapter]?.createdAt;
+    return { ...(load ? { load } : {}), ...(index ? { index } : {}) };
+  }
+
+  it('is a new review once it arrives, even over one decided in later, while History stays in creation order', async () => {
     await saveReview(root, { ...make(source, T1, [pendingHunk]), decidedAt: '2026-09-09T00:00:00.000Z' });
     await saveReview(root, make(source, T2));
-    expect((await loadLatestReview(root, source))?.review.createdAt).toBe(T1);
+    expect(await opensWith()).toEqual({ load: T2, index: T2 });
     expect((await listReviews(root, source)).map((s) => s.createdAt)).toEqual([T2, T1]);
-    expect((await reviewIndex(root, [source]))[source]?.createdAt).toBe(T1);
   });
+
+  it('is an older review once it has been on screen, until another review is', async () => {
+    const { path: older } = await saveReview(root, make(source, T1, [pendingHunk]));
+    const { path: newer } = await saveReview(root, make(source, T2, [pendingHunk]));
+    expect(await recordShown(root, source, older)).toBe(true);
+    expect(await opensWith()).toEqual({ load: T1, index: T1 });
+    // Decisions written into the newer review, as a save off screen does, change nothing.
+    await saveReview(root, { ...make(source, T2), decidedAt: '2026-09-10T00:00:00.000Z' }, newer);
+    expect(await opensWith()).toEqual({ load: T1, index: T1 });
+    expect(await recordShown(root, source, newer)).toBe(true);
+    expect(await opensWith()).toEqual({ load: T2, index: T2 });
+    // A third review arriving is on screen, or what opens next.
+    await recordShown(root, source, older);
+    const T3 = '2026-09-11T08:00:00.000Z';
+    await saveReview(root, make(source, T3));
+    expect(await opensWith()).toEqual({ load: T3, index: T3 });
+  });
+
+  it('is recorded without touching the review file, its times included', async () => {
+    const decided = { ...make(source, T1, [pendingHunk]), decidedAt: '2026-09-08T11:00:00.000Z' };
+    const { path: older } = await saveReview(root, decided);
+    await saveReview(root, make(source, T2));
+    const before = { bytes: await fs.readFile(older), mtime: (await fs.stat(older)).mtimeMs };
+    expect(await recordShown(root, source, older)).toBe(true);
+    expect(await fs.readFile(older)).toEqual(before.bytes);
+    expect((await fs.stat(older)).mtimeMs).toBe(before.mtime);
+    const [, entry] = await listReviews(root, source);
+    expect(entry).toMatchObject({ createdAt: T1, updatedAt: T1, decidedAt: '2026-09-08T11:00:00.000Z' });
+  });
+
+  it('writes the record only when it changes', async () => {
+    const { path: file } = await saveReview(root, make(source, T1));
+    const first = (await fs.stat(lastOpenFile())).mtimeMs;
+    const bytes = await fs.readFile(lastOpenFile(), 'utf8');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await recordShown(root, source, file)).toBe(true);
+    expect((await fs.stat(lastOpenFile())).mtimeMs).toBe(first);
+    expect(JSON.parse(bytes)).toEqual({
+      version: 1,
+      chapters: [{ sourcePath: source, file: path.basename(file) }]
+    });
+  });
+
+  it('records only a review of this chapter in its own folder', async () => {
+    const { path: own } = await saveReview(root, make(source, T2));
+    const other = await saveReview(root, make('C:/vault/B/Chapter 12.md', T1));
+    const elsewhere = path.join(root, 'elsewhere', path.basename(own));
+    await fs.mkdir(path.dirname(elsewhere));
+    await fs.copyFile(own, elsewhere);
+    expect(await recordShown(root, source, other.path)).toBe(false);
+    expect(await recordShown(root, source, elsewhere)).toBe(false);
+    expect(await recordShown(root, source, path.join(root, 'chapter-12', 'nothing.review.json'))).toBe(false);
+    expect(await recordShown(root, source, path.join(root, 'chapter-12', '.last-open.json'))).toBe(false);
+    expect((await loadLatestReview(root, source))?.path).toBe(own);
+  });
+
+  it('keeps a record per chapter for same-named chapters that share a folder', async () => {
+    const a = 'C:/vault/A/Chapter 12.md';
+    const b = 'C:/vault/B/Chapter 12.md';
+    const { path: a1 } = await saveReview(root, make(a, T1));
+    await saveReview(root, make(a, T2));
+    const { path: b1 } = await saveReview(root, make(b, T1));
+    const { path: b2 } = await saveReview(root, make(b, '2026-09-08T13:00:00.000Z'));
+    await recordShown(root, a, a1);
+    const index = await reviewIndex(root, [a, b]);
+    expect(index[a]?.path).toBe(a1);
+    expect(index[b]?.path).toBe(b2);
+    await recordShown(root, b, b1);
+    expect((await loadLatestReview(root, a))?.path).toBe(a1);
+    expect((await loadLatestReview(root, b))?.path).toBe(b1);
+  });
+
+  it('is the review last decided in when nothing is recorded, or the review recorded is gone', async () => {
+    // Every chapter opened that way before anything was recorded, and a
+    // decision is made only on screen. The first file in the folder is
+    // neither the newest nor the one decided in.
+    await saveReview(root, make(source, '2026-09-08T08:00:00.000Z'));
+    const { path: older } = await saveReview(root, {
+      ...make(source, T1, [pendingHunk]),
+      decidedAt: '2026-09-09T00:00:00.000Z'
+    });
+    const { path: newer } = await saveReview(root, make(source, T2));
+    await fs.rm(lastOpenFile());
+    expect(await opensWith()).toEqual({ load: T1, index: T1 });
+    await recordShown(root, source, newer);
+    expect(await opensWith()).toEqual({ load: T2, index: T2 });
+    await fs.rm(newer);
+    expect(await opensWith()).toEqual({ load: T1, index: T1 });
+    expect((await loadLatestReview(root, source))?.path).toBe(older);
+    // A record this app did not write is no record.
+    await fs.writeFile(lastOpenFile(), '{ half');
+    expect(await opensWith()).toEqual({ load: T1, index: T1 });
+  });
+
+  it('leaves a review written and its chapter readable when the record cannot be written', async () => {
+    // A folder where the record goes: Windows refuses the rename, and the
+    // write gives up after its retries (about 1.5 s each time).
+    await fs.mkdir(lastOpenFile(), { recursive: true });
+    const { path: file } = await saveReview(root, make(source, T1));
+    expect((await loadReviewFile(file)).createdAt).toBe(T1);
+    expect(await recordShown(root, source, file)).toBe(false);
+    expect((await loadLatestReview(root, source))?.path).toBe(file);
+  }, 15_000);
 
   it('counts decisions the chapter file does not have yet', async () => {
     const source = 'C:/vault/Chapter 12.md';
@@ -387,6 +500,32 @@ describe('following a moved or renamed chapter', () => {
     expect(await fs.readdir(root)).toEqual(['chapter-7']);
     // Asked again, the reviews are simply its own.
     expect((await loadLatestReview(root, now, { hash: 'H7', exists: gone }))?.adoptedFrom).toBeUndefined();
+  });
+
+  it('carries the review last on screen to the new path, and leaves no record behind (apply.26)', async () => {
+    const old = 'C:/vault/Draft 7.md';
+    const now = 'C:/vault/Chapter 7.md';
+    const { path: older } = await saveReview(root, makeWith(old, T1, LONG, 'H7'));
+    await saveReview(root, makeWith(old, T2, LONG, 'H7'));
+    await recordShown(root, old, older);
+    const loaded = await loadLatestReview(root, now, { hash: 'H7', exists: gone });
+    expect(loaded?.adoptedFrom).toBe(old);
+    expect(loaded?.review.createdAt).toBe(T1);
+    expect(path.basename(loaded!.path)).toBe(path.basename(older));
+    expect((await reviewIndex(root, [now]))[now]?.createdAt).toBe(T1);
+    // The old folder held only these reviews and their record, so it goes.
+    expect(await fs.readdir(root)).toEqual(['chapter-7']);
+  });
+
+  it('carries the record within a shared folder when the vault moved', async () => {
+    const old = 'C:/Old/Novel/Ch 1.md';
+    const now = 'D:/New/Novel/Ch 1.md';
+    const { path: older } = await saveReview(root, make(old, T1));
+    await saveReview(root, make(old, T2));
+    await recordShown(root, old, older);
+    expect((await loadLatestReview(root, now, { exists: gone }))?.path).toBe(older);
+    const record: unknown = JSON.parse(await fs.readFile(path.join(root, 'ch-1', '.last-open.json'), 'utf8'));
+    expect(record).toEqual({ version: 1, chapters: [{ sourcePath: now, file: path.basename(older) }] });
   });
 
   it('adopts nothing while the old file still exists', async () => {

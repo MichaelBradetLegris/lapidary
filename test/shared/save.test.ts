@@ -11,7 +11,6 @@ import {
   CHAPTER_MATCHES_PAGE,
   changeCount,
   closePrompt,
-  currentReviewId,
   isOpenTarget,
   KEPT_TOOLTIP,
   keptPhrase,
@@ -289,50 +288,6 @@ describe('needsAttention', () => {
   });
 });
 
-describe('currentReviewId', () => {
-  const older = { id: 'a', createdAt: '2026-10-01T09:00:00.000Z' };
-  const newer = { id: 'b', createdAt: '2026-10-10T09:00:00.000Z' };
-
-  it('is null with no reviews and the newest review otherwise', () => {
-    expect(currentReviewId([])).toBeNull();
-    expect(currentReviewId([older, newer])).toBe('b');
-    expect(currentReviewId([newer, older])).toBe('b');
-  });
-
-  it('prefers the review last decided in over a newer one', () => {
-    const revisited = { ...older, decidedAt: '2026-10-12T09:00:00.000Z' };
-    expect(currentReviewId([revisited, newer])).toBe('a');
-  });
-
-  it('breaks a tie on the decision time by creation time', () => {
-    const at = '2026-10-12T09:00:00.000Z';
-    expect(
-      currentReviewId([
-        { ...older, decidedAt: at },
-        { ...newer, decidedAt: at }
-      ])
-    ).toBe('b');
-    expect(
-      currentReviewId([
-        { ...newer, decidedAt: at },
-        { ...older, decidedAt: at }
-      ])
-    ).toBe('b');
-  });
-
-  it('takes the times of the review on screen over a stale History entry', () => {
-    const live = { ...older, decidedAt: '2026-10-16T09:00:00.000Z' };
-    expect(currentReviewId([older, newer], live)).toBe('a');
-    expect(currentReviewId([older, newer], null)).toBe('b');
-  });
-
-  it('counts the review on screen when History does not list it yet', () => {
-    const fresh = { id: 'c', createdAt: '2026-10-16T09:00:00.000Z' };
-    expect(currentReviewId([older, newer], fresh)).toBe('c');
-    expect(currentReviewId([], fresh)).toBe('c');
-  });
-});
-
 describe('closePrompt', () => {
   it('asks nothing when nothing is at risk, or only writes are waiting', () => {
     expect(closePrompt(guard())).toBeNull();
@@ -424,25 +379,12 @@ describe('closePrompt', () => {
     expect(prompt?.defaultButton).toBe('alt');
   });
 
-  it('says where to find decisions kept in an older review', () => {
-    const prompt = closePrompt(guard({ unsavedDecisions: 1 }), { olderReviewFrom: '14/10/2026, 16:04:33' });
-    expect(prompt?.body.split('\n')[1]).toBe(
-      'Your decisions are kept in the review from 14/10/2026, 16:04:33. The chapter opens with another review, so reopen this one from History. The chapter file changes only when you press Save to chapter.'
-    );
-    expect(closePrompt(guard({ unsavedDecisions: 1 }), { olderReviewFrom: null })?.body).toContain(KEPT);
-  });
-
-  it('does not call the review the chapter opens with newer when History dates it earlier', () => {
-    // R1 was created first but last decided in after R2, so the chapter opens
-    // with R1, which History dates 01/10/2026; R2, from 10/10/2026, is on screen.
-    const r1 = { id: 'r1', createdAt: '2026-10-01T09:00:00.000Z', decidedAt: '2026-10-12T09:00:00.000Z' };
-    const r2 = { id: 'r2', createdAt: '2026-10-10T09:00:00.000Z', decidedAt: '2026-10-11T09:00:00.000Z' };
-    expect(currentReviewId([r1, r2], r2)).toBe('r1');
-    const prompt = closePrompt(guard({ unsavedDecisions: 2 }), { olderReviewFrom: '10/10/2026, 10:00:00' });
-    expect(prompt?.body).toContain(
-      'Your decisions are kept in the review from 10/10/2026, 10:00:00. The chapter opens with another review, so reopen this one from History.'
-    );
-    expect(prompt?.body).not.toMatch(/newer|older/i);
+  it('keeps the decisions in the review on screen, the one the chapter opens with (apply.26)', () => {
+    // The chapter opens with the review last on screen, so no line sends the
+    // author to History for another one.
+    const prompt = closePrompt(guard({ unsavedDecisions: 2 }));
+    expect(prompt?.body.split('\n')[1]).toBe(KEPT);
+    expect(prompt?.body).not.toMatch(/History|another review|review from/);
   });
 
   it('offers no Save without a chapter file', () => {
@@ -466,10 +408,22 @@ describe('leavePrompt', () => {
     expect(
       leavePrompt(leaving({ unsavedDecisions: 2 }), {
         kind: 'review',
-        id: 'chapter-3--2026-10-14T16:04:33.000Z',
-        when: '14/10/2026, 16:04:33'
+        id: 'chapter-3--2026-10-14T16:04:33.000Z'
       })
     ).toBeNull();
+  });
+
+  it('never asks before another review of the open chapter (apply.26)', () => {
+    // From History or the selector: decisions live in each review and are
+    // written as they are made, and boxes follow the chapter (C.53).
+    const toReview = { kind: 'review', id: 'chapter-3--2026-10-01T09:00:00.000Z' } as const;
+    for (const patch of [
+      { unsavedDecisions: 2 },
+      { changedParagraphs: 1 },
+      { unsavedDecisions: 1, changedParagraphs: 3 }
+    ]) {
+      expect(leavePrompt(leaving(patch), toReview)).toBeNull();
+    }
   });
 
   it('asks again for a path that differs only in case, which costs a click and loses nothing', () => {
@@ -510,46 +464,10 @@ describe('leavePrompt', () => {
     ]);
   });
 
-  it('names the History review being opened', () => {
-    const prompt = leavePrompt(leaving({ unsavedDecisions: 2 }), {
-      kind: 'review',
-      id: 'chapter-3--2026-10-01T09:00:00.000Z',
-      when: '01/10/2026, 10:00:00'
-    });
-    expect(prompt?.title).toBe('Open the review from 01/10/2026, 10:00:00?');
-    expect(prompt?.confirmLabel).toBe('Save 2 changes first');
-  });
-
-  it('says open boxes go with the author to a History review where their paragraph reads the same', () => {
-    // Boxes belong to the chapter (C.53): the review opened from History is
-    // where they are put back at once, or set aside when they cannot be.
-    const toReview = {
-      kind: 'review',
-      id: 'chapter-3--2026-10-01T09:00:00.000Z',
-      when: '01/10/2026'
-    } as const;
-    const one = leavePrompt(leaving({ changedParagraphs: 1 }), toReview);
-    expect(one?.body).toBe(
-      'The paragraph you are editing is kept as you left it. It opens for editing again in the review you are opening if the paragraph reads the same there; if not, what you typed is set aside in a text file you can open.'
-    );
-    expect(one?.confirmLabel).toBe('Apply and save first');
-    expect(
-      leavePrompt(leaving({ changedParagraphs: 3, unsavedDecisions: 1 }), toReview)?.body.split('\n')
-    ).toEqual([
-      '1 change is not saved to the chapter yet.',
-      KEPT,
-      'The 3 paragraphs you are editing are kept as you left them. Each opens for editing again in the review you are opening if its paragraph reads the same there; if not, what you typed in it is set aside in a text file you can open.'
-    ]);
-  });
-
-  it('says where to find decisions kept in an older review', () => {
-    const prompt = leavePrompt(leaving({ unsavedDecisions: 1 }), toOther, {
-      olderReviewFrom: '01/10/2026, 10:00:00'
-    });
-    expect(prompt?.body).toContain(
-      'Your decisions are kept in the review from 01/10/2026, 10:00:00. The chapter opens with another review, so reopen this one from History.'
-    );
-    expect(prompt?.body).not.toMatch(/newer/i);
+  it('keeps the decisions in the review on screen, the one the chapter opens with (apply.26)', () => {
+    const prompt = leavePrompt(leaving({ unsavedDecisions: 1, changedParagraphs: 1 }), toOther);
+    expect(prompt?.title).toBe('Leave Chapter 3?');
+    expect(prompt?.body).not.toMatch(/History|another review|review from|review you are opening/);
   });
 
   it('offers no Save without a chapter file', () => {
@@ -565,29 +483,23 @@ describe('isOpenTarget (apply.7)', () => {
   it('is the open chapter, spelled with either separator, or the review on screen', () => {
     expect(isOpenTarget(on, { kind: 'chapter', path: CHAPTER })).toBe(true);
     expect(isOpenTarget(on, { kind: 'chapter', path: 'D:/Writing/Novel/Chapter 3.md' })).toBe(true);
-    expect(isOpenTarget(on, { kind: 'review', id: 'chapter-3--2026-10-14T16:04:33.000Z', when: 'x' })).toBe(
-      true
-    );
+    expect(isOpenTarget(on, { kind: 'review', id: 'chapter-3--2026-10-14T16:04:33.000Z' })).toBe(true);
   });
 
   it('is not another chapter, another review, a path that differs in case, or anything with nothing open', () => {
     expect(isOpenTarget(on, { kind: 'chapter', path: OTHER })).toBe(false);
     expect(isOpenTarget(on, { kind: 'chapter', path: CHAPTER.toLowerCase() })).toBe(false);
-    expect(isOpenTarget(on, { kind: 'review', id: 'chapter-3--2026-10-01T09:00:00.000Z', when: 'x' })).toBe(
-      false
-    );
+    expect(isOpenTarget(on, { kind: 'review', id: 'chapter-3--2026-10-01T09:00:00.000Z' })).toBe(false);
     const nothing = leaving({ chapter: null, reviewId: null });
     expect(isOpenTarget(nothing, { kind: 'chapter', path: CHAPTER })).toBe(false);
-    expect(isOpenTarget(nothing, { kind: 'review', id: '', when: 'x' })).toBe(false);
+    expect(isOpenTarget(nothing, { kind: 'review', id: '' })).toBe(false);
   });
 
-  it('is exactly where leavePrompt asks nothing whatever is unsaved', () => {
+  it('is, among chapters, exactly where leavePrompt asks nothing whatever is unsaved', () => {
     const targets = [
       { kind: 'chapter', path: CHAPTER },
       { kind: 'chapter', path: OTHER },
-      { kind: 'chapter', path: CHAPTER.toLowerCase() },
-      { kind: 'review', id: 'chapter-3--2026-10-14T16:04:33.000Z', when: 'x' },
-      { kind: 'review', id: 'chapter-3--2026-10-01T09:00:00.000Z', when: 'x' }
+      { kind: 'chapter', path: CHAPTER.toLowerCase() }
     ] as const;
     for (const target of targets) {
       const asked = leavePrompt(leaving({ unsavedDecisions: 1, changedParagraphs: 1 }), target) !== null;
@@ -981,19 +893,11 @@ describe('wording rules', () => {
           add(saveButtonState(button({ unsavedDecisions: n, changedParagraphs: p, locked: flag })));
           add(saveButtonState(button({ unsavedDecisions: n, saving: flag, hasChapter: !flag })));
           add(closePrompt(state));
-          add(closePrompt(state, { olderReviewFrom: '14/10/2026' }));
           add(
             leavePrompt(leaving({ unsavedDecisions: n, changedParagraphs: p }), {
               kind: 'chapter',
               path: OTHER
             })
-          );
-          add(
-            leavePrompt(
-              leaving({ unsavedDecisions: n, changedParagraphs: p }),
-              { kind: 'review', id: 'other', when: '14/10/2026' },
-              { olderReviewFrom: '01/10/2026' }
-            )
           );
           add(unresponsiveDetail('no-answer', state));
           add(unresponsiveDetail('finishing', state));

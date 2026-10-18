@@ -1,8 +1,7 @@
 import { unsavedDecisionCount } from '../../shared/diff/compose';
-import type { CloseGuardState, CloseStatus, FlushReason, ReviewSummary } from '../../shared/ipc';
+import type { CloseGuardState, CloseStatus, FlushReason } from '../../shared/ipc';
 import type { ConfirmChoice, ConfirmSpec } from '../../shared/ui/confirm';
 import { closePrompt, stillWritingPrompt, WRITES_WAIT_MS } from '../../shared/ui/save';
-import { olderReviewFrom } from './leave';
 import { pendingSave, type SaveOptions, type SaveOutcome } from './saveChapter';
 import { changedParagraphCount, hasDialogText, isLocked, useApp, type AppState } from './store';
 
@@ -60,8 +59,6 @@ export interface CloseGuardDeps {
   writes: PageWrites;
   /** Save to chapter, waited for (`useSaveChapter`) */
   save: (options: SaveOptions) => Promise<SaveOutcome>;
-  /** History as last read, for the date of a review the chapter will not open with */
-  history: () => readonly ReviewSummary[];
   /** stop the review that is running, if one is */
   cancelReview: () => void;
   /** how long the writes may take before the page asks; `WRITES_WAIT_MS` unless a test shortens it */
@@ -227,10 +224,7 @@ async function decide(deps: CloseGuardDeps): Promise<boolean> {
     stopReview(deps);
     return true;
   }
-  const state = useApp.getState();
-  const prompt = closePrompt(closeGuardStateOf(state), {
-    olderReviewFrom: olderReviewFrom(state.review, deps.history())
-  });
+  const prompt = closePrompt(closeGuardStateOf(useApp.getState()));
   // Nothing to ask: the writes were all there was, and they are done.
   if (!prompt) return true;
 

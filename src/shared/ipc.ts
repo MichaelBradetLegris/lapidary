@@ -434,6 +434,8 @@ export interface ApiRequestMap {
   /** `hash` is the chapter file's current hash, which lets a renamed chapter find its reviews */
   'reviews:load-latest': { request: { sourcePath: string; hash?: string }; response: LoadedReview | null };
   'reviews:save': { request: { review: Review; path?: string }; response: { path: string } };
+  /** the page shows this review of the chapter, so the chapter opens with it next time (apply.26) */
+  'reviews:shown': { request: { sourcePath: string; path: string }; response: void };
   'reviews:index': { request: void; response: Record<string, ReviewSummary> };
   'guidelines:ensure': { request: void; response: GuidelinesInfo };
   /** create the guidelines file if missing, then open it in Obsidian or the OS editor */
@@ -497,6 +499,7 @@ const REQUEST_CHANNEL_FLAGS = {
   'reviews:load': true,
   'reviews:load-latest': true,
   'reviews:save': true,
+  'reviews:shown': true,
   'reviews:index': true,
   'guidelines:ensure': true,
   'guidelines:open': true,

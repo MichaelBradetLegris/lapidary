@@ -996,6 +996,38 @@ input[type='text'] {
   white-space: nowrap;
 }
 
+/* The review selector at the very top of the panel, above both regions (and
+   above the short window's one scroller), so it never scrolls (apply.26). The
+   select takes the width the warning mark leaves; a label longer than that is
+   cut off, and its tooltip and the open list show it whole. */
+.side__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.review-picker {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+/* Not the newest review: the mark before the select, and the select's frame in
+   the warning colour, so the two read as one. */
+.side__head--older .review-picker {
+  border-color: var(--warn);
+}
+
+.review-picker__mark {
+  flex: none;
+  display: inline-flex;
+  color: var(--warn);
+}
+
 /* The suggestions list takes what it needs, up to about 55% of the panel, with
    its heading pinned above the rows that scroll. */
 .side__list {

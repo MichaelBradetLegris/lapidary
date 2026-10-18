@@ -2,10 +2,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { unsavedDecisionCount } from '../../src/shared/diff/compose';
-import type { CloseGuardState, ReviewSummary, SaveRequest, SaveResponse } from '../../src/shared/ipc';
+import type { CloseGuardState, SaveRequest, SaveResponse } from '../../src/shared/ipc';
 import { createReview } from '../../src/shared/review';
 import type { Review } from '../../src/shared/types';
-import { historyWhen } from '../../src/shared/ui/history';
 import { closePrompt, stillWritingPrompt, WRITES_WAIT_MS } from '../../src/shared/ui/save';
 import {
   closeGuardStateOf,
@@ -93,7 +92,6 @@ interface Harness {
 function harness(
   options: {
     save?: CloseGuardDeps['save'];
-    history?: ReviewSummary[];
     /** a writer behind the stand-in, which still counts and holds its flushes */
     writes?: PageWrites;
     writesWaitMs?: number;
@@ -156,7 +154,6 @@ function harness(
         h.saves.push(opts);
         return Promise.resolve('saved' as SaveOutcome);
       }),
-    history: () => options.history ?? [],
     cancelReview: () => {
       h.cancels += 1;
     },
@@ -628,29 +625,15 @@ describe('prepareToLeaveApp, the close request (apply.9)', () => {
     expect(h.sent.at(-1)).toBe('decision:false');
   });
 
-  it('says where the decisions wait when the chapter will open with another review', async () => {
-    const history: ReviewSummary[] = [
-      {
-        path: 'C:/reviews/chapter-01/review-2.review.json',
-        id: 'review-2',
-        createdAt: '2026-10-17T09:00:00.000Z',
-        updatedAt: '2026-10-17T10:00:00.000Z',
-        decidedAt: '2026-10-17T10:00:00.000Z',
-        generatorKind: 'claude',
-        hunkCount: 1,
-        pendingCount: 1,
-        sourcePath: SOURCE,
-        unsavedCount: 0
-      }
-    ];
+  it('keeps the decisions in the review on screen, which the chapter opens with (apply.26)', async () => {
     state().toggleAccepted('h1');
-    useApp.setState({ review: { ...state().review!, decidedAt: '2026-10-16T09:31:00.000Z' } });
-    guard({ history });
+    guard();
     const run = prepareToLeaveApp('close');
     await settle();
-    expect(state().confirmSpec?.body).toContain(
-      `Your decisions are kept in the review from ${historyWhen('2026-10-16T09:00:00.000Z')}. The chapter opens with another review, so reopen this one from History.`
-    );
+    expect(state().confirmSpec?.body.split('\n')).toEqual([
+      '1 change is not saved to the chapter yet.',
+      'Your decisions are kept in this review. The chapter file changes only when you press Save to chapter.'
+    ]);
     state().answerChoice('cancel');
     await run;
   });
@@ -672,8 +655,11 @@ describe('prepareToLeaveApp, the close request (apply.9)', () => {
   it('always answers, false when something goes wrong, and says so', async () => {
     state().toggleAccepted('h1');
     const h = guard();
-    h.deps.history = () => {
-      throw new Error('broken');
+    h.deps.writes = {
+      ...h.deps.writes,
+      retry: () => {
+        throw new Error('broken');
+      }
     };
     expect(await prepareToLeaveApp('close')).toBe(false);
     expect(h.sent.at(-1)).toBe('decision:false');

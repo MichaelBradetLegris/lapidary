@@ -50,6 +50,7 @@ import {
   listReviews,
   loadLatestReview,
   loadReviewFile,
+  recordShown,
   resolveReviewsFolder,
   reviewIndex,
   saveReview
@@ -445,6 +446,11 @@ function registerReviewHandlers(): void {
   );
 
   handle('reviews:save', async ({ review, path: file }) => saveReview(await reviewsFolder(), review, file));
+
+  // The review on screen is the one its chapter opens with next (apply.26).
+  handle('reviews:shown', async ({ sourcePath, path: file }) => {
+    await recordShown(await reviewsFolder(), sourcePath, file);
+  });
 
   handle('reviews:index', async () =>
     reviewIndex(

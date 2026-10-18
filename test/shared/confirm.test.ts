@@ -152,7 +152,7 @@ describe('the leave and close prompts in the dialog (apply.2 shapes)', () => {
               if (close) prompts.push(close);
               const leave = leavePrompt(
                 { chapter, unsavedDecisions: n, changedParagraphs: p, locked, reviewId: 'r1' },
-                { kind: 'review', id: 'r2', when: '14 Oct 2026, 16:04' }
+                { kind: 'chapter', path: 'D:\\Writing\\Novel\\Chapter 4.md' }
               );
               if (leave) prompts.push(leave);
             }

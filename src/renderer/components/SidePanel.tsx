@@ -3,14 +3,14 @@ import { isAuthored } from '../../shared/edit';
 import type { ReviewSummary } from '../../shared/ipc';
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import { groupComments } from '../../shared/ui/comments';
-import { historyCounts, historyWhen } from '../../shared/ui/history';
+import { historyCounts, historyWhen, NO_REVIEWS_YET, reviewPicker } from '../../shared/ui/history';
 import { groupSuggestions, summaryLine } from '../../shared/ui/suggestions';
 import { SHOW_BACKUPS, SHOW_BACKUPS_TITLE } from '../../shared/ui/backups';
 import { PROVIDER_NAMES, type Hunk, type Review, type ReviewComment } from '../../shared/types';
 import { editFromComment, editHunk } from '../state/edit';
 import { followFocus, scrollToElement } from '../state/scroll';
 import { inDraft, isLocked, useApp } from '../state/store';
-import { IconCheck, IconPencil, IconUndo, IconX } from './icons';
+import { IconCheck, IconPencil, IconUndo, IconWarning, IconX } from './icons';
 
 interface Props {
   review: Review;
@@ -56,6 +56,20 @@ export function SidePanel({
 
   const focused = review.hunks.find((h) => h.id === focusedHunkId) ?? null;
   const { open: openComments, resolved } = useMemo(() => groupComments(review.comments), [review.comments]);
+  const picker = useMemo(
+    () => reviewPicker(history, activeReviewPath, review),
+    [history, activeReviewPath, review]
+  );
+  const pickedLabel = picker.choices.find((c) => c.value === picker.selected)?.label ?? NO_REVIEWS_YET;
+
+  /* Another review from the selector opens as a History row does, without a
+     question (apply.26); the review on screen, or one History no longer
+     lists, does nothing. */
+  const chooseReview = (value: string): void => {
+    if (value === picker.selected || !onOpenHistory) return;
+    const entry = history.find((e) => e.path === value);
+    if (entry) onOpenHistory(entry);
+  };
 
   /* Keep the focused suggestion in view when the focus moves, by key or by
      click (panel.1): its row in the list, and its details in the region below
@@ -100,6 +114,44 @@ export function SidePanel({
      instead (app.css). */
   return (
     <aside className={`side ${locked ? 'side--locked' : ''}`} inert={locked}>
+      {/* The chapter's reviews, the one on screen selected, at the very top
+          and outside both regions, so it never scrolls (apply.26). The mark
+          says when that one is not the newest; the chapter opens with it all
+          the same, since it was the last on screen. */}
+      {onOpenHistory ? (
+        <div className={`side__head ${picker.notNewest ? 'side__head--older' : ''}`}>
+          {picker.notNewest ? (
+            <span
+              id="review-picker-mark"
+              className="review-picker__mark"
+              role="img"
+              aria-label={picker.notNewest}
+              title={picker.notNewest}
+            >
+              <IconWarning />
+            </span>
+          ) : null}
+          <select
+            className="review-picker"
+            aria-label="Review shown"
+            aria-describedby={picker.notNewest ? 'review-picker-mark' : undefined}
+            title={pickedLabel}
+            value={picker.selected}
+            disabled={picker.choices.length === 0}
+            onChange={(event) => chooseReview(event.target.value)}
+          >
+            {picker.choices.length === 0 ? (
+              <option value="">{NO_REVIEWS_YET}</option>
+            ) : (
+              picker.choices.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+      ) : null}
       <div className="side__body">
         <section className="side__section side__list">
           <h3>Suggestions ({inline.length})</h3>

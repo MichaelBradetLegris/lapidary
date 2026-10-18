@@ -117,6 +117,16 @@ export function IconChevronUp({ size = 12 }: IconProps = {}): React.JSX.Element 
   );
 }
 
+/** The review selector's mark when the review on screen is not the newest (apply.26). */
+export function IconWarning({ size = 14 }: IconProps = {}): React.JSX.Element {
+  return (
+    <svg {...svgProps(size)}>
+      <path d="M8 2.3 14.2 13.2H1.8z" />
+      <path d="M8 6.5v3.1M8 11.4v.1" />
+    </svg>
+  );
+}
+
 export function IconChevronDown({ size = 12 }: IconProps = {}): React.JSX.Element {
   return (
     <svg {...svgProps(size)}>
