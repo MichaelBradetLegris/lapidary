@@ -74,7 +74,7 @@ describe('the toolbar shows the hint (apply.12)', () => {
   });
 
   it('keeps it to the side panel column and its arrow off the buttons under Save to chapter', () => {
-    expect(HINT).toContain("const side = document.querySelector('.body > .side')?.getBoundingClientRect();");
+    expect(HINT).toContain("const side = document.querySelector('.body .side')?.getBoundingClientRect();");
     expect(HINT).toContain('column: side && side.width > 0 ? span(side) : null,');
     // The toolbar's items on later rows than Save's, the hint itself left out.
     expect(HINT).toMatch(
@@ -134,9 +134,12 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
   });
 
   it('stays clear of the cards and the find bar, which live in the centre column beside the side panel', () => {
-    // The hint keeps to `.body > .side` (above). The find bar and the cards are
+    // The hint keeps to `.body .side` (above). The find bar and the cards are
     // in `.center-wrap`, the column before it, and never reach out of it: the
     // find bar is a strip in its flow, and the cards are pinned inside it.
+    // With the side panel folded to a strip (ui.3), its drawer's column lies
+    // over the prose's edge, so there the hint may meet them: see
+    // test/renderer/columns.test.ts.
     const wrap = APP.indexOf('<div className={`center-wrap');
     const find = APP.indexOf('<FindBar />');
     const cards = APP.indexOf('<NotificationCards');

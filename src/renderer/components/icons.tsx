@@ -117,6 +117,23 @@ export function IconChevronUp({ size = 12 }: IconProps = {}): React.JSX.Element 
   );
 }
 
+/** A folded column's strip (ui.3): the way its drawer opens or closes. */
+export function IconChevronRight({ size = 12 }: IconProps = {}): React.JSX.Element {
+  return (
+    <svg {...svgProps(size)}>
+      <path d="M6 3.5 10.5 8 6 12.5" />
+    </svg>
+  );
+}
+
+export function IconChevronLeft({ size = 12 }: IconProps = {}): React.JSX.Element {
+  return (
+    <svg {...svgProps(size)}>
+      <path d="M10 3.5 5.5 8 10 12.5" />
+    </svg>
+  );
+}
+
 /** The review selector's mark when the review on screen is not the newest (apply.26). */
 export function IconWarning({ size = 14 }: IconProps = {}): React.JSX.Element {
   return (

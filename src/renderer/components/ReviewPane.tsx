@@ -32,7 +32,8 @@ interface Props {
 /**
  * Below this the gutter would squeeze the prose too hard, so comments fall back
  * to the sidebar alone. Measured against the scroller, not the window: the file
- * list and the side panel take a fixed 550px between them.
+ * list and the side panel take up to 550px between them, and less once they
+ * give way to the prose in a narrow window (ui.3).
  */
 const GUTTER_MIN_WIDTH = 820;
 

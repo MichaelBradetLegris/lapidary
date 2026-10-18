@@ -18,17 +18,22 @@ interface Props {
  * It is placed inside the toolbar, below its last row, so it can never cover
  * one of the toolbar's buttons, whichever row Save to chapter has wrapped onto.
  * It keeps to the side panel's column, so the notification cards, the find bar
- * and the chapter's text, all in the column beside it, stay in the clear; what
- * it may cover is the top of the side panel, the chips at that end of their
- * strip, and the find bar's last buttons when a centre column too narrow for
- * the bar lets them spill into the side panel's (PLAN 7). Got it is the way
- * out. The arrow points only at a part of Save to chapter with no toolbar
- * button under it, or the hint has none.
+ * and the chapter's text, all in the column beside it, stay in the clear. In a
+ * narrow window, with the panel folded to a strip, that is where the panel's
+ * drawer opens, beside the strip, over the edge of the prose (ui.3), so the
+ * strip stays in the clear. What it may cover is the top of the side panel,
+ * the chips at that end of their strip, and the find bar's last buttons when a
+ * centre column too narrow for the bar lets them spill into the side panel's;
+ * with the panel folded, the top of the prose and the find bar's end there,
+ * and the drawer's top when it is open (PLAN 7). Got it is the way out. The
+ * arrow points only at a part of Save to chapter with no toolbar button under
+ * it, or the hint has none.
  *
  * It is measured where it stands and moved by writing its style, as the hover
- * card is, and measured again whenever the toolbar or the button changes size:
- * zoom, a review's progress label, a longer count on the button. It takes no
- * focus, so j, k and the other keys go on working while it shows.
+ * card is, and measured again whenever the toolbar, the button or the columns
+ * change size: zoom, a review's progress label, a longer count on the button,
+ * the side panel folding or unfolding. It takes no focus, so j, k and the
+ * other keys go on working while it shows.
  */
 export function SaveHint({ anchor, text, onGotIt }: Props): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -43,8 +48,9 @@ export function SaveHint({ anchor, text, onGotIt }: Props): React.JSX.Element {
       const b = bar.getBoundingClientRect();
       const s = button.getBoundingClientRect();
       const span = (r: DOMRect): Span => ({ left: r.left - b.left, right: r.right - b.left });
-      // The side panel's column; the Setup screen has none.
-      const side = document.querySelector('.body > .side')?.getBoundingClientRect();
+      // The side panel's column, drawn in place or, folded, its drawer's,
+      // open or not, beside the strip (ui.3); the Setup screen has none.
+      const side = document.querySelector('.body .side')?.getBoundingClientRect();
       // The toolbar's items on rows below Save to chapter's.
       const below = [...bar.children]
         .filter((item) => item !== hint && item.getClientRects().length > 0)
@@ -74,6 +80,14 @@ export function SaveHint({ anchor, text, onGotIt }: Props): React.JSX.Element {
     observer.observe(bar);
     observer.observe(button);
     observer.observe(hint);
+    /* The columns are laid out again after the window's own resize has been
+       seen here, when the page has rendered the new layout, and the side
+       panel's column can move without the toolbar changing size: folded to a
+       strip it moves in from the window's edge (ui.3). Either the panel or the
+       centre column beside it changes size whenever that happens. */
+    for (const column of document.querySelectorAll('.body .side, .body > .center-wrap')) {
+      observer.observe(column);
+    }
     window.addEventListener('resize', place);
     return () => {
       observer.disconnect();

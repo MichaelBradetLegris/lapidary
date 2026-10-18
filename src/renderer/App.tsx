@@ -8,8 +8,10 @@ import { rebaseCardText } from '../shared/ui/rebase';
 import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
 import { runtimeLabel as labelForRuntime } from '../shared/ui/setup';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
+import { bodyClassName, columnClassName } from '../shared/ui/columns';
 import type { ApiEventMap, ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
 import { PROVIDER_NAMES, type Review } from '../shared/types';
+import { ColumnStrip } from './components/ColumnStrip';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { EditPopover } from './components/EditPopover';
 import { FileList } from './components/FileList';
@@ -41,6 +43,7 @@ import {
   retryDraftWrites,
   type DraftIo
 } from './state/drafts';
+import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
 import { dismissHint, flushHintWrites, type HintIo } from './state/hints';
 import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { useKeyboardBindings } from './state/keyboard';
@@ -250,6 +253,17 @@ export function App(): React.JSX.Element {
 
   useKeyboardBindings(save);
 
+  /* The side columns give way to the prose in a narrow window, which is what
+     zooming in makes: they shrink, then fold to strips that open them as
+     drawers over the edge of the prose (ui.3, state/columns.ts). */
+  const {
+    layout,
+    shown,
+    measure: measureBody,
+    style: columnStyle,
+    toggle: toggleDrawer
+  } = useColumns(review !== null);
+
   /* ---------------- leaving (apply.7, state/leave.ts) ---------------- */
 
   const leaveDeps = useMemo<LeaveDeps>(() => ({ save }), [save]);
@@ -445,6 +459,16 @@ export function App(): React.JSX.Element {
       offNotice();
     };
   }, [setReview, notify, refreshFiles, fail]);
+
+  /* A chapter chosen from the list, folded to a drawer in a narrow window,
+     is what the drawer was opened for, so it closes (ui.3). */
+  const openFromList = useCallback(
+    (file: ChapterFile) => {
+      closeDrawer('files');
+      openChapter(file);
+    },
+    [openChapter]
+  );
 
   /* ---------------- review persistence (apply.1) ---------------- */
 
@@ -746,25 +770,46 @@ export function App(): React.JSX.Element {
         {toolbar}
         {review ? <FilterChips review={review} /> : null}
 
-        <div className="body">
-          <FileList
-            files={files}
-            index={index}
-            review={review}
-            configured={Boolean(settings?.manuscriptFolder)}
-            problem={filesProblem}
-            onOpen={openChapter}
-            onChooseFolder={chooseManuscriptFolder}
-            onReadAgain={refreshFiles}
-            onNewChapter={() => setNewChapterOpen(true)}
-          />
+        {/* Each side column is drawn in place, its wrapper laying out nothing,
+            or, in a narrow window, folded to a strip whose button opens it as
+            a drawer over the edge of the prose (ui.3). The wrappers are always
+            there, so a column keeps its state as the window narrows or widens;
+            a closed drawer is hidden and inert. */}
+        <div className={bodyClassName(layout)} style={columnStyle} ref={measureBody}>
+          {layout.files === 'strip' ? (
+            <ColumnStrip column="files" open={shown === 'files'} onToggle={() => toggleDrawer('files')} />
+          ) : null}
+          <div
+            id={drawerId('files')}
+            className={columnClassName('files', layout, shown)}
+            inert={layout.files === 'strip' && shown !== 'files'}
+          >
+            <FileList
+              files={files}
+              index={index}
+              review={review}
+              configured={Boolean(settings?.manuscriptFolder)}
+              problem={filesProblem}
+              onOpen={openFromList}
+              onChooseFolder={chooseManuscriptFolder}
+              onReadAgain={refreshFiles}
+              onNewChapter={() => setNewChapterOpen(true)}
+            />
+          </div>
 
           {/* The find bar is a strip above the scroller, not a sticky bar inside
             it: inside, it scrolled out of view once the author was more than
             a screen down, and Ctrl+F then seemed to do nothing (round 4). */}
           <div className={`center-wrap ${findOpen ? 'center-wrap--find' : ''}`}>
             {review ? <FindBar /> : null}
-            <main className="center">
+            {/* A press in the prose closes an open drawer, as a click
+                outside a menu closes it (ui.3), and does what it would anyway. */}
+            <main
+              className="center"
+              onPointerDown={() => {
+                if (useDrawer.getState().open !== null) useDrawer.getState().setOpen(null);
+              }}
+            >
               {review ? (
                 <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
               ) : (
@@ -810,18 +855,32 @@ export function App(): React.JSX.Element {
             <LockCard label={progressLabel} onCancel={ai.cancel} />
           </div>
 
-          {review ? (
-            <SidePanel
-              review={review}
-              history={history}
-              activeReviewPath={reviewPath}
-              onSetCommentStatus={setCommentStatus}
-              onOpenHistory={openHistoryEntry}
-              onShowBackups={() => revealBackups(review.sourcePath)}
-            />
-          ) : (
-            <aside className="side" />
-          )}
+          {layout.side === 'strip' ? (
+            review ? (
+              <ColumnStrip column="side" open={shown === 'side'} onToggle={() => toggleDrawer('side')} />
+            ) : (
+              // Nothing open, nothing to show: the strip without its button.
+              <div className="strip strip--side strip--empty" />
+            )
+          ) : null}
+          <div
+            id={drawerId('side')}
+            className={columnClassName('side', layout, shown)}
+            inert={layout.side === 'strip' && shown !== 'side'}
+          >
+            {review ? (
+              <SidePanel
+                review={review}
+                history={history}
+                activeReviewPath={reviewPath}
+                onSetCommentStatus={setCommentStatus}
+                onOpenHistory={openHistoryEntry}
+                onShowBackups={() => revealBackups(review.sourcePath)}
+              />
+            ) : (
+              <aside className="side" />
+            )}
+          </div>
         </div>
 
         <StatusBar
@@ -838,6 +897,8 @@ export function App(): React.JSX.Element {
               setNewChapterOpen(false);
               refreshFiles();
               openChapter(file);
+              // made from the chapter list's +, perhaps in its drawer (ui.3)
+              closeDrawer('files');
               notify('info', `Created ${file.name}.`);
             }}
           />

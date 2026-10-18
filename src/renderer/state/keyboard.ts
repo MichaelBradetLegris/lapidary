@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { sortComments } from '../../shared/ui/comments';
 import { saveShortcutAction } from '../../shared/ui/save';
+import { closeDrawer, inOpenDrawer, useDrawer } from './columns';
 import { editHunk } from './edit';
 import { SAVE_CARD, type SaveOptions, type SaveOutcome } from './saveChapter';
 import { scrollToElement } from './scroll';
@@ -60,7 +61,16 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
       /* While a dialog is open Escape is the dialog's: Settings and Review
          with AI close on it (useDialogEscape), a question cancels, and the
          others ignore it. It never closes the find bar or the suggestion
-         editor then (ui.1). */
+         editor then (ui.1). A drawer open from a folded column (ui.3) takes
+         Escape first when the focus is in it or on its strip, and last
+         otherwise, after the suggestion editor and the find bar. */
+      const drawerOpen = useDrawer.getState().open !== null && !isModalOpen(state);
+      if (event.key === 'Escape' && drawerOpen && inOpenDrawer(event.target)) {
+        closeDrawer();
+        event.preventDefault();
+        return;
+      }
+
       if (event.key === 'Escape' && state.editor && !isModalOpen(state)) {
         state.closeEditor();
         event.preventDefault();
@@ -69,6 +79,12 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
 
       if (event.key === 'Escape' && state.find.open && !isModalOpen(state)) {
         state.closeFind();
+        event.preventDefault();
+        return;
+      }
+
+      if (event.key === 'Escape' && drawerOpen) {
+        closeDrawer();
         event.preventDefault();
         return;
       }

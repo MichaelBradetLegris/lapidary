@@ -399,14 +399,107 @@ input[type='text'] {
   color: var(--ink-soft);
 }
 
-/* The side columns keep their width at normal size and give some of it back
-   when the window is narrow in CSS pixels, which is what zooming in does, so
-   the manuscript keeps most of the room at 150% and beyond (round 5). */
+/* The side columns keep their width at normal size and give way to the prose
+   when the window is narrow in CSS pixels, which is what zooming in does
+   (round 5, ui.3): `columnLayout` in src/shared/ui/columns.ts keeps the centre
+   column 480 px wide while it can, by shrinking both side columns, then
+   folding the chapter list to a strip, then the side panel. App sets the
+   widths below on `.body` from it; these values are the widths before ui.3,
+   for the moment before it does. Positioned for the drawers. */
 .body {
+  --files-col: clamp(170px, 18vw, 230px);
+  --side-col: clamp(240px, 24vw, 320px);
+  --files-drawer: 230px;
+  --side-drawer: 320px;
+  position: relative;
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: clamp(170px, 18vw, 230px) minmax(0, 1fr) clamp(240px, 24vw, 320px);
+  grid-template-columns: var(--files-col) minmax(0, 1fr) var(--side-col);
   min-height: 0;
+}
+
+/* A side column's wrapper (ui.3). Drawn in place, it lays out nothing, and
+   the column is a cell of the grid as before. */
+.column {
+  display: contents;
+}
+
+/* Folded, the wrapper is the column's drawer: over the edge of the prose,
+   beside the strip, as tall as the columns, at the column's usual width less
+   what the window cannot spare. Hidden and inert until its strip opens it.
+   Above the page, below the first-use hint (11), the notification cards (12)
+   and everything else that floats, so a hint or a card is never lost behind
+   it; it is the side panel's column the hint keeps to, wherever that is drawn. */
+.column--drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  visibility: hidden;
+  box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / 20%);
+}
+
+.column--open {
+  visibility: visible;
+}
+
+.column--files.column--drawer {
+  left: var(--files-col);
+  width: var(--files-drawer);
+}
+
+.column--side.column--drawer {
+  right: var(--side-col);
+  width: var(--side-drawer);
+}
+
+.column--drawer > .files,
+.column--drawer > .side {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* A folded column: one button the height of the column, its chevron at the
+   top and the column's name written down it. Its own colours, so it reads as
+   the column it stands for, not as a button in a row. The name is cut off
+   where a short window leaves it no room; the tooltip and the accessible name
+   carry it whole. */
+.strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 0;
+  overflow: hidden;
+  border: none;
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--ink-soft);
+}
+
+.strip--files {
+  border-right: 1px solid var(--border);
+}
+
+.strip--side {
+  border-left: 1px solid var(--border);
+}
+
+.strip[aria-expanded='true'] {
+  background: var(--panel-alt);
+  color: var(--ink);
+}
+
+.strip__label {
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
 }
 
 /* Every element that scrolls has an opaque background in a colour token, even
@@ -623,8 +716,7 @@ input[type='text'] {
    become a scroller of its own. `min-width: 0` lets the pane give the position
    strip its 14 px in a narrow pane: as a flex item it would otherwise stay as
    wide as its longest word allows and push the strip out (a 900x600 window at
-   150%). From 175% in that window the side columns leave the centre column
-   narrower than the pane's own padding, and it still scrolls; ui.3 widens it. */
+   150%, before ui.3 let the side columns give way). */
 .pane {
   flex: 0 1 auto;
   width: 100%;
@@ -639,6 +731,15 @@ input[type='text'] {
   max-width: 1220px;
   padding-left: 22px;
   padding-right: 22px;
+}
+
+/* A window too narrow for 480 px of centre column even with both side columns
+   folded to strips (`body--narrow`, ui.3: a 900 by 600 window from 175%): the
+   pane's side padding narrows from 40 px, so the text keeps more of what is
+   left. The margin column never shows there. */
+.body--narrow .pane {
+  padding-left: 16px;
+  padding-right: 16px;
 }
 
 .pane__body {
