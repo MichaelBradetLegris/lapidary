@@ -60,6 +60,13 @@ export interface ErrorContext {
    * backup folder cannot be opened that way, so they never get those words.
    */
   reopen?: boolean;
+  /**
+   * For a folder the author chooses in Settings, what Settings calls it
+   * ("reviews folder"): when it cannot be made because its drive is not there
+   * or a file is in its way, the words add that another can be chosen there
+   * (apply.25 review).
+   */
+  setting?: string;
   platform?: NodeJS.Platform;
 }
 
@@ -76,7 +83,7 @@ export function toAppError(err: unknown, context: ErrorContext = {}): AppError {
     const explained =
       context.operation === 'read'
         ? explainReadError(err, name, platform, context.reopen ?? false)
-        : explainWriteError(err, name, platform, context.write ?? 'replace');
+        : explainWriteError(err, name, platform, context.write ?? 'replace', context.setting);
     if (explained) return { code: 'io', message: explained, detail: err.stack ?? undefined };
     const code: ErrorCode = isFsError(err) ? 'io' : 'unknown';
     return { code, message: err.message, detail: err.stack ?? undefined };
@@ -113,16 +120,17 @@ export type MakeKind = Exclude<WriteKind, 'replace'>;
  * A failed write that was making something new (apply.25), as an error that
  * keeps its words all the way to the page: what was being made, that nothing
  * was retried and nothing replaced, and "try again". `name` is how the
- * message names it (by default its own name). An error with no such words
- * (an `ENOENT`, say), and one that is not the file system's, is left as it
- * is, so a caller can still test its code, and the IPC bridge words it as
- * before.
+ * message names it (by default its own name), and `setting` what Settings
+ * calls a folder the author chooses there. An error with no such words (an
+ * `EEXIST`, or an `ENOENT` for a file or a copy), and one that is not the
+ * file system's, is left as it is, so a caller can still test its code, and
+ * the IPC bridge words it as before.
  */
 export function writeFailure(
   err: unknown,
   kind: MakeKind,
   name?: string,
-  options: Pick<ErrorContext, 'platform'> = {}
+  options: Pick<ErrorContext, 'platform' | 'setting'> = {}
 ): Error {
   if (!(err instanceof Error)) return new Error(String(err));
   if (err instanceof AppFailure || systemCode(err) === undefined) return err;
@@ -130,7 +138,8 @@ export function writeFailure(
     err,
     name ?? fileNameOf(err),
     options.platform ?? process.platform,
-    kind
+    kind,
+    options.setting
   );
   return explained === null ? err : new AppFailure('io', explained, err.stack ?? undefined);
 }
@@ -189,16 +198,18 @@ const CONTROLLED_FOLDER_ACCESS = `If that keeps happening, Windows Security's Co
  * itself is untouched, and the message says so; only a refused rename was
  * retried, so only it says so. A new file, a copy or a folder replaces
  * nothing and was never retried; its words say what was being made and to
- * try again, since only Save to chapter is saved again. Null for any other
- * error.
+ * try again, since only Save to chapter is saved again. `setting` is what
+ * Settings calls a folder the author chooses there (`ErrorContext`). Null for
+ * any other error.
  */
 export function explainWriteError(
   err: unknown,
   fileName: string,
   platform: NodeJS.Platform,
-  kind: WriteKind = 'replace'
+  kind: WriteKind = 'replace',
+  setting?: string
 ): string | null {
-  if (kind !== 'replace') return explainMakeError(err, fileName, platform, kind);
+  if (kind !== 'replace') return explainMakeError(err, fileName, platform, kind, setting);
   const code = errnoCode(err);
   const unchanged = 'Nothing was written; the file is as it was.';
   switch (code) {
@@ -228,16 +239,34 @@ export function explainWriteError(
  * folder of Chapter 12.md"). It never starts a sentence. A disk that filled
  * up part way may have left part of a new file, so that one does not say
  * nothing was written.
+ *
+ * A folder is made with everything on its path, so `ENOENT` means its drive,
+ * or the network share it is on, is not there, and `ENOTDIR` that a file has
+ * the name of a folder on its path. Both get words for a folder (apply.25
+ * review): the reviews folder can be on a USB, network or cloud drive, and
+ * while that drive is not connected no chapter opens, so the system's own
+ * text ("ENOENT: no such file or directory, mkdir '\\?'") must not be all the
+ * author is told. A folder chosen in Settings (`setting`) adds that another
+ * can be chosen there. A new file or a copy keeps no words for them, since
+ * its caller tests the code.
  */
 function explainMakeError(
   err: unknown,
   name: string,
   platform: NodeJS.Platform,
-  kind: MakeKind
+  kind: MakeKind,
+  setting?: string
 ): string | null {
   const made = kind === 'copy' ? `${name} from the template` : name;
   const nothing = 'Nothing was written.';
+  const chooseAnother = setting === undefined ? '' : `, or choose another ${setting} in Settings`;
   switch (errnoCode(err)) {
+    case 'ENOENT':
+      if (kind !== 'folder') return null;
+      return `${APP_NAME} could not create ${name}, because the drive or the folder it goes in is not there. If it is on a network, USB or cloud drive, check that the drive is connected${chooseAnother}, then try again. ${nothing}`;
+    case 'ENOTDIR':
+      if (kind !== 'folder') return null;
+      return `${APP_NAME} could not create ${name}, because a file has the name of one of the folders it goes in. Move or rename that file${chooseAnother}, then try again. ${nothing}`;
     case 'EPERM':
     case 'EACCES':
     case 'EBUSY':

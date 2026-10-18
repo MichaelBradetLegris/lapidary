@@ -941,4 +941,74 @@ describe('a review folder that cannot be made (apply.25)', () => {
     await makeReviewsFolder(folder);
     expect((await fs.stat(folder)).isDirectory()).toBe(true);
   });
+
+  /* apply.25 review: a reviews folder chosen in Settings on a drive that is
+     not connected (a USB, network or cloud drive) stops every chapter
+     opening, and Windows reports it as Node 24 does on this machine:
+     mkdir('Q:\\Reviews', {recursive: true}) fails with ENOENT and the path
+     '\\?'. The card must say what that means, not show the system's text. */
+  it('says the reviews folder is on a drive that is not there, and that another can be chosen in Settings', async () => {
+    const folder = path.join(root, 'reviews');
+    const missingDrive = Object.assign(new Error("ENOENT: no such file or directory, mkdir '\\\\?'"), {
+      code: 'ENOENT',
+      errno: -4058,
+      syscall: 'mkdir',
+      path: '\\\\?'
+    });
+    const mkdir = vi.spyOn(fs, 'mkdir').mockRejectedValueOnce(missingDrive);
+    try {
+      const err = await makeReviewsFolder(folder).then(
+        () => null,
+        (e: unknown) => e
+      );
+      expect(err).toBeInstanceOf(AppFailure);
+      // What the bridge sends, and what the open's card shows after the chapter's name.
+      const shown = toAppError(err);
+      expect(shown.code).toBe('io');
+      expect(shown.message).toBe(
+        `${APP_NAME} could not create the reviews folder ${folder}, because the drive or the folder it goes in is not there. If it is on a network, USB or cloud drive, check that the drive is connected, or choose another reviews folder in Settings, then try again. Nothing was written.`
+      );
+      expect(shown.message).not.toContain('\\\\?');
+      expect(shown.message).not.toContain('ENOENT');
+    } finally {
+      mkdir.mockRestore();
+    }
+  });
+
+  it('says a file is in the way of the reviews folder, and that another can be chosen in Settings', async () => {
+    const file = path.join(root, 'notes.txt');
+    await fs.writeFile(file, 'not a folder');
+    const folder = path.join(file, 'Reviews');
+    // Not mocked: the system's own answer for a folder under a file.
+    const err = await makeReviewsFolder(folder).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(toAppError(err).message).toBe(
+      `${APP_NAME} could not create the reviews folder ${folder}, because a file has the name of one of the folders it goes in. Move or rename that file, or choose another reviews folder in Settings, then try again. Nothing was written.`
+    );
+    expect(await fs.readFile(file, 'utf8')).toBe('not a folder');
+  });
+
+  it("does not offer Settings for a chapter's own review folder, which the author does not choose", async () => {
+    const dir = path.join(root, 'chapter-12');
+    const missingDrive = Object.assign(new Error("ENOENT: no such file or directory, mkdir '\\\\?'"), {
+      code: 'ENOENT',
+      syscall: 'mkdir',
+      path: '\\\\?'
+    });
+    const mkdir = vi.spyOn(fs, 'mkdir').mockRejectedValueOnce(missingDrive);
+    try {
+      const err = await saveReview(root, make('C:/vault/Chapter 12.md', T1)).then(
+        () => null,
+        (e: unknown) => e
+      );
+      expect(toAppError(err).message).toBe(
+        `${APP_NAME} could not create the review folder of Chapter 12.md, because the drive or the folder it goes in is not there. If it is on a network, USB or cloud drive, check that the drive is connected, then try again. Nothing was written.`
+      );
+    } finally {
+      mkdir.mockRestore();
+    }
+    await expect(fs.access(dir)).rejects.toThrow();
+  });
 });

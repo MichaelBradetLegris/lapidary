@@ -352,7 +352,9 @@ describe('toAppError, by what the write was making (apply.25)', () => {
         expect(toAppError(errno('EROFS'), context).message).toBe(
           `${APP_NAME} cannot create ${expected.name}, because the drive is read-only. Nothing was written.`
         );
-        for (const code of ['ENOENT', 'ENOTDIR', 'EISDIR', 'EEXIST', 'EIO', 'UNKNOWN']) {
+        // A folder that is not there has words of its own (apply.25 review, below).
+        const others = ['EISDIR', 'EEXIST', 'EIO', 'UNKNOWN'];
+        for (const code of kind === 'folder' ? others : ['ENOENT', 'ENOTDIR', ...others]) {
           expect(toAppError(errno(code), context).message, code).toBe(raw(code));
         }
       }
@@ -444,5 +446,96 @@ describe('writeFailure (apply.25)', () => {
     const argument = Object.assign(new TypeError('bad path'), { code: 'ERR_INVALID_ARG_TYPE' });
     expect(writeFailure(argument, 'folder')).toBe(argument);
     expect(writeFailure('odd', 'copy')).toEqual(new Error('odd'));
+  });
+});
+
+/* apply.25 review: a folder is made with everything on its path, so ENOENT
+   means its drive, or the share it is on, is not there, and ENOTDIR that a
+   file is in its way. The reviews folder, chosen in Settings, can be on a
+   USB, network or cloud drive; while that drive is not connected no chapter
+   opens, and Node 24 on Windows reports it as "ENOENT: no such file or
+   directory, mkdir '\\?'", which must not be all the card says. */
+describe('a folder that cannot be made where it goes (apply.25 review)', () => {
+  const REVIEWS = 'the reviews folder Q:\\Reviews';
+  /** Node 24 on Windows, for mkdir('Q:\\Reviews', {recursive: true}) with no Q: drive. */
+  const missingDrive = (): NodeJS.ErrnoException =>
+    Object.assign(new Error("ENOENT: no such file or directory, mkdir '\\\\?'"), {
+      code: 'ENOENT',
+      errno: -4058,
+      syscall: 'mkdir',
+      path: '\\\\?'
+    });
+
+  const notThere = (name: string, settings: string): string =>
+    `${APP_NAME} could not create ${name}, because the drive or the folder it goes in is not there. If it is on a network, USB or cloud drive, check that the drive is connected${settings}, then try again. Nothing was written.`;
+  const fileInTheWay = (name: string, settings: string): string =>
+    `${APP_NAME} could not create ${name}, because a file has the name of one of the folders it goes in. Move or rename that file${settings}, then try again. Nothing was written.`;
+  const SETTINGS = ', or choose another reviews folder in Settings';
+
+  it('says the drive or the folder it goes in is not there, and offers Settings only for a folder chosen there', () => {
+    for (const platform of ['win32', 'linux'] as const) {
+      const context = { operation: 'write', write: 'folder', platform } as const;
+      const shown = toAppError(missingDrive(), { ...context, name: REVIEWS, setting: 'reviews folder' });
+      expect(shown.code).toBe('io');
+      expect(shown.message).toBe(notThere(REVIEWS, SETTINGS));
+      expect(
+        toAppError(errno('ENOENT'), { ...context, name: 'the review folder of Chapter 1.md' }).message
+      ).toBe(notThere('the review folder of Chapter 1.md', ''));
+    }
+  });
+
+  it('says a file is in the way of a folder', () => {
+    for (const platform of ['win32', 'linux'] as const) {
+      const context = { operation: 'write', write: 'folder', platform } as const;
+      expect(
+        toAppError(errno('ENOTDIR'), { ...context, name: REVIEWS, setting: 'reviews folder' }).message
+      ).toBe(fileInTheWay(REVIEWS, SETTINGS));
+      expect(toAppError(errno('ENOTDIR'), { ...context, name: 'the folder for GUIDELINES.md' }).message).toBe(
+        fileInTheWay('the folder for GUIDELINES.md', '')
+      );
+    }
+  });
+
+  it('never shows the system text, its code or the path Windows gives', () => {
+    const message = toAppError(missingDrive(), {
+      write: 'folder',
+      name: REVIEWS,
+      setting: 'reviews folder',
+      platform: 'win32'
+    }).message;
+    expect(message).not.toMatch(/ENOENT|no such file|mkdir|\\\\\?/);
+    expect(message).not.toMatch(REPLACE_WORDS);
+    expect(message).not.toMatch(READ_ONLY_WORDS);
+  });
+
+  it('keeps ENOENT and ENOTDIR as they are for a new file or a copy, whose callers test the code', () => {
+    for (const kind of ['create', 'copy'] as const) {
+      for (const code of ['ENOENT', 'ENOTDIR']) {
+        const err = errno(code);
+        expect(toAppError(err, { write: kind, setting: 'reviews folder', platform: 'win32' }).message).toBe(
+          raw(code)
+        );
+        expect(writeFailure(err, kind, undefined, { setting: 'reviews folder' })).toBe(err);
+      }
+    }
+  });
+
+  it('adds Settings to no other words of a folder', () => {
+    for (const code of ['EBUSY', 'EPERM', 'EACCES', 'ENOSPC', 'EROFS']) {
+      for (const platform of ['win32', 'linux'] as const) {
+        const context = { write: 'folder', name: REVIEWS, platform } as const;
+        const err = errno(code);
+        expect(toAppError(err, { ...context, setting: 'reviews folder' })).toEqual(toAppError(err, context));
+      }
+    }
+  });
+
+  it('carries the words through the IPC bridge from writeFailure', () => {
+    const failure = writeFailure(missingDrive(), 'folder', REVIEWS, { setting: 'reviews folder' });
+    expect(failure).toBeInstanceOf(AppFailure);
+    expect(toAppError(failure).message).toBe(notThere(REVIEWS, SETTINGS));
+    expect(toAppError(writeFailure(errno('ENOTDIR'), 'folder', REVIEWS)).message).toBe(
+      fileInTheWay(REVIEWS, '')
+    );
   });
 });

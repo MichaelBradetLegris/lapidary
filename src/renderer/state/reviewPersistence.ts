@@ -22,7 +22,7 @@ interface Pending {
   path: string | null;
 }
 
-export function reviewKey(review: Review): string {
+export function reviewKey(review: Pick<Review, 'sourcePath' | 'id'>): string {
   return `${review.sourcePath}\u0000${review.id}`;
 }
 
@@ -99,6 +99,19 @@ export function retryReviewWrites(): void {
 /** Why reviews are not on disk as the author left them: the words of their cards; empty when they are. */
 export function reviewWriteFailures(): string[] {
   return writer.failures().map(notSavedText);
+}
+
+/**
+ * Why this review is not on disk as the author left it, in its card's words,
+ * or null when it is: a write of it failed and none has worked since. An
+ * open checks it, after trying failed writes again (`retryReviewWrites`),
+ * before it shows the review read from disk, which would come on screen
+ * without those decisions; the next write would then put them back over what
+ * the page showed (apply.25 review).
+ */
+export function reviewWriteFailureOf(review: Pick<Review, 'sourcePath' | 'id'>): string | null {
+  const [message] = writer.failures(reviewKey(review));
+  return message === undefined ? null : notSavedText(message);
 }
 
 /** Record that `review` was just read from `path` unchanged, so it is not written back. */

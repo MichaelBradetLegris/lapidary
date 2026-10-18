@@ -144,20 +144,23 @@ function isGone(err: unknown): boolean {
  * Make a folder the store writes in. Nothing is retried or replaced, so a
  * refusal says which folder was being made and to try again (apply.25).
  */
-async function makeFolder(dir: string, name: string): Promise<void> {
+async function makeFolder(dir: string, name: string, setting?: string): Promise<void> {
   try {
     await fs.mkdir(dir, { recursive: true });
   } catch (err) {
-    throw writeFailure(err, 'folder', name);
+    throw writeFailure(err, 'folder', name, setting === undefined ? {} : { setting });
   }
 }
 
 /**
  * Make the reviews folder if it is not there yet (6.4), as every review
- * operation does first; a refusal says so (apply.25).
+ * operation does first; a refusal says so (apply.25). The author chooses it
+ * in Settings, and it may be on a drive that is not connected, so a folder
+ * that cannot be made there says to connect the drive or choose another
+ * (apply.25 review).
  */
 export async function makeReviewsFolder(folder: string): Promise<void> {
-  await makeFolder(folder, `the reviews folder ${path.resolve(folder)}`);
+  await makeFolder(folder, `the reviews folder ${path.resolve(folder)}`, 'reviews folder');
 }
 
 /** The review in a file's text; throws for text that is not one. */

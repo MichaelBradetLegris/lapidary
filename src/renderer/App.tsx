@@ -3,11 +3,12 @@ import { composeReview, unsavedDecisionCount } from '../shared/diff/compose';
 import { rebaseReview } from '../shared/diff/rebase';
 import { proPreselection } from '../shared/ai/claudeModels';
 import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
+import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
 import { rebaseCardText } from '../shared/ui/rebase';
 import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
 import { runtimeLabel as labelForRuntime } from '../shared/ui/setup';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
-import type { ApiEventMap, ChapterFile, ReviewSummary } from '../shared/ipc';
+import type { ApiEventMap, ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
 import { PROVIDER_NAMES, type Review } from '../shared/types';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { EditPopover } from './components/EditPopover';
@@ -51,6 +52,7 @@ import {
   installReviewPersistence,
   markReviewPersistedState,
   retryReviewWrites,
+  reviewWriteFailureOf,
   reviewWriteFailures,
   writeReviewNow
 } from './state/reviewPersistence';
@@ -109,8 +111,9 @@ const PAGE_WRITES: PageWrites = {
 
 /**
  * The card of a chapter that could not be opened, such as one whose review
- * another program holds (apply.25): the next try replaces it, and an open
- * that works closes it.
+ * another program holds (apply.25), and of a review from History or the
+ * review selector that could not be (apply.25 review): the next try replaces
+ * it, and an open that works closes it.
  */
 const OPEN_CHAPTER_CARD = 'open-chapter';
 
@@ -268,7 +271,11 @@ export function App(): React.JSX.Element {
         try {
           // A decision still waiting to be written must be on disk before
           // its review file is read back (apply.1), and so must the paragraph
-          // boxes of the chapter being left (apply.16).
+          // boxes of the chapter being left (apply.16). A write that failed
+          // is tried again first, so a review another program held a moment
+          // ago gets its decisions now, before any review file is read back
+          // (apply.25 review).
+          retryReviewWrites();
           await flushReviewWrites();
           await flushDraftWrites();
           if (decision === 'here') return;
@@ -278,20 +285,33 @@ export function App(): React.JSX.Element {
           const marked = refreshIndex();
           const content = await call('files:read', { path: file.path });
           const base = baseFrom(content);
-          // The review the chapter opens with. One that cannot be read fails
-          // here, before anything on screen changes: the card says why and
-          // the page stays on what was open, since opening another review,
-          // or a blank one, would let the next decision write a new review
-          // that becomes current over it (apply.25). A chapter whose reviews
-          // folder is not there yet opens on a blank review, as before.
-          const latest = await call('reviews:load-latest', { sourcePath: file.path, hash: base.hash });
+          // The review the chapter opens with. One that cannot be read, or a
+          // reviews folder that cannot be made, fails here, before anything on
+          // screen changes: the card names the chapter, since main's words
+          // name only a review file or a folder, and the page stays on what
+          // was open, since opening another review, or a blank one, would let
+          // the next decision write a new review that becomes current over it
+          // (apply.25 and its review). A chapter whose own review folder is
+          // not there yet opens on a blank review, as before.
+          let latest: LoadedReview | null;
+          try {
+            latest = await call('reviews:load-latest', { sourcePath: file.path, hash: base.hash });
+          } catch (err) {
+            throw new Error(chapterNotOpenedText(file.name, errorMessage(err)), { cause: err });
+          }
           let loaded: { path: string | null; review: Review } | null = null;
           let asOnDisk = false;
-          // The review is stored under this exact path from now on, however
-          // the path was spelled when it was made (files.1).
           if (latest) {
+            // The review is stored under this exact path from now on, however
+            // the path was spelled when it was made (files.1).
             loaded = { path: latest.path, review: rehomeReview(latest.review, file.path) };
             asOnDisk = loaded.review === latest.review;
+            // Decisions in it that could not be written, even just now, are
+            // not in the file just read: shown, it would lack them, and the
+            // next write would put them back over what the page showed, so it
+            // stays off screen (apply.25 review).
+            const unwritten = reviewWriteFailureOf(loaded.review);
+            if (unwritten !== null) throw new Error(unwrittenReviewText({ chapter: file.name }, unwritten));
           }
           const adoptedFrom = latest?.adoptedFrom;
 
@@ -331,6 +351,9 @@ export function App(): React.JSX.Element {
         const decision = await beforeLeaving({ kind: 'review', id: summary.id }, leaveDeps);
         if (decision === 'stay') return;
         try {
+          // As for a chapter (openChapter): a write that failed is tried
+          // again before anything waiting is written (apply.25 review).
+          retryReviewWrites();
           await flushReviewWrites();
           await flushDraftWrites();
           if (decision === 'here') return;
@@ -339,8 +362,17 @@ export function App(): React.JSX.Element {
           // under the path it is open as.
           const sourcePath = useApp.getState().review?.sourcePath || loaded.review.sourcePath;
           const review = rehomeReview(loaded.review, sourcePath);
+          // Decisions in it that could not be written, even just now, are not
+          // in the file just read, so it stays off screen, as a chapter's
+          // review does (apply.25 review).
+          const unwritten = reviewWriteFailureOf(review);
+          if (unwritten !== null) {
+            throw new Error(unwrittenReviewText({ reviewCreatedAt: summary.createdAt }, unwritten));
+          }
           const content = await call('files:read', { path: sourcePath });
           const base = baseFrom(content);
+          // An open that worked closes the card of one that did not.
+          dismissNotificationsByKey(OPEN_CHAPTER_CARD);
           if (review.base.hash === base.hash) {
             if (review === loaded.review) markReviewPersistedState(review, loaded.path);
             setReview(review, loaded.path);
@@ -358,11 +390,12 @@ export function App(): React.JSX.Element {
           // History again, now that its last decisions are on disk (apply.5).
           refreshHistory(sourcePath);
         } catch (err) {
-          fail(err);
+          // Nothing on screen has changed. Another try replaces this card.
+          notify('error', errorMessage(err), OPEN_CHAPTER_CARD);
         }
       })();
     },
-    [setReview, notify, fail, leaveDeps, refreshHistory]
+    [setReview, notify, dismissNotificationsByKey, leaveDeps, refreshHistory]
   );
 
   /* ---------------- external changes ---------------- */
