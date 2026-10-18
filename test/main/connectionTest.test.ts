@@ -276,6 +276,30 @@ describe('testConnection, what ai:test answers', () => {
     expect((await pending).error?.code).toBe('cancelled');
   });
 
+  it('registers its own controller, so quitting ends a test that holds none of its own', async () => {
+    // The Claude test above is also ended through the exchange's controller,
+    // so it would pass without this one; OpenAI's test, like this stub, only
+    // listens to the signal it is given (setup.8 review).
+    let heard = false;
+    const listening: ReviewProvider = {
+      ...claudeOn(fake('success')),
+      test: (h) =>
+        new Promise((_resolve, reject) => {
+          h.signal.addEventListener('abort', () => {
+            heard = true;
+            reject(fail('cancelled', 'Test cancelled.'));
+          });
+        })
+    };
+    expect(liveControllerCount()).toBe(0);
+    const pending = testConnection(listening, { track: registerController });
+    expect(liveControllerCount()).toBe(1);
+    expect(abortAll()).toBe(1);
+    expect(heard).toBe(true);
+    expect(await pending).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+    expect(liveControllerCount()).toBe(0);
+  });
+
   it('says so for a provider with no test, and words an unforeseen error as a failed test, never a file error', async () => {
     const withoutTest: ReviewProvider = {
       id: 'claude',
@@ -348,6 +372,19 @@ describe('the OpenAI test, against the mock', () => {
     expect((await testConnection(openai('sk-test-1234', 'http://127.0.0.1:9/v1'))).error?.code).toBe(
       'openai-server'
     );
+  });
+
+  it('is ended by quitting, through the controller testConnection registers', async () => {
+    expect(liveControllerCount()).toBe(0);
+    const pending = testConnection(openai('sk-slow-1234'), { track: registerController });
+    expect(liveControllerCount()).toBe(1);
+    await vi.waitFor(() => expect(mock.requests.some((r) => r.path === '/v1/responses')).toBe(true));
+    const started = Date.now();
+    expect(abortAll()).toBe(1);
+    expect(await pending).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+    // The mock holds this reply for 7.2 s; the abort ends the request at once.
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(liveControllerCount()).toBe(0);
   });
 
   it('stops a test that runs out of time', async () => {

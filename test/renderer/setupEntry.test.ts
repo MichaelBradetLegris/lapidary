@@ -206,4 +206,26 @@ describe('Test the connection, from the button to main and back (setup.8)', () =
     expect(claude).toContain('return runCliTest(cliDeps(executableCache), hooks);');
     expect(claude).toMatch(/review: reviewChapter,\s*test: testClaude\s*\};/);
   });
+
+  it('holds Check again and Test the connection through heldButton, never disabled, so they keep the focus', () => {
+    // setup.8 review: a disabled button loses the focus in Chromium; heldButton
+    // marks it aria-disabled and drops its click handler instead.
+    const screen = read('components/SetupScreen.tsx');
+    const actions = screen.slice(
+      screen.indexOf('<div className="setup__status-actions">'),
+      screen.indexOf('{onTryAnyway ? (')
+    );
+    expect(actions).toContain('{...heldButton(checkBusy, onCheckAgain)}');
+    expect(actions).toContain('<button type="button" {...heldButton(testing, onTest)}>');
+    expect(actions).not.toMatch(/disabled=|onClick=/);
+    expect(screen).toContain("const checkBusy = checking || view === 'checking';");
+    // Drawn as a disabled button, and not lit up under the mouse.
+    const css = readFileSync(path.join(RENDERER, 'styles/app.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toMatch(
+      /button:disabled,\s*button\[aria-disabled='true'\] \{\s*opacity: 0\.45;\s*cursor: default;\s*\}/
+    );
+    expect(css).toContain("button:hover:not(:disabled, [aria-disabled='true']) {");
+    expect(css).toContain("button.primary:hover:not(:disabled, [aria-disabled='true']),");
+    expect(css).toContain("button.primary:active:not(:disabled, [aria-disabled='true']),");
+  });
 });

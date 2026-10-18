@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import type { RuntimeStatus } from '../../shared/ipc';
 import {
-  CONNECTION_TEST_NOTE,
   CONNECTION_TEST_RUNNING,
   FULL_PATH_TEXT,
   OTHER_INSTALLS_NOTE,
@@ -9,6 +8,7 @@ import {
   advancedRows,
   canTestConnection,
   connectionTestLine,
+  connectionTestNote,
   needsSetup,
   osFromUserAgent,
   otherInstalls,
@@ -22,6 +22,7 @@ import {
   type LastFailure,
   type SetupOs
 } from '../../shared/ui/setup';
+import { heldButton } from '../state/heldButton';
 import { Command } from './Command';
 import { UpdateNote } from './UpdateNote';
 
@@ -89,6 +90,7 @@ export function SetupScreen({
   const [os, setOs] = useState<SetupOs>(() => initialOs ?? host);
   const view = setupView(runtime, lastFailure);
   const status = setupStatus(view, runtime, lastFailure);
+  const checkBusy = checking || view === 'checking';
   const testable = onTest !== undefined && canTestConnection(runtime);
   const testLine = testOutcome ? connectionTestLine(testOutcome) : null;
   const steps = setupSteps(view, runtime, os, host);
@@ -123,19 +125,20 @@ export function SetupScreen({
             ))}
           </div>
           <div className="setup__status-actions">
+            {/* Both are held, not disabled, while their work runs, so a
+                button pressed from the keyboard keeps the focus (heldButton). */}
             <button
               type="button"
               className={needsSetup(view) ? 'primary' : undefined}
-              disabled={checking || view === 'checking'}
-              onClick={onCheckAgain}
+              {...heldButton(checkBusy, onCheckAgain)}
             >
-              {checking || view === 'checking' ? 'Checking…' : 'Check again'}
+              {checkBusy ? 'Checking…' : 'Check again'}
             </button>
             {/* Its label stays while a test runs, so the buttons keep their
                 width and the card's text does not reflow; the line under
                 them says it is waiting, in the place of the last result. */}
             {testable ? (
-              <button type="button" disabled={testing} onClick={onTest}>
+              <button type="button" {...heldButton(testing, onTest)}>
                 Test the connection
               </button>
             ) : null}
@@ -147,7 +150,7 @@ export function SetupScreen({
           </div>
           {testable || testing || testLine ? (
             <div className="setup__test">
-              {testable ? <p className="setup__test-note">{CONNECTION_TEST_NOTE}</p> : null}
+              {testable ? <p className="setup__test-note">{connectionTestNote(runtime)}</p> : null}
               {testing ? (
                 <p className="setup__test-result setup__test-result--running">{CONNECTION_TEST_RUNNING}</p>
               ) : testLine ? (

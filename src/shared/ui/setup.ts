@@ -747,9 +747,26 @@ export function runtimeButtonTitle(provider: 'claude' | 'openai'): string {
 /* Test the connection (setup.8)                                       */
 /* ------------------------------------------------------------------ */
 
-/** Said beside Test the connection on the Setup screen. */
-export const CONNECTION_TEST_NOTE =
-  'Sends one very small request to Claude, which counts against your plan like any other.';
+/**
+ * Said under Test the connection on the Setup screen, by what Claude Code
+ * signs in with (`connectionTestNote`). The task's words are a plan's; an API
+ * key's card says a few lines higher that reviews are billed to the key, "not
+ * to a Claude plan", so the note says what that card says (setup.8 review).
+ * A failed check does not say what Claude Code signs in with, so its note
+ * names both.
+ */
+export const CONNECTION_TEST_NOTES: Readonly<Record<ClaudeCredential | 'unknown', string>> = {
+  subscription: 'Sends one very small request to Claude, which counts against your plan like any other.',
+  'api-key': 'Sends one very small request to Claude, which is billed to your API key like any other.',
+  cloud:
+    'Sends one very small request to Claude, which is billed through your cloud provider like any other.',
+  unknown: 'Sends one very small request to Claude, which counts against your plan or API key like any other.'
+};
+
+/** The note under Test the connection for what the last check found. */
+export function connectionTestNote(runtime: RuntimeStatus | null | undefined): string {
+  return CONNECTION_TEST_NOTES[runtime?.credential ?? 'unknown'];
+}
 
 /** Said under the buttons while a test runs, where its result will be. */
 export const CONNECTION_TEST_RUNNING = 'Testing: waiting for Claude to answer…';

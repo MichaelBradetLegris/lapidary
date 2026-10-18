@@ -180,11 +180,15 @@ button {
   cursor: pointer;
 }
 
-button:hover:not(:disabled) {
+/* A button held while its work runs is aria-disabled rather than disabled, so
+   it keeps the keyboard focus (heldButton, setup.8 review); it looks like a
+   disabled one and does not light up under the mouse. */
+button:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--panel-alt);
 }
 
-button:disabled {
+button:disabled,
+button[aria-disabled='true'] {
   opacity: 0.45;
   cursor: default;
 }
@@ -198,14 +202,14 @@ button.primary {
 /* Blue buttons darken on hover instead of taking the generic near-white hover
    above, which left their white text unreadable (round 5). The same goes for the
    active tab on the Setup screen. */
-button.primary:hover:not(:disabled),
-button.setup__tab--active:hover:not(:disabled) {
+button.primary:hover:not(:disabled, [aria-disabled='true']),
+button.setup__tab--active:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
 }
 
-button.primary:active:not(:disabled),
-button.setup__tab--active:active:not(:disabled) {
+button.primary:active:not(:disabled, [aria-disabled='true']),
+button.setup__tab--active:active:not(:disabled, [aria-disabled='true']) {
   background: var(--accent-active);
   border-color: var(--accent-active);
 }

@@ -7,7 +7,7 @@ import {
 import type { RuntimeStatus } from '../../src/shared/ipc';
 import {
   CLAUDE_RUNTIME_CARD,
-  CONNECTION_TEST_NOTE,
+  CONNECTION_TEST_NOTES,
   COULD_NOT_CHECK_ADVICE,
   EXPIRED_INTRO,
   FOCUS_RECHECK_MS,
@@ -19,6 +19,7 @@ import {
   canTryReviewAnyway,
   checkedAtText,
   connectionTestLine,
+  connectionTestNote,
   focusRecheckDue,
   installAndLoginCommand,
   loginCommand,
@@ -603,10 +604,36 @@ describe('Test the connection (setup.8)', () => {
     expect(canTestConnection(claude({ state: 'error' }))).toBe(true);
   });
 
-  it('says what it costs', () => {
-    expect(CONNECTION_TEST_NOTE).toBe(
+  it('says what it costs, in the terms of what Claude Code signs in with', () => {
+    // The task's words, for a Claude plan.
+    expect(connectionTestNote(claude({ credential: 'subscription' }))).toBe(
       'Sends one very small request to Claude, which counts against your plan like any other.'
     );
+    // Not "your plan" under a card that says the key is billed "not to a Claude plan" (setup.8 review).
+    expect(connectionTestNote(claude({ credential: 'api-key', apiKeySource: 'ANTHROPIC_API_KEY' }))).toBe(
+      'Sends one very small request to Claude, which is billed to your API key like any other.'
+    );
+    expect(setupStatus('api-key', claude({ credential: 'api-key' })).lines.join(' ')).toContain(
+      'not to a Claude plan'
+    );
+    expect(connectionTestNote(claude({ credential: 'cloud' }))).toBe(
+      'Sends one very small request to Claude, which is billed through your cloud provider like any other.'
+    );
+    // A failed check does not say what Claude Code signs in with.
+    const unknown =
+      'Sends one very small request to Claude, which counts against your plan or API key like any other.';
+    expect(connectionTestNote(claude({ state: 'error' }))).toBe(unknown);
+    expect(connectionTestNote(claude())).toBe(unknown);
+    expect(connectionTestNote(null)).toBe(unknown);
+    expect(Object.keys(CONNECTION_TEST_NOTES).sort()).toEqual([
+      'api-key',
+      'cloud',
+      'subscription',
+      'unknown'
+    ]);
+    for (const note of Object.values(CONNECTION_TEST_NOTES)) {
+      expect(note).toMatch(/^Sends one very small request to Claude, which .+ like any other\.$/);
+    }
   });
 
   it('clears the last failure when it goes through, as a review does, which a re-check never does', () => {

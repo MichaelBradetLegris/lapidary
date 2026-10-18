@@ -4,14 +4,16 @@ import { describe, expect, it } from 'vitest';
 import { ReviewDialog } from '../../src/renderer/components/ReviewDialog';
 import { SetupScreen } from '../../src/renderer/components/SetupScreen';
 import { StatusBar } from '../../src/renderer/components/StatusBar';
+import { heldButton } from '../../src/renderer/state/heldButton';
 import type { RuntimeStatus } from '../../src/shared/ipc';
 import { DEFAULT_SETTINGS, type Review } from '../../src/shared/types';
 import {
-  CONNECTION_TEST_NOTE,
+  CONNECTION_TEST_NOTES,
   CONNECTION_TEST_RUNNING,
   PRIVACY_FOOTER,
   canTestConnection,
   checkedAtText,
+  connectionTestNote,
   installAndLoginCommand,
   setupStatus,
   setupView,
@@ -264,21 +266,28 @@ describe('the Setup screen in each view (setup.7)', () => {
       '<button type="button" class="primary">Check again</button>'
     );
     expect(render(claude(), null)).toContain('<button type="button">Check again</button>');
+    // Held, not disabled, so a Check again pressed from the keyboard keeps the focus (setup.8 review).
     expect(render(claude({ state: 'not-signed-in' }), null, { checking: true })).toContain(
-      '<button type="button" class="primary" disabled="">Checking…</button>'
+      '<button type="button" class="primary" aria-disabled="true">Checking…</button>'
     );
+    expect(render(null, null)).toContain('<button type="button" aria-disabled="true">Checking…</button>');
+    for (const [, runtime, last] of CASES) {
+      expect(render(runtime, last, { checking: true, testing: true })).not.toMatch(/<button[^>]* disabled=/);
+    }
   });
 });
 
 describe('Test the connection on the Setup screen (setup.8)', () => {
-  const NOTE = `<p class="setup__test-note">${CONNECTION_TEST_NOTE}</p>`;
+  const noteOf = (runtime: RuntimeStatus | null): string =>
+    `<p class="setup__test-note">${connectionTestNote(runtime)}</p>`;
+  const NOTE = noteOf(claude());
 
   it('sits beside Check again, with what it costs under the buttons, wherever Claude Code is found and not signed out', () => {
     for (const [view, runtime, last] of CASES) {
       const html = render(runtime, last);
       const offered = buttons(html).includes('Test the connection');
       expect([view, offered]).toEqual([view, canTestConnection(runtime)]);
-      expect([view, html.includes(NOTE)]).toEqual([view, offered]);
+      expect([view, html.includes(noteOf(runtime))]).toEqual([view, offered]);
       if (!offered) continue;
       // In the status card, after Check again, and the note under the buttons.
       const card = html.slice(html.indexOf('<section class="setup__status'), html.indexOf('</section>'));
@@ -308,7 +317,12 @@ describe('Test the connection on the Setup screen (setup.8)', () => {
       finishedAt: '2026-10-18T12:02:11.000Z'
     };
     const html = render(claude(), null, { testing: true, testOutcome: outcome });
-    expect(html).toContain('<button type="button" disabled="">Test the connection</button>');
+    // Held with aria-disabled, not disabled: Chromium moves the focus of a
+    // focused button that becomes disabled to the page, so a test started from
+    // the keyboard would leave the author at the top of the window (setup.8
+    // review). The window check in PLAN saw the focus stay on it.
+    expect(html).toContain('<button type="button" aria-disabled="true">Test the connection</button>');
+    expect(html).not.toMatch(/<button[^>]* disabled=/);
     expect(html).toContain(
       `${NOTE}<p class="setup__test-result setup__test-result--running">${CONNECTION_TEST_RUNNING}</p></div>`
     );
@@ -367,6 +381,35 @@ describe('Test the connection on the Setup screen (setup.8)', () => {
     const noHandler = render(claude(), null, { test: false });
     expect(buttons(noHandler)).not.toContain('Test the connection');
     expect(noHandler).not.toContain('class="setup__test"');
+  });
+
+  it('says what the test costs in the terms the card uses for the credential', () => {
+    const note = (html: string): string =>
+      decode(/<p class="setup__test-note">([^<]*)<\/p>/.exec(html)?.[1] ?? '');
+    // An API key: billed to the key, as the card's own line says, never "your plan" (setup.8 review).
+    const key = render(claude({ credential: 'api-key', apiKeySource: 'ANTHROPIC_API_KEY' }), null);
+    expect(text(key)).toContain('not to a Claude plan');
+    expect(note(key)).toBe(CONNECTION_TEST_NOTES['api-key']);
+    expect(note(key)).not.toContain('plan');
+    const plan = render(claude({ credential: 'subscription', email: 'ann@example.com' }), null);
+    expect(note(plan)).toBe(
+      'Sends one very small request to Claude, which counts against your plan like any other.'
+    );
+    const cloud = render(claude({ credential: 'cloud' }), null);
+    expect(note(cloud)).toBe(CONNECTION_TEST_NOTES.cloud);
+    expect(note(cloud)).not.toContain('plan');
+    const failed = render(claude({ state: 'error', message: 'Timed out.' }), null);
+    expect(note(failed)).toBe(CONNECTION_TEST_NOTES.unknown);
+  });
+});
+
+describe('a button held while its work runs (setup.8 review)', () => {
+  it('is aria-disabled with no click handler while held, and takes the click otherwise', () => {
+    const onClick = (): void => undefined;
+    expect(heldButton(true, onClick)).toEqual({ 'aria-disabled': true });
+    expect(heldButton(false, onClick)).toEqual({ onClick });
+    expect(heldButton(false, undefined)).toEqual({});
+    expect('disabled' in heldButton(true, onClick)).toBe(false);
   });
 });
 
