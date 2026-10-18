@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { RuntimeStatus } from '../../shared/ipc';
+import type { RateLimitInfo, RuntimeStatus } from '../../shared/ipc';
 import {
   CONNECTION_TEST_RUNNING,
   FULL_PATH_TEXT,
@@ -49,6 +49,8 @@ interface Props {
   testing?: boolean;
   /** the last connection test that finished */
   testOutcome?: ConnectionTestOutcome | null;
+  /** Claude Code's last usage notice, which names the limit a usage-limit view advises on (setup.9) */
+  rateLimit?: RateLimitInfo | null;
 }
 
 const SYSTEMS: ReadonlyArray<{ id: SetupOs; label: string }> = [
@@ -84,12 +86,13 @@ export function SetupScreen({
   onTryAnyway,
   onTest,
   testing = false,
-  testOutcome = null
+  testOutcome = null,
+  rateLimit = null
 }: Props): React.JSX.Element {
   const host = givenHost ?? osFromUserAgent(navigator.userAgent);
   const [os, setOs] = useState<SetupOs>(() => initialOs ?? host);
   const view = setupView(runtime, lastFailure);
-  const status = setupStatus(view, runtime, lastFailure);
+  const status = setupStatus(view, runtime, lastFailure, rateLimit);
   const checkBusy = checking || view === 'checking';
   const testable = onTest !== undefined && canTestConnection(runtime);
   const testLine = testOutcome ? connectionTestLine(testOutcome) : null;

@@ -237,10 +237,22 @@ export interface RawComment {
   text: string;
 }
 
+/**
+ * A Claude plan's usage, as Claude Code's `rate_limit_event` reports it
+ * (`readRateLimit` in `src/main/providers/claudeResult.ts`, setup.9). The
+ * status bar words it with `describeRateLimit` (`src/shared/ui/usage.ts`).
+ */
 export interface RateLimitInfo {
+  /** `allowed`, `allowed_warning` or `rejected` */
   status?: string;
+  /** when the limit resets, as an ISO time */
   resetsAt?: string;
-  message?: string;
+  /** which limit: `five_hour`, `seven_day`, `seven_day_opus`, `seven_day_sonnet`, ... (Claude Code's `rateLimitType`) */
+  kind?: string;
+  /** the share of that limit used, 0 to 1, and past 1 when usage runs over (Claude Code's `utilization`) */
+  utilization?: number;
+  /** the plan's limit is used up and extra usage, which may be billed, is paying (Claude Code's `isUsingOverage`) */
+  usingOverage?: boolean;
 }
 
 /**

@@ -16,6 +16,7 @@ import {
   runtimeLabel as labelForRuntime,
   setupView
 } from '../shared/ui/setup';
+import { usageLimitCard } from '../shared/ui/usage';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
 import { bodyClassName, columnClassName } from '../shared/ui/columns';
 import { shellInert } from '../shared/ui/dialog';
@@ -781,6 +782,11 @@ export function App(): React.JSX.Element {
           notify('info', 'Review cancelled.');
           return;
         }
+        // Claude Code's words, then what to do: wait, or another model (setup.9).
+        if (err instanceof ApiError && err.code === 'claude-usage-limit') {
+          notify('error', usageLimitCard(err.message, ai.latestRateLimit()));
+          return;
+        }
         if (err instanceof ApiError && (err.code === 'openai-invalid-key' || err.code === 'openai-no-key')) {
           ai.refreshKeyStatus();
           notify('error', err.message, 'openai-key', 'open-settings');
@@ -877,6 +883,10 @@ export function App(): React.JSX.Element {
     onRuntime: activeProvider === 'claude' ? openSetup : openSettings,
     runtimeTitle: runtimeButtonTitle(activeProvider)
   };
+  /* Claude's usage, in the status bar while Claude is in use: the notice is
+     about the Claude plan, and beside OpenAI's status it would read as
+     OpenAI's (setup.9). */
+  const usageNotice = claudeInUse ? ai.rateLimit : null;
 
   /* The four dialogs, each drawn only when it can be. They sit outside the
      page, which is inert while one of them is open, so Tab and Shift+Tab go
@@ -986,9 +996,10 @@ export function App(): React.JSX.Element {
               onTest={testClaude}
               testing={ai.testing.claude ?? false}
               testOutcome={ai.testOutcomes.claude ?? null}
+              rateLimit={ai.rateLimit}
             />
           </div>
-          <StatusBar review={review} {...statusRuntime} rateLimit={ai.rateLimit?.message} />
+          <StatusBar review={review} {...statusRuntime} rateLimit={usageNotice} />
         </div>
         <div className="app-shell__dialogs" inert={inert.dialogs}>
           {newChapterDialog}
@@ -1096,7 +1107,7 @@ export function App(): React.JSX.Element {
           </div>
         </div>
 
-        <StatusBar review={review} {...statusRuntime} rateLimit={ai.rateLimit?.message} />
+        <StatusBar review={review} {...statusRuntime} rateLimit={usageNotice} />
         <HunkTooltip />
         <EditPopover onSaved={(message, tone) => notify(tone ?? 'info', message, 'edit')} />
       </div>

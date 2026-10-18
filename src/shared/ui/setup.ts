@@ -18,8 +18,9 @@ import {
   type ClaudeUpdateAdvice
 } from '../ai/claudeStatus';
 import { APP_NAME } from '../branding';
-import type { ConnectionTestResult, RuntimeStatus } from '../ipc';
+import type { ConnectionTestResult, RateLimitInfo, RuntimeStatus } from '../ipc';
 import type { ErrorCode } from '../types';
+import { usageLimitAdvice } from './usage';
 
 export type SetupViewId =
   /** no status yet: the first check is still running */
@@ -462,11 +463,16 @@ function apiKeyLines(runtime: RuntimeStatus | null | undefined): string[] {
   ];
 }
 
-/** The status card: the view in a few words, what was found, and the plan warning when there is one. */
+/**
+ * The status card: the view in a few words, what was found, and the plan
+ * warning when there is one. A usage limit says what to do about it, from the
+ * last usage notice, which names the limit (`usageLimitAdvice`, setup.9).
+ */
 export function setupStatus(
   view: SetupViewId,
   runtime: RuntimeStatus | null | undefined,
-  last: LastFailure | null = null
+  last: LastFailure | null = null,
+  rateLimit: RateLimitInfo | null = null
 ): SetupStatus {
   const plan = runtime?.planWarning ? [runtime.planWarning] : [];
   // The last review's sign-in failure outranks a check that says ready (setupView).
@@ -508,7 +514,11 @@ export function setupStatus(
     case 'outdated':
       return { tone: 'warn', title: 'Claude Code is out of date', lines: [outdatedLine(runtime), ...plan] };
     case 'usage-limit':
-      return { tone: 'warn', title: 'Claude usage limit reached', lines: [USAGE_LIMIT_TEXT, ...plan] };
+      return {
+        tone: 'warn',
+        title: 'Claude usage limit reached',
+        lines: [USAGE_LIMIT_TEXT, usageLimitAdvice(rateLimit), ...plan]
+      };
     case 'api-key':
       return {
         tone: plan.length ? 'warn' : 'ok',

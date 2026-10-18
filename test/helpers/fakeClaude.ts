@@ -54,6 +54,39 @@ const REVIEW = {
 };
 
 /**
+ * The `rate_limit_info` of the `rate_limit_event` sent before the result, in
+ * the shape of Claude Code 2.1.302's schema (the Agent SDK's
+ * `SDKRateLimitInfo`; `readRateLimit` in claudeResult.ts, setup.9): the
+ * status (`allowed`, `allowed_warning` or `rejected`), the reset in Unix
+ * seconds, which limit (`rateLimitType`), the share used as a fraction
+ * (`utilization`, 0 to 1) and whether extra usage is paying
+ * (`isUsingOverage`), beside fields the app does not read. A usage limit
+ * comes after a `rejected` one. FAKE_CLAUDE_RATE_LIMIT, as JSON, replaces it.
+ */
+function rateLimitInfo(name: string): unknown {
+  const given = process.env['FAKE_CLAUDE_RATE_LIMIT'];
+  if (given) return JSON.parse(given) as unknown;
+  const unread = { overageStatus: 'rejected', overageDisabledReason: 'org_level_disabled' };
+  return name === 'usage-limit'
+    ? {
+        status: 'rejected',
+        resetsAt: 1790000000,
+        rateLimitType: 'five_hour',
+        utilization: 1,
+        isUsingOverage: false,
+        ...unread
+      }
+    : {
+        status: 'allowed',
+        resetsAt: 1790000000,
+        rateLimitType: 'five_hour',
+        utilization: 0.42,
+        isUsingOverage: false,
+        ...unread
+      };
+}
+
+/**
  * Whether the `initialize` request carried an output schema. Without one the
  * request is a connection test (setup.8), and a success is the word it asked
  * for rather than a review.
@@ -70,10 +103,7 @@ function play(name: string): void {
   if (name === 'malformed') process.stdout.write('this is not json\n{"no type": 1}\n');
   out({ type: 'stream_event', event: { type: 'content_block_start' } });
   out({ type: 'stream_event', event: { type: 'message_delta', usage: { output_tokens: 42 } } });
-  out({
-    type: 'rate_limit_event',
-    rate_limit_info: { status: 'allowed', resetsAt: 1790000000, rateLimitType: 'five_hour' }
-  });
+  out({ type: 'rate_limit_event', rate_limit_info: rateLimitInfo(name), uuid: 'rl-1', session_id: 'sess-1' });
   const base = { type: 'result', duration_ms: 1234, session_id: 'sess-1', total_cost_usd: 0.0123 };
   switch (name) {
     case 'success':

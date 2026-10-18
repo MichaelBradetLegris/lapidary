@@ -14,6 +14,7 @@ import {
   NOT_INSTALLED_INTRO,
   SIGNED_IN_AGAIN,
   SIGNED_OUT_INTRO,
+  USAGE_LIMIT_TEXT,
   advancedRows,
   canTestConnection,
   canTryReviewAnyway,
@@ -47,6 +48,7 @@ import {
   type LastFailure,
   type SetupViewId
 } from '../../src/shared/ui/setup';
+import { OTHER_MODELS_ADVICE, WAIT_ADVICE } from '../../src/shared/ui/usage';
 
 /* setup.6: what the Setup screen shows, and when a failure stops counting. */
 
@@ -464,6 +466,30 @@ describe('setupStatus', () => {
     const key = setupStatus('api-key', claude({ credential: 'api-key', apiKeySource: 'ANTHROPIC_API_KEY' }));
     expect(key.lines[0]).toContain('signs in with an API key (ANTHROPIC_API_KEY)');
     expect(key.lines[1]).toContain('remove ANTHROPIC_API_KEY');
+  });
+
+  it('advises on a usage limit from the last notice: wait, or the models a one-model limit leaves free (setup.9)', () => {
+    const limit: LastFailure = { code: 'claude-usage-limit' };
+    expect(setupStatus('usage-limit', claude(), limit)).toEqual({
+      tone: 'warn',
+      title: 'Claude usage limit reached',
+      lines: [USAGE_LIMIT_TEXT, WAIT_ADVICE]
+    });
+    expect(
+      setupStatus('usage-limit', claude(), limit, { status: 'rejected', kind: 'seven_day_opus' }).lines
+    ).toEqual([USAGE_LIMIT_TEXT, OTHER_MODELS_ADVICE.seven_day_opus]);
+    expect(
+      setupStatus('usage-limit', claude(), limit, { status: 'rejected', kind: 'five_hour' }).lines
+    ).toEqual([USAGE_LIMIT_TEXT, WAIT_ADVICE]);
+    expect(setupStatus('usage-limit', claude({ planWarning: FREE_PLAN_WARNING }), limit).lines).toEqual([
+      USAGE_LIMIT_TEXT,
+      WAIT_ADVICE,
+      FREE_PLAN_WARNING
+    ]);
+    // The notice speaks only to a usage limit.
+    expect(
+      setupStatus('ready', claude(), null, { status: 'rejected', kind: 'seven_day_opus' }).lines.join(' ')
+    ).not.toContain('Opus');
   });
 
   it('turns a free plan into a warning', () => {

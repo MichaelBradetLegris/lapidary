@@ -43,6 +43,12 @@ export interface AiController {
   startedAt: number;
   progress: AiProgressEvent | null;
   rateLimit: RateLimitInfo | null;
+  /**
+   * The latest usage notice, at once: a notice that arrived just before a
+   * failed review may not be drawn yet when the failure is handled, and the
+   * card for a usage limit reads which limit it was (setup.9, `usageLimitCard`).
+   */
+  latestRateLimit: () => RateLimitInfo | null;
   /** the last Claude failure that says something about setup (setup.5, nextLastFailure) */
   lastFailure: LastFailure | null;
   /** providers whose connection test is running (setup.8) */
@@ -104,6 +110,10 @@ export function useAi(): AiController {
      the re-check as the window comes back to the front (setup.7). */
   const claudeCheckAt = useRef<number | null>(null);
   const claudeChecking = useRef(0);
+  /* The usage notice as it arrives, kept beside the state for the usage-limit
+     card (setup.9): every notice is written to both. */
+  const rateLimitNow = useRef<RateLimitInfo | null>(null);
+  const latestRateLimit = useCallback(() => rateLimitNow.current, []);
 
   const loadModels = useCallback((provider: Provider) => {
     setModelsLoading((prev) => ({ ...prev, [provider]: true }));
@@ -223,7 +233,10 @@ export function useAi(): AiController {
     const offProgress = window.api.on('ai:progress', (event) => {
       if (event.requestId === activeRequest.current) setProgress(event);
     });
-    const offRate = window.api.on('ai:rate-limit', setRateLimit);
+    const offRate = window.api.on('ai:rate-limit', (info) => {
+      rateLimitNow.current = info;
+      setRateLimit(info);
+    });
     return () => {
       offProgress();
       offRate();
@@ -250,7 +263,10 @@ export function useAi(): AiController {
     } finally {
       testsRunning.current.delete(provider);
     }
-    if (result.rateLimit) setRateLimit(result.rateLimit);
+    if (result.rateLimit) {
+      rateLimitNow.current = result.rateLimit;
+      setRateLimit(result.rateLimit);
+    }
     if (provider === 'claude') {
       const event = testSetupEvent(result, claudeRuntime.current);
       if (event) setLastFailure((prev) => nextLastFailure(prev, event));
@@ -292,7 +308,10 @@ export function useAi(): AiController {
         guidelines: guidelines.text
       });
 
-      if (response.rateLimit) setRateLimit(response.rateLimit);
+      if (response.rateLimit) {
+        rateLimitNow.current = response.rateLimit;
+        setRateLimit(response.rateLimit);
+      }
       if (provider === 'claude') setLastFailure((prev) => nextLastFailure(prev, { type: 'success' }));
 
       // The model was shown paragraphs numbered from 1; the app counts from 0.
@@ -352,6 +371,7 @@ export function useAi(): AiController {
     startedAt,
     progress,
     rateLimit,
+    latestRateLimit,
     lastFailure,
     testing,
     testOutcomes,

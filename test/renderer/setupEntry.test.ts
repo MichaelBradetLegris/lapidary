@@ -34,9 +34,7 @@ describe('every layout has the cards, the dialogs and the question (setup.7)', (
         // (each `{}` is a JSX comment with its text taken out)
         /<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*<\/div>\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*<\/div>\s*\);/
       );
-      expect(layout).toContain(
-        '<StatusBar review={review} {...statusRuntime} rateLimit={ai.rateLimit?.message} />'
-      );
+      expect(layout).toContain('<StatusBar review={review} {...statusRuntime} rateLimit={usageNotice} />');
     });
   }
 
@@ -173,7 +171,7 @@ describe('Copy says when it fails (setup.7)', () => {
 describe('Test the connection, from the button to main and back (setup.8)', () => {
   it('gives the Setup screen the test, whether one is running and how the last went', () => {
     expect(SETUP).toMatch(
-      /onTest=\{testClaude\}\s*testing=\{ai\.testing\.claude \?\? false\}\s*testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*\/>/
+      /onTest=\{testClaude\}\s*testing=\{ai\.testing\.claude \?\? false\}\s*testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*(rateLimit=\{ai\.rateLimit\}\s*)?\/>/
     );
     const test = APP.slice(APP.indexOf('const testClaude = '), APP.indexOf('const refuseWhileEditing = '));
     expect(test).toContain("void testConnection('claude').then((result) => {");
@@ -189,7 +187,9 @@ describe('Test the connection, from the button to main and back (setup.8)', () =
     const test = ai.slice(ai.indexOf('const testConnection = '), ai.indexOf('const cancel = '));
     expect(test).toContain('if (testsRunning.current.has(provider)) return null;');
     expect(test).toContain("result = await call('ai:test', { provider });");
-    expect(test).toContain('if (result.rateLimit) setRateLimit(result.rateLimit);');
+    expect(test).toMatch(
+      /if \(result\.rateLimit\) \{\s*rateLimitNow\.current = result\.rateLimit;\s*setRateLimit\(result\.rateLimit\);\s*\}/
+    );
     expect(test).toMatch(
       /if \(provider === 'claude'\) \{\s*const event = testSetupEvent\(result, claudeRuntime\.current\);\s*if \(event\) setLastFailure\(\(prev\) => nextLastFailure\(prev, event\)\);\s*\}/
     );
@@ -227,5 +227,48 @@ describe('Test the connection, from the button to main and back (setup.8)', () =
     expect(css).toContain("button:hover:not(:disabled, [aria-disabled='true']) {");
     expect(css).toContain("button.primary:hover:not(:disabled, [aria-disabled='true']),");
     expect(css).toContain("button.primary:active:not(:disabled, [aria-disabled='true']),");
+  });
+});
+
+describe("Claude's usage on the page (setup.9)", () => {
+  it('words the notice in the status bar while Claude is in use, and gives Setup the notice too', () => {
+    expect(APP).toContain('const usageNotice = claudeInUse ? ai.rateLimit : null;');
+    expect(APP).toContain("const claudeInUse = activeProvider === 'claude' || setupOpen;");
+    expect(SETUP).toMatch(
+      /testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*rateLimit=\{ai\.rateLimit\}\s*\/>/
+    );
+    const bar = read('components/StatusBar.tsx');
+    expect(bar).toContain('{rateLimit ? <UsageNotice info={rateLimit} /> : null}');
+    expect(bar).toContain('const text = describeRateLimit(info, now);');
+    expect(bar).toContain('title={rateLimitTitle(info, now) ?? undefined}');
+    // Worded again while it shows, so the time left keeps up and it goes at the reset.
+    expect(bar).toMatch(
+      /useEffect\(\(\) => \{\s*if \(!showing\) return;\s*const timer = window\.setInterval\(\(\) => setTick\(\(n\) => n \+ 1\), USAGE_NOTICE_TICK_MS\);\s*return \(\) => window\.clearInterval\(timer\);\s*\}, \[showing\]\);/
+    );
+    expect(bar).toContain('const USAGE_NOTICE_TICK_MS = 30_000;');
+    const screen = read('components/SetupScreen.tsx');
+    expect(screen).toContain('const status = setupStatus(view, runtime, lastFailure, rateLimit);');
+  });
+
+  it("puts up the usage-limit card with Claude Code's words and the advice, from the notice as it arrived", () => {
+    const start = APP.slice(
+      APP.indexOf('const startReview = '),
+      APP.indexOf('const reviewDialogStillOpen = ')
+    );
+    expect(start).toMatch(
+      /if \(err instanceof ApiError && err\.code === 'claude-usage-limit'\) \{\s*notify\('error', usageLimitCard\(err\.message, ai\.latestRateLimit\(\)\)\);\s*return;\s*\}/
+    );
+    // Every notice is kept at once beside the state, for that card: the broadcast,
+    // a review's answer and a test's.
+    const ai = read('state/useAi.ts');
+    expect(ai).toMatch(
+      /window\.api\.on\('ai:rate-limit', \(info\) => \{\s*rateLimitNow\.current = info;\s*setRateLimit\(info\);\s*\}\);/
+    );
+    expect(ai).toMatch(
+      /if \(response\.rateLimit\) \{\s*rateLimitNow\.current = response\.rateLimit;\s*setRateLimit\(response\.rateLimit\);\s*\}/
+    );
+    expect(ai).toContain('const latestRateLimit = useCallback(() => rateLimitNow.current, []);');
+    expect(ai.match(/setRateLimit\(/g)).toHaveLength(3);
+    expect(ai.match(/rateLimitNow\.current = /g)).toHaveLength(3);
   });
 });

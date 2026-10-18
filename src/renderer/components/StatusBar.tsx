@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { decisionCounts, unsavedDecisionCount } from '../../shared/diff/compose';
+import type { RateLimitInfo } from '../../shared/ipc';
 import { PROVIDER_NAMES, type Review } from '../../shared/types';
 import { KEPT_TOOLTIP, keptPhrase, unsavedPhrase } from '../../shared/ui/save';
+import { describeRateLimit, rateLimitTitle } from '../../shared/ui/usage';
 import { canZoom, zoomLabel, type ZoomAction } from '../../shared/ui/zoom';
 import { call } from '../state/client';
 import { reviewKeptAt, useApp } from '../state/store';
@@ -14,7 +16,8 @@ interface Props {
   onRuntime?: () => void;
   /** what the button opens, as its tooltip */
   runtimeTitle?: string;
-  rateLimit?: string | undefined;
+  /** Claude Code's last usage notice, worded by `describeRateLimit` (setup.9) */
+  rateLimit?: RateLimitInfo | null;
 }
 
 /**
@@ -135,6 +138,38 @@ function ZoomControl(): React.JSX.Element {
   );
 }
 
+/** How often a usage notice is worded again while it shows. */
+const USAGE_NOTICE_TICK_MS = 30_000;
+
+/**
+ * Claude's usage when there is something worth saying (setup.9,
+ * `describeRateLimit`): from 80% of a limit, a limit reached, or extra usage
+ * in use, with the whole sentence and the time left as its tooltip. While it
+ * shows it is worded again every 30 s, so the time left keeps up and the
+ * notice goes once its limit has reset.
+ */
+function UsageNotice({ info }: { info: RateLimitInfo }): React.JSX.Element | null {
+  const [, setTick] = useState(0);
+  const now = new Date();
+  const text = describeRateLimit(info, now);
+  const showing = text !== null;
+  useEffect(() => {
+    if (!showing) return;
+    const timer = window.setInterval(() => setTick((n) => n + 1), USAGE_NOTICE_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [showing]);
+  if (text === null) return null;
+  return (
+    <span
+      className="statusbar__warn"
+      data-testid="status-usage"
+      title={rateLimitTitle(info, now) ?? undefined}
+    >
+      {text}
+    </span>
+  );
+}
+
 /**
  * The counts, then where the decisions are: "3 not saved to chapter" while the
  * chapter file is behind the page, and "Decisions kept 14:02" for the last
@@ -201,7 +236,7 @@ export function StatusBar({
           {review?.generator.costEstimated ? ' estimate' : ''}
         </span>
       ) : null}
-      {rateLimit ? <span className="statusbar__warn">{rateLimit}</span> : null}
+      {rateLimit ? <UsageNotice info={rateLimit} /> : null}
       {runtimeLabel ? (
         onRuntime ? (
           <button type="button" className="statusbar__runtime" title={runtimeTitle} onClick={onRuntime}>

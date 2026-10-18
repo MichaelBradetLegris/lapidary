@@ -6,7 +6,7 @@ import { parseReviewOutput } from '../../shared/prompt/schema';
 import type { EffortLevel } from '../../shared/types';
 import { fail } from '../errors';
 import { claudeArgs } from './claudeOptions';
-import { endedWithoutResult, resultToError } from './claudeResult';
+import { endedWithoutResult, readRateLimit, resultToError } from './claudeResult';
 import { CONNECTION_TEST_PROMPT, CONNECTION_TEST_SYSTEM_PROMPT } from './connectionTest';
 import type { ProviderHooks, ProviderResult, ProviderTestHooks, ProviderTestResult } from './types';
 
@@ -393,7 +393,7 @@ async function exchange<T>(deps: CliDeps, ex: Exchange<T>): Promise<T> {
           break;
         }
         case 'rate_limit_event': {
-          context.rateLimit = toRateLimit(message['rate_limit_info']);
+          context.rateLimit = readRateLimit(message['rate_limit_info']);
           ex.onRateLimit?.(context.rateLimit);
           break;
         }
@@ -573,20 +573,5 @@ function finish(message: CliMessage, context: Context): ProviderResult {
     ...(typeof session === 'string' ? { sessionId: session } : {}),
     ...(context.fallbackNote ? { fallbackNote: context.fallbackNote } : {}),
     ...(context.rateLimit ? { rateLimit: context.rateLimit } : {})
-  };
-}
-
-function toRateLimit(value: unknown): RateLimitInfo {
-  const info = (typeof value === 'object' && value !== null ? value : {}) as {
-    status?: unknown;
-    resetsAt?: unknown;
-    rateLimitType?: unknown;
-  };
-  const status = typeof info.status === 'string' ? info.status : 'unknown';
-  const resets = typeof info.resetsAt === 'number' ? new Date(info.resetsAt * 1000).toISOString() : undefined;
-  return {
-    status,
-    ...(resets ? { resetsAt: resets } : {}),
-    ...(typeof info.rateLimitType === 'string' ? { message: `${status} (${info.rateLimitType})` } : {})
   };
 }

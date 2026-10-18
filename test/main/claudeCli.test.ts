@@ -60,8 +60,16 @@ describe('runCliReview', () => {
     expect(result.costUsd).toBe(0.0123);
     expect(result.costEstimated).toBe(false);
     expect(result.durationMs).toBe(1234);
-    expect(result.rateLimit?.status).toBe('allowed');
-    expect(h.rateLimits).toHaveLength(1);
+    // The usage notice, as Claude Code 2.1.302 sends it (setup.9), reduced to what the app reads.
+    const notice = {
+      status: 'allowed',
+      resetsAt: new Date(1790000000 * 1000).toISOString(),
+      kind: 'five_hour',
+      utilization: 0.42,
+      usingOverage: false
+    };
+    expect(result.rateLimit).toEqual(notice);
+    expect(h.rateLimits).toEqual([notice]);
     expect(h.phases[0]).toBe('starting');
     expect(h.phases).toContain('thinking');
     expect(h.phases).toContain('streaming');
@@ -108,10 +116,49 @@ describe('runCliReview', () => {
     });
   });
 
-  it('recognises a usage limit', async () => {
-    await expect(runCliReview(deps('usage-limit'), INPUT, hooks().hooks)).rejects.toMatchObject({
+  it('recognises a usage limit, after a notice that names the limit reached', async () => {
+    const h = hooks();
+    await expect(runCliReview(deps('usage-limit'), INPUT, h.hooks)).rejects.toMatchObject({
       code: 'claude-usage-limit'
     });
+    // The notice reaches the page before the failure, so the card can name the limit (setup.9).
+    expect(h.rateLimits).toEqual([
+      {
+        status: 'rejected',
+        resetsAt: new Date(1790000000 * 1000).toISOString(),
+        kind: 'five_hour',
+        utilization: 1,
+        usingOverage: false
+      }
+    ]);
+  });
+
+  it('reads the limit, the share used and extra usage from each usage notice (setup.9)', async () => {
+    const info = {
+      status: 'allowed_warning',
+      resetsAt: 1790003600,
+      rateLimitType: 'seven_day_opus',
+      utilization: 0.91,
+      isUsingOverage: true,
+      surpassedThreshold: 0.9,
+      overageStatus: 'allowed',
+      unifiedWindows: { five_hour: { utilization: 0.2, resetsAt: 1790000000 } }
+    };
+    const h = hooks();
+    const result = await runCliReview(
+      deps('success', [], { FAKE_CLAUDE_RATE_LIMIT: JSON.stringify(info) }),
+      INPUT,
+      h.hooks
+    );
+    const notice = {
+      status: 'allowed_warning',
+      resetsAt: new Date(1790003600 * 1000).toISOString(),
+      kind: 'seven_day_opus',
+      utilization: 0.91,
+      usingOverage: true
+    };
+    expect(result.rateLimit).toEqual(notice);
+    expect(h.rateLimits).toEqual([notice]);
   });
 
   it("reports a refusal with the model's explanation", async () => {
