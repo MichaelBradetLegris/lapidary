@@ -70,8 +70,25 @@ export interface SaveRequest {
   expectedHash: string;
 }
 
+/**
+ * The copy of the chapter made before a save replaced it (`apply.10`, PLAN
+ * 6.5). It lies in the chapter's own folder under `<userData>/backups`, which
+ * the renderer reaches only through `shell:reveal`, so only the name crosses.
+ */
+export interface SaveBackup {
+  /** the backup's file name, such as `2026-10-14 16.04.33 Chapter 12.md` */
+  name: string;
+  /** false when the newest backup already held exactly these bytes, so it stands for this save */
+  created: boolean;
+}
+
 export type SaveResponse =
-  | { status: 'written'; hash: string }
+  /**
+   * `unchanged`: the file already held exactly these bytes, so nothing was
+   * written, nothing was backed up, and its modified time stays as it was
+   * (PLAN 11.3 h, step 3). Otherwise `backup` is the copy of what was replaced.
+   */
+  | { status: 'written'; hash: string; unchanged?: true; backup?: SaveBackup }
   /** the file changed underneath us; the caller must rebase onto `disk` and retry */
   | { status: 'stale'; disk: FileContent };
 
@@ -255,16 +272,70 @@ export interface EffectivePaths {
   /** true when reviewsFolder is the fallback inside the app's data directory */
   reviewsFolderIsDefault: boolean;
   guidelinesPath: string | null;
+  /**
+   * `<userData>/backups`, where every chapter has a backup folder of its own
+   * (PLAN 6.5), for the Backups row in Settings (apply.11)
+   */
+  backupsFolder: string;
 }
 
-/** The only places the renderer may ask the shell to open or reveal. */
 /**
- * What "show in folder" can point at. The last four live under userData and are
- * created on demand: `data` is the folder itself, `logs` selects main.log,
- * `backups` the chapter's own backup folder when a source path is given, and
- * `drafts` the set-aside paragraph text (setup.7a).
+ * The only places the renderer may ask the shell to open or reveal: what "show
+ * in folder" can point at. The last four live under userData and are created
+ * on demand: `data` is the folder itself, `logs` selects main.log, `backups`
+ * the backups root, and `drafts` the folder of set-aside paragraph text
+ * (setup.7a), or, given the `name` of one set-aside file, that file, opened in
+ * the computer's app for .txt files (apply.16). Given a chapter's
+ * `sourcePath`, `backups` opens that chapter's own backup folder instead, with
+ * the newest backup selected: main works the folder out from the path and
+ * refuses one outside the backups root, and a chapter with no backups yet is
+ * answered `not-found` (apply.11).
  */
 export type RevealTarget = 'manuscript' | 'reviews' | 'guidelines' | 'data' | 'logs' | 'backups' | 'drafts';
+
+/**
+ * One paragraph box as it is kept on disk (apply.16, PLAN 11.3 j): the
+ * renderer's `ParagraphDraft` without the selection it opened with.
+ */
+export interface StoredDraft {
+  /** the first paragraph index of the block the box covers, which is its key */
+  key: number;
+  /** every paragraph index the block covers; usually just `key` */
+  paragraphs: number[];
+  /** what the page read over the block when the box opened */
+  initial: string;
+  /** what the box holds */
+  text: string;
+}
+
+/**
+ * `<userData>/drafts/<16 hex>.json`: the paragraph boxes left open in one
+ * chapter, as last written. The name is the first 16 hex digits of the
+ * SHA-256 of the chapter's path key, so no chapter text or name is in it.
+ */
+export interface DraftFile {
+  version: 1;
+  /** the chapter the boxes are in */
+  sourcePath: string;
+  /** the review on screen when they were written; placing them goes by the page's text */
+  reviewId: string;
+  /** ISO time of the write */
+  savedAt: string;
+  drafts: StoredDraft[];
+}
+
+/** `drafts:save`: the boxes open in a chapter now; none deletes its file. */
+export interface DraftSaveRequest {
+  sourcePath: string;
+  reviewId: string;
+  drafts: StoredDraft[];
+}
+
+/** `drafts:set-aside`: boxes that cannot be put back, written to a .txt of their own. */
+export interface SetAsideRequest {
+  sourcePath: string;
+  drafts: StoredDraft[];
+}
 
 /**
  * A button a notification card may carry, named rather than a callback so the
@@ -277,6 +348,7 @@ export type NotificationAction =
   | 'show-diagnostics'
   | 'reveal-drafts'
   | 'reveal-backups'
+  | 'reveal-all-backups'
   | 'update-download'
   | 'update-restart'
   | 'update-open-page';
@@ -287,6 +359,52 @@ export interface AppNotice {
   message: string;
   action?: NotificationAction;
 }
+
+/**
+ * What closing the window now would put at risk (PLAN 11.3 i). The renderer
+ * pushes it whenever it changes (`app:guard-state`), so main can close at once
+ * when nothing is at risk and ask the page only when something is
+ * (`needsAttention` and `closePrompt` in `src/shared/ui/save.ts`, the close
+ * guard in `src/main/closeGuard.ts`). Counts and flags only: no chapter text
+ * and no typed text crosses for this.
+ */
+export interface CloseGuardState {
+  /** absolute path of the open chapter, or null when none is open */
+  chapter: string | null;
+  /** decisions the chapter file does not contain yet (`unsavedDecisionCount`) */
+  unsavedDecisions: number;
+  /** paragraph boxes whose text differs from what they opened with */
+  changedParagraphs: number;
+  /** a review of the open chapter is running, so its page is read-only */
+  locked: boolean;
+  /** a review is running, for the open chapter or another */
+  reviewRunning: boolean;
+  /**
+   * a review or draft write is waiting, under way, held, or failed and not
+   * made since, or a Save to chapter is under way (apply.9)
+   */
+  writesPending: boolean;
+  /** a dialog holds text the author typed: New chapter, Submit manual review or the edit popover */
+  dialogText: boolean;
+}
+
+/**
+ * How far the page has got with a close request (`app:close-status`, PLAN 7.7).
+ * Main gives it 3 s to say `received` and 10 s more to say `prompting`, then
+ * offers its native box (`src/main/closeGuard.ts`).
+ */
+export type CloseStatus =
+  /** the page has the request and is finishing its writes before it asks */
+  | 'received'
+  /** a question is on screen, its close prompt or its "Still writing your decisions" */
+  | 'prompting';
+
+/** Why main asks the page to write everything it holds at once (`app:flush`). */
+export type FlushReason =
+  /** Windows asks whether the session may end; the app never says no */
+  | 'query-session-end'
+  /** the session is ending: shutdown, restart or sign-out */
+  | 'session-end';
 
 /* ------------------------------------------------------------------ */
 /* Request map                                                         */
@@ -316,13 +434,27 @@ export interface ApiRequestMap {
   /** `hash` is the chapter file's current hash, which lets a renamed chapter find its reviews */
   'reviews:load-latest': { request: { sourcePath: string; hash?: string }; response: LoadedReview | null };
   'reviews:save': { request: { review: Review; path?: string }; response: { path: string } };
+  /** the page shows this review of the chapter, so the chapter opens with it next time (apply.26) */
+  'reviews:shown': { request: { sourcePath: string; path: string }; response: void };
   'reviews:index': { request: void; response: Record<string, ReviewSummary> };
   'guidelines:ensure': { request: void; response: GuidelinesInfo };
   /** create the guidelines file if missing, then open it in Obsidian or the OS editor */
   'guidelines:open': { request: { via: OpenGuidelinesVia }; response: { path: string; created: boolean } };
   'guidelines:status': { request: void; response: GuidelinesStatus };
-  /** select one of the app's own folders or files in Explorer */
-  'shell:reveal': { request: { target: RevealTarget; sourcePath?: string }; response: { path: string } };
+  /**
+   * select one of the app's own folders or files in Explorer; `name` opens one
+   * set-aside file from `drafts/set-aside` instead (apply.16), and
+   * `sourcePath` opens that chapter's backup folder (apply.11)
+   */
+  'shell:reveal': {
+    request: { target: RevealTarget; sourcePath?: string; name?: string };
+    response: { path: string };
+  };
+  /* Paragraph boxes kept on disk, per chapter (apply.16, PLAN 11.3 j). */
+  'drafts:load': { request: { sourcePath: string }; response: DraftFile | null };
+  'drafts:save': { request: DraftSaveRequest; response: void };
+  /** answers with the file name in `drafts/set-aside`, for the card's Show the text */
+  'drafts:set-aside': { request: SetAsideRequest; response: { name: string } };
   /* One set of channels for every provider; the payload names which one. */
   'ai:runtime': { request: { provider: Provider }; response: RuntimeStatus };
   'ai:models': { request: { provider: Provider }; response: ModelInfo[] };
@@ -334,6 +466,13 @@ export interface ApiRequestMap {
   'secrets:openai-clear': { request: void; response: OpenAiKeyStatus };
   /** step or reset the window zoom; answers with the level now in use (round 5) */
   'view:zoom': { request: { action: ZoomAction }; response: { zoom: number } };
+  /* The close guard (apply.8, PLAN 7.7 and 11.3 i): the page tells main what a
+     close would put at risk, how far it has got with a close request, and what
+     the author decided. */
+  'app:guard-state': { request: CloseGuardState; response: void };
+  'app:close-status': { request: { status: CloseStatus }; response: void };
+  /** true closes the window, or goes on quitting; false keeps it open */
+  'app:close-decision': { request: { close: boolean }; response: void };
 }
 
 export type RequestChannel = keyof ApiRequestMap;
@@ -360,11 +499,15 @@ const REQUEST_CHANNEL_FLAGS = {
   'reviews:load': true,
   'reviews:load-latest': true,
   'reviews:save': true,
+  'reviews:shown': true,
   'reviews:index': true,
   'guidelines:ensure': true,
   'guidelines:open': true,
   'guidelines:status': true,
   'shell:reveal': true,
+  'drafts:load': true,
+  'drafts:save': true,
+  'drafts:set-aside': true,
   'ai:runtime': true,
   'ai:models': true,
   'ai:review': true,
@@ -372,7 +515,10 @@ const REQUEST_CHANNEL_FLAGS = {
   'secrets:openai-status': true,
   'secrets:openai-set': true,
   'secrets:openai-clear': true,
-  'view:zoom': true
+  'view:zoom': true,
+  'app:guard-state': true,
+  'app:close-status': true,
+  'app:close-decision': true
 } as const satisfies Record<RequestChannel, true>;
 
 export const REQUEST_CHANNELS: readonly RequestChannel[] = Object.keys(
@@ -406,6 +552,14 @@ export interface ApiEventMap {
   'view:zoom-changed': { zoom: number };
   /** a card main wants shown: a crash it survived, an update, a backup problem */
   'app:notice': AppNotice;
+  /**
+   * the window was asked to close while the page holds something at risk
+   * (apply.8): answer with `app:close-status`, then `app:close-decision`.
+   * `quitting` when the whole app was asked to quit, not only the window.
+   */
+  'app:close-requested': { quitting: boolean };
+  /** write every waiting review and drafts write now; nothing is asked (shutdown, PLAN 7.7) */
+  'app:flush': { reason: FlushReason };
 }
 
 export type EventChannel = keyof ApiEventMap;
@@ -421,7 +575,9 @@ const EVENT_CHANNEL_FLAGS = {
   'ai:progress': true,
   'ai:rate-limit': true,
   'view:zoom-changed': true,
-  'app:notice': true
+  'app:notice': true,
+  'app:close-requested': true,
+  'app:flush': true
 } as const satisfies Record<EventChannel, true>;
 
 export const EVENT_CHANNELS: readonly EventChannel[] = Object.keys(EVENT_CHANNEL_FLAGS) as EventChannel[];

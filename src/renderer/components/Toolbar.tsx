@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { chapterName } from '../../shared/review';
 import type { Review } from '../../shared/types';
+import { saveButtonInput, saveButtonState, unsavedDotLabel } from '../../shared/ui/save';
+import { SAVE_HINT_ID, saveHintText, saveHintVisible } from '../../shared/ui/saveHint';
 import { useBulkAction } from '../state/bulk';
-import { isLocked, useApp } from '../state/store';
+import { hintDismissedThisSession } from '../state/hints';
+import { changedParagraphCount, isLocked, useApp } from '../state/store';
 import { IconChevronDown } from './icons';
+import { SaveHint } from './SaveHint';
 
 interface Props {
   review: Review | null;
@@ -16,6 +20,8 @@ interface Props {
   onSaveChapter: () => void;
   onCopyResult: () => void;
   onSettings: () => void;
+  /** Got it on the first-use hint: put it away for good (apply.12) */
+  onSaveHintDone: () => void;
 }
 
 /**
@@ -82,7 +88,18 @@ function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): R
  * One row, in the order the author reads it: what is open, what can act on it,
  * then what writes it out. Model and effort moved into the review dialog, where
  * they are chosen once per review rather than sitting in the way all day
- * (item 6).
+ * (item 6). The chapter name takes the room the buttons leave and gives way
+ * first, cut short with an ellipsis; once it is down to about 8em, the last
+ * buttons move to a second row instead (app.css, `.toolbar`).
+ *
+ * Save to chapter and the dot before the chapter name come from
+ * `saveButtonState` (apply.4), fed by `saveButtonInput` and counted by
+ * `unsavedDecisionCount`: the changes the chapter file does not have yet, not
+ * every decision made since the review opened.
+ *
+ * The first time one of those changes is waiting, a hint hangs under the
+ * toolbar with its arrow on Save to chapter, until Got it or a save puts it
+ * away for good (apply.12, `saveHintVisible`).
  */
 export function Toolbar({
   review,
@@ -94,12 +111,28 @@ export function Toolbar({
   onManualReview,
   onSaveChapter,
   onCopyResult,
-  onSettings
+  onSettings,
+  onSaveHintDone
 }: Props): React.JSX.Element {
-  const dirty = useApp((s) => s.dirty);
   // Read-only while a review of this chapter runs (round 3, item 3).
   const locked = useApp(isLocked);
   const editing = useApp((s) => Object.keys(s.drafts).length);
+  const changedParagraphs = useApp((s) => changedParagraphCount(s.drafts));
+
+  const input = saveButtonInput({ review, changedParagraphs, saving, locked });
+  const save = saveButtonState(input);
+  const dotLabel = unsavedDotLabel(input.unsavedDecisions);
+
+  const dismissedHints = useApp((s) => s.settings?.dismissedHints ?? null);
+  const saveRef = useRef<HTMLButtonElement>(null);
+  const hint = saveHintVisible({
+    dismissedHints,
+    dismissedThisSession: hintDismissedThisSession(SAVE_HINT_ID),
+    hasChapter: input.hasChapter,
+    unsavedDecisions: input.unsavedDecisions,
+    locked,
+    saving
+  });
 
   const title = review
     ? review.sourcePath
@@ -110,10 +143,11 @@ export function Toolbar({
   return (
     <header className="toolbar">
       <span className="toolbar__title">
-        {title}
-        {dirty ? <span className="toolbar__dirty" title="Unsaved decisions" /> : null}
+        {save.dot ? <span className="unsaved-dot" role="img" aria-label={dotLabel} title={dotLabel} /> : null}
+        <span className="toolbar__name" title={title}>
+          {title}
+        </span>
       </span>
-      <span className="spacer" />
 
       {running ? (
         <>
@@ -145,13 +179,14 @@ export function Toolbar({
       />
 
       <button
+        ref={saveRef}
         type="button"
         className="primary"
-        disabled={!review?.sourcePath || saving || locked}
-        title="Write the accepted changes into the chapter file"
+        disabled={save.disabled}
+        title={save.title}
         onClick={onSaveChapter}
       >
-        {saving ? 'Saving…' : 'Save to chapter'}
+        {save.label}
       </button>
 
       <button type="button" disabled={!review} onClick={onCopyResult}>
@@ -161,6 +196,10 @@ export function Toolbar({
       <button type="button" onClick={onSettings}>
         Settings
       </button>
+
+      {hint && review ? (
+        <SaveHint anchor={saveRef} text={saveHintText(review.sourcePath)} onGotIt={onSaveHintDone} />
+      ) : null}
     </header>
   );
 }

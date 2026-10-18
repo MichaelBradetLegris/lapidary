@@ -6,6 +6,7 @@ import type {
   ChapterFile,
   FileContent,
   NameCheck,
+  SaveBackup,
   SaveRequest,
   SaveResponse
 } from '../shared/ipc';
@@ -14,7 +15,7 @@ import { isInsidePath, pathKey, samePath } from '../shared/paths';
 import { MAX_TEXT_BYTES, classifyBytes, encodingProblem } from '../shared/text/encoding';
 import { normalizeText, restoreText } from '../shared/text/eol';
 import { atomicWriteFile, type AtomicWriteOptions } from './atomic';
-import { fail } from './errors';
+import { fail, readFailure, writeFailure } from './errors';
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.obsidian', '.trash', 'out', 'dist']);
 
@@ -99,10 +100,18 @@ function isHidden(name: string): boolean {
   return name.startsWith('.');
 }
 
+/** How a message names the manuscript folder: "the manuscript folder Novel". */
+export function manuscriptFolderName(folder: string): string {
+  return `the manuscript folder ${path.basename(path.resolve(folder)) || path.resolve(folder)}`;
+}
+
 /**
  * Every `.md` and `.txt` under `folder`, skipping dot-folders, the reviews
  * folder and any files named in `excludeFiles` (the guidelines file is not a
- * chapter).
+ * chapter). A subfolder that cannot be read is skipped; the manuscript folder
+ * itself must be, or the list would say it holds no chapters, so a read the
+ * system refuses there, or a folder that is not there, is explained as a read
+ * (`readFailure`, apply.25).
  */
 export async function listChapters(
   folder: string,
@@ -113,11 +122,12 @@ export async function listChapters(
   const excluded = reviewsFolder ? path.resolve(reviewsFolder) : null;
   const skipFiles = new Set(excludeFiles.map((f) => path.resolve(f).toLowerCase()));
 
-  const walk = async (dir: string): Promise<void> => {
+  const walk = async (dir: string, top: boolean): Promise<void> => {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (top) throw readFailure(err, manuscriptFolderName(folder));
       return;
     }
     for (const entry of entries) {
@@ -125,7 +135,7 @@ export async function listChapters(
       if (entry.isDirectory()) {
         if (isHidden(entry.name) || SKIP_DIRS.has(entry.name)) continue;
         if (excluded && path.resolve(full) === excluded) continue;
-        await walk(full);
+        await walk(full, false);
         continue;
       }
       if (!entry.isFile()) continue;
@@ -143,7 +153,7 @@ export async function listChapters(
     }
   };
 
-  await walk(folder);
+  await walk(folder, true);
   return out.sort((a, b) => a.relativePath.localeCompare(b.relativePath, undefined, { numeric: true }));
 }
 
@@ -181,18 +191,34 @@ async function readTextBytes(file: string): Promise<Buffer> {
   return fs.readFile(file);
 }
 
-/** Read a chapter, capturing everything needed to write it back byte-identically. */
-export async function readChapter(file: string): Promise<FileContent> {
+/** A chapter's bytes as read, with what `readChapter` makes of them. */
+async function readChapterBytes(file: string): Promise<{ bytes: Buffer; content: FileContent }> {
   const bytes = await readTextBytes(file);
   const normalized = normalizeText(decodeText(bytes, file));
   return {
-    path: file,
-    text: normalized.text,
-    hash: hashBytes(bytes),
-    eol: normalized.eol,
-    bom: normalized.bom,
-    trailingNewline: normalized.trailingNewline
+    bytes,
+    content: {
+      path: file,
+      text: normalized.text,
+      hash: hashBytes(bytes),
+      eol: normalized.eol,
+      bom: normalized.bom,
+      trailingNewline: normalized.trailingNewline
+    }
   };
+}
+
+/**
+ * Read a chapter, capturing everything needed to write it back
+ * byte-identically. A read the system refuses is explained as a read
+ * (`readFailure`, apply.24).
+ */
+export async function readChapter(file: string): Promise<FileContent> {
+  try {
+    return (await readChapterBytes(file)).content;
+  } catch (err) {
+    throw readFailure(err, path.basename(file), { reopen: true });
+  }
 }
 
 /** Bytes that would be written for the given LF text and shape. */
@@ -203,31 +229,78 @@ export function bytesFor(request: Pick<SaveRequest, 'text' | 'eol' | 'bom' | 'tr
 export interface WriteHooks {
   /** called with the hash just written so the watcher can ignore its own echo */
   onWritten?: (file: string, hash: string) => void;
+  /**
+   * Step 4 of PLAN 11.3 (h): handed the exact bytes about to be replaced,
+   * once the file is known to be the one the caller expects and before
+   * anything is written. Main backs them up here (`chapterBackupHooks` in
+   * `backups.ts`). If it throws, nothing is written and the save fails with
+   * "Could not back up the chapter before saving, so nothing was written:"
+   * and its message. What it returns comes back as `SaveResponse.backup`.
+   */
+  beforeReplace?: (file: string, bytes: Buffer) => Promise<SaveBackup | undefined>;
+  /**
+   * Step 8: after the chapter is written and its hash remembered. Best
+   * effort: the save has already happened, so a failure here never fails it.
+   */
+  afterWrite?: (file: string) => Promise<void>;
   /** tests replace the rename and the waits between retries */
   atomic?: Pick<AtomicWriteOptions, 'rename' | 'sleep'>;
 }
 
 /**
- * Save a chapter. The file is re-read first: when the bytes on disk are not the
- * ones the caller based its decisions on, nothing is written and the fresh
- * contents come back so the caller can rebase and try again (plan section 6.3).
+ * A chapter's bytes for a save, with a missing file explained. A refused read
+ * is explained as a read, not as the write that never started: nothing was
+ * tried for a second and a half, and Controlled folder access does not block
+ * reading (apply.24).
  */
-export async function writeChapter(request: SaveRequest, hooks: WriteHooks = {}): Promise<SaveResponse> {
-  const current = await readChapter(request.path).catch((err: unknown) => {
+async function readForSave(file: string): Promise<{ bytes: Buffer; content: FileContent }> {
+  return readChapterBytes(file).catch((err: unknown) => {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       throw fail(
         'not-found',
-        `The chapter is no longer at ${request.path}. If you renamed or moved it in Obsidian, open it again from the list; its review comes with it.`
+        `The chapter is no longer at ${file}. If you renamed or moved it in Obsidian, open it again from the list; its review comes with it.`
       );
     }
-    throw err;
+    throw readFailure(err, path.basename(file), { reopen: true });
   });
+}
+
+/**
+ * Save a chapter, in the order of PLAN 11.3 (h). The file is re-read first:
+ * when the bytes on disk are not the ones the caller based its decisions on,
+ * nothing is written and the fresh contents come back so the caller can rebase
+ * and try again (plan section 6.3). When the new bytes are the ones already on
+ * disk, nothing is written or backed up, so the file keeps its modified time
+ * and Obsidian or a sync tool sees no change (`unchanged`, step 3). Otherwise
+ * `beforeReplace` backs up the old bytes (step 4), the file is read once more
+ * in case it changed meanwhile (step 5), and only then replaced (step 6).
+ */
+export async function writeChapter(request: SaveRequest, hooks: WriteHooks = {}): Promise<SaveResponse> {
+  const { bytes: onDisk, content: current } = await readForSave(request.path);
 
   if (current.hash !== request.expectedHash) {
     return { status: 'stale', disk: current };
   }
 
   const bytes = bytesFor(request);
+  if (bytes.equals(onDisk)) return { status: 'written', hash: current.hash, unchanged: true };
+
+  let backup: SaveBackup | undefined;
+  if (hooks.beforeReplace) {
+    try {
+      backup = await hooks.beforeReplace(request.path, onDisk);
+    } catch (err) {
+      throw fail(
+        'io',
+        `Could not back up the chapter before saving, so nothing was written: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+    // The copy took a moment. Bytes that arrived meanwhile, from Obsidian or a
+    // sync, are not in the backup and are not what the caller decided on.
+    const again = await readForSave(request.path);
+    if (again.content.hash !== current.hash) return { status: 'stale', disk: again.content };
+  }
+
   const outcome = await atomicWriteFile(request.path, bytes, {
     ...hooks.atomic,
     // While Windows refuses the rename, Obsidian may be the one writing.
@@ -242,7 +315,8 @@ export async function writeChapter(request: SaveRequest, hooks: WriteHooks = {})
   if (outcome === 'stale') return { status: 'stale', disk: await readChapter(request.path) };
   const hash = hashBytes(bytes);
   hooks.onWritten?.(request.path, hash);
-  return { status: 'written', hash };
+  if (hooks.afterWrite) await hooks.afterWrite(request.path).catch(() => undefined);
+  return backup ? { status: 'written', hash, backup } : { status: 'written', hash };
 }
 
 /* ------------------------------------------------------------------ */
@@ -360,14 +434,20 @@ export async function createChapter(
     'utf8'
   );
 
-  await fs.mkdir(folder, { recursive: true });
+  // Neither write is retried or replaces anything, so a refusal says what was
+  // being made and to try again (apply.25).
+  try {
+    await fs.mkdir(folder, { recursive: true });
+  } catch (err) {
+    throw writeFailure(err, 'folder', manuscriptFolderName(folder));
+  }
   try {
     await fs.writeFile(verdict.file, bytes, { flag: 'wx' });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
       throw fail('invalid-input', `A file with this name already exists: ${path.basename(verdict.file)}`);
     }
-    throw err;
+    throw writeFailure(err, 'create', path.basename(verdict.file));
   }
 
   const stat = await fs.stat(verdict.file);

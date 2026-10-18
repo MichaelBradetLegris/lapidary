@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { composeReview, unsavedDecisionCount } from '../shared/diff/compose';
 import { rebaseReview } from '../shared/diff/rebase';
 import { proPreselection } from '../shared/ai/claudeModels';
+import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
+import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
+import { rebaseCardText } from '../shared/ui/rebase';
+import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
 import { runtimeLabel as labelForRuntime } from '../shared/ui/setup';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
-import type { ChapterFile, FileContent, ReviewSummary } from '../shared/ipc';
-import { PROVIDER_NAMES, type Review, type ReviewBase } from '../shared/types';
+import type { ApiEventMap, ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
+import { PROVIDER_NAMES, type Review } from '../shared/types';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { EditPopover } from './components/EditPopover';
 import { FileList } from './components/FileList';
@@ -24,16 +28,94 @@ import { SidePanel } from './components/SidePanel';
 import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
 import { ApiError, call, errorMessage } from './state/client';
+import {
+  installCloseGuard,
+  type CloseGuardDeps,
+  type CloseGuardIo,
+  type PageWrites
+} from './state/closeGuard';
+import {
+  draftWriteFailures,
+  flushDraftWrites,
+  installDraftPersistence,
+  retryDraftWrites,
+  type DraftIo
+} from './state/drafts';
+import { dismissHint, flushHintWrites, type HintIo } from './state/hints';
+import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { useKeyboardBindings } from './state/keyboard';
 import { useProgressLabel } from './state/progress';
+import { reviewWithoutSaving, saveThenReview } from './state/reviewStart';
 import { useApp } from './state/store';
 import {
   flushReviewWrites,
   installReviewPersistence,
   markReviewPersistedState,
+  retryReviewWrites,
+  reviewWriteFailureOf,
+  reviewWriteFailures,
   writeReviewNow
 } from './state/reviewPersistence';
+import { baseFrom, useSaveChapter, type SaveDeps } from './state/saveChapter';
 import { useAi } from './state/useAi';
+
+/** How kept paragraph boxes reach main (apply.16, state/drafts.ts). */
+const DRAFT_IO: DraftIo = {
+  load: (sourcePath) => call('drafts:load', { sourcePath }),
+  save: (request) => call('drafts:save', request),
+  setAside: (request) => call('drafts:set-aside', request)
+};
+
+/** Listen to one of main's events, or to nothing outside the app window. */
+function onMain<E extends 'app:close-requested' | 'app:flush'>(
+  event: E,
+  listener: (payload: ApiEventMap[E]) => void
+): () => void {
+  return typeof window.api?.on === 'function' ? window.api.on(event, listener) : () => undefined;
+}
+
+/**
+ * How the close guard reaches main (apply.9, state/closeGuard.ts). `call`
+ * sends before its first await, so each message is on its way when this
+ * returns: a close right after a decision already finds it pushed.
+ */
+const CLOSE_GUARD_IO: CloseGuardIo = {
+  pushState: (state) => void call('app:guard-state', state).catch(() => undefined),
+  sendStatus: (status) => void call('app:close-status', { status }).catch(() => undefined),
+  sendDecision: (close) => void call('app:close-decision', { close }).catch(() => undefined),
+  onCloseRequested: (listener) => onMain('app:close-requested', () => listener()),
+  onFlush: (listener) => onMain('app:flush', ({ reason }) => listener(reason))
+};
+
+/** How a one-time hint is put away for good (apply.12, state/hints.ts). */
+const HINT_IO: HintIo = {
+  setSettings: (patch) => call('settings:set', patch)
+};
+
+/**
+ * The review and paragraph writers, which a close and the end of a session
+ * write out (apply.9), and a hint put away just before, such as the Save hint
+ * that Save and close puts away (apply.12). A hint that cannot be written is
+ * not reported: it only shows again at the next start.
+ */
+const PAGE_WRITES: PageWrites = {
+  flush: async () => {
+    await Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites()]);
+  },
+  retry: () => {
+    retryReviewWrites();
+    retryDraftWrites();
+  },
+  failures: () => [...reviewWriteFailures(), ...draftWriteFailures()]
+};
+
+/**
+ * The card of a chapter that could not be opened, such as one whose review
+ * another program holds (apply.25), and of a review from History or the
+ * review selector that could not be (apply.25 review): the next try replaces
+ * it, and an open that works closes it.
+ */
+const OPEN_CHAPTER_CARD = 'open-chapter';
 
 /** Review failures the Setup screen can fix: Claude Code missing, too old, or signed out. */
 const SETUP_FAILURES: ReadonlySet<string> = new Set([
@@ -42,16 +124,6 @@ const SETUP_FAILURES: ReadonlySet<string> = new Set([
   'claude-missing-binary',
   'claude-outdated'
 ]);
-
-function baseFrom(content: FileContent): ReviewBase {
-  return {
-    text: content.text,
-    hash: content.hash,
-    eol: content.eol,
-    bom: content.bom,
-    trailingNewline: content.trailingNewline
-  };
-}
 
 export function App(): React.JSX.Element {
   const settings = useApp((s) => s.settings);
@@ -63,26 +135,27 @@ export function App(): React.JSX.Element {
   const setSettings = useApp((s) => s.setSettings);
   const setReview = useApp((s) => s.setReview);
   const notify = useApp((s) => s.notify);
+  const dismissNotificationsByKey = useApp((s) => s.dismissNotificationsByKey);
   const setNewChapterOpen = useApp((s) => s.setNewChapterOpen);
   const setManualReviewOpen = useApp((s) => s.setManualReviewOpen);
   const setReviewDialogOpen = useApp((s) => s.setReviewDialogOpen);
   const setCommentStatus = useApp((s) => s.setCommentStatus);
-  const markSaved = useApp((s) => s.markSaved);
-  const askConfirm = useApp((s) => s.askConfirm);
   const findOpen = useApp((s) => s.find.open);
+  const settingsOpen = useApp((s) => s.settingsOpen);
+  const setSettingsOpen = useApp((s) => s.setSettingsOpen);
+  const setupOpen = useApp((s) => s.setupOpen);
+  const setSetupOpen = useApp((s) => s.setSetupOpen);
+  const chapterSaving = useApp((s) => s.chapterSaving);
+  const questionOpen = useApp((s) => s.confirmSpec !== null);
 
   const [files, setFiles] = useState<ChapterFile[]>([]);
+  const [filesProblem, setFilesProblem] = useState<string | null>(null);
   const [index, setIndex] = useState<Record<string, ReviewSummary>>({});
   const [history, setHistory] = useState<ReviewSummary[]>([]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [setupOpen, setSetupOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   const ai = useAi();
   const claudeRuntime = ai.runtimes.claude ?? null;
   const progressLabel = useProgressLabel(ai.running, ai.startedAt, ai.progress?.outputTokens);
-
-  useKeyboardBindings();
 
   /* A new user on a Pro plan starts on Sonnet, once (setup.1, Appendix D 12). */
   useEffect(() => {
@@ -98,14 +171,40 @@ export function App(): React.JSX.Element {
 
   /* ---------------- loading ---------------- */
 
-  const refreshFiles = useCallback(() => {
-    void call('files:list', undefined)
-      .then(setFiles)
-      .catch(() => setFiles([]));
-    void call('reviews:index', undefined)
-      .then(setIndex)
-      .catch(() => setIndex({}));
+  /* What the chapter list marks each chapter with (apply.5). Only the newest
+     answer is kept, so a slow one cannot put back counts a later one has
+     replaced. Resolves once the answer is in; never rejects. */
+  const indexSeq = useRef(0);
+  const refreshIndex = useCallback(async (): Promise<void> => {
+    const ticket = ++indexSeq.current;
+    let next: Record<string, ReviewSummary> = {};
+    try {
+      next = await call('reviews:index', undefined);
+    } catch {
+      // No marks rather than stale ones.
+    }
+    if (ticket === indexSeq.current) setIndex(next);
   }, []);
+
+  /* The chapter list. A manuscript folder that cannot be read shows main's
+     words where the empty-folder line would be, with Try again (apply.25).
+     Only the newest answer is kept, as for the marks. */
+  const filesSeq = useRef(0);
+  const refreshFiles = useCallback(() => {
+    const ticket = ++filesSeq.current;
+    void call('files:list', undefined)
+      .then((list) => {
+        if (ticket !== filesSeq.current) return;
+        setFiles(list);
+        setFilesProblem(null);
+      })
+      .catch((err: unknown) => {
+        if (ticket !== filesSeq.current) return;
+        setFiles([]);
+        setFilesProblem(errorMessage(err));
+      });
+    void refreshIndex();
+  }, [refreshIndex]);
 
   useEffect(() => {
     call('settings:get', undefined)
@@ -116,58 +215,109 @@ export function App(): React.JSX.Element {
       .catch(fail);
   }, [setSettings, refreshFiles, fail]);
 
+  /* History lists the chapter on screen, so a reply for a chapter the author
+     has left since is dropped (apply.3). */
   const refreshHistory = useCallback((sourcePath: string) => {
+    const showing = (): boolean =>
+      useApp.getState().review?.sourcePath.toLowerCase() === sourcePath.toLowerCase();
     void call('reviews:list', { sourcePath })
-      .then(setHistory)
-      .catch(() => setHistory([]));
+      .then((list) => {
+        if (showing()) setHistory(list);
+      })
+      .catch(() => {
+        if (showing()) setHistory([]);
+      });
   }, []);
 
-  /**
-   * Paragraphs open for editing live only on screen until Done. Before anything
-   * replaces the review on screen, ask rather than drop them (Phase 5d).
-   */
-  const confirmLeaveDrafts = useCallback(async (): Promise<boolean> => {
-    const open = Object.keys(useApp.getState().drafts).length;
-    if (open === 0) return true;
-    const ok = await askConfirm({
-      title: 'Discard paragraph edits?',
-      body: `${open} paragraph${open === 1 ? ' is' : 's are'} open for editing. ${
-        open === 1 ? 'Its changes have' : 'Their changes have'
-      } not been applied and will be lost.`,
-      confirmLabel: 'Discard'
-    });
-    if (ok) useApp.getState().discardDrafts();
-    return ok;
-  }, [askConfirm]);
+  /* ---------------- saving (apply.3, state/saveChapter.ts) ---------------- */
+
+  const saveDeps = useMemo<SaveDeps>(
+    () => ({
+      saveFile: (request) => call('files:save', request),
+      writeReview: writeReviewNow,
+      onSaved: (saved, onScreen) => {
+        // The first Save to chapter that reaches the file puts the Save hint
+        // away for good, whether or not it was showing (apply.12).
+        void dismissHint(SAVE_HINT_ID, HINT_IO);
+        if (onScreen) refreshHistory(saved.sourcePath);
+        refreshFiles();
+      }
+    }),
+    [refreshHistory, refreshFiles]
+  );
+  const { save } = useSaveChapter(saveDeps);
+  const saveChapter = useCallback(() => void save({ applyDrafts: 'ask' }), [save]);
+
+  useKeyboardBindings(save);
+
+  /* ---------------- leaving (apply.7, state/leave.ts) ---------------- */
+
+  const leaveDeps = useMemo<LeaveDeps>(() => ({ save }), [save]);
 
   /* ---------------- opening a chapter ---------------- */
 
+  /* Opening a chapter or another review of the open one lets a save under way
+     end first; another chapter then asks when something on screen is not
+     saved to the chapter: Save first, Keep for later or Cancel
+     (`beforeLeaving`). Another review of the open chapter, from History or
+     the selector, asks nothing (apply.26). Clicking what is already open, the
+     open chapter whichever of its reviews is on screen, asks nothing and only
+     writes what is waiting (PLAN 11.3 i). */
   const openChapter = useCallback(
     (file: ChapterFile) => {
       void (async () => {
-        if (!(await confirmLeaveDrafts())) return;
+        const decision = await beforeLeaving({ kind: 'chapter', path: file.path }, leaveDeps);
+        if (decision === 'stay') return;
         try {
           // A decision still waiting to be written must be on disk before
-          // its review file is read back (apply.1).
+          // its review file is read back (apply.1), and so must the paragraph
+          // boxes of the chapter being left (apply.16). A write that failed
+          // is tried again first, so a review another program held a moment
+          // ago gets its decisions now, before any review file is read back
+          // (apply.25 review).
+          retryReviewWrites();
           await flushReviewWrites();
+          await flushDraftWrites();
+          if (decision === 'here') return;
+          // Once another chapter is open, the one being left is marked in the
+          // list from its review as now written, so read the marks again
+          // alongside the chapter, and have them in before it shows (apply.5).
+          const marked = refreshIndex();
           const content = await call('files:read', { path: file.path });
           const base = baseFrom(content);
-          let loaded: { path: string | null; review: Review } | null = null;
-          let adoptedFrom: string | undefined;
-          let asOnDisk = false;
+          // The review the chapter opens with. One that cannot be read, or a
+          // reviews folder that cannot be made, fails here, before anything on
+          // screen changes: the card names the chapter, since main's words
+          // name only a review file or a folder, and the page stays on what
+          // was open, since opening another review, or a blank one, would let
+          // the next decision write a new review that becomes current over it
+          // (apply.25 and its review). A chapter whose own review folder is
+          // not there yet opens on a blank review, as before.
+          let latest: LoadedReview | null;
           try {
-            const latest = await call('reviews:load-latest', { sourcePath: file.path, hash: base.hash });
+            latest = await call('reviews:load-latest', { sourcePath: file.path, hash: base.hash });
+          } catch (err) {
+            throw new Error(chapterNotOpenedText(file.name, errorMessage(err)), { cause: err });
+          }
+          let loaded: { path: string | null; review: Review } | null = null;
+          let asOnDisk = false;
+          if (latest) {
             // The review is stored under this exact path from now on, however
             // the path was spelled when it was made (files.1).
-            if (latest) {
-              loaded = { path: latest.path, review: rehomeReview(latest.review, file.path) };
-              asOnDisk = loaded.review === latest.review;
-            }
-            adoptedFrom = latest?.adoptedFrom;
-          } catch {
-            // A missing or unreadable review folder must not stop the chapter opening.
+            loaded = { path: latest.path, review: rehomeReview(latest.review, file.path) };
+            asOnDisk = loaded.review === latest.review;
+            // Decisions in it that could not be written, even just now, are
+            // not in the file just read: shown, it would lack them, and the
+            // next write would put them back over what the page showed, so it
+            // stays off screen (apply.25 review).
+            const unwritten = reviewWriteFailureOf(loaded.review);
+            if (unwritten !== null) throw new Error(unwrittenReviewText({ chapter: file.name }, unwritten));
           }
+          const adoptedFrom = latest?.adoptedFrom;
 
+          await marked;
+          // An open that worked closes the card of one that did not.
+          dismissNotificationsByKey(OPEN_CHAPTER_CARD);
           if (!loaded) {
             setReview(
               createReview({ sourcePath: file.path, base, hunks: [], generator: { kind: 'file' } }),
@@ -179,12 +329,7 @@ export function App(): React.JSX.Element {
           } else {
             const { review: rebased, stats } = rebaseReview(loaded.review, base);
             setReview(rebased, loaded.path);
-            notify(
-              stats.stale > 0 ? 'warn' : 'info',
-              `The chapter changed since this review was made. ${stats.anchored} suggestion${
-                stats.anchored === 1 ? '' : 's'
-              } re-anchored, ${stats.stale} could not be found.`
-            );
+            notify(stats.stale > 0 ? 'warn' : 'info', rebaseCardText('opened', stats));
           }
           if (adoptedFrom) {
             notify('info', `Reopened the review made when this chapter was at ${adoptedFrom}.`);
@@ -192,43 +337,65 @@ export function App(): React.JSX.Element {
           }
           refreshHistory(file.path);
         } catch (err) {
-          fail(err);
+          // Nothing on screen has changed. Another try replaces this card.
+          notify('error', errorMessage(err), OPEN_CHAPTER_CARD);
         }
       })();
     },
-    [setReview, notify, refreshHistory, refreshFiles, fail, confirmLeaveDrafts]
+    [setReview, notify, dismissNotificationsByKey, refreshHistory, refreshFiles, refreshIndex, leaveDeps]
   );
 
   const openHistoryEntry = useCallback(
     (summary: ReviewSummary) => {
       void (async () => {
-        if (!(await confirmLeaveDrafts())) return;
+        const decision = await beforeLeaving({ kind: 'review', id: summary.id }, leaveDeps);
+        if (decision === 'stay') return;
         try {
+          // As for a chapter (openChapter): a write that failed is tried
+          // again before anything waiting is written (apply.25 review).
+          retryReviewWrites();
           await flushReviewWrites();
+          await flushDraftWrites();
+          if (decision === 'here') return;
           const loaded = await call('reviews:load', { path: summary.path });
           // History lists only the open chapter's reviews; read that chapter,
           // under the path it is open as.
           const sourcePath = useApp.getState().review?.sourcePath || loaded.review.sourcePath;
           const review = rehomeReview(loaded.review, sourcePath);
+          // Decisions in it that could not be written, even just now, are not
+          // in the file just read, so it stays off screen, as a chapter's
+          // review does (apply.25 review).
+          const unwritten = reviewWriteFailureOf(review);
+          if (unwritten !== null) {
+            throw new Error(unwrittenReviewText({ reviewCreatedAt: summary.createdAt }, unwritten));
+          }
           const content = await call('files:read', { path: sourcePath });
           const base = baseFrom(content);
+          // An open that worked closes the card of one that did not.
+          dismissNotificationsByKey(OPEN_CHAPTER_CARD);
           if (review.base.hash === base.hash) {
             if (review === loaded.review) markReviewPersistedState(review, loaded.path);
             setReview(review, loaded.path);
           } else {
             const { review: rebased, stats } = rebaseReview(review, base);
             setReview(rebased, loaded.path);
-            notify(
-              'info',
-              `Loaded an older review. ${stats.anchored} re-anchored, ${stats.stale} could not be found.`
-            );
+            notify('info', rebaseCardText('history', stats));
           }
+          // The chapter opens with this review from now on, the last on
+          // screen (apply.26). Main records it without touching the review;
+          // a record that cannot be written leaves the chapter opening with
+          // the review last decided in, and nothing is lost.
+          void call('reviews:shown', { sourcePath, path: loaded.path }).catch(() => undefined);
+          // The review just left is no longer counted from the page, so read
+          // History again, now that its last decisions are on disk (apply.5).
+          refreshHistory(sourcePath);
         } catch (err) {
-          fail(err);
+          // Nothing on screen has changed. Another try replaces this card.
+          notify('error', errorMessage(err), OPEN_CHAPTER_CARD);
         }
       })();
     },
-    [setReview, notify, fail, confirmLeaveDrafts]
+    [setReview, notify, dismissNotificationsByKey, leaveDeps, refreshHistory]
   );
 
   /* ---------------- external changes ---------------- */
@@ -255,13 +422,7 @@ export function App(): React.JSX.Element {
           if (!latest) return;
           const { review: rebased, stats } = rebaseReview(latest, baseFrom(content));
           setReview(rebased, useApp.getState().reviewPath);
-          notify(
-            stats.stale > 0 ? 'warn' : 'info',
-            `Reloaded from disk. ${stats.anchored} suggestion${
-              stats.anchored === 1 ? '' : 's'
-            } re-anchored, ${stats.stale} could not be found.`,
-            'file-reload'
-          );
+          notify(stats.stale > 0 ? 'warn' : 'info', rebaseCardText('reloaded', stats), 'file-reload');
         })
         .catch(fail);
     });
@@ -285,84 +446,33 @@ export function App(): React.JSX.Element {
     };
   }, [setReview, notify, refreshFiles, fail]);
 
-  /* ---------------- saving ---------------- */
-
-  const saveChapter = useCallback(() => {
-    if (!useApp.getState().review?.sourcePath) return;
-
-    void (async () => {
-      /* Open paragraph editors hold changes that are not suggestions yet. Saving
-         without them would write a chapter the author did not see; saving
-         them silently would apply edits the author has not finished. Ask. */
-      const open = Object.keys(useApp.getState().drafts).length;
-      if (open > 0) {
-        const ok = await askConfirm({
-          title: 'Apply paragraph edits first?',
-          body: `${open} paragraph${open === 1 ? ' is' : 's are'} still open for editing. Apply ${
-            open === 1 ? 'its changes' : 'their changes'
-          } as accepted suggestions, then save the chapter?`,
-          confirmLabel: 'Apply and save'
-        });
-        if (!ok) return;
-        const { blocked } = useApp.getState().commitAllDrafts();
-        if (blocked.length > 0) {
-          for (const message of blocked) notify('warn', message);
-          notify(
-            'error',
-            'Nothing was saved. Resolve the paragraphs above, then save again.',
-            'save-chapter'
-          );
-          return;
-        }
-      }
-
-      const current = useApp.getState().review;
-      if (!current?.sourcePath) return;
-      setSaving(true);
-      try {
-        let working = current;
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-          const response = await call('files:save', {
-            path: working.sourcePath,
-            text: composeReview(working),
-            eol: working.base.eol,
-            bom: working.base.bom,
-            trailingNewline: working.base.trailingNewline,
-            expectedHash: working.base.hash
-          });
-
-          if (response.status === 'written') {
-            markSaved(response.hash);
-            const saved = useApp.getState().review;
-            if (saved) {
-              await writeReviewNow(saved, useApp.getState().reviewPath);
-              refreshHistory(saved.sourcePath);
-              refreshFiles();
-            }
-            notify('info', 'Saved to the chapter file.', 'save-chapter');
-            return;
-          }
-
-          const { review: rebased, stats } = rebaseReview(working, baseFrom(response.disk));
-          setReview(rebased, useApp.getState().reviewPath);
-          working = rebased;
-          notify(
-            'warn',
-            `The chapter changed on disk before saving. Rebased: ${stats.anchored} re-anchored, ${stats.stale} lost. Retrying.`
-          );
-        }
-        notify('error', 'The chapter keeps changing on disk. Close it in Obsidian and save again.');
-      } catch (err) {
-        fail(err);
-      } finally {
-        setSaving(false);
-      }
-    })();
-  }, [markSaved, refreshHistory, refreshFiles, setReview, notify, fail, askConfirm]);
-
   /* ---------------- review persistence (apply.1) ---------------- */
 
   useEffect(() => installReviewPersistence(), []);
+
+  /* ---------------- paragraph boxes kept on disk (apply.16) ---------------- */
+
+  /* Open boxes are written as they are typed in, and come back whenever their
+     chapter is on screen again (state/drafts.ts). */
+  useEffect(() => installDraftPersistence(DRAFT_IO), []);
+
+  /* ---------------- closing the window (apply.9, state/closeGuard.ts) ---------------- */
+
+  /* Main decides at the window's close from what the page last told it: the
+     page says what a close would put at risk whenever that changes, and when
+     something is, answers main's request with "Close <name>?" after writing
+     what is waiting. Windows ending the session only writes. */
+  const cancelReview = ai.cancel;
+  const closeDeps = useMemo<CloseGuardDeps>(
+    () => ({
+      io: CLOSE_GUARD_IO,
+      writes: PAGE_WRITES,
+      save,
+      cancelReview
+    }),
+    [save, cancelReview]
+  );
+  useEffect(() => installCloseGuard(closeDeps), [closeDeps]);
 
   /* ---------------- actions ---------------- */
 
@@ -374,6 +484,27 @@ export function App(): React.JSX.Element {
       .then(() => notify('info', `Copied ${text.length} characters.`))
       .catch((err: unknown) => notify('error', errorMessage(err)));
   }, [review, notify]);
+
+  /* Show backups (apply.11, PLAN 6.5): a chapter's own backup folder, with its
+     newest backup selected, which main works out from the chapter's path; with
+     no path, the backups root. A chapter with no folder at its path gets a card
+     saying so rather than an error, with Show all backups for the folders of
+     other paths, a renamed or moved chapter's among them. A reveal that works
+     closes any such card, since it may no longer be true. */
+  const revealBackups = useCallback(
+    (sourcePath?: string) => {
+      void call('shell:reveal', { target: 'backups', ...(sourcePath ? { sourcePath } : {}) })
+        .then(() => dismissNotificationsByKey(SHOW_BACKUPS_CARD))
+        .catch((err: unknown) => {
+          if (err instanceof ApiError && err.code === 'not-found') {
+            notify('info', errorMessage(err), SHOW_BACKUPS_CARD, 'reveal-all-backups');
+          } else {
+            notify('error', errorMessage(err), SHOW_BACKUPS_CARD);
+          }
+        });
+    },
+    [notify, dismissNotificationsByKey]
+  );
 
   const chooseManuscriptFolder = useCallback(() => {
     void call('dialog:pick-folder', { title: 'Choose the manuscript folder' })
@@ -423,7 +554,7 @@ export function App(): React.JSX.Element {
     setReviewDialogOpen(false);
     setSetupOpen(false);
     setSettingsOpen(true);
-  }, [setReviewDialogOpen]);
+  }, [setReviewDialogOpen, setSetupOpen, setSettingsOpen]);
 
   /**
    * The dialog collects provider, model and effort before anything is sent
@@ -466,7 +597,7 @@ export function App(): React.JSX.Element {
       );
     }
     setReviewDialogOpen(true);
-  }, [settings, claudeRuntime, ai.keyStatus, notify, setReviewDialogOpen, refuseWhileEditing]);
+  }, [settings, claudeRuntime, ai.keyStatus, notify, setReviewDialogOpen, refuseWhileEditing, setSetupOpen]);
 
   /**
    * Run a review. The chapter's review is read-only until it returns (round 3,
@@ -474,7 +605,10 @@ export function App(): React.JSX.Element {
    * meantime would vanish when it landed. Other chapters stay open to browse.
    */
   const startReview = useCallback(() => {
-    const current = useApp.getState().review;
+    // Read when it starts, which after "Save N changes, then review" is once
+    // the save has ended: the review on screen then stands on the saved text,
+    // and a model or effort chosen meanwhile counts (apply.20).
+    const { review: current, settings } = useApp.getState();
     if (!current?.sourcePath || !settings) return;
     setReviewDialogOpen(false);
     const name = PROVIDER_NAMES[settings.provider];
@@ -541,7 +675,23 @@ export function App(): React.JSX.Element {
         fail(err);
       })
       .finally(() => useApp.getState().setAiBusy(null));
-  }, [settings, ai, adoptReview, notify, setReviewDialogOpen, fail, refreshFiles]);
+  }, [ai, adoptReview, notify, setReviewDialogOpen, fail, refreshFiles, setSetupOpen]);
+
+  /* No stranded decisions (apply.20, state/reviewStart.ts): with changes not
+     saved to the chapter, the dialog's blue button saves them and starts the
+     review only once the file reads like the page, and "Review without them"
+     asks first. Neither starts once the dialog has been closed. A save that
+     does not reach the file hands the dialog what it said (apply.20 review). */
+  const reviewDialogStillOpen = useCallback(() => useApp.getState().reviewDialogOpen, []);
+  const saveThenStartReview = useCallback(
+    (onNotSaved: (lines: string[]) => void) =>
+      void saveThenReview({ save, start: startReview, stillWanted: reviewDialogStillOpen, onNotSaved }),
+    [save, startReview, reviewDialogStillOpen]
+  );
+  const startReviewWithoutSaving = useCallback(
+    () => void reviewWithoutSaving({ start: startReview, stillWanted: reviewDialogStillOpen }),
+    [startReview, reviewDialogStillOpen]
+  );
 
   const activeProvider = settings?.provider ?? 'claude';
   const activeRuntime = ai.runtimes[activeProvider];
@@ -553,178 +703,204 @@ export function App(): React.JSX.Element {
       review={review}
       running={ai.running}
       progressLabel={progressLabel}
-      saving={saving}
+      saving={chapterSaving}
       onReviewWithAi={openReviewDialog}
       onCancelReview={ai.cancel}
       onManualReview={openManualReview}
       onSaveChapter={saveChapter}
       onCopyResult={copyResult}
       onSettings={() => setSettingsOpen(true)}
+      onSaveHintDone={() => void dismissHint(SAVE_HINT_ID, HINT_IO)}
     />
   );
 
   if (setupOpen && claudeRuntime) {
     return (
       <div className="app-shell">
-        {toolbar}
-        <div className="body body--single">
-          <SetupScreen
-            runtime={claudeRuntime}
-            checking={ai.checking}
-            onCheckAgain={() => ai.check('claude')}
-            onClose={() => setSetupOpen(false)}
-          />
+        {/* Closing the window can ask its question here too, with a review
+            still open behind Setup (apply.9 review), so this layout has the
+            dialog and goes inert under it, as the one below does. */}
+        <div className="app-shell__page" inert={questionOpen}>
+          {toolbar}
+          <div className="body body--single">
+            <SetupScreen
+              runtime={claudeRuntime}
+              checking={ai.checking}
+              onCheckAgain={() => ai.check('claude')}
+              onClose={() => setSetupOpen(false)}
+            />
+          </div>
+          <StatusBar review={review} {...(runtimeLabel ? { runtimeLabel } : {})} />
         </div>
-        <StatusBar review={review} {...(runtimeLabel ? { runtimeLabel } : {})} />
+        <ConfirmDialog />
       </div>
     );
   }
 
   return (
     <div className="app-shell">
-      {toolbar}
-      {review ? <FilterChips review={review} /> : null}
+      {/* Everything but the question. While one is open this is inert, so Tab,
+          a click or a screen reader cannot reach the page behind it (apply.7
+          review; the dialog is apply.6's). It lays out nothing of its own. */}
+      <div className="app-shell__page" inert={questionOpen}>
+        {toolbar}
+        {review ? <FilterChips review={review} /> : null}
 
-      <div className="body">
-        <FileList
-          files={files}
-          index={index}
-          activePath={review?.sourcePath ?? null}
-          configured={Boolean(settings?.manuscriptFolder)}
-          onOpen={openChapter}
-          onChooseFolder={chooseManuscriptFolder}
-          onNewChapter={() => setNewChapterOpen(true)}
-        />
+        <div className="body">
+          <FileList
+            files={files}
+            index={index}
+            review={review}
+            configured={Boolean(settings?.manuscriptFolder)}
+            problem={filesProblem}
+            onOpen={openChapter}
+            onChooseFolder={chooseManuscriptFolder}
+            onReadAgain={refreshFiles}
+            onNewChapter={() => setNewChapterOpen(true)}
+          />
 
-        {/* The find bar is a strip above the scroller, not a sticky bar inside
+          {/* The find bar is a strip above the scroller, not a sticky bar inside
             it: inside, it scrolled out of view once the author was more than
             a screen down, and Ctrl+F then seemed to do nothing (round 4). */}
-        <div className={`center-wrap ${findOpen ? 'center-wrap--find' : ''}`}>
-          {review ? <FindBar /> : null}
-          <main className="center">
-            {review ? (
-              <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
-            ) : (
-              <div className="empty">
-                <h1>Nothing open</h1>
-                <p>
-                  Pick a chapter on the left, or start one with the + beside Chapters. Review with AI asks for
-                  suggestions; Submit manual review turns a corrected copy into the same kind of list.
-                </p>
-              </div>
-            )}
-          </main>
-          <NotificationCards
-            onAction={(action) => {
-              switch (action) {
-                case 'open-settings':
-                  openSettings();
-                  break;
-                case 'open-setup':
-                  setSetupOpen(true);
-                  break;
-                case 'reveal-drafts':
-                case 'reveal-backups':
-                  void window.api
-                    .invoke('shell:reveal', { target: action === 'reveal-drafts' ? 'drafts' : 'backups' })
-                    .then((result) => {
-                      if (!result.ok) notify('error', result.error.message);
-                    });
-                  break;
-                default:
-                  // Diagnostics (hardening.5) and updates (release.9) wire theirs in when they land.
-                  break;
-              }
-            }}
-          />
-          <LockCard label={progressLabel} onCancel={ai.cancel} />
+          <div className={`center-wrap ${findOpen ? 'center-wrap--find' : ''}`}>
+            {review ? <FindBar /> : null}
+            <main className="center">
+              {review ? (
+                <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
+              ) : (
+                <div className="empty">
+                  <h1>Nothing open</h1>
+                  <p>
+                    Pick a chapter on the left, or start one with the + beside Chapters. Review with AI asks
+                    for suggestions; Submit manual review turns a corrected copy into the same kind of list.
+                    You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
+                  </p>
+                </div>
+              )}
+            </main>
+            <NotificationCards
+              onAction={(action, arg) => {
+                switch (action) {
+                  case 'open-settings':
+                    openSettings();
+                    break;
+                  case 'open-setup':
+                    setSetupOpen(true);
+                    break;
+                  case 'reveal-drafts':
+                    // A set-aside card names its file, which Show the text opens (apply.16).
+                    void call('shell:reveal', { target: 'drafts', ...(arg ? { name: arg } : {}) }).catch(
+                      fail
+                    );
+                    break;
+                  case 'reveal-backups':
+                    // The save card names the chapter it saved (apply.11).
+                    revealBackups(arg);
+                    break;
+                  case 'reveal-all-backups':
+                    // The no-backups card: the backups root, as in Settings (apply.11).
+                    revealBackups();
+                    break;
+                  default:
+                    // Diagnostics (hardening.5) and updates (release.9) wire theirs in when they land.
+                    break;
+                }
+              }}
+            />
+            <LockCard label={progressLabel} onCancel={ai.cancel} />
+          </div>
+
+          {review ? (
+            <SidePanel
+              review={review}
+              history={history}
+              activeReviewPath={reviewPath}
+              onSetCommentStatus={setCommentStatus}
+              onOpenHistory={openHistoryEntry}
+              onShowBackups={() => revealBackups(review.sourcePath)}
+            />
+          ) : (
+            <aside className="side" />
+          )}
         </div>
 
-        {review ? (
-          <SidePanel
-            review={review}
-            history={history}
-            activeReviewPath={reviewPath}
-            onSetCommentStatus={setCommentStatus}
-            onOpenHistory={openHistoryEntry}
+        <StatusBar
+          review={review}
+          {...(runtimeLabel ? { runtimeLabel } : {})}
+          rateLimit={ai.rateLimit?.message}
+        />
+        <HunkTooltip />
+        <EditPopover onSaved={(message, tone) => notify(tone ?? 'info', message, 'edit')} />
+        {newChapterOpen ? (
+          <NewChapterDialog
+            onClose={() => setNewChapterOpen(false)}
+            onCreated={(file) => {
+              setNewChapterOpen(false);
+              refreshFiles();
+              openChapter(file);
+              notify('info', `Created ${file.name}.`);
+            }}
           />
-        ) : (
-          <aside className="side" />
-        )}
+        ) : null}
+        {manualReviewOpen && review?.sourcePath ? (
+          <ManualReviewDialog
+            review={review}
+            onClose={() => setManualReviewOpen(false)}
+            onLoadCorrected={loadCorrectedFromFile}
+            onSave={save}
+            onCreated={(next) => {
+              adoptReview(next);
+              notify(
+                'info',
+                `Built ${next.hunks.length} suggestion${next.hunks.length === 1 ? '' : 's'} from your text.`
+              );
+            }}
+          />
+        ) : null}
+        {reviewDialogOpen && review && settings ? (
+          <ReviewDialog
+            review={review}
+            settings={settings}
+            models={ai.models}
+            modelsLoading={ai.modelsLoading}
+            runtimes={ai.runtimes}
+            keyStatus={ai.keyStatus}
+            history={history}
+            reviewPath={reviewPath}
+            unsavedDecisions={unsavedDecisionCount(review.hunks)}
+            saving={chapterSaving}
+            onSaveThenStart={saveThenStartReview}
+            onStartWithout={startReviewWithoutSaving}
+            onApplySettings={setSettings}
+            onNeedModels={ai.ensureModels}
+            onOpenSettings={openSettings}
+            onCheckClaude={() => ai.check('claude')}
+            checking={ai.checking}
+            onStart={startReview}
+            onClose={() => setReviewDialogOpen(false)}
+          />
+        ) : null}
+        {settingsOpen && settings ? (
+          <SettingsDialog
+            settings={settings}
+            models={ai.models.claude ?? []}
+            runtime={claudeRuntime}
+            keyStatus={ai.keyStatus}
+            onKeyChanged={ai.keyChanged}
+            onApply={(next) => {
+              setSettings(next);
+              refreshFiles();
+            }}
+            onClose={() => setSettingsOpen(false)}
+            onOpenSetup={() => {
+              setSettingsOpen(false);
+              setSetupOpen(true);
+            }}
+          />
+        ) : null}
       </div>
-
-      <StatusBar
-        review={review}
-        {...(runtimeLabel ? { runtimeLabel } : {})}
-        rateLimit={ai.rateLimit?.message}
-      />
-      <HunkTooltip />
+      {/* Last, above everything: a question can be asked from any dialog above. */}
       <ConfirmDialog />
-      <EditPopover onSaved={(message, tone) => notify(tone ?? 'info', message, 'edit')} />
-      {newChapterOpen ? (
-        <NewChapterDialog
-          onClose={() => setNewChapterOpen(false)}
-          onCreated={(file) => {
-            setNewChapterOpen(false);
-            refreshFiles();
-            openChapter(file);
-            notify('info', `Created ${file.name}.`);
-          }}
-        />
-      ) : null}
-      {manualReviewOpen && review?.sourcePath ? (
-        <ManualReviewDialog
-          review={review}
-          onClose={() => setManualReviewOpen(false)}
-          onLoadCorrected={loadCorrectedFromFile}
-          onCreated={(next) => {
-            adoptReview(next);
-            notify(
-              'info',
-              `Built ${next.hunks.length} suggestion${next.hunks.length === 1 ? '' : 's'} from your text.`
-            );
-          }}
-        />
-      ) : null}
-      {reviewDialogOpen && review && settings ? (
-        <ReviewDialog
-          review={review}
-          settings={settings}
-          models={ai.models}
-          modelsLoading={ai.modelsLoading}
-          runtimes={ai.runtimes}
-          keyStatus={ai.keyStatus}
-          history={history}
-          unsavedDecisions={unsavedDecisionCount(review.hunks)}
-          saving={saving}
-          onSaveFirst={saveChapter}
-          onApplySettings={setSettings}
-          onNeedModels={ai.ensureModels}
-          onOpenSettings={openSettings}
-          onCheckClaude={() => ai.check('claude')}
-          checking={ai.checking}
-          onStart={startReview}
-          onClose={() => setReviewDialogOpen(false)}
-        />
-      ) : null}
-      {settingsOpen && settings ? (
-        <SettingsDialog
-          settings={settings}
-          models={ai.models.claude ?? []}
-          runtime={claudeRuntime}
-          keyStatus={ai.keyStatus}
-          onKeyChanged={ai.keyChanged}
-          onApply={(next) => {
-            setSettings(next);
-            refreshFiles();
-          }}
-          onClose={() => setSettingsOpen(false)}
-          onOpenSetup={() => {
-            setSettingsOpen(false);
-            setSetupOpen(true);
-          }}
-        />
-      ) : null}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { GuidelinesInfo, GuidelinesStatus } from '../shared/ipc';
 import { styleSheetStatus } from '../shared/prompt/guidelines';
 import type { Settings } from '../shared/types';
-import { fail } from './errors';
+import { fail, readFailure, writeFailure } from './errors';
 import { readTextFile } from './files';
 
 /*
@@ -47,7 +47,13 @@ export async function ensureGuidelinesFile(
     throw fail('not-configured', 'Choose a manuscript folder before using the guidelines file.');
   }
   assertGuidelinesFile(target);
-  await fs.mkdir(path.dirname(target), { recursive: true });
+  // Neither write is retried or replaces anything, so a refusal says what was
+  // being made and to try again (apply.25).
+  try {
+    await fs.mkdir(path.dirname(target), { recursive: true });
+  } catch (err) {
+    throw writeFailure(err, 'folder', `the folder for ${path.basename(target)}`);
+  }
   try {
     await fs.copyFile(template, target, constants.COPYFILE_EXCL);
     return { path: target, created: true };
@@ -61,13 +67,20 @@ export async function ensureGuidelinesFile(
       );
       if (!templateThere) throw fail('not-found', `The guidelines template is missing at ${template}`);
     }
-    throw err;
+    throw writeFailure(err, 'copy', path.basename(target));
   }
 }
 
-/** The guidelines text, read under the same UTF-8 rules as a chapter. */
+/**
+ * The guidelines text, read under the same UTF-8 rules as a chapter. A read
+ * the system refuses is explained as a read (`readFailure`, apply.24).
+ */
 export async function readGuidelines(file: string): Promise<string> {
-  return readTextFile(file);
+  try {
+    return await readTextFile(file);
+  } catch (err) {
+    throw readFailure(err, path.basename(file));
+  }
 }
 
 /** The guidelines a review is sent, creating the file first if needed. */
@@ -80,11 +93,13 @@ export async function ensureGuidelines(settings: Settings, template: string): Pr
 export async function guidelinesStatus(settings: Settings): Promise<GuidelinesStatus> {
   const file = guidelinesPathFor(settings);
   if (!file) return { path: null, exists: false, styleSheet: 'missing' };
+  let text: string;
   try {
-    return { path: file, exists: true, styleSheet: styleSheetStatus(await readGuidelines(file)) };
+    text = await readTextFile(file);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT')
       return { path: file, exists: false, styleSheet: 'missing' };
-    throw err;
+    throw readFailure(err, path.basename(file));
   }
+  return { path: file, exists: true, styleSheet: styleSheetStatus(text) };
 }

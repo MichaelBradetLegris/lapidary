@@ -17,7 +17,7 @@
   --ink-soft: #6d675e;
   --ink-faint: #8a8378;
   /* blue for text, links and small marks: a commented paragraph's number, the
-     unsaved dot, the information card's edge, the spinner, the open editor's border */
+     information card's edge, the spinner, the open editor's border */
   --accent: #3b5bdb;
   /* blue for filled buttons and the open editor's glow, with --on-accent on it */
   --accent-fill: #3b5bdb;
@@ -29,6 +29,10 @@
   --dismiss: #8a8378;
   --danger: #b3261e;
   --warn: #84681c;
+  /* ember, for changes not saved to the chapter: the dot before the chapter
+     name, in the toolbar and the chapter list, and the status bar's count
+     (apply.4, apply.5); dark enough for text */
+  --unsaved: #ad4b0d;
 
   /* Backgrounds that mark a place or a state. */
   --focus-bg: #fff3bf;
@@ -97,6 +101,8 @@
     --dismiss: #968e82;
     --danger: #ff8a80;
     --warn: #e0b955;
+    /* the ember of the logo's original palette */
+    --unsaved: #ff8a3d;
 
     --focus-bg: #4a3f14;
     --para-active-bg: #2f2a1a;
@@ -251,28 +257,136 @@ input[type='text'] {
   height: 100%;
 }
 
+/* Everything but the confirm dialog, made inert while a question is open
+   (apply.7 review). It has no box, so its children lay out in .app-shell's
+   column as before. */
+.app-shell__page {
+  display: contents;
+}
+
+/* The row wraps, as the status bar does: when the buttons and the chapter name
+   at its narrowest do not fit, zoomed in or with a review's progress showing
+   in a narrow window, the last buttons move to a second row on the right
+   rather than running out of the window (apply.4). */
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
   padding: 7px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
+  /* The first-use hint hangs from it (apply.12, .save-hint). */
+  position: relative;
 }
 
+/* The chapter name takes the room the buttons leave and is what gives way
+   first: it ends in an ellipsis, down to about 8em, before any button moves,
+   so a long name and "Save 12 changes to chapter" still share one row in a
+   1100 px window at 125% (apply.4). The full name is in the tooltip. */
 .toolbar__title {
   font-weight: 600;
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: 1 1 8em;
+  min-width: 0;
 }
 
-.toolbar__dirty {
-  width: 7px;
-  height: 7px;
+.toolbar__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* No button label breaks in two. The progress label is left free to wrap: the
+   row wraps first, so it keeps one line, and if it is ever given less room
+   than its words they break inside its own box instead of spilling over the
+   chapter name, as they did with nowrap (apply.4). */
+.toolbar button {
+  white-space: nowrap;
+}
+
+/* Changes not saved to the chapter, before the chapter name in the toolbar
+   (apply.4) and before each such chapter's name in the chapter list (apply.5). */
+.unsaved-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--unsaved);
+}
+
+/* The first-use hint (apply.12): a note under the toolbar with its arrow on
+   Save to chapter. It hangs below the toolbar's last row, so it never covers
+   one of its buttons whichever row Save has wrapped onto, and keeps to the
+   side panel's column, so it never meets the notification cards or the find
+   bar beside it; it may cover the top of the side panel, the chips at that end
+   of their strip, and the find bar's last buttons where a narrow centre column
+   lets them spill into the side panel's (PLAN 7). Got it is the way out.
+   SaveHint.tsx sets `left`, `width` and the arrow's place from
+   `saveHintPlacement`, and it stays hidden until then, like the hover card.
+   Under the notification cards (12), so a card wins should the two ever meet,
+   above the page's unpositioned content, and under every dialog's backdrop
+   (20), the menus (30) and the hover card (40). */
+.save-hint {
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 0;
+  z-index: 11;
+  visibility: hidden;
+  /* where the arrow points, from the card's left edge; SaveHint.tsx sets it */
+  --save-hint-arrow: 24px;
+  /* until SaveHint.tsx sets the width its column leaves */
+  width: min(300px, calc(100% - 16px));
+  padding: 9px 10px 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-weight: normal;
+  white-space: normal;
+  box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / 20%);
+  animation: note-in 120ms ease-out;
+}
+
+/* The arrow: a square turned on its corner, its top half showing above the
+   card, in the card's own border and background. `--save-hint-arrow` counts
+   from the card's outer left edge and `left` from inside its 3 px border, so
+   8 px back puts the 10 px square's middle on it. */
+.save-hint::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: calc(var(--save-hint-arrow) - 8px);
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  transform: rotate(45deg);
+}
+
+/* No part of Save to chapter in reach has nothing under it: wrapped onto a row
+   above Copy result and Settings, an arrow would point at one of them, so the
+   hint has none and its words name the button (`saveHintPlacement`). */
+.save-hint[data-arrow='none']::before {
+  display: none;
+}
+
+.save-hint__text {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.save-hint__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
 }
 
 .toolbar__group {
@@ -322,6 +436,8 @@ input[type='text'] {
    row from growing to the height of everything in it. */
 .side {
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   background: var(--panel);
   border-left: 1px solid var(--border);
   overflow: clip;
@@ -378,6 +494,10 @@ input[type='text'] {
 
 .statusbar__dismiss {
   color: var(--dismiss);
+}
+
+.statusbar__unsaved {
+  color: var(--unsaved);
 }
 
 .statusbar__stale,
@@ -852,12 +972,60 @@ input[type='text'] {
 }
 
 /* Two regions in a column; the one scroller when the panel is short, so it is
-   opaque too (theme.1). */
+   opaque too (theme.1). It takes the panel's height less the footer's. */
 .side__body {
-  height: 100%;
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--panel);
+}
+
+/* The footer under both regions, with Show backups (apply.11). It never
+   scrolls, in the short window's one scroller either. */
+.side__foot {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.side__foot button {
+  white-space: nowrap;
+}
+
+/* The review selector at the very top of the panel, above both regions (and
+   above the short window's one scroller), so it never scrolls (apply.26). The
+   select takes the width the warning mark leaves; a label longer than that is
+   cut off, and its tooltip and the open list show it whole. */
+.side__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.review-picker {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+/* Not the newest review: the mark before the select, and the select's frame in
+   the warning colour, so the two read as one. */
+.side__head--older .review-picker {
+  border-color: var(--warn);
+}
+
+.review-picker__mark {
+  flex: none;
+  display: inline-flex;
+  color: var(--warn);
 }
 
 /* The suggestions list takes what it needs, up to about 55% of the panel, with
@@ -1145,6 +1313,13 @@ input[type='text'] {
   z-index: 20;
 }
 
+/* The confirm dialog is asked from inside other dialogs and with the suggestion
+   editor open (.editor, 38), so it sits above every other layer, the tooltip
+   (.tip, 40) included. */
+.modal-backdrop--confirm {
+  z-index: 45;
+}
+
 .modal {
   background: var(--panel);
   border-radius: 8px;
@@ -1162,6 +1337,13 @@ input[type='text'] {
 
 .modal--narrow {
   width: 420px;
+}
+
+/* A question with a middle choice, such as leaving a chapter or closing the
+   window (apply.6): wide enough for Cancel, "Close, keep for later" and "Save
+   120 changes and close" on one row at 100%. */
+.modal--choice {
+  width: 460px;
 }
 
 .modal__buttons {
@@ -1198,6 +1380,18 @@ input[type='text'] {
   gap: 8px;
   margin-top: 12px;
   align-items: center;
+}
+
+/* The confirm dialog's buttons keep each label on one line. When the row does
+   not fit, zoomed in or in a small window, the last buttons move to a second
+   row, still on the right (apply.6). */
+.modal__actions--confirm {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.modal__actions--confirm button {
+  white-space: nowrap;
 }
 
 .modal__row {
@@ -1682,6 +1876,10 @@ input[type='text'] {
   left: 0;
   z-index: 30;
   width: 380px;
+  /* It opens upwards from the status bar; in a short window, or zoomed in, it
+     scrolls rather than running off the top (apply.4 made it longer). */
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1736,7 +1934,17 @@ input[type='text'] {
   border-top: 1px dotted var(--border-strong);
 }
 
-.legend__foot {
+/* The unsaved dot itself, centred in the swatch's 16 px so the text lines up. */
+.legend__swatch--unsaved {
+  width: 8px;
+  height: 8px;
+  margin: 0 4px;
+  border-radius: 50%;
+  background: var(--unsaved);
+}
+
+/* `.legend p` would otherwise take the gap above it away. */
+.legend .legend__foot {
   margin: 9px 0 0;
 }
 
@@ -1980,6 +2188,15 @@ input[type='text'] {
   color: var(--ink);
 }
 
+/* Why the manuscript folder could not be read (apply.25): in the text colour,
+   not the empty list's faint one, and broken anywhere, since a folder name
+   can be longer than the column is wide. */
+.files__problem {
+  color: var(--ink);
+  margin: 4px 0 8px;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- new chapter dialog (item 7a) ---------- */
 
 .modal__ext {
@@ -2114,6 +2331,21 @@ input[type='text'] {
 
 .modal__warn--stack .modal__buttons {
   align-self: flex-end;
+}
+
+/* A save before a review that did not reach the chapter file, in Review with
+   AI or Submit manual review: what its cards said, one line each. The cards
+   sit under the dialog's backdrop, so the dialog shows this instead (apply.20
+   review). */
+.modal__warn--error {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* In Submit manual review it sits between the pasted text and the buttons. */
+.paste-field + .modal__warn {
+  margin: 12px 0 0;
 }
 
 .modal__warn code {

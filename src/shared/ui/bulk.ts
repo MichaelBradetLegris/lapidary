@@ -5,6 +5,7 @@
  */
 
 import type { ChangeCategory, Hunk, HunkStatus } from '../types';
+import { NOTHING_UNTIL_SAVE } from './saveHint';
 import { categoryOf } from './suggestions';
 
 export type BulkAction = 'accept' | 'dismiss' | 'reset';
@@ -44,8 +45,12 @@ const NEXT_STATUS: Record<BulkAction, HunkStatus> = {
   reset: 'pending'
 };
 
+/**
+ * Accept all says, on a line of its own, that accepting writes nothing yet
+ * (apply.12): a first-time author pressing it may expect the chapter to change.
+ */
 const BODY: Record<BulkAction, string> = {
-  accept: 'Suggestions you already dismissed are not changed.',
+  accept: `Suggestions you already dismissed are not changed.\n${NOTHING_UNTIL_SAVE}`,
   dismiss: 'Suggestions you already accepted are not changed.',
   reset: 'This clears every accept and dismiss. Nothing is written to the chapter.'
 };

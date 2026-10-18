@@ -18,7 +18,7 @@
  */
 
 import { diffWordsWithSpace } from 'diff';
-import { activeHunks, desiredSide } from './diff/compose';
+import { activeHunks, decidedText, desiredSide } from './diff/compose';
 import { trimCommonAffixes } from './diff/trim';
 import { nextId } from './ids';
 import { buildRenderBlocks } from './render';
@@ -76,13 +76,7 @@ export function liveLayout(base: string, hunks: readonly Hunk[], span: Span): Li
   for (const hunk of activeHunks(hunks)) {
     if (hunk.start < span.start || hunk.end > span.end || hunk.start < cursor) continue;
     plain(hunk.start);
-    const want = desiredSide(hunk);
-    const shown =
-      want === hunk.baseSide
-        ? base.slice(hunk.start, hunk.end)
-        : want === 'replacement'
-          ? hunk.replacement
-          : hunk.original;
+    const shown = decidedText(base, hunk);
     runs.push({ ls: text.length, le: text.length + shown.length, bs: hunk.start, be: hunk.end, hunk });
     text += shown;
     cursor = hunk.end;
@@ -550,15 +544,49 @@ export function applyBlockEdit(hunks: readonly Hunk[], plan: BlockEditPlan): Hun
 /**
  * The author rewrote a suggestion's replacement text (item 3a). Source,
  * category and reason survive, because the suggestion is still the one the
- * model raised; `edited` records that the words are the author's own.
+ * model raised; `edited` records that the words are the author's own. "Accept
+ * now" accepts it; unticked, an accepted suggestion goes back to pending, so new
+ * words are never written without a decision.
+ *
+ * The new words are always a change against what the chapter file says over the
+ * span, `base` (apply.22, PLAN 7.4). Compose copies the base whenever the side a
+ * hunk wants is the side the base holds, so a suggestion already saved into the
+ * file (`baseSide: 'replacement'`) cannot simply take new replacement words: the
+ * page would show them and Save would write the old ones. Instead the saved words
+ * become its `original` and the base side, and the new words the change against
+ * them. Ticked, Save writes the new words; unticked, the page keeps the saved
+ * words and Save writes nothing for it, rather than putting the model's original
+ * back. The model's first words are given up: the file no longer holds them,
+ * though the backup made before the save that replaced them does.
+ *
+ * Words that read exactly as the file does change nothing, so both sides become
+ * the file's words and the hunk sits on whichever side its decision asks for.
+ * Such a hunk never counts as unsaved and compose always copies the base for
+ * it (`changesBase`), whatever the author decides on it afterwards: rewriting a
+ * saved suggestion and then back to the saved words leaves nothing unsaved, and
+ * neither does turning that back or dismissing it. A stale hunk has no place in
+ * the base and only takes the new words.
  */
-export function editSuggestion(hunk: Hunk, replacement: string, accept: boolean): Hunk {
-  return {
+export function editSuggestion(base: string, hunk: Hunk, replacement: string, accept: boolean): Hunk {
+  const rewritten: Hunk = {
     ...hunk,
     replacement,
     edited: true,
     status: accept ? 'accepted' : hunk.status === 'accepted' ? 'pending' : hunk.status
   };
+  if (hunk.anchor === 'stale') return rewritten;
+
+  const inFile = base.slice(hunk.start, hunk.end);
+  if (hunk.baseSide === 'replacement') {
+    // Back to the words the file already has: `original` stays, since it is
+    // still what turning the saved change back would restore.
+    if (replacement === inFile) return rewritten;
+    return { ...rewritten, original: inFile, baseSide: 'original' };
+  }
+  if (replacement === inFile) {
+    return { ...rewritten, original: inFile, baseSide: desiredSide(rewritten) };
+  }
+  return rewritten;
 }
 
 /** True when a hunk's words were written by the author rather than a model. */

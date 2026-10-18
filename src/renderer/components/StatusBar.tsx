@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { decisionCounts } from '../../shared/diff/compose';
+import { decisionCounts, unsavedDecisionCount } from '../../shared/diff/compose';
 import { PROVIDER_NAMES, type Review } from '../../shared/types';
+import { KEPT_TOOLTIP, keptPhrase, unsavedPhrase } from '../../shared/ui/save';
 import { canZoom, zoomLabel, type ZoomAction } from '../../shared/ui/zoom';
 import { call } from '../state/client';
-import { useApp } from '../state/store';
+import { reviewKeptAt, useApp } from '../state/store';
 import { IconMinus, IconPlus } from './icons';
 
 interface Props {
@@ -12,12 +13,12 @@ interface Props {
   rateLimit?: string | undefined;
 }
 
-function clockTime(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleTimeString();
-}
-
-/** What the three states look like in the pane, since the swap can confuse (item 6). */
+/**
+ * What the three states look like in the pane, since the swap can confuse
+ * (item 6), and what the unsaved dot means, in the toolbar (apply.4) and the
+ * chapter list (apply.5). The small-change marks of PLAN 11.7 join the list
+ * when they land (`small.10`).
+ */
 function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -58,11 +59,18 @@ function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
           <span className="legend__swatch legend__swatch--dismissed" /> <b>Dismissed.</b> The line is your
           original under a thin dotted grey line. The suggestion stays above it, faded.
         </li>
+        <li>
+          <span className="legend__swatch legend__swatch--unsaved" /> <b>Not saved to chapter.</b> The dot
+          before a chapter&apos;s name, at the top of the window or under Chapters, means the chapter has
+          changes its file does not have yet. For the open chapter, Save to chapter and the status bar count
+          them. Your decisions are kept automatically in the review, and the status bar says when they were
+          last kept.
+        </li>
       </ul>
       <p className="legend__foot">
         Click a suggestion to accept or undo it. The x beside the floating text, or the d key, dismisses. The
-        pencil on a suggestion, or selecting words and pressing e, lets you write your own. Nothing reaches
-        the chapter until you press Save to chapter.
+        pencil on a suggestion, or the e key, lets you rewrite it, and the pen beside a paragraph lets you
+        edit the paragraph itself. Nothing reaches the chapter until you press Save to chapter or Ctrl+S.
       </p>
     </div>
   );
@@ -120,11 +128,19 @@ function ZoomControl(): React.JSX.Element {
   );
 }
 
+/**
+ * The counts, then where the decisions are: "3 not saved to chapter" while the
+ * chapter file is behind the page, and "Decisions kept 14:02" for the last
+ * write of the review on screen (`reviewKeptAt`; nothing for a chapter whose
+ * review has not been written), which used to read "Review saved" and was
+ * taken for the chapter (apply.4, PLAN 11.1 "Unsaved signal").
+ */
 export function StatusBar({ review, runtimeLabel, rateLimit }: Props): React.JSX.Element {
   const counts = review ? decisionCounts(review.hunks) : { pending: 0, accepted: 0, dismissed: 0, stale: 0 };
+  const unsaved = unsavedPhrase(review ? unsavedDecisionCount(review.hunks) : 0);
   const cost = review?.generator.costUsd;
   const provider = review?.generator.provider;
-  const reviewSavedAt = useApp((s) => s.reviewSavedAt);
+  const keptAt = useApp(reviewKeptAt);
   const [legendOpen, setLegendOpen] = useState(false);
 
   return (
@@ -133,7 +149,7 @@ export function StatusBar({ review, runtimeLabel, rateLimit }: Props): React.JSX
         <button
           type="button"
           className="statusbar__help"
-          aria-label="What the three states mean"
+          aria-label="What the states and the dot mean"
           aria-expanded={legendOpen}
           onClick={() => setLegendOpen((open) => !open)}
         >
@@ -145,8 +161,13 @@ export function StatusBar({ review, runtimeLabel, rateLimit }: Props): React.JSX
       <span className="statusbar__accept">{counts.accepted} accepted</span>
       <span className="statusbar__dismiss">{counts.dismissed} dismissed</span>
       {counts.stale > 0 ? <span className="statusbar__stale">{counts.stale} unanchored</span> : null}
+      {unsaved ? (
+        <span className="statusbar__unsaved" title={KEPT_TOOLTIP}>
+          {unsaved}
+        </span>
+      ) : null}
       <span className="spacer" />
-      {reviewSavedAt ? <span>Review saved {clockTime(reviewSavedAt)}</span> : null}
+      {keptAt ? <span title={KEPT_TOOLTIP}>{keptPhrase(keptAt)}</span> : null}
       {provider || review?.generator.model ? (
         <span data-testid="status-model">
           {provider ? PROVIDER_NAMES[provider] : ''}

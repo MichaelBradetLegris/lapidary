@@ -1,6 +1,11 @@
 import fc from 'fast-check';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { commitDecisions, composeText, findOverlaps } from '../../src/shared/diff/compose';
+import {
+  commitDecisions,
+  composeText,
+  findOverlaps,
+  unsavedDecisionCount
+} from '../../src/shared/diff/compose';
 import { rebaseReview } from '../../src/shared/diff/rebase';
 import {
   MANUAL_REASON,
@@ -303,7 +308,7 @@ describe('planning a paragraph edit', () => {
 
 describe('editing a suggestion in place', () => {
   it('keeps source, category and reason, and records that the words are the author s', () => {
-    const next = editSuggestion(claudeHunk(), 'Tilting his head', true);
+    const next = editSuggestion(BASE, claudeHunk(), 'Tilting his head', true);
     expect(next).toMatchObject({
       source: 'claude',
       category: 'awkward',
@@ -318,11 +323,225 @@ describe('editing a suggestion in place', () => {
   });
 
   it('does not accept on the author s behalf when Accept now is unticked', () => {
-    expect(editSuggestion(claudeHunk(), 'x', false).status).toBe('pending');
-    expect(editSuggestion(claudeHunk({ status: 'dismissed' }), 'x', false).status).toBe('dismissed');
+    expect(editSuggestion(BASE, claudeHunk(), 'x', false).status).toBe('pending');
+    expect(editSuggestion(BASE, claudeHunk({ status: 'dismissed' }), 'x', false).status).toBe('dismissed');
     // An accepted hunk whose text changed while "Accept now" is off goes back
     // to pending, so the new words are never written without a decision.
-    expect(editSuggestion(claudeHunk({ status: 'accepted' }), 'x', false).status).toBe('pending');
+    expect(editSuggestion(BASE, claudeHunk({ status: 'accepted' }), 'x', false).status).toBe('pending');
+  });
+
+  it('leaves a suggestion the file does not hold yet on its original', () => {
+    const next = editSuggestion(BASE, claudeHunk(), 'He tilted', true);
+    expect(next).toMatchObject({ original: 'Tilting', baseSide: 'original', replacement: 'He tilted' });
+    expect(composeText(BASE, [next])).toBe(`He tilted${BASE.slice(7)}`);
+    expect(unsavedDecisionCount([next])).toBe(1);
+  });
+
+  it('counts nothing unsaved when the new words are the file s own', () => {
+    // Before apply.22 this left an accepted "Tilting" -> "Tilting" counted as
+    // one unsaved change that would write nothing.
+    const ticked = editSuggestion(BASE, claudeHunk(), 'Tilting', true);
+    expect(ticked).toMatchObject({
+      original: 'Tilting',
+      replacement: 'Tilting',
+      baseSide: 'replacement',
+      status: 'accepted'
+    });
+    expect(composeText(BASE, [ticked])).toBe(BASE);
+    expect(unsavedDecisionCount([ticked])).toBe(0);
+
+    const unticked = editSuggestion(BASE, claudeHunk({ status: 'accepted' }), 'Tilting', false);
+    expect(unticked).toMatchObject({ baseSide: 'original', status: 'pending' });
+    expect(composeText(BASE, [unticked])).toBe(BASE);
+    expect(unsavedDecisionCount([unticked])).toBe(0);
+  });
+
+  it('still counts nothing when the author turns such a suggestion back or dismisses it', () => {
+    // The hunk is "Tilting" -> "Tilting" on the replacement side. A click on the
+    // word, or a dismiss, used to make it one unsaved change that wrote nothing.
+    const ticked = editSuggestion(BASE, claudeHunk(), 'Tilting', true);
+    for (const status of ['pending', 'dismissed', 'accepted'] as const) {
+      const decided = { ...ticked, status };
+      expect(composeText(BASE, [decided])).toBe(BASE);
+      expect(liveTextIn(BASE, [decided], FIRST)).toBe(BASE.slice(FIRST.start, FIRST.end));
+      expect(unsavedDecisionCount([decided])).toBe(0);
+    }
+  });
+
+  it('only takes the new words on a stale suggestion, which has no place in the text', () => {
+    const stale = claudeHunk({ anchor: 'stale', start: 0, end: 0, baseSide: 'replacement' });
+    expect(editSuggestion(BASE, stale, 'He tilted', true)).toEqual({
+      ...stale,
+      replacement: 'He tilted',
+      edited: true,
+      status: 'accepted'
+    });
+  });
+});
+
+/* apply.22: "began" -> "begun" accepted and saved, then rewritten as "started",
+   as seen in a dev:clean window. The page showed "started", nothing counted as
+   unsaved, and a second Save left "begun" in the file. */
+describe('rewriting a suggestion already saved into the chapter (apply.22)', () => {
+  const BEFORE = 'The water had began to climb.\n\nShe watched it.';
+
+  function savedCase(status: HunkStatus = 'accepted'): { base: string; hunk: Hunk } {
+    const hunk: Hunk = {
+      id: 'g',
+      start: 14,
+      end: 19,
+      baseSide: 'original',
+      original: 'began',
+      replacement: 'begun',
+      paragraph: 0,
+      category: 'grammar',
+      reason: 'Past participle.',
+      source: 'claude',
+      status: 'accepted',
+      anchor: 'exact'
+    };
+    expect(BEFORE.slice(hunk.start, hunk.end)).toBe('began');
+    const committed = commitDecisions(BEFORE, [hunk]);
+    const saved = committed.hunks[0];
+    if (!saved) throw new Error('no hunk');
+    return { base: committed.text, hunk: { ...saved, status } };
+  }
+
+  it('starts from what Save to chapter leaves', () => {
+    const { base, hunk } = savedCase();
+    expect(base).toBe('The water had begun to climb.\n\nShe watched it.');
+    expect(hunk).toMatchObject({ baseSide: 'replacement', status: 'accepted', start: 14, end: 19 });
+    expect(unsavedDecisionCount([hunk])).toBe(0);
+  });
+
+  it('ticked, the new words are one unsaved change and Save writes them', () => {
+    const { base, hunk } = savedCase();
+    const next = editSuggestion(base, hunk, 'started', true);
+    expect(next).toMatchObject({
+      start: 14,
+      end: 19,
+      baseSide: 'original',
+      original: 'begun',
+      replacement: 'started',
+      status: 'accepted',
+      edited: true,
+      source: 'claude',
+      category: 'grammar',
+      reason: 'Past participle.'
+    });
+    expect(composeText(base, [next])).toBe('The water had started to climb.\n\nShe watched it.');
+    expect(unsavedDecisionCount([next])).toBe(1);
+
+    // Save to chapter folds it in; a second rewrite is a change against "started".
+    const saved = commitDecisions(base, [next]);
+    expect(saved.text).toBe('The water had started to climb.\n\nShe watched it.');
+    expect(unsavedDecisionCount(saved.hunks)).toBe(0);
+    const again = editSuggestion(saved.text, saved.hunks[0]!, 'risen', true);
+    expect(composeText(saved.text, [again])).toBe('The water had risen to climb.\n\nShe watched it.');
+    expect(unsavedDecisionCount([again])).toBe(1);
+  });
+
+  it('unticked, the page keeps the saved words, and the model s original is not put back', () => {
+    const { base, hunk } = savedCase();
+    const next = editSuggestion(base, hunk, 'started', false);
+    expect(next).toMatchObject({ baseSide: 'original', original: 'begun', replacement: 'started' });
+    expect(next.status).toBe('pending');
+    expect(composeText(base, [next])).toBe(base);
+    expect(composeText(base, [next])).not.toContain('began');
+    expect(unsavedDecisionCount([next])).toBe(0);
+
+    // Accepting it afterwards writes the new words.
+    const accepted = { ...next, status: 'accepted' as const };
+    expect(composeText(base, [accepted])).toBe('The water had started to climb.\n\nShe watched it.');
+    expect(unsavedDecisionCount([accepted])).toBe(1);
+  });
+
+  it('rewriting back to the saved words leaves nothing unsaved, ticked or not', () => {
+    const { base, hunk } = savedCase();
+    const rewritten = editSuggestion(base, hunk, 'started', true);
+
+    const back = editSuggestion(base, rewritten, 'begun', true);
+    expect(back).toMatchObject({
+      original: 'begun',
+      replacement: 'begun',
+      baseSide: 'replacement',
+      status: 'accepted'
+    });
+    expect(composeText(base, [back])).toBe(base);
+    expect(unsavedDecisionCount([back])).toBe(0);
+
+    const backUnticked = editSuggestion(base, rewritten, 'begun', false);
+    expect(backUnticked.status).toBe('pending');
+    expect(composeText(base, [backUnticked])).toBe(base);
+    expect(unsavedDecisionCount([backUnticked])).toBe(0);
+  });
+
+  it('after rewriting back, any later decision still leaves nothing unsaved', () => {
+    // "begun" -> "begun" on the replacement side. A click on the word sent it
+    // to pending, and the count said 1 while the page still read like the file:
+    // "Save 1 change to chapter", then "The chapter already matches the page.".
+    const { base, hunk } = savedCase();
+    const back = editSuggestion(base, editSuggestion(base, hunk, 'started', true), 'begun', true);
+    expect(back).toMatchObject({ original: 'begun', replacement: 'begun', baseSide: 'replacement' });
+    for (const status of ['pending', 'dismissed', 'accepted'] as const) {
+      const decided = { ...back, status };
+      expect(composeText(base, [decided])).toBe(base);
+      expect(liveTextIn(base, [decided], { start: 0, end: 29 })).toBe(base.slice(0, 29));
+      expect(unsavedDecisionCount([decided])).toBe(0);
+      // A Save that finds nothing to write still folds the decisions in.
+      const committed = commitDecisions(base, [decided]);
+      expect(committed.text).toBe(base);
+      expect(unsavedDecisionCount(committed.hunks)).toBe(0);
+      expect(composeText(committed.text, [{ ...committed.hunks[0]!, status: 'accepted' }])).toBe(base);
+    }
+  });
+
+  it('a saved change the author turned back takes the new words against the saved ones', () => {
+    // Turned back after the save: the page reads "began" and Save would write it.
+    const { base, hunk } = savedCase('pending');
+    expect(composeText(base, [hunk])).toBe(BEFORE);
+    expect(unsavedDecisionCount([hunk])).toBe(1);
+
+    const ticked = editSuggestion(base, hunk, 'started', true);
+    expect(composeText(base, [ticked])).toBe('The water had started to climb.\n\nShe watched it.');
+    expect(unsavedDecisionCount([ticked])).toBe(1);
+
+    // Unticked, the rewrite waits as a suggestion against what the file says.
+    const unticked = editSuggestion(base, hunk, 'started', false);
+    expect(unticked).toMatchObject({ baseSide: 'original', original: 'begun', status: 'pending' });
+    expect(composeText(base, [unticked])).toBe(base);
+    expect(unsavedDecisionCount([unticked])).toBe(0);
+
+    const dismissed = editSuggestion(base, { ...hunk, status: 'dismissed' }, 'started', false);
+    expect(dismissed.status).toBe('dismissed');
+    expect(composeText(base, [dismissed])).toBe(base);
+
+    // Accepting the saved words again keeps the original a turn-back restores.
+    const reaccepted = editSuggestion(base, hunk, 'begun', true);
+    expect(reaccepted).toMatchObject({ original: 'began', baseSide: 'replacement', status: 'accepted' });
+    expect(unsavedDecisionCount([reaccepted])).toBe(0);
+  });
+
+  it('a saved deletion rewritten becomes an insertion of the new words', () => {
+    const doubled = 'Down by the the river.';
+    const deletion: Hunk = {
+      ...claudeHunk(),
+      start: 8,
+      end: 12,
+      original: 'the ',
+      replacement: '',
+      status: 'accepted'
+    };
+    expect(doubled.slice(8, 12)).toBe('the ');
+    const saved = commitDecisions(doubled, [deletion]);
+    expect(saved.text).toBe('Down by the river.');
+    const hunk = saved.hunks[0]!;
+    expect(hunk).toMatchObject({ start: 8, end: 8, baseSide: 'replacement' });
+
+    const next = editSuggestion(saved.text, hunk, 'all ', true);
+    expect(next).toMatchObject({ original: '', replacement: 'all ', baseSide: 'original' });
+    expect(composeText(saved.text, [next])).toBe('Down by all the river.');
+    expect(unsavedDecisionCount([next])).toBe(1);
   });
 });
 

@@ -22,7 +22,7 @@ interface Pending {
   path: string | null;
 }
 
-export function reviewKey(review: Review): string {
+export function reviewKey(review: Pick<Review, 'sourcePath' | 'id'>): string {
   return `${review.sourcePath}\u0000${review.id}`;
 }
 
@@ -30,6 +30,11 @@ export function reviewKey(review: Review): string {
 const paths = new Map<string, string>();
 /** The `updatedAt` of each review as it is on disk, so an unchanged review is not written again. */
 const persisted = new Map<string, string>();
+
+/** The card, and the close guard's line, when a review could not be written. */
+function notSavedText(message: string): string {
+  return `The review could not be saved: ${message}`;
+}
 
 const writer = createKeyedWriter<Pending>({
   delayMs: REVIEW_WRITE_DELAY_MS,
@@ -42,13 +47,14 @@ const writer = createKeyedWriter<Pending>({
     const state = useApp.getState();
     if (state.review && reviewKey(state.review) === key) {
       if (state.reviewPath !== stored.path) useApp.setState({ reviewPath: stored.path });
-      state.markReviewPersisted();
+      state.markReviewPersisted(stored.path);
     }
   },
   // Said once per distinct failure; a card per keystroke would be noise.
   onError: (message) => {
-    useApp.getState().notify('error', `The review could not be saved: ${message}`, 'review-save');
+    useApp.getState().notify('error', notSavedText(message), 'review-save');
   },
+  // A write that failed counts until one succeeds, so a close asks first (apply.9).
   onPendingChange: (pending) => useApp.setState({ persistPending: pending })
 });
 
@@ -80,6 +86,32 @@ export async function writeReviewNow(review: Review, path: string | null): Promi
 /** Write everything that is waiting, for every review, and wait for it. */
 export function flushReviewWrites(): Promise<void> {
   return writer.flush();
+}
+
+/**
+ * Queue again every review write that failed and has not been made since, so
+ * the next flush tries it once more (the close guard, apply.9).
+ */
+export function retryReviewWrites(): void {
+  writer.retry();
+}
+
+/** Why reviews are not on disk as the author left them: the words of their cards; empty when they are. */
+export function reviewWriteFailures(): string[] {
+  return writer.failures().map(notSavedText);
+}
+
+/**
+ * Why this review is not on disk as the author left it, in its card's words,
+ * or null when it is: a write of it failed and none has worked since. An
+ * open checks it, after trying failed writes again (`retryReviewWrites`),
+ * before it shows the review read from disk, which would come on screen
+ * without those decisions; the next write would then put them back over what
+ * the page showed (apply.25 review).
+ */
+export function reviewWriteFailureOf(review: Pick<Review, 'sourcePath' | 'id'>): string | null {
+  const [message] = writer.failures(reviewKey(review));
+  return message === undefined ? null : notSavedText(message);
 }
 
 /** Record that `review` was just read from `path` unchanged, so it is not written back. */

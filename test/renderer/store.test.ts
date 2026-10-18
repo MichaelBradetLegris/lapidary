@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { composeText } from '../../src/shared/diff/compose';
+import { composeText, unsavedDecisionCount } from '../../src/shared/diff/compose';
 import { createDiffReview, createReview } from '../../src/shared/review';
 import { bulkPlan } from '../../src/shared/ui/bulk';
+import { closePrompt, leavePrompt } from '../../src/shared/ui/save';
 import { modelOptions } from '../../src/renderer/state/models';
-import { isLocked, useApp } from '../../src/renderer/state/store';
+import { isLocked, reviewKeptAt, useApp, type ConfirmSpec } from '../../src/renderer/state/store';
 import type { Review } from '../../src/shared/types';
 
 const ORIGINAL = 'The river had began.\n\nShe nodded her head slowly.';
@@ -30,16 +31,30 @@ describe('review store', () => {
     const state = useApp.getState();
     expect(state.review?.hunks.length).toBe(2);
     expect(state.focusedHunkId).toBe(state.review?.hunks[0]?.id);
-    expect(state.dirty).toBe(false);
+    expect(unsavedDecisionCount(state.review!.hunks)).toBe(0);
+  });
+
+  it('has no dirty flag: the unsaved count is the one measure (apply.4)', () => {
+    expect('dirty' in useApp.getState()).toBe(false);
+    const id = useApp.getState().review!.hunks[0]!.id;
+    const before = useApp.getState().review;
+    useApp.getState().toggleAccepted(id);
+    useApp.getState().toggleAccepted(id);
+    // Accepted and turned back: the review changed, which the old flag counted
+    // as unsaved, but the chapter file already reads like the page.
+    expect(useApp.getState().review).not.toBe(before);
+    expect(useApp.getState().review!.hunks[0]!.status).toBe('pending');
+    expect(unsavedDecisionCount(useApp.getState().review!.hunks)).toBe(0);
   });
 
   it('toggles a hunk between accepted and pending', () => {
     const id = useApp.getState().review!.hunks[0]!.id;
     useApp.getState().toggleAccepted(id);
     expect(useApp.getState().review!.hunks[0]!.status).toBe('accepted');
-    expect(useApp.getState().dirty).toBe(true);
+    expect(unsavedDecisionCount(useApp.getState().review!.hunks)).toBe(1);
     useApp.getState().toggleAccepted(id);
     expect(useApp.getState().review!.hunks[0]!.status).toBe('pending');
+    expect(unsavedDecisionCount(useApp.getState().review!.hunks)).toBe(0);
   });
 
   it('bulk actions reach hunks that carry no category', () => {
@@ -76,13 +91,14 @@ describe('review store', () => {
     expect(useApp.getState().hiddenCategories).toEqual([]);
   });
 
-  it('markSaved folds decisions into the base and clears the dirty flag', () => {
+  it('markSaved folds decisions into the base, leaving nothing unsaved', () => {
     acceptAll();
+    expect(unsavedDecisionCount(useApp.getState().review!.hunks)).toBe(2);
     useApp.getState().markSaved('newhash');
     const review = useApp.getState().review!;
     expect(review.base.text).toBe(CORRECTED);
     expect(review.base.hash).toBe('newhash');
-    expect(useApp.getState().dirty).toBe(false);
+    expect(unsavedDecisionCount(review.hunks)).toBe(0);
     expect(review.hunks.every((h) => h.baseSide === 'replacement')).toBe(true);
     expect(composeText(review.base.text, review.hunks)).toBe(CORRECTED);
   });
@@ -185,10 +201,45 @@ describe('review store', () => {
     expect(useApp.getState().find).toMatchObject({ open: false, query: '', index: -1, count: 0 });
   });
 
-  it('records when the review json was last written', () => {
+  it('records when the review json was last written, and to which file', () => {
+    useApp.getState().setReview(fresh(), 'reviews/chapter-3/a.review.json');
     expect(useApp.getState().reviewSavedAt).toBeNull();
-    useApp.getState().markReviewPersisted('2026-09-09T10:04:33.000Z');
-    expect(useApp.getState().reviewSavedAt).toBe('2026-09-09T10:04:33.000Z');
+    expect(reviewKeptAt(useApp.getState())).toBeNull();
+    useApp.getState().markReviewPersisted('reviews/chapter-3/a.review.json', '2026-09-09T10:04:33.000Z');
+    expect(useApp.getState().reviewSavedAt).toEqual({
+      path: 'reviews/chapter-3/a.review.json',
+      at: '2026-09-09T10:04:33.000Z'
+    });
+    expect(reviewKeptAt(useApp.getState())).toBe('2026-09-09T10:04:33.000Z');
+  });
+
+  it('shows the kept time only for the review it belongs to (apply.4)', () => {
+    const A = 'reviews/chapter-3/a.review.json';
+    useApp.getState().setReview(fresh(), A);
+    useApp.getState().markReviewPersisted(A, '2026-09-09T10:04:33.000Z');
+    expect(reviewKeptAt(useApp.getState())).toBe('2026-09-09T10:04:33.000Z');
+
+    // Another chapter's review, read from its own file and not written since.
+    useApp.getState().setReview(fresh(), 'reviews/chapter-4/b.review.json');
+    expect(reviewKeptAt(useApp.getState())).toBeNull();
+
+    // A chapter with no review yet: nothing has been written for it.
+    const empty = createReview({
+      sourcePath: 'C:/vault/Chapter 05.md',
+      base: fresh().base,
+      hunks: [],
+      generator: { kind: 'file' }
+    });
+    useApp.getState().setReview(empty, null);
+    expect(reviewKeptAt(useApp.getState())).toBeNull();
+
+    // Back to the first review: the time it was kept is still its own.
+    useApp.getState().setReview(fresh(), A);
+    expect(reviewKeptAt(useApp.getState())).toBe('2026-09-09T10:04:33.000Z');
+
+    // A rebase after an outside change keeps the file, and so the time.
+    useApp.getState().setReview(fresh(), useApp.getState().reviewPath);
+    expect(reviewKeptAt(useApp.getState())).toBe('2026-09-09T10:04:33.000Z');
   });
 
   it('resolves a comment through patchReview', () => {
@@ -256,7 +307,7 @@ describe('editing', () => {
       category: 'awkward',
       reason: 'Participial opener.'
     });
-    expect(useApp.getState().dirty).toBe(true);
+    expect(unsavedDecisionCount(useApp.getState().review!.hunks)).toBe(1);
     expect(composeText(CHAPTER, useApp.getState().review!.hunks)).toBe(
       'He tilted his head aside, the man watched.\n\nShe said nothing at all.'
     );
@@ -265,6 +316,26 @@ describe('editing', () => {
   it('says nothing happened when a rewrite changes nothing', () => {
     useApp.getState().toggleAccepted('h1');
     expect(useApp.getState().editHunkText('h1', 'As he tilted', true)).toEqual({ status: 'noop' });
+  });
+
+  it('counts a rewrite of a saved suggestion as unsaved, against the saved words (apply.22)', () => {
+    useApp.getState().toggleAccepted('h1');
+    useApp.getState().markSaved('h2');
+    const saved = useApp.getState().review!;
+    expect(unsavedDecisionCount(saved.hunks)).toBe(0);
+
+    useApp.getState().editHunkText('h1', 'He tilted', true);
+    const review = useApp.getState().review!;
+    expect(review.hunks[0]).toMatchObject({
+      baseSide: 'original',
+      original: 'As he tilted',
+      replacement: 'He tilted',
+      status: 'accepted'
+    });
+    expect(unsavedDecisionCount(review.hunks)).toBe(1);
+    expect(composeText(review.base.text, review.hunks)).toBe(
+      'He tilted his head aside, the man watched.\n\nShe said nothing at all.'
+    );
   });
 
   it('opens and closes the editor on one thing at a time', () => {
@@ -307,7 +378,7 @@ describe('editing a paragraph in place (Phase 5d)', () => {
     expect(composeText(CHAPTER, useApp.getState().review!.hunks)).toBe(
       'Tilting his head aside, the man watched.\n\nShe said nothing.'
     );
-    expect(useApp.getState().dirty).toBe(true);
+    expect(unsavedDecisionCount(useApp.getState().review!.hunks)).toBe(1);
   });
 
   it('supersedes the suggestion a changed word swallows, keeping its reason', () => {
@@ -493,5 +564,141 @@ describe('decidedAt marks the review last worked in (files.1)', () => {
     const decided = { ...fresh(), decidedAt: '2026-10-01T00:00:00.000Z' };
     useApp.getState().setReview(decided);
     expect(useApp.getState().review!.decidedAt).toBe('2026-10-01T00:00:00.000Z');
+  });
+});
+
+describe('three-way confirm (apply.6)', () => {
+  const THREE: ConfirmSpec = {
+    title: 'Leave Chapter 3?',
+    body: '2 changes are not saved to the chapter yet.\nThey are kept in the review.',
+    confirmLabel: 'Save 2 changes first',
+    altLabel: 'Keep for later',
+    cancelLabel: 'Cancel',
+    defaultButton: 'alt'
+  };
+
+  beforeEach(() => {
+    // Close anything an earlier test left open, so no stale resolver answers here.
+    useApp.getState().answerChoice('cancel');
+    useApp.setState({ aiBusyPath: null, drafts: {} });
+    useApp.getState().setReview(fresh());
+  });
+
+  it('resolves askChoice with the button that answered', async () => {
+    for (const choice of ['confirm', 'alt', 'cancel'] as const) {
+      const asked = useApp.getState().askChoice(THREE);
+      expect(useApp.getState().confirmSpec).toEqual(THREE);
+      useApp.getState().answerChoice(choice);
+      await expect(asked).resolves.toBe(choice);
+      expect(useApp.getState().confirmSpec).toBeNull();
+    }
+  });
+
+  it('answers a replaced question with cancel, and the new one with its own answer', async () => {
+    const first = useApp.getState().askChoice(THREE);
+    const second = useApp.getState().askChoice({ ...THREE, title: 'Close Lapidary?' });
+    await expect(first).resolves.toBe('cancel');
+    expect(useApp.getState().confirmSpec?.title).toBe('Close Lapidary?');
+    useApp.getState().answerChoice('alt');
+    await expect(second).resolves.toBe('alt');
+  });
+
+  it('answers a replaced yes-or-no question with no, as before', async () => {
+    const bulk = useApp.getState().askConfirm({ title: 'Accept 2?', body: 'b', confirmLabel: 'Accept' });
+    const leave = useApp.getState().askChoice(THREE);
+    await expect(bulk).resolves.toBe(false);
+    useApp.getState().answerChoice('confirm');
+    await expect(leave).resolves.toBe('confirm');
+
+    const choice = useApp.getState().askChoice(THREE);
+    const confirm = useApp.getState().askConfirm({ title: 'Reset?', body: 'b', confirmLabel: 'Reset' });
+    await expect(choice).resolves.toBe('cancel');
+    useApp.getState().answerConfirm(true);
+    await expect(confirm).resolves.toBe(true);
+  });
+
+  it('askConfirm is true for confirm only', async () => {
+    const results: boolean[] = [];
+    for (const choice of ['confirm', 'alt', 'cancel'] as const) {
+      const asked = useApp.getState().askConfirm(THREE);
+      useApp.getState().answerChoice(choice);
+      results.push(await asked);
+    }
+    expect(results).toEqual([true, false, false]);
+  });
+
+  it('answerConfirm still answers a three-way question: true is confirm, false cancel', async () => {
+    const yes = useApp.getState().askChoice(THREE);
+    useApp.getState().answerConfirm(true);
+    await expect(yes).resolves.toBe('confirm');
+    const no = useApp.getState().askChoice(THREE);
+    useApp.getState().answerConfirm(false);
+    await expect(no).resolves.toBe('cancel');
+  });
+
+  it('turns an answer the question does not show into cancel', async () => {
+    const noSave = useApp.getState().askChoice({ ...THREE, confirmLabel: '' });
+    useApp.getState().answerChoice('confirm');
+    await expect(noSave).resolves.toBe('cancel');
+
+    const twoWay = useApp.getState().askChoice({ title: 'Replace?', body: 'b', confirmLabel: 'Replace' });
+    useApp.getState().answerChoice('alt');
+    await expect(twoWay).resolves.toBe('cancel');
+  });
+
+  it('takes the leave and close prompts as they are', async () => {
+    const chapter = 'D:\\Writing\\Novel\\Chapter 3.md';
+    const leave = leavePrompt(
+      { chapter, unsavedDecisions: 1, changedParagraphs: 0, locked: false, reviewId: 'r1' },
+      { kind: 'chapter', path: 'D:\\Writing\\Novel\\Chapter 4.md' }
+    )!;
+    const asked = useApp.getState().askChoice(leave);
+    expect(useApp.getState().confirmSpec).toEqual(leave);
+    useApp.getState().answerChoice('alt');
+    await expect(asked).resolves.toBe('alt');
+
+    const close = closePrompt({
+      chapter,
+      unsavedDecisions: 0,
+      changedParagraphs: 0,
+      locked: false,
+      reviewRunning: false,
+      writesPending: false,
+      dialogText: true
+    })!;
+    const closing = useApp.getState().askChoice(close);
+    useApp.getState().answerChoice('confirm');
+    await expect(closing).resolves.toBe('cancel');
+  });
+
+  it('a Bulk question answered through askConfirm applies only on confirm', async () => {
+    // The flow in state/bulk.ts: askConfirm, then applyBulk when it says yes.
+    const ask = async (answer: 'confirm' | 'cancel' | 'replaced'): Promise<void> => {
+      const plan = bulkPlan(useApp.getState().review!.hunks, 'accept');
+      const done = useApp
+        .getState()
+        .askConfirm({ title: plan.title, body: plan.body, confirmLabel: plan.confirmLabel })
+        .then((ok) => {
+          if (ok) useApp.getState().applyBulk(plan.ids, plan.status);
+        });
+      if (answer === 'replaced') void useApp.getState().askChoice(THREE);
+      else useApp.getState().answerChoice(answer);
+      await done;
+      useApp.getState().answerChoice('cancel');
+    };
+    const statuses = (): string[] => useApp.getState().review!.hunks.map((h) => h.status);
+
+    await ask('cancel');
+    expect(statuses()).toEqual(['pending', 'pending']);
+    await ask('replaced');
+    expect(statuses()).toEqual(['pending', 'pending']);
+    await ask('confirm');
+    expect(statuses()).toEqual(['accepted', 'accepted']);
+  });
+
+  it('does nothing when answered with no question open', () => {
+    expect(useApp.getState().confirmSpec).toBeNull();
+    expect(() => useApp.getState().answerChoice('confirm')).not.toThrow();
+    expect(useApp.getState().confirmSpec).toBeNull();
   });
 });

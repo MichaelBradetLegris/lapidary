@@ -10,6 +10,18 @@ import type {
   RequestPayload,
   ResponsePayload
 } from '../shared/ipc';
+import { chapterName } from '../shared/review';
+import { noBackupsYet } from '../shared/ui/backups';
+import { backupsRootFor, chapterBackupHooks, chapterBackups } from './backups';
+import { boxAnswer, createCloseGuard, messageBoxOptions } from './closeGuard';
+import {
+  draftsRootFor,
+  loadDrafts,
+  saveDrafts,
+  setAsideDrafts,
+  setAsideFile,
+  setAsideFolderFor
+} from './drafts';
 import { fail, toAppError } from './errors';
 import { beginRequest, cancelRequest, endRequest, providers } from './providers';
 import { clearOpenAiKey, openAiKeyStatus, storeOpenAiKey } from './secrets';
@@ -31,12 +43,15 @@ import {
   guidelinesPathFor,
   guidelinesStatus
 } from './guidelines';
+import { log } from './log';
 import { openGuidelinesFile } from './openGuidelines';
 import {
   isDefaultReviewsFolder,
   listReviews,
   loadLatestReview,
   loadReviewFile,
+  makeReviewsFolder,
+  recordShown,
   resolveReviewsFolder,
   reviewIndex,
   saveReview
@@ -69,7 +84,27 @@ const rememberHash = (file: string, hash: string): void => watcher.rememberHash(
 const forgetHash = (file: string): void => watcher.forgetHash(file);
 export const stopWatching = (): void => watcher.stop();
 
-/** Wire the accumulated handlers into ipcMain. Call once, after all modules registered. */
+/**
+ * The app's one close guard (apply.8, PLAN 7.7 and 11.3 i). `createWindow`
+ * attaches the window, `before-quit` and `render-process-gone` tell it so, and
+ * the three `app:` requests below carry what the page says. Its native box is
+ * `dialog.showMessageBox` over the window, taken away through the signal when
+ * the page answers late.
+ */
+export const closeGuard = createCloseGuard<BrowserWindow>({
+  showBox: async (win, box, signal) =>
+    boxAnswer((await dialog.showMessageBox(win, { ...messageBoxOptions(box), signal })).response),
+  quit: () => app.quit(),
+  log
+});
+
+/**
+ * Wire the accumulated handlers into ipcMain. Call once, after all modules
+ * registered. A file system error that reaches here unexplained is worded as
+ * a write that replaces a file; every read path explains its own first
+ * (`readFailure`, apply.24), and so does every write that makes a new file,
+ * a copy or a folder (`writeFailure`, apply.25).
+ */
 export function installIpcBridge(): void {
   for (const [channel, fn] of handlers) {
     ipcMain.handle(channel, async (_event, payload: unknown): Promise<IpcResult<unknown>> => {
@@ -106,7 +141,8 @@ export function registerCoreHandlers(): void {
       manuscriptFolder: settings.manuscriptFolder,
       reviewsFolder: await reviewsFolder(),
       reviewsFolderIsDefault: isDefaultReviewsFolder(settings.reviewsFolder),
-      guidelinesPath: guidelinesPathFor(settings)
+      guidelinesPath: guidelinesPathFor(settings),
+      backupsFolder: backupsRootFor(app.getPath('userData'))
     };
   });
 
@@ -138,8 +174,43 @@ export function registerCoreHandlers(): void {
 
   registerFileHandlers();
   registerReviewHandlers();
+  registerDraftHandlers();
   registerAiHandlers();
   registerSecretHandlers();
+  registerCloseGuardHandlers();
+}
+
+/**
+ * What the page tells the close guard (apply.8, PLAN 7.7): what a close would
+ * put at risk, pushed once the page has loaded and whenever it changes, how
+ * far it has got with a close request, and what the author decided
+ * (`src/renderer/state/closeGuard.ts`, apply.9).
+ */
+function registerCloseGuardHandlers(): void {
+  handle('app:guard-state', (state) => {
+    closeGuard.setState(state);
+    return Promise.resolve();
+  });
+  handle('app:close-status', ({ status }) => {
+    closeGuard.onStatus(status);
+    return Promise.resolve();
+  });
+  handle('app:close-decision', ({ close }) => {
+    closeGuard.onDecision(close);
+    return Promise.resolve();
+  });
+}
+
+/**
+ * Paragraph boxes kept on disk (apply.16, PLAN 11.3 j): one file per chapter
+ * under `<userData>/drafts`, named by a hash of its path, so the renderer
+ * never names a file here; set-aside text goes to `drafts/set-aside`.
+ */
+function registerDraftHandlers(): void {
+  const root = (): string => draftsRootFor(app.getPath('userData'));
+  handle('drafts:load', async ({ sourcePath }) => loadDrafts(root(), sourcePath, caseInsensitiveFs()));
+  handle('drafts:save', async (request) => saveDrafts(root(), request, caseInsensitiveFs()));
+  handle('drafts:set-aside', async (request) => ({ name: (await setAsideDrafts(root(), request)).name }));
 }
 
 /**
@@ -214,7 +285,7 @@ function registerSecretHandlers(): void {
 async function reviewsFolder(): Promise<string> {
   const settings = await loadSettings();
   const folder = resolveReviewsFolder(settings.reviewsFolder, app.getPath('userData'));
-  await fs.mkdir(folder, { recursive: true });
+  await makeReviewsFolder(folder);
   return folder;
 }
 
@@ -256,7 +327,16 @@ function registerFileHandlers(): void {
       opened: openedChapters,
       ci: caseInsensitiveFs()
     });
-    const response = await writeChapter(request, { onWritten: rememberHash });
+    // Before the chapter is replaced, the bytes it holds are copied to
+    // <userData>/backups; no backup, no save (apply.10, PLAN 6.5).
+    const response = await writeChapter(request, {
+      onWritten: rememberHash,
+      ...chapterBackupHooks({
+        backupsRoot: backupsRootFor(app.getPath('userData')),
+        manuscriptFolder: settings.manuscriptFolder,
+        ci: caseInsensitiveFs()
+      })
+    });
     if (response.status === 'stale') forgetHash(request.path);
     return response;
   });
@@ -289,7 +369,38 @@ function registerFileHandlers(): void {
 
   handle('guidelines:status', async () => guidelinesStatus(await loadSettings()));
 
-  handle('shell:reveal', async ({ target }) => {
+  handle('shell:reveal', async ({ target, sourcePath, name }) => {
+    /* Show backups for a chapter (apply.11): its own backup folder, which main
+       works out from the path and refuses outside the backups root, opened
+       with the newest backup selected. The folder follows the chapter's path,
+       so a chapter not yet changed by a Save to chapter at this path has none,
+       whether it is new or was renamed or moved (its earlier backups stay in
+       the old path's folder), and the card says so. */
+    if (target === 'backups' && sourcePath !== undefined) {
+      const shown = await chapterBackups(
+        backupsRootFor(app.getPath('userData')),
+        sourcePath,
+        caseInsensitiveFs()
+      );
+      if (!shown) throw fail('not-found', noBackupsYet(chapterName(sourcePath)));
+      if (shown.newest) {
+        shell.showItemInFolder(shown.newest);
+        return { path: shown.newest };
+      }
+      const problem = await shell.openPath(shown.folder);
+      if (problem) shell.showItemInFolder(shown.folder);
+      return { path: shown.folder };
+    }
+    /* A set-aside card's Show the text opens its own file (apply.16), in the
+       app the computer uses for .txt, or shows it in its folder when no app
+       is set for .txt. Only a bare name of a file in drafts/set-aside counts. */
+    if (target === 'drafts' && name !== undefined) {
+      const text = await setAsideFile(draftsRootFor(app.getPath('userData')), name);
+      if (!text) throw fail('not-found', 'That set-aside text is no longer in the drafts folder.');
+      const problem = await shell.openPath(text);
+      if (problem) shell.showItemInFolder(text);
+      return { path: text };
+    }
     let file: string | null;
     if (target === 'data' || target === 'logs' || target === 'backups' || target === 'drafts') {
       file = await userDataTarget(target);
@@ -307,8 +418,9 @@ function registerFileHandlers(): void {
 
 /**
  * The userData places "show in folder" can open, created on demand so the
- * author never lands on a missing folder (setup.7a). Backups get a folder per
- * chapter once apply.10 exists; until then the backups root is shown.
+ * author never lands on a missing folder (setup.7a). `backups` here is the
+ * root, for Settings; a chapter's own backup folder is shown from its path
+ * (`chapterBackups`, apply.11).
  */
 async function userDataTarget(target: 'data' | 'logs' | 'backups' | 'drafts'): Promise<string> {
   const root = app.getPath('userData');
@@ -317,8 +429,8 @@ async function userDataTarget(target: 'data' | 'logs' | 'backups' | 'drafts'): P
     target === 'logs'
       ? path.join(root, 'logs')
       : target === 'backups'
-        ? path.join(root, 'backups')
-        : path.join(root, 'drafts', 'set-aside');
+        ? backupsRootFor(root)
+        : setAsideFolderFor(draftsRootFor(root));
   await fs.mkdir(folder, { recursive: true });
   if (target === 'logs') {
     const log = path.join(folder, 'main.log');
@@ -337,6 +449,11 @@ function registerReviewHandlers(): void {
   );
 
   handle('reviews:save', async ({ review, path: file }) => saveReview(await reviewsFolder(), review, file));
+
+  // The review on screen is the one its chapter opens with next (apply.26).
+  handle('reviews:shown', async ({ sourcePath, path: file }) => {
+    await recordShown(await reviewsFolder(), sourcePath, file);
+  });
 
   handle('reviews:index', async () =>
     reviewIndex(

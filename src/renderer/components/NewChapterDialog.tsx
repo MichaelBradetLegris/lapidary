@@ -6,6 +6,7 @@ import {
   type NameCheck
 } from '../../shared/ipc';
 import { call, errorMessage } from '../state/client';
+import { useApp } from '../state/store';
 
 interface Props {
   onCreated: (file: ChapterFile) => void;
@@ -29,10 +30,17 @@ export function NewChapterDialog({ onCreated, onClose }: Props): React.JSX.Eleme
   const [busy, setBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const trimmed = name.trim();
+  const setDialogText = useApp((s) => s.setDialogText);
 
   useEffect(() => {
     nameRef.current?.focus();
   }, []);
+
+  /* A name or text typed here would be lost if the window closed, so the
+     close guard is told (apply.16, PLAN 11.3 i). */
+  const typed = name !== '' || text !== '';
+  useEffect(() => setDialogText('new-chapter', typed), [typed, setDialogText]);
+  useEffect(() => () => setDialogText('new-chapter', false), [setDialogText]);
 
   useEffect(() => {
     if (trimmed.length === 0) return;

@@ -1,7 +1,9 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { explainReadError, explainWriteError, toAppError } from '../../src/main/errors';
+import { APP_NAME } from '../../src/shared/branding';
 import {
   OpenedChapters,
   assertSavableChapter,
@@ -15,8 +17,11 @@ import {
   listChapters,
   readChapter,
   readTextFile,
-  writeChapter
+  writeChapter,
+  type WriteHooks
 } from '../../src/main/files';
+import { backupFolderFor, backupsRootFor, chapterBackupHooks, listBackups } from '../../src/main/backups';
+import type { SaveResponse } from '../../src/shared/ipc';
 
 let root: string;
 
@@ -27,6 +32,22 @@ beforeEach(async () => {
 afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
+
+/** Words that belong to a write and must never explain a read (apply.24). */
+const WRITE_WORDS = /replace|save again|Nothing was written|Controlled folder access|second and a half/;
+
+/** Words that belong to replacing a file and must never explain making a new one (apply.25). */
+const NOT_A_RENAME = /replace|save again|second and a half|even after|the file is as it was/;
+
+/** What the page is shown: the IPC bridge's words, which take an unexplained error as a write's. */
+async function shown(promise: Promise<unknown>): Promise<string> {
+  try {
+    await promise;
+  } catch (err) {
+    return toAppError(err).message;
+  }
+  throw new Error('expected a failure');
+}
 
 async function put(relative: string, contents: string | Buffer): Promise<string> {
   const file = path.join(root, relative);
@@ -73,8 +94,72 @@ describe('listChapters', () => {
     expect(files.map((f) => f.relativePath)).toEqual(['Chapter 1.md']);
   });
 
-  it('returns nothing for a folder that is not there', async () => {
-    expect(await listChapters(path.join(root, 'nope'), null)).toEqual([]);
+  /* apply.25: a manuscript folder that cannot be read is not a folder with no
+     chapters, so the list is told why instead of being given nothing. */
+  it('says so when the manuscript folder is not there', async () => {
+    const err = await listChapters(path.join(root, 'nope'), null).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(toAppError(err)).toMatchObject({
+      code: 'io',
+      message: `${APP_NAME} could not find the manuscript folder nope. It may have been renamed, moved or deleted. ${APP_NAME} has not changed anything.`
+    });
+  });
+
+  it('explains a manuscript folder another program holds, or the account may not read, as a read', async () => {
+    await put('Chapter 1.md', 'a');
+    const name = `the manuscript folder ${path.basename(root)}`;
+    for (const code of ['EBUSY', 'EPERM', 'EACCES']) {
+      const refused = Object.assign(new Error(`${code}: refused, scandir '${root}'`), {
+        code,
+        syscall: 'scandir',
+        path: root
+      });
+      const readdir = vi.spyOn(fs, 'readdir').mockRejectedValueOnce(refused);
+      try {
+        const err = await listChapters(root, null).then(
+          () => null,
+          (e: unknown) => e
+        );
+        // What the IPC bridge sends on: the read words, naming the folder.
+        const shown = toAppError(err);
+        expect(shown).toMatchObject({
+          code: 'io',
+          message: explainReadError(refused, name, process.platform)
+        });
+        expect(shown.message).toMatch(
+          / read the manuscript folder mrev-files-\S+\. .*\S+ has not changed anything\.$/
+        );
+        expect(shown.message).not.toMatch(WRITE_WORDS);
+      } finally {
+        readdir.mockRestore();
+      }
+    }
+    // Readable again: the chapters are there.
+    expect((await listChapters(root, null)).map((f) => f.relativePath)).toEqual(['Chapter 1.md']);
+  });
+
+  it('still skips a subfolder it cannot read', async () => {
+    await put('Chapter 1.md', 'a');
+    await put('locked/Chapter 2.md', 'b');
+    await put('open/Chapter 3.md', 'c');
+    const locked = path.join(root, 'locked');
+    const real = fs.readdir.bind(fs) as (dir: string, options: { withFileTypes: true }) => Promise<unknown>;
+    const readdir = vi
+      .spyOn(fs, 'readdir')
+      .mockImplementation(((dir: string, options: { withFileTypes: true }) =>
+        path.resolve(dir) === path.resolve(locked)
+          ? Promise.reject(Object.assign(new Error('EBUSY: refused'), { code: 'EBUSY', path: dir }))
+          : real(dir, options)) as unknown as typeof fs.readdir);
+    try {
+      expect((await listChapters(root, null)).map((f) => f.relativePath)).toEqual([
+        'Chapter 1.md',
+        'open/Chapter 3.md'
+      ]);
+    } finally {
+      readdir.mockRestore();
+    }
   });
 });
 
@@ -110,6 +195,56 @@ describe('writeChapter', () => {
     });
     expect(result.status).toBe('written');
     expect(await fs.readFile(file)).toEqual(original);
+  });
+
+  it('writes nothing when the new bytes are the ones on disk, so the modified time stays (apply.3)', async () => {
+    const original = Buffer.from('﻿one\r\ntwo\r\n', 'utf8');
+    const file = await put('c.md', original);
+    const old = new Date('2026-01-02T03:04:05.000Z');
+    await fs.utimes(file, old, old);
+    const content = await readChapter(file);
+    const renames: string[] = [];
+    const seen: string[] = [];
+    const result = await writeChapter(
+      {
+        path: file,
+        text: content.text,
+        eol: content.eol,
+        bom: content.bom,
+        trailingNewline: content.trailingNewline,
+        expectedHash: content.hash
+      },
+      {
+        onWritten: (_file, hash) => seen.push(hash),
+        atomic: {
+          rename: (from) => {
+            renames.push(from);
+            return Promise.resolve();
+          }
+        }
+      }
+    );
+    expect(result).toEqual({ status: 'written', hash: content.hash, unchanged: true });
+    expect(renames).toEqual([]);
+    expect(seen).toEqual([]);
+    expect((await fs.stat(file)).mtime.getTime()).toBe(old.getTime());
+    expect(await fs.readFile(file)).toEqual(original);
+    expect(await fs.readdir(root)).toEqual(['c.md']);
+  });
+
+  it('still writes when only the shape differs, such as the final newline', async () => {
+    const file = await put('c.md', 'one\n');
+    const content = await readChapter(file);
+    const result = await writeChapter({
+      path: file,
+      text: content.text,
+      eol: content.eol,
+      bom: content.bom,
+      trailingNewline: false,
+      expectedHash: content.hash
+    });
+    expect(result).toEqual({ status: 'written', hash: hashBytes(Buffer.from('one')) });
+    expect(await fs.readFile(file, 'utf8')).toBe('one');
   });
 
   it('keeps CRLF and the BOM when the text does change', async () => {
@@ -195,6 +330,417 @@ describe('writeChapter', () => {
   });
 });
 
+describe('a refused read is explained as a read (apply.24)', () => {
+  const refused = (code: string): NodeJS.ErrnoException =>
+    Object.assign(new Error(`${code}: refused`), { code, path: path.join(root, 'c.md') });
+
+  it('opening a chapter another program holds or will not let the app read', async () => {
+    const file = await put('c.md', 'one\n');
+    for (const code of ['EBUSY', 'EPERM', 'EACCES']) {
+      const read = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(refused(code));
+      try {
+        const message = await shown(readChapter(file));
+        expect(message).toBe(explainReadError(refused(code), 'c.md', process.platform));
+        expect(message).toMatch(/ read c\.md\. .*try again\. \S+ has not changed anything\.$/);
+        expect(message).not.toMatch(WRITE_WORDS);
+      } finally {
+        read.mockRestore();
+      }
+    }
+    expect(await fs.readFile(file, 'utf8')).toBe('one\n');
+  });
+
+  it('opening a chapter that is gone, or is a folder', async () => {
+    const gone = await shown(readChapter(path.join(root, 'gone.md')));
+    expect(gone).toBe(
+      `${APP_NAME} could not find gone.md. It may have been renamed, moved or deleted; if it was renamed or moved, open it again from where it is now. ${APP_NAME} has not changed anything.`
+    );
+    await fs.mkdir(path.join(root, 'folder.md'));
+    const folder = await shown(readChapter(path.join(root, 'folder.md')));
+    expect(folder).toBe(
+      `${APP_NAME} could not read folder.md, because it is a folder, not a file. ${APP_NAME} has not changed anything.`
+    );
+    for (const message of [gone, folder]) expect(message).not.toMatch(WRITE_WORDS);
+  });
+
+  it('keeps a refusal already in words, such as a file that is not UTF-8', async () => {
+    const file = await put('latin.md', Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
+    await expect(readChapter(file)).rejects.toMatchObject({ code: 'not-utf8' });
+  });
+
+  it('a save whose first read is refused says so as a read and writes nothing', async () => {
+    const file = await put('c.md', 'one\n');
+    const content = await readChapter(file);
+    const read = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(refused('EBUSY'));
+    try {
+      const message = await shown(
+        writeChapter({
+          path: file,
+          text: 'two',
+          eol: 'lf',
+          bom: false,
+          trailingNewline: true,
+          expectedHash: content.hash
+        })
+      );
+      expect(message).toBe(explainReadError(refused('EBUSY'), 'c.md', process.platform));
+      expect(message).not.toMatch(WRITE_WORDS);
+    } finally {
+      read.mockRestore();
+    }
+    expect(await fs.readFile(file, 'utf8')).toBe('one\n');
+    expect(await fs.readdir(root)).toEqual(['c.md']);
+  });
+
+  it('a save that cannot reach the chapter tells it to be opened again from where it is now', async () => {
+    const file = await put('c.md', 'one\n');
+    const content = await readChapter(file);
+    const read = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(refused('ENOTDIR'));
+    try {
+      const message = await shown(
+        writeChapter({
+          path: file,
+          text: 'two',
+          eol: 'lf',
+          bom: false,
+          trailingNewline: true,
+          expectedHash: content.hash
+        })
+      );
+      expect(message).toBe(
+        `${APP_NAME} could not find c.md. It may have been renamed, moved or deleted; if it was renamed or moved, open it again from where it is now. ${APP_NAME} has not changed anything.`
+      );
+    } finally {
+      read.mockRestore();
+    }
+    expect(await fs.readFile(file, 'utf8')).toBe('one\n');
+  });
+
+  it('a save whose read after the backup is refused says so as a read and writes nothing', async () => {
+    const file = await put('c.md', 'one\n');
+    const content = await readChapter(file);
+    const spies: Array<{ mockRestore(): void }> = [];
+    try {
+      const message = await shown(
+        writeChapter(
+          {
+            path: file,
+            text: 'two',
+            eol: 'lf',
+            bom: false,
+            trailingNewline: true,
+            expectedHash: content.hash
+          },
+          {
+            // Step 4 has the old bytes; another program then holds the file,
+            // so step 5's read, made in case it changed meanwhile, is refused.
+            beforeReplace: () => {
+              spies.push(vi.spyOn(fs, 'readFile').mockRejectedValueOnce(refused('EBUSY')));
+              return Promise.resolve(undefined);
+            }
+          }
+        )
+      );
+      expect(spies).toHaveLength(1);
+      expect(message).toBe(explainReadError(refused('EBUSY'), 'c.md', process.platform));
+      expect(message).not.toMatch(WRITE_WORDS);
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    expect(await fs.readFile(file, 'utf8')).toBe('one\n');
+    expect(await fs.readdir(root)).toEqual(['c.md']);
+  });
+
+  it('a save that finds the chapter changed while its rename was refused, then cannot read it, says so as a read', async () => {
+    const file = await put('c.md', 'one\n');
+    const content = await readChapter(file);
+    const realReadFile = fs.readFile.bind(fs);
+    const spies: Array<{ mockRestore(): void }> = [];
+    let renames = 0;
+    try {
+      const message = await shown(
+        writeChapter(
+          {
+            path: file,
+            text: 'two',
+            eol: 'lf',
+            bom: false,
+            trailingNewline: true,
+            expectedHash: content.hash
+          },
+          {
+            atomic: {
+              // Another program writes the chapter and holds it: the rename is
+              // refused, the check before the retry reads new bytes, so the
+              // save stops as stale, and the read of those bytes for the page
+              // is refused.
+              rename: async (from: string, to: string) => {
+                renames += 1;
+                await fs.writeFile(file, 'someone else\n');
+                spies.push(
+                  vi
+                    .spyOn(fs, 'readFile')
+                    .mockImplementationOnce((...args) => realReadFile(...args))
+                    .mockRejectedValueOnce(refused('EBUSY'))
+                );
+                throw Object.assign(new Error('EBUSY: refused'), { code: 'EBUSY', path: from, dest: to });
+              },
+              sleep: () => Promise.resolve()
+            }
+          }
+        )
+      );
+      expect(renames).toBe(1);
+      expect(message).toBe(explainReadError(refused('EBUSY'), 'c.md', process.platform));
+      expect(message).not.toMatch(WRITE_WORDS);
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    // Their bytes stay, and the temp file is gone.
+    expect(await fs.readFile(file, 'utf8')).toBe('someone else\n');
+    expect(await fs.readdir(root)).toEqual(['c.md']);
+  });
+
+  it('a save whose rename is refused keeps the write words', async () => {
+    const file = await put('c.md', 'one\n');
+    const content = await readChapter(file);
+    const message = await shown(
+      writeChapter(
+        { path: file, text: 'two', eol: 'lf', bom: false, trailingNewline: true, expectedHash: content.hash },
+        {
+          atomic: {
+            rename: (from: string, to: string) =>
+              Promise.reject(
+                Object.assign(new Error('EBUSY: refused'), { code: 'EBUSY', path: from, dest: to })
+              ),
+            sleep: () => Promise.resolve()
+          }
+        }
+      )
+    );
+    expect(message).toMatch(/ replace c\.md\b/);
+    expect(message).toMatch(/Nothing was written; the file is as it was\.$/);
+    expect(await fs.readFile(file, 'utf8')).toBe('one\n');
+  });
+
+  /* apply.25: Controlled folder access, or a folder the account may not add
+     files to, refuses the new version before any rename, which is never
+     retried, so the words claim no second and a half. */
+  it('a save whose new version cannot be made in the folder says so, claiming no retries', async () => {
+    const file = await put('c.md', 'one\n');
+    const content = await readChapter(file);
+    let refused: NodeJS.ErrnoException | undefined;
+    const open = vi.spyOn(fs, 'open').mockImplementationOnce((target) => {
+      refused = Object.assign(new Error(`EPERM: operation not permitted, open '${String(target)}'`), {
+        code: 'EPERM',
+        syscall: 'open',
+        path: String(target)
+      });
+      return Promise.reject(refused);
+    });
+    const renames: string[] = [];
+    try {
+      const message = await shown(
+        writeChapter(
+          {
+            path: file,
+            text: 'two',
+            eol: 'lf',
+            bom: false,
+            trailingNewline: true,
+            expectedHash: content.hash
+          },
+          {
+            atomic: {
+              rename: (from: string, to: string) => {
+                renames.push(to);
+                return fs.rename(from, to);
+              },
+              sleep: () => Promise.resolve()
+            }
+          }
+        )
+      );
+      expect(refused?.path).toMatch(/[\\/]\.c\.md\.[0-9a-f]{12}\.tmp$/);
+      expect(message).toBe(explainWriteError(refused, 'c.md', process.platform));
+      expect(message).toMatch(/ write the new version of c\.md into its folder\. /);
+      expect(message).not.toMatch(/second and a half|even after/);
+      expect(message).toMatch(/save again\. .*Nothing was written; the file is as it was\.$/);
+    } finally {
+      open.mockRestore();
+    }
+    expect(renames).toEqual([]);
+    expect(await fs.readFile(file, 'utf8')).toBe('one\n');
+    expect(await fs.readdir(root)).toEqual(['c.md']);
+  });
+});
+
+describe('writeChapter backup hooks (apply.10, PLAN 11.3 h)', () => {
+  /** A save of `text` over what `file` holds now. */
+  async function saveOver(file: string, text: string, hooks: WriteHooks): Promise<SaveResponse> {
+    const content = await readChapter(file);
+    return writeChapter(
+      {
+        path: file,
+        text,
+        eol: content.eol,
+        bom: content.bom,
+        trailingNewline: content.trailingNewline,
+        expectedHash: content.hash
+      },
+      hooks
+    );
+  }
+
+  it('hands beforeReplace the exact old bytes before anything is written, and returns its answer', async () => {
+    const original = Buffer.from('﻿the river had began\r\n\r\nto climb\r\n', 'utf8');
+    const file = await put('c.md', original);
+    const calls: Array<{ file: string; bytes: Buffer; onDisk: Buffer }> = [];
+    const order: string[] = [];
+    const result = await saveOver(file, 'the river had begun\n\nto climb', {
+      beforeReplace: async (target, bytes) => {
+        order.push('beforeReplace');
+        calls.push({ file: target, bytes: Buffer.from(bytes), onDisk: await fs.readFile(target) });
+        return { name: '2026-10-14 16.04.33 c.md', created: true };
+      },
+      onWritten: () => order.push('onWritten'),
+      afterWrite: async (target) => {
+        order.push('afterWrite');
+        expect(await fs.readFile(target, 'utf8')).toBe('﻿the river had begun\r\n\r\nto climb\r\n');
+      }
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.file).toBe(file);
+    expect(calls[0]!.bytes.equals(original)).toBe(true);
+    expect(calls[0]!.onDisk.equals(original)).toBe(true);
+    expect(order).toEqual(['beforeReplace', 'onWritten', 'afterWrite']);
+    expect(result).toEqual({
+      status: 'written',
+      hash: hashBytes(Buffer.from('﻿the river had begun\r\n\r\nto climb\r\n', 'utf8')),
+      backup: { name: '2026-10-14 16.04.33 c.md', created: true }
+    });
+  });
+
+  it('writes nothing when beforeReplace throws, and says the backup failed', async () => {
+    const file = await put('c.md', 'one\n');
+    const old = new Date('2026-01-02T03:04:05.000Z');
+    await fs.utimes(file, old, old);
+    const seen: string[] = [];
+    let after = false;
+    const err = await saveOver(file, 'two', {
+      beforeReplace: () => Promise.reject(new Error('there is no space left on the disk')),
+      onWritten: (_f, hash) => seen.push(hash),
+      afterWrite: () => {
+        after = true;
+        return Promise.resolve();
+      }
+    }).catch((e: unknown) => e);
+    expect((err as Error).message).toBe(
+      'Could not back up the chapter before saving, so nothing was written: there is no space left on the disk'
+    );
+    expect((err as { code?: string }).code).toBe('io');
+    expect(await fs.readFile(file, 'utf8')).toBe('one\n');
+    expect((await fs.stat(file)).mtime.getTime()).toBe(old.getTime());
+    expect(await fs.readdir(root)).toEqual(['c.md']);
+    expect(seen).toEqual([]);
+    expect(after).toBe(false);
+  });
+
+  it('returns stale, keeping the new bytes, when the file changes during the backup', async () => {
+    const file = await put('c.md', 'one\n');
+    let after = false;
+    const result = await saveOver(file, 'mine', {
+      beforeReplace: async (target) => {
+        await fs.writeFile(target, 'Obsidian saved this meanwhile\n');
+        return { name: 'x', created: true };
+      },
+      afterWrite: () => {
+        after = true;
+        return Promise.resolve();
+      }
+    });
+    expect(result.status).toBe('stale');
+    expect(result.status === 'stale' && result.disk.text).toBe('Obsidian saved this meanwhile');
+    expect(await fs.readFile(file, 'utf8')).toBe('Obsidian saved this meanwhile\n');
+    expect(after).toBe(false);
+  });
+
+  it('calls no hook when the new bytes are the ones on disk, or the file is stale', async () => {
+    const file = await put('c.md', 'one\n');
+    const calls: string[] = [];
+    const hooks: WriteHooks = {
+      beforeReplace: () => {
+        calls.push('beforeReplace');
+        return Promise.resolve(undefined);
+      },
+      afterWrite: () => {
+        calls.push('afterWrite');
+        return Promise.resolve();
+      }
+    };
+    expect(await saveOver(file, 'one', hooks)).toMatchObject({ status: 'written', unchanged: true });
+    const content = await readChapter(file);
+    await fs.writeFile(file, 'changed elsewhere\n');
+    const stale = await writeChapter(
+      { path: file, text: 'two', eol: 'lf', bom: false, trailingNewline: true, expectedHash: content.hash },
+      hooks
+    );
+    expect(stale.status).toBe('stale');
+    expect(calls).toEqual([]);
+  });
+
+  it('still reports the save written when afterWrite fails', async () => {
+    const file = await put('c.md', 'one\n');
+    const result = await saveOver(file, 'two', {
+      beforeReplace: () => Promise.resolve({ name: 'b', created: false }),
+      afterWrite: () => Promise.reject(new Error('prune failed'))
+    });
+    expect(result).toMatchObject({ status: 'written', backup: { name: 'b', created: false } });
+    expect(await fs.readFile(file, 'utf8')).toBe('two\n');
+  });
+
+  it('reports a chapter removed during the backup as gone, writing nothing', async () => {
+    const file = await put('c.md', 'one\n');
+    await expect(
+      saveOver(file, 'two', {
+        beforeReplace: async (target) => {
+          await fs.rm(target);
+          return undefined;
+        }
+      })
+    ).rejects.toThrow(/no longer at/);
+    expect(await fs.readdir(root)).toEqual([]);
+  });
+
+  it('with the real hooks, two saves leave two backups in userData and nothing new beside the chapter', async () => {
+    const vault = path.join(root, 'vault');
+    const userData = path.join(root, 'userData');
+    const original = Buffer.from('﻿one\r\ntwo\r\n', 'utf8');
+    const file = path.join(vault, 'Chapter 01.md');
+    await fs.mkdir(vault, { recursive: true });
+    await fs.writeFile(file, original);
+    const backupsRoot = backupsRootFor(userData);
+    let clock = new Date(2026, 9, 14, 16, 4, 33);
+    const hooks = chapterBackupHooks({ backupsRoot, manuscriptFolder: vault, ci: true, now: () => clock });
+
+    const first = await saveOver(file, 'one\nthree', hooks);
+    clock = new Date(2026, 9, 14, 16, 5, 0);
+    const second = await saveOver(file, 'one\nfour', hooks);
+
+    expect(first).toMatchObject({ backup: { name: '2026-10-14 16.04.33 Chapter 01.md', created: true } });
+    expect(second).toMatchObject({ backup: { name: '2026-10-14 16.05.00 Chapter 01.md', created: true } });
+    const folder = backupFolderFor(backupsRoot, file, true);
+    const backups = await listBackups(folder);
+    expect(backups.map((b) => b.name)).toEqual([
+      '2026-10-14 16.05.00 Chapter 01.md',
+      '2026-10-14 16.04.33 Chapter 01.md'
+    ]);
+    expect(hashBytes(await fs.readFile(backups[1]!.file))).toBe(hashBytes(original));
+    expect(await fs.readFile(backups[0]!.file)).toEqual(Buffer.from('﻿one\r\nthree\r\n', 'utf8'));
+    expect(await fs.readdir(vault)).toEqual(['Chapter 01.md']);
+  });
+});
+
 describe('creating a chapter', () => {
   it('writes the file and reports it as a chapter', async () => {
     const file = await createChapter(root, 'Chapter 03 - The Bridge', 'md', 'One line.\n');
@@ -214,6 +760,47 @@ describe('creating a chapter', () => {
   it('does not double an extension the author typed', async () => {
     const file = await createChapter(root, 'Chapter 04.md', 'md', '');
     expect(file.name).toBe('Chapter 04.md');
+  });
+
+  /* apply.25: creating is never retried and replaces nothing, so a refusal
+     says what was being made and to try again, never "save again". */
+  it('says what it was making when the system refuses, and to try again', async () => {
+    const created = path.join(root, 'Chapter 05.md');
+    for (const code of ['EBUSY', 'EPERM', 'EACCES']) {
+      const refused = Object.assign(new Error(`${code}: refused, open '${created}'`), {
+        code,
+        syscall: 'open',
+        path: created
+      });
+      const write = vi.spyOn(fs, 'writeFile').mockRejectedValueOnce(refused);
+      try {
+        const message = await shown(createChapter(root, 'Chapter 05', 'md', 'One line.'));
+        expect(message).toBe(explainWriteError(refused, 'Chapter 05.md', process.platform, 'create'));
+        expect(message).toMatch(/ create Chapter 05\.md\. .*try again\. .*Nothing was written\.$/);
+        expect(message).not.toMatch(NOT_A_RENAME);
+      } finally {
+        write.mockRestore();
+      }
+    }
+    const folder = Object.assign(new Error(`EPERM: refused, mkdir '${root}'`), {
+      code: 'EPERM',
+      syscall: 'mkdir',
+      path: root
+    });
+    const mkdir = vi.spyOn(fs, 'mkdir').mockRejectedValueOnce(folder);
+    try {
+      const message = await shown(createChapter(root, 'Chapter 05', 'md', 'One line.'));
+      expect(message).toBe(
+        explainWriteError(folder, `the manuscript folder ${path.basename(root)}`, process.platform, 'folder')
+      );
+      expect(message).toMatch(
+        / create the manuscript folder mrev-files-\S+\. .*try again\. .*Nothing was written\.$/
+      );
+      expect(message).not.toMatch(NOT_A_RENAME);
+    } finally {
+      mkdir.mockRestore();
+    }
+    expect(await fs.readdir(root)).toEqual([]);
   });
 
   it('never overwrites an existing file', async () => {

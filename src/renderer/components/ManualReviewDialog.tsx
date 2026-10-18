@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { unsavedDecisionCount } from '../../shared/diff/compose';
 import { diffToHunks } from '../../shared/diff/wordDiff';
 import { createReview } from '../../shared/review';
 import { normalizeText } from '../../shared/text/eol';
 import type { Review } from '../../shared/types';
+import { buildManualReview } from '../state/reviewStart';
+import type { SaveOptions, SaveOutcome } from '../state/saveChapter';
 import { useApp } from '../state/store';
 
 interface Props {
@@ -11,6 +14,8 @@ interface Props {
   onCreated: (next: Review) => void;
   onClose: () => void;
   onLoadCorrected: () => Promise<string | null>;
+  /** Save to chapter, waited for, for Save then build (apply.20) */
+  onSave: (options: SaveOptions) => Promise<SaveOutcome>;
 }
 
 /**
@@ -20,19 +25,34 @@ interface Props {
  * chapter. The difference that matters: the base is no longer something pasted
  * into a box, it is the chapter that is open, so the review it produces belongs
  * to a real file and is saved and re-anchored like any other.
+ *
+ * The pasted text is compared with the chapter file, so changes on the page
+ * that the file does not have yet are asked about before building: Save then
+ * build, Build without them, or Cancel (apply.20, `buildManualReview`).
  */
 export function ManualReviewDialog({
   review,
   onCreated,
   onClose,
-  onLoadCorrected
+  onLoadCorrected,
+  onSave
 }: Props): React.JSX.Element {
   const notify = useApp((s) => s.notify);
-  const askConfirm = useApp((s) => s.askConfirm);
+  const saving = useApp((s) => s.chapterSaving);
   const [corrected, setCorrected] = useState('');
   const [busy, setBusy] = useState(false);
+  /* What a save before building said when it did not reach the chapter file.
+     Its cards sit under this dialog's backdrop, so the dialog says it instead
+     (apply.20 review). */
+  const [notSaved, setNotSaved] = useState<string[]>([]);
+  const showNotSaved = notSaved.length > 0 && unsavedDecisionCount(review.hunks) > 0;
+  const setDialogText = useApp((s) => s.setDialogText);
 
-  const decided = review.hunks.filter((h) => h.status !== 'pending').length;
+  /* Pasted text would be lost if the window closed, so the close guard is
+     told (apply.16, PLAN 11.3 i). */
+  const typed = corrected !== '';
+  useEffect(() => setDialogText('manual-review', typed), [typed, setDialogText]);
+  useEffect(() => () => setDialogText('manual-review', false), [setDialogText]);
 
   const build = (): void => {
     if (corrected.trim().length === 0) {
@@ -40,34 +60,30 @@ export function ManualReviewDialog({
       return;
     }
 
+    /* Against the review on screen when it is built, not when Build was
+       pressed: after Save then build, that is the chapter just saved. */
     const make = (): void => {
+      const current = useApp.getState().review ?? review;
       const next = createReview({
-        sourcePath: review.sourcePath,
-        base: review.base,
-        hunks: diffToHunks(review.base.text, normalizeText(corrected).text),
+        sourcePath: current.sourcePath,
+        base: current.base,
+        hunks: diffToHunks(current.base.text, normalizeText(corrected).text),
         generator: { kind: 'manual' }
       });
       onCreated(next);
       onClose();
     };
 
-    if (decided === 0) {
-      make();
-      return;
-    }
-
+    /* Changes not saved to the chapter are asked about first: Save then
+       build, Build without them, or Cancel (apply.20). */
     setBusy(true);
-    void askConfirm({
-      title: `Replace the open review?`,
-      body: `You have decided ${decided} suggestion${
-        decided === 1 ? '' : 's'
-      } in the review that is open. Building a review from this text replaces the working set. The old review stays in History.`,
-      confirmLabel: 'Replace'
-    })
-      .then((ok) => {
-        if (ok) make();
-      })
-      .finally(() => setBusy(false));
+    setNotSaved([]);
+    void buildManualReview({
+      save: onSave,
+      build: make,
+      stillWanted: () => useApp.getState().manualReviewOpen,
+      onNotSaved: setNotSaved
+    }).finally(() => setBusy(false));
   };
 
   return (
@@ -87,6 +103,13 @@ export function ManualReviewDialog({
             placeholder="Paste the corrected chapter"
           />
         </label>
+        {showNotSaved ? (
+          <div className="modal__warn modal__warn--stack modal__warn--error" role="alert">
+            {notSaved.map((line, i) => (
+              <span key={i}>{line}</span>
+            ))}
+          </div>
+        ) : null}
         <div className="modal__actions">
           <button
             type="button"
@@ -102,8 +125,8 @@ export function ManualReviewDialog({
           <button type="button" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" className="primary" disabled={busy} onClick={build}>
-            Build review
+          <button type="button" className="primary" disabled={busy || saving} onClick={build}>
+            {saving ? 'Saving…' : 'Build review'}
           </button>
         </div>
       </div>

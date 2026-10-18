@@ -158,6 +158,69 @@ describe('createKeyedWriter', () => {
     expect(h.errors).toEqual(['disk full', 'disk full']);
   });
 
+  it('keeps a value whose write failed, says why, and counts as busy until it is written (apply.9)', async () => {
+    const { h, writer } = harness(true);
+    writer.schedule('a', 'one');
+    await vi.advanceTimersByTimeAsync(700);
+    await h.finish(new Error('disk full'));
+    expect(writer.pending()).toBe(false);
+    expect(writer.failures()).toEqual(['disk full']);
+    expect(writer.failures('a')).toEqual(['disk full']);
+    expect(writer.failures('b')).toEqual([]);
+    // Not on disk, so the writer has not gone idle.
+    expect(h.pendingChanges).toEqual([true]);
+
+    // A flush alone does not try it again; retry queues it, and the flush writes it.
+    await writer.flush();
+    expect(h.writes).toEqual([['a', 'one']]);
+    writer.retry();
+    const flushed = writer.flush();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.writes).toEqual([
+      ['a', 'one'],
+      ['a', 'one']
+    ]);
+    await h.finish();
+    await flushed;
+    expect(writer.failures()).toEqual([]);
+    expect(h.pendingChanges).toEqual([true, false]);
+  });
+
+  it('retry leaves a key alone while a newer value for it waits, whose write clears the failure', async () => {
+    const { h, writer } = harness(true);
+    writer.schedule('a', 'one');
+    await vi.advanceTimersByTimeAsync(700);
+    await h.finish(new Error('disk full'));
+    writer.schedule('a', 'two');
+    writer.retry('a');
+    const flushed = writer.flush();
+    await h.finish();
+    await flushed;
+    expect(h.writes).toEqual([
+      ['a', 'one'],
+      ['a', 'two']
+    ]);
+    expect(writer.failures()).toEqual([]);
+    expect(writer.pending()).toBe(false);
+  });
+
+  it('lists each reason once, and retries only the key it is given', async () => {
+    const { h, writer } = harness(true);
+    writer.schedule('a', 'one');
+    writer.schedule('b', 'two');
+    await vi.advanceTimersByTimeAsync(700);
+    await h.finish(new Error('disk full'));
+    await h.finish(new Error('disk full'));
+    expect(writer.failures()).toEqual(['disk full']);
+    writer.retry('b');
+    const flushed = writer.flush();
+    await h.finish();
+    await flushed;
+    expect(h.writes.slice(2)).toEqual([['b', 'two']]);
+    expect(writer.failures()).toEqual(['disk full']);
+    expect(writer.failures('b')).toEqual([]);
+  });
+
   it('says when it becomes busy and when it is idle again', async () => {
     const { h, writer } = harness(true);
     expect(writer.pending()).toBe(false);

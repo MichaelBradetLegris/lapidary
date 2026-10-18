@@ -93,7 +93,7 @@ Alternatively, set `OPENAI_API_KEY` as an environment variable, the same way as 
 
 1. Pick a chapter on the left.
 2. Click **Review with AI**. The dialog shows the chapter's size, the provider, model and effort, your guidelines file, and what happened last time. For OpenAI it also shows where the key comes from; **Start review** stays disabled until there is one.
-3. While it runs, a card at the bottom of the page shows progress and a **Cancel review** button. A review usually takes a minute or two. The chapter is read-only until it finishes, because the result replaces the current set of suggestions; you can open other chapters meanwhile. If you have accepted changes that are not saved to the chapter yet, the dialog says so first: the review reads the chapter file, so save before starting.
+3. While it runs, a card at the bottom of the page shows progress and a **Cancel review** button. A review usually takes a minute or two. The chapter is read-only until it finishes, because the result replaces the current set of suggestions; you can open other chapters meanwhile. If the page has changes that are not saved to the chapter yet, the dialog says so, because the review reads the chapter file: **Save 3 changes, then review** writes them into the chapter and then starts, so the review sees them (if the save does not go through, nothing is sent and the dialog says why), and **Review without them** asks first, then leaves them in the old review, which you can reopen from History.
 4. When it finishes, each suggestion appears in the text:
    - **Pending**: your original, underlined in the category colour, with the suggestion above it.
    - **Accepted**: the suggestion, with a plain grey underline; your original floats above it after "was".
@@ -106,9 +106,9 @@ Alternatively, set `OPENAI_API_KEY` as an environment variable, the same way as 
 
 **Models.** The review dialog lists the models the provider offers. For Claude the list comes from your installed Claude Code, so it depends on its version and your plan, and each model shows its version (such as Opus 5.5 or Sonnet 5). "Default" is whatever Claude Code currently recommends for your account.
 
-The status bar shows which provider and model answered and what it cost. Claude's figure is Claude Code's own estimate at API prices; on a Claude plan it is not what you pay. OpenAI's is marked "estimate": it is this app's arithmetic from a price table, and it is left out for models the table does not know. Every review is kept in **History** in the side panel, labelled with its provider and model.
+The status bar shows which provider and model answered and what it cost. Claude's figure is Claude Code's own estimate at API prices; on a Claude plan it is not what you pay. OpenAI's is marked "estimate": it is this app's arithmetic from a price table, and it is left out for models the table does not know. Every review is kept in **History** in the side panel, labelled with its provider and model. The list at the top of the side panel holds the same reviews: choose one to switch to it. A chapter opens with the review you last had on screen, usually the newest; when it is an older one, a warning mark beside the list says when the newest is from.
 
-**Submit manual review** turns a corrected copy of the chapter (pasted, or loaded from a file) into the same kind of suggestions, so you can review someone else's edits the same way.
+**Submit manual review** turns a corrected copy of the chapter (pasted, or loaded from a file) into the same kind of suggestions, so you can review someone else's edits the same way. The copy is compared with the chapter file, so when the page has changes the file does not have yet, Build review asks first: save them, then build; build without them; or cancel.
 
 ## Editing in the app
 
@@ -128,13 +128,13 @@ Paragraphs are numbered from 1 beside the text, and the AI is shown the same num
 
 If the chapter changes on disk while it is open (for example, you edit it in Obsidian), the app notices, re-anchors the suggestions onto the new text and tells you how many it could not place. Avoid editing the same chapter in Obsidian while you are accepting changes here.
 
-Your decisions are saved to the review file automatically as you go; there is nothing to save there.
+Your decisions are kept in the review automatically as you go; there is nothing to save there, and the status bar says when they were last kept ("Decisions kept 14:02"). Until you press **Save to chapter**, the button counts the changes the chapter file does not have yet ("Save 3 changes to chapter"), a dot sits before the chapter name, and the status bar says "3 not saved to chapter". The same dot marks the chapter in the list on the left, and stays there when you open another chapter or restart the app, so you can see which chapters still have changes to save. The dot, the button and the status bar go by the review on screen, which is the one the chapter opens with: if you switch to another review of the chapter, changes you left unsaved in the first stay in it, and the list at the top of the side panel counts them on its line ("2 not saved to chapter"). The first time a change is waiting, a note under the toolbar points at the button and names the file it writes; **Got it**, or your first Save to chapter, puts it away for good. Ctrl+S saves too. Opening another chapter while changes are not saved asks first: save them, keep them for later, or stay. Keep for later keeps your decisions in the review and any paragraph you are editing, which opens again when you come back to the chapter. Closing the window asks the same: save and close, close and keep them for later, or cancel.
 
 ## Privacy
 
 **The app itself** has no analytics, no crash reporting and no update check. Links you click open in your web browser.
 
-**What a review sends, and when.** Only when you click **Start review** does the app send the provider you chose:
+**What a review sends, and when.** Only when you start a review in the Review with AI dialog (**Start review**, or, when the page has changes not saved to the chapter, **Save 3 changes, then review** once the save has gone through, or **Review without them** once you have answered its question) does the app send the provider you chose:
 
 - the app's own review instructions;
 - your guidelines file;

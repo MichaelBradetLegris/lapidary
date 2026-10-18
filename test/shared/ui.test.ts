@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bulkPlan } from '../../src/shared/ui/bulk';
+import { bodyLines } from '../../src/shared/ui/confirm';
+import { NOTHING_UNTIL_SAVE } from '../../src/shared/ui/saveHint';
 import { indexesOf, matchLabel, stepIndex } from '../../src/shared/ui/find';
 import { formatElapsed, PROGRESS_TICK_MS, progressLabel } from '../../src/shared/ui/progress';
 import { stackCards } from '../../src/shared/ui/stack';
@@ -105,10 +107,25 @@ describe('bulk confirmation semantics', () => {
     expect(plan.confirmLabel).toBe('Dismiss');
   });
 
-  it('accept all leaves dismissed hunks alone', () => {
+  it('accept all leaves dismissed hunks alone, and says nothing reaches the chapter until Save (apply.12)', () => {
     const plan = bulkPlan(hunks, 'accept');
     expect(plan.ids).toEqual(['p1', 'p2']);
-    expect(plan.body).toBe('Suggestions you already dismissed are not changed.');
+    expect(plan.body).toBe(
+      'Suggestions you already dismissed are not changed.\nNothing reaches the chapter until you press Save to chapter.'
+    );
+    // One point per line, as the confirm dialog shows it.
+    expect(bodyLines(plan.body)).toEqual([
+      'Suggestions you already dismissed are not changed.',
+      NOTHING_UNTIL_SAVE
+    ]);
+    // A chip's Accept all of one category says the same.
+    expect(bulkPlan(hunks, 'accept', 'spelling').body).toBe(plan.body);
+    // Dismissing and resetting change nothing the chapter holds either, but
+    // their questions are as they were.
+    expect(bulkPlan(hunks, 'dismiss').body).not.toContain(NOTHING_UNTIL_SAVE);
+    expect(bulkPlan(hunks, 'reset').body).toBe(
+      'This clears every accept and dismiss. Nothing is written to the chapter.'
+    );
   });
 
   it('reset takes back every decision and nothing else', () => {

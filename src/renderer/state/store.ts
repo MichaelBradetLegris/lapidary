@@ -1,10 +1,11 @@
 import { create } from 'zustand';
-import { commitDecisions } from '../../shared/diff/compose';
+import { commitDecisions, composeReview, unsavedDecisionCount } from '../../shared/diff/compose';
 import { applyBlockEdit, blockSpanFor, editSuggestion, liveTextIn, planBlockEdit } from '../../shared/edit';
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import { remapAfterCommit } from '../../shared/review';
 import { splitParagraphs } from '../../shared/text/paragraphs';
 import { stepIndex } from '../../shared/ui/find';
+import type { SaveShortcutContext } from '../../shared/ui/save';
 import type { ChangeCategory, Hunk, HunkStatus, Review, ReviewComment, Settings } from '../../shared/types';
 
 export type NotificationTone = 'info' | 'warn' | 'error';
@@ -30,13 +31,13 @@ export interface Notification {
    */
   key?: string;
   action?: NotificationAction;
+  /** what the button acts on, such as the set-aside file Show the text opens (apply.16) */
+  actionArg?: string;
 }
 
-export interface ConfirmSpec {
-  title: string;
-  body: string;
-  confirmLabel: string;
-}
+/* The confirm dialog's question and answers are pure and tested in shared/ui/confirm.ts (apply.6). */
+import { offeredChoice, type ConfirmChoice, type ConfirmSpec } from '../../shared/ui/confirm';
+export type { ConfirmChoice, ConfirmSpec };
 
 export interface FindState {
   open: boolean;
@@ -113,26 +114,184 @@ export function isLocked(state: Pick<AppState, 'review' | 'aiBusyPath'>): boolea
   return Boolean(path) && state.aiBusyPath === path;
 }
 
+/** The last write of a review's json: which file, and when. */
+export interface ReviewKept {
+  path: string;
+  at: string;
+}
+
+/**
+ * When the review on screen was last written, for the status bar's "Decisions
+ * kept" (apply.4), or null. A write belongs to the file it went to, so another
+ * review, or a chapter whose review has never been written (`reviewPath`
+ * null), shows no time rather than one that is not its own.
+ */
+export function reviewKeptAt(state: Pick<AppState, 'reviewSavedAt' | 'reviewPath'>): string | null {
+  const kept = state.reviewSavedAt;
+  return kept !== null && state.reviewPath !== null && kept.path === state.reviewPath ? kept.at : null;
+}
+
+/**
+ * The dialogs that can hold text the author typed, which closing the window
+ * would lose (`CloseGuardState.dialogText`, PLAN 11.3 i).
+ */
+export type DialogTextSource = 'new-chapter' | 'manual-review' | 'edit-popover';
+
+/** True while any dialog holds text the author typed. */
+export function hasDialogText(state: Pick<AppState, 'dialogText'>): boolean {
+  return Object.values(state.dialogText).some(Boolean);
+}
+
 /** True when a paragraph editor is open on this paragraph index. */
 export function inDraft(drafts: Record<number, ParagraphDraft>, paragraph: number): boolean {
   return Object.values(drafts).some((d) => d.paragraphs.includes(paragraph));
 }
 
-/** Suggestions that must not change right now: all of them during a review, or those under an open editor. */
+/** Paragraph boxes whose text differs from what they opened with. */
+export function changedParagraphCount(drafts: Record<number, ParagraphDraft>): number {
+  return Object.values(drafts).filter((d) => d.text !== d.initial).length;
+}
+
+/**
+ * True while a dialog, a question, Settings or the Setup screen covers the page
+ * (`SaveShortcutContext.modalOpen`). The suggestion editor is a floating panel,
+ * not a modal, and is not counted.
+ */
+export function isModalOpen(
+  state: Pick<
+    AppState,
+    'confirmSpec' | 'settingsOpen' | 'setupOpen' | 'newChapterOpen' | 'manualReviewOpen' | 'reviewDialogOpen'
+  >
+): boolean {
+  return (
+    state.confirmSpec !== null ||
+    state.settingsOpen ||
+    state.setupOpen ||
+    state.newChapterOpen ||
+    state.manualReviewOpen ||
+    state.reviewDialogOpen
+  );
+}
+
+/**
+ * Whether the review pane's keys (j and k, the arrows, a, u, d, e and n) act:
+ * only with a review on screen and nothing in front of the page. Behind a
+ * dialog, a question, Settings or the Setup screen (`isModalOpen`) they
+ * changed what the author could not see: behind Review with AI, a accepted
+ * the focused suggestion, which changed the dialog's count and so its blue
+ * button, and e opened the suggestion editor over it (apply.20 review). The
+ * suggestion editor keeps the keys for its own box, and the pane is
+ * read-only while a review of the chapter runs (`isLocked`).
+ */
+export function reviewKeysActive(
+  state: Pick<
+    AppState,
+    | 'review'
+    | 'aiBusyPath'
+    | 'editor'
+    | 'confirmSpec'
+    | 'settingsOpen'
+    | 'setupOpen'
+    | 'newChapterOpen'
+    | 'manualReviewOpen'
+    | 'reviewDialogOpen'
+  >
+): boolean {
+  return state.review !== null && state.editor === null && !isModalOpen(state) && !isLocked(state);
+}
+
+/** What Ctrl+S needs to know about the page (`saveShortcutAction`, apply.3). */
+export function saveShortcutContext(state: AppState, inParagraphBox: boolean): SaveShortcutContext {
+  return {
+    hasChapter: Boolean(state.review?.sourcePath),
+    modalOpen: isModalOpen(state),
+    inParagraphBox,
+    suggestionEditorOpen: state.editor !== null,
+    locked: isLocked(state),
+    saving: state.chapterSaving,
+    unsavedDecisions: state.review ? unsavedDecisionCount(state.review.hunks) : 0,
+    changedParagraphs: changedParagraphCount(state.drafts)
+  };
+}
+
+/**
+ * Decisions that would change the review while Save to chapter writes it are
+ * held back until it is done (apply.3): the save folds into the new base
+ * exactly the decisions it wrote, so one made in the meantime would be
+ * recorded as saved without being in the file.
+ */
+function held(state: Pick<AppState, 'review' | 'aiBusyPath' | 'chapterSaving'>): boolean {
+  return isLocked(state) || state.chapterSaving;
+}
+
+/** Suggestions that must not change right now: all of them during a review or a save, or those under an open editor. */
 function frozen(state: AppState, hunk: Hunk): boolean {
-  return isLocked(state) || inDraft(state.drafts, hunk.paragraph);
+  return held(state) || inDraft(state.drafts, hunk.paragraph);
+}
+
+/**
+ * The review after Save to chapter wrote `review`: its decisions folded into
+ * the base, which now has the written file's hash (PLAN 6.3, step 3). Comments
+ * and labels follow their paragraphs into the new base (files.21).
+ */
+export function savedReview(review: Review, hash: string): Review {
+  const committed = commitDecisions(review.base.text, review.hunks);
+  // A save that split or joined a paragraph renumbers the ones after it.
+  const remapped = remapAfterCommit(review.base.text, review.hunks, committed, review.comments);
+  const now = new Date().toISOString();
+  return {
+    ...review,
+    base: { ...review.base, text: committed.text, hash },
+    hunks: remapped.hunks,
+    comments: remapped.comments,
+    updatedAt: now,
+    decidedAt: now
+  };
+}
+
+/**
+ * Whether the review on screen is the one Save to chapter wrote (apply.3):
+ * that object, or a copy of the same review on the same base whose decisions
+ * compose the same text, which is what reading the review back during the
+ * write puts on screen. Decisions are held while the file is written, so such
+ * a copy carries nothing the file lacks. A copy on another base, such as one
+ * rebased onto newer bytes, is not the written review.
+ */
+export function isWrittenReview(onScreen: Review, written: Review): boolean {
+  if (onScreen === written) return true;
+  return (
+    onScreen.id === written.id &&
+    onScreen.sourcePath === written.sourcePath &&
+    onScreen.base.hash === written.base.hash &&
+    composeReview(onScreen) === composeReview(written)
+  );
 }
 
 export interface AppState {
   settings: Settings | null;
   review: Review | null;
   reviewPath: string | null;
-  /** true when decisions changed since the review was last written to disk */
-  dirty: boolean;
-  /** wall-clock time of the last review json write, for the status bar */
-  reviewSavedAt: string | null;
-  /** a review json write is waiting or running, for any review (apply.1) */
+  /**
+   * the last review json write: its file and wall-clock time. The status bar
+   * reads it through `reviewKeptAt`, so it shows only for that review.
+   */
+  reviewSavedAt: ReviewKept | null;
+  /**
+   * a review json write is waiting or running, for any review (apply.1), or
+   * failed and has not been made since (apply.9)
+   */
   persistPending: boolean;
+  /**
+   * a write of kept paragraph boxes is waiting, running or held, for any
+   * chapter (apply.16), or failed and has not been made since (apply.9)
+   */
+  draftWritesPending: boolean;
+  /**
+   * which dialogs hold text the author typed: New chapter's name or text,
+   * Submit manual review's corrected text, the suggestion editor's changed
+   * words (apply.16). Read through `hasDialogText`.
+   */
+  dialogText: Record<DialogTextSource, boolean>;
   focusedHunkId: string | null;
   /** bumped whenever the focused hunk should be scrolled into view */
   focusScrollToken: number;
@@ -152,6 +311,11 @@ export interface AppState {
   newChapterOpen: boolean;
   manualReviewOpen: boolean;
   reviewDialogOpen: boolean;
+  settingsOpen: boolean;
+  /** the Claude Setup screen stands in place of the chapter */
+  setupOpen: boolean;
+  /** Save to chapter is writing the file (`state/saveChapter.ts`); decisions wait meanwhile */
+  chapterSaving: boolean;
   /** paragraphs open for editing in place, keyed by their first paragraph index */
   drafts: Record<number, ParagraphDraft>;
   /** the chapter an AI review is running for; its review is read-only until it returns */
@@ -171,7 +335,13 @@ export interface AppState {
   setActiveComment: (id: string | null) => void;
   toggleCategory: (category: ChangeCategory) => void;
   clearCategoryFilter: () => void;
-  notify: (tone: NotificationTone, text: string, key?: string, action?: NotificationAction) => string;
+  notify: (
+    tone: NotificationTone,
+    text: string,
+    key?: string,
+    action?: NotificationAction,
+    actionArg?: string
+  ) => string;
   /**
    * Show the card for `key`, or update the one already showing in place: same
    * id, same position in the stack, new tone, text and button. For things that
@@ -188,7 +358,17 @@ export interface AppState {
   /** close every card with this key, for example once Claude is ready */
   dismissNotificationsByKey: (key: string) => void;
   clearNotifications: () => void;
+  /**
+   * Show the confirm dialog and resolve with the button that answered it:
+   * `confirm`, `alt` or `cancel` (Escape is cancel). A second question
+   * replaces the first, which resolves `cancel`.
+   */
+  askChoice: (spec: ConfirmSpec) => Promise<ConfirmChoice>;
+  /** `askChoice` for a yes-or-no question: true only for confirm. */
   askConfirm: (spec: ConfirmSpec) => Promise<boolean>;
+  /** The dialog's answer; a choice the question does not show counts as cancel. */
+  answerChoice: (choice: ConfirmChoice) => void;
+  /** `answerChoice` for a yes-or-no question: true is confirm, false cancel. */
   answerConfirm: (ok: boolean) => void;
   openFind: () => void;
   closeFind: () => void;
@@ -198,8 +378,20 @@ export interface AppState {
   setNewChapterOpen: (open: boolean) => void;
   setManualReviewOpen: (open: boolean) => void;
   setReviewDialogOpen: (open: boolean) => void;
-  markSaved: (hash: string, path?: string) => void;
-  markReviewPersisted: (at?: string) => void;
+  setSettingsOpen: (open: boolean) => void;
+  setSetupOpen: (open: boolean) => void;
+  setChapterSaving: (saving: boolean) => void;
+  /** say whether a dialog holds text the author typed; unchanged state sets nothing */
+  setDialogText: (source: DialogTextSource, typed: boolean) => void;
+  /**
+   * Fold the decisions into the base after Save to chapter wrote the file
+   * (`savedReview`). With `written`, only when the review on screen is that
+   * review (`isWrittenReview`); false, with nothing changed, when the screen
+   * has moved on or holds a copy that reads differently.
+   */
+  markSaved: (hash: string, written?: Review) => boolean;
+  /** the review json at `path` was just written, at `at` or now */
+  markReviewPersisted: (path: string, at?: string) => void;
 
   /* ---- editing (item 3) ---- */
   setCommentStatus: (id: string, status: ReviewComment['status']) => void;
@@ -214,11 +406,16 @@ export interface AppState {
   openDraft: (paragraph: number, select?: { start: number; end: number }) => boolean;
   setDraftText: (key: number, text: string) => void;
   cancelDraft: (key: number) => void;
+  /**
+   * Open boxes kept from before (apply.16), as `placeDrafts` placed them. A box
+   * whose paragraphs another open box covers is skipped. Returns how many
+   * opened.
+   */
+  reopenDrafts: (drafts: readonly ParagraphDraft[]) => number;
   /** turn one open paragraph into hunks and close it */
   commitDraft: (key: number) => DraftOutcome;
   /** commit every open paragraph, first to last; the messages of any that could not be */
   commitAllDrafts: () => { applied: number; blocked: string[] };
-  discardDrafts: () => void;
 
   setAiBusy: (sourcePath: string | null) => void;
 }
@@ -234,7 +431,7 @@ function withHunks(review: Review, hunks: Hunk[]): Review {
 }
 
 let notificationSeq = 0;
-let confirmResolve: ((ok: boolean) => void) | null = null;
+let confirmResolve: ((choice: ConfirmChoice) => void) | null = null;
 
 const NO_FIND: FindState = { open: false, query: '', index: -1, count: 0, seek: 0 };
 
@@ -242,9 +439,10 @@ export const useApp = create<AppState>()((set, get) => ({
   settings: null,
   review: null,
   reviewPath: null,
-  dirty: false,
   reviewSavedAt: null,
   persistPending: false,
+  draftWritesPending: false,
+  dialogText: { 'new-chapter': false, 'manual-review': false, 'edit-popover': false },
   focusedHunkId: null,
   focusScrollToken: 0,
   hoveredHunkId: null,
@@ -258,6 +456,9 @@ export const useApp = create<AppState>()((set, get) => ({
   newChapterOpen: false,
   manualReviewOpen: false,
   reviewDialogOpen: false,
+  settingsOpen: false,
+  setupOpen: false,
+  chapterSaving: false,
   drafts: {},
   aiBusyPath: null,
 
@@ -270,7 +471,6 @@ export const useApp = create<AppState>()((set, get) => ({
     set((state) => ({
       review,
       reviewPath: path,
-      dirty: false,
       focusedHunkId: review?.hunks.find((h) => h.anchor !== 'stale')?.id ?? null,
       hoveredHunkId: null,
       activeCommentId: null,
@@ -283,7 +483,7 @@ export const useApp = create<AppState>()((set, get) => ({
   patchReview: (patch) => {
     const review = get().review;
     if (!review) return;
-    set({ review: patch(review), dirty: true });
+    set({ review: patch(review) });
   },
 
   setHunkStatus: (id, status) => {
@@ -292,7 +492,7 @@ export const useApp = create<AppState>()((set, get) => ({
     const hunk = review?.hunks.find((h) => h.id === id);
     if (!review || !hunk || frozen(state, hunk)) return;
     const hunks = review.hunks.map((h) => (h.id === id ? { ...h, status } : h));
-    set({ review: withHunks(review, hunks), dirty: true });
+    set({ review: withHunks(review, hunks) });
   },
 
   toggleAccepted: (id) => {
@@ -312,7 +512,7 @@ export const useApp = create<AppState>()((set, get) => ({
   applyBulk: (ids, status) => {
     const state = get();
     const review = state.review;
-    if (!review || ids.length === 0 || isLocked(state)) return;
+    if (!review || ids.length === 0 || held(state)) return;
     const wanted = new Set(ids);
     let changed = false;
     const hunks = review.hunks.map((h) => {
@@ -320,7 +520,7 @@ export const useApp = create<AppState>()((set, get) => ({
       changed = true;
       return { ...h, status };
     });
-    if (changed) set({ review: withHunks(review, hunks), dirty: true });
+    if (changed) set({ review: withHunks(review, hunks) });
   },
 
   /**
@@ -366,13 +566,20 @@ export const useApp = create<AppState>()((set, get) => ({
 
   clearCategoryFilter: () => set({ hiddenCategories: [] }),
 
-  notify: (tone, text, key, action) => {
+  notify: (tone, text, key, action, actionArg) => {
     notificationSeq += 1;
     const id = `n${notificationSeq}`;
     set((state) => ({
       notifications: [
         ...(key ? state.notifications.filter((n) => n.key !== key) : state.notifications),
-        { id, tone, text, ...(key ? { key } : {}), ...(action ? { action } : {}) }
+        {
+          id,
+          tone,
+          text,
+          ...(key ? { key } : {}),
+          ...(action ? { action } : {}),
+          ...(action && actionArg !== undefined ? { actionArg } : {})
+        }
       ]
     }));
     return id;
@@ -397,21 +604,26 @@ export const useApp = create<AppState>()((set, get) => ({
 
   clearNotifications: () => set({ notifications: [] }),
 
-  askConfirm: (spec) => {
-    // A second question replaces the first; the first is answered "no".
-    if (confirmResolve) confirmResolve(false);
+  askChoice: (spec) => {
+    // A second question replaces the first; the first is answered "cancel".
+    if (confirmResolve) confirmResolve('cancel');
     set({ confirmSpec: spec });
-    return new Promise<boolean>((resolve) => {
+    return new Promise<ConfirmChoice>((resolve) => {
       confirmResolve = resolve;
     });
   },
 
-  answerConfirm: (ok) => {
+  askConfirm: async (spec) => (await get().askChoice(spec)) === 'confirm',
+
+  answerChoice: (choice) => {
     const resolve = confirmResolve;
+    const spec = get().confirmSpec;
     confirmResolve = null;
     set({ confirmSpec: null });
-    if (resolve) resolve(ok);
+    if (resolve) resolve(spec ? offeredChoice(spec, choice) : 'cancel');
   },
+
+  answerConfirm: (ok) => get().answerChoice(ok ? 'confirm' : 'cancel'),
 
   openFind: () => set((state) => ({ find: { ...state.find, open: true } })),
 
@@ -443,19 +655,29 @@ export const useApp = create<AppState>()((set, get) => ({
 
   setReviewDialogOpen: (reviewDialogOpen) => set({ reviewDialogOpen }),
 
+  setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+
+  setSetupOpen: (setupOpen) => set({ setupOpen }),
+
+  setChapterSaving: (chapterSaving) => set({ chapterSaving }),
+
+  setDialogText: (source, typed) =>
+    set((state) =>
+      state.dialogText[source] === typed ? {} : { dialogText: { ...state.dialogText, [source]: typed } }
+    ),
+
   /* ---------------- editing (item 3) ---------------- */
 
   setCommentStatus: (id, status) => {
     const review = get().review;
-    if (!review || isLocked(get())) return;
+    if (!review || held(get())) return;
     set({
       review: {
         ...review,
         comments: review.comments.map((c) => (c.id === id ? { ...c, status } : c)),
         updatedAt: new Date().toISOString(),
         decidedAt: new Date().toISOString()
-      },
-      dirty: true
+      }
     });
   },
 
@@ -481,8 +703,10 @@ export const useApp = create<AppState>()((set, get) => ({
     if (replacement === hunk.replacement && (!accept || hunk.status === 'accepted')) {
       return { status: 'noop' };
     }
-    const hunks = review.hunks.map((h) => (h.id === id ? editSuggestion(h, replacement, accept) : h));
-    set({ review: withHunks(review, hunks), dirty: true, focusedHunkId: id });
+    const hunks = review.hunks.map((h) =>
+      h.id === id ? editSuggestion(review.base.text, h, replacement, accept) : h
+    );
+    set({ review: withHunks(review, hunks), focusedHunkId: id });
     return { status: 'applied', hunkId: id };
   },
 
@@ -491,7 +715,7 @@ export const useApp = create<AppState>()((set, get) => ({
   openDraft: (paragraph, select) => {
     const state = get();
     const review = state.review;
-    if (!review || isLocked(state)) return false;
+    if (!review || held(state)) return false;
 
     const open = Object.values(state.drafts).find((d) => d.paragraphs.includes(paragraph));
     if (open) return true;
@@ -530,6 +754,27 @@ export const useApp = create<AppState>()((set, get) => ({
       return { drafts: next };
     }),
 
+  reopenDrafts: (incoming) => {
+    const state = get();
+    if (!state.review || incoming.length === 0) return 0;
+    const drafts = { ...state.drafts };
+    const taken = new Set(Object.values(drafts).flatMap((d) => d.paragraphs));
+    let opened = 0;
+    for (const draft of incoming) {
+      if (draft.paragraphs.some((p) => taken.has(p))) continue;
+      for (const p of draft.paragraphs) taken.add(p);
+      drafts[draft.key] = {
+        key: draft.key,
+        paragraphs: [...draft.paragraphs],
+        initial: draft.initial,
+        text: draft.text
+      };
+      opened += 1;
+    }
+    if (opened > 0) set({ drafts });
+    return opened;
+  },
+
   /**
    * The author finished a paragraph. Its changed words become manual hunks and
    * the suggestions they swallowed are superseded, so the composed text stays a
@@ -545,6 +790,7 @@ export const useApp = create<AppState>()((set, get) => ({
     const draft = state.drafts[key];
     if (!review || !draft) return { status: 'blocked', message: 'That paragraph is not being edited.' };
     if (isLocked(state)) return { status: 'blocked', message: 'Wait for the review to finish first.' };
+    if (state.chapterSaving) return { status: 'blocked', message: 'Wait for the save to finish first.' };
 
     const base = review.base.text;
     const paragraphs = splitParagraphs(base);
@@ -569,7 +815,6 @@ export const useApp = create<AppState>()((set, get) => ({
     const firstHunkId = plan.added[0]?.id ?? accepted[0]?.id ?? null;
     set({
       review: withHunks(review, applyBlockEdit(review.hunks, plan)),
-      dirty: true,
       drafts,
       ...(firstHunkId ? { focusedHunkId: firstHunkId } : {})
     });
@@ -599,30 +844,14 @@ export const useApp = create<AppState>()((set, get) => ({
     return { applied, blocked };
   },
 
-  discardDrafts: () => set({ drafts: {} }),
-
   setAiBusy: (aiBusyPath) => set({ aiBusyPath }),
 
-  markSaved: (hash, path) => {
+  markSaved: (hash, written) => {
     const review = get().review;
-    if (!review) return;
-    const committed = commitDecisions(review.base.text, review.hunks);
-    // A save that split or joined a paragraph renumbers the ones after it, so
-    // comments and labels follow their paragraphs into the new base (files.21).
-    const remapped = remapAfterCommit(review.base.text, review.hunks, committed, review.comments);
-    set({
-      review: {
-        ...review,
-        base: { ...review.base, text: committed.text, hash },
-        hunks: remapped.hunks,
-        comments: remapped.comments,
-        updatedAt: new Date().toISOString(),
-        decidedAt: new Date().toISOString()
-      },
-      dirty: false,
-      ...(path ? { reviewPath: path } : {})
-    });
+    if (!review || (written && !isWrittenReview(review, written))) return false;
+    set({ review: savedReview(review, hash) });
+    return true;
   },
 
-  markReviewPersisted: (at) => set({ reviewSavedAt: at ?? new Date().toISOString() })
+  markReviewPersisted: (path, at) => set({ reviewSavedAt: { path, at: at ?? new Date().toISOString() } })
 }));

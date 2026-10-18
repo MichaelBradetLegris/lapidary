@@ -1,7 +1,8 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AppFailure, explainReadError, explainWriteError, toAppError } from '../../src/main/errors';
 import { ensureGuidelines, ensureGuidelinesFile, guidelinesStatus } from '../../src/main/guidelines';
 import { obsidianOpenUrl, openGuidelinesFile, type ShellApi } from '../../src/main/openGuidelines';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
@@ -68,6 +69,98 @@ describe('ensureGuidelinesFile', () => {
     expect(info.text).toContain('## Style sheet');
     await fs.writeFile(info.path, Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
     await expect(ensureGuidelines(settings(), template)).rejects.toMatchObject({ code: 'not-utf8' });
+  });
+});
+
+describe('a guidelines file that cannot be read (apply.24)', () => {
+  for (const code of ['EBUSY', 'EPERM', 'EACCES']) {
+    it(`explains ${code} as a read, before a review and in Settings`, async () => {
+      const { path: file } = await ensureGuidelinesFile(settings(), template);
+      const refused = Object.assign(new Error(`${code}: refused`), { code, path: file });
+      const expected = explainReadError(refused, 'GUIDELINES.md', process.platform);
+      for (const reading of [
+        () => ensureGuidelines(settings(), template),
+        () => guidelinesStatus(settings())
+      ]) {
+        const read = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(refused);
+        try {
+          const err = await reading().then(
+            () => null,
+            (e: unknown) => e
+          );
+          expect(err).toBeInstanceOf(AppFailure);
+          const shown = toAppError(err);
+          expect(shown).toMatchObject({ code: 'io', message: expected });
+          expect(shown.message).not.toMatch(
+            /replace|save again|Nothing was written|Controlled folder access/
+          );
+        } finally {
+          read.mockRestore();
+        }
+      }
+    });
+  }
+});
+
+/* apply.25: copying the template is never retried and replaces nothing, so a
+   refusal says what was being made and to try again, never "save again". */
+describe('a guidelines file that cannot be made (apply.25)', () => {
+  const NOT_A_RENAME = /replace|save again|second and a half|even after|the file is as it was/;
+
+  async function shown(promise: Promise<unknown>): Promise<string> {
+    const err = await promise.then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(err).toBeInstanceOf(AppFailure);
+    return toAppError(err).message;
+  }
+
+  for (const code of ['EBUSY', 'EPERM', 'EACCES']) {
+    it(`explains ${code} copying the template as making GUIDELINES.md from it`, async () => {
+      const target = path.join(root, 'Novel', 'GUIDELINES.md');
+      const refused = Object.assign(new Error(`${code}: refused, copyfile '${template}' -> '${target}'`), {
+        code,
+        syscall: 'copyfile',
+        path: template,
+        dest: target
+      });
+      const copy = vi.spyOn(fs, 'copyFile').mockRejectedValueOnce(refused);
+      try {
+        const message = await shown(ensureGuidelinesFile(settings(), template));
+        expect(message).toBe(explainWriteError(refused, 'GUIDELINES.md', process.platform, 'copy'));
+        expect(message).toMatch(
+          / create GUIDELINES\.md from the template\. .*try again\. .*Nothing was written\.$/
+        );
+        expect(message).not.toMatch(NOT_A_RENAME);
+      } finally {
+        copy.mockRestore();
+      }
+      await expect(fs.access(target)).rejects.toThrow();
+    });
+  }
+
+  it('explains a folder it may not make for the file as making that folder', async () => {
+    const folder = path.join(root, 'Novel');
+    const refused = Object.assign(new Error(`EPERM: refused, mkdir '${folder}'`), {
+      code: 'EPERM',
+      syscall: 'mkdir',
+      path: folder
+    });
+    const mkdir = vi.spyOn(fs, 'mkdir').mockRejectedValueOnce(refused);
+    try {
+      const message = await shown(ensureGuidelinesFile(settings(), template));
+      expect(message).toBe(
+        explainWriteError(refused, 'the folder for GUIDELINES.md', process.platform, 'folder')
+      );
+      expect(message).toMatch(
+        / create the folder for GUIDELINES\.md\. .*try again\. .*Nothing was written\.$/
+      );
+      expect(message).not.toMatch(NOT_A_RENAME);
+    } finally {
+      mkdir.mockRestore();
+    }
+    await expect(fs.access(folder)).rejects.toThrow();
   });
 });
 

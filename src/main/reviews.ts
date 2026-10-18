@@ -2,12 +2,14 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { unsavedDecisionCount } from '../shared/diff/compose';
 import type { LoadedReview, ReviewSummary } from '../shared/ipc';
+import { loggableErrorFields } from '../shared/diagnostics/redact';
 import { commonTrailingSegments, pathKey, samePath } from '../shared/paths';
 import { chapterSlug, rehomeReview, upgradeLoadedReview } from '../shared/review';
 import type { Review } from '../shared/types';
 import { atomicWriteFile } from './atomic';
-import { fail } from './errors';
+import { fail, readFailure, writeFailure } from './errors';
 import { caseInsensitiveFs } from './files';
+import { log } from './log';
 
 /*
  * The review store (PLAN 6.4 and 11.3 g).
@@ -17,12 +19,23 @@ import { caseInsensitiveFs } from './files';
  * the same name in different folders share it; which chapter a file belongs to
  * is decided by its `sourcePath`, compared as the file system compares paths,
  * never by the folder it sits in (files.1, C.45).
+ *
+ * The review a chapter opens with is the one last on screen for it (apply.26),
+ * recorded in the folder's `.last-open.json` when a review comes on screen and
+ * when a new one arrives, without touching the review file or its times.
  */
 
 const SUFFIX = '.review.json';
 
 /** Written before reviews follow a renamed chapter, removed once they all have. */
 const JOURNAL = '.adoption.json';
+
+/**
+ * Which review of each chapter in the folder was last on screen (apply.26). One
+ * file per chapter folder, keyed by the chapter's path, since same-named
+ * chapters in different folders share the folder.
+ */
+const LAST_OPEN = '.last-open.json';
 
 /**
  * Rule (b) of adoption trusts an equal hash only for a chapter with at least
@@ -74,8 +87,7 @@ async function fileExists(file: string): Promise<boolean> {
     await fs.access(file);
     return true;
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    return code !== 'ENOENT' && code !== 'ENOTDIR';
+    return !isGone(err);
   }
 }
 
@@ -107,13 +119,71 @@ function isReview(value: unknown): value is Review {
   return r.version === 1 && typeof r.base === 'object' && Array.isArray(r.hunks) && Array.isArray(r.comments);
 }
 
-export async function loadReviewFile(file: string): Promise<Review> {
-  const text = await fs.readFile(file, 'utf8');
+/** How a message names a review file: "the review file 2026-10-17T12-00-00-000Z.review.json". */
+function reviewFileName(file: string): string {
+  return `the review file ${path.basename(file)}`;
+}
+
+/** The chapter's file name, however its path is spelled. */
+function chapterFileName(sourcePath: string): string {
+  return sourcePath.split(/[\\/]/).pop() || sourcePath;
+}
+
+/** How a message names a chapter's review folder: "the review folder of Chapter 12.md". */
+function reviewFolderName(sourcePath: string): string {
+  return `the review folder of ${chapterFileName(sourcePath)}`;
+}
+
+/** Only a clear "not there" means a file or folder is gone. */
+function isGone(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+/**
+ * Make a folder the store writes in. Nothing is retried or replaced, so a
+ * refusal says which folder was being made and to try again (apply.25).
+ */
+async function makeFolder(dir: string, name: string, setting?: string): Promise<void> {
+  try {
+    await fs.mkdir(dir, { recursive: true });
+  } catch (err) {
+    throw writeFailure(err, 'folder', name, setting === undefined ? {} : { setting });
+  }
+}
+
+/**
+ * Make the reviews folder if it is not there yet (6.4), as every review
+ * operation does first; a refusal says so (apply.25). The author chooses it
+ * in Settings, and it may be on a drive that is not connected, so a folder
+ * that cannot be made there says to connect the drive or choose another
+ * (apply.25 review).
+ */
+export async function makeReviewsFolder(folder: string): Promise<void> {
+  await makeFolder(folder, `the reviews folder ${path.resolve(folder)}`, 'reviews folder');
+}
+
+/** The review in a file's text; throws for text that is not one. */
+function parseReview(text: string, file: string): Review {
   const parsed: unknown = JSON.parse(text);
   if (!isReview(parsed)) throw fail('invalid-input', `Not a review file: ${file}`);
   // Reviews written before the Phase 5b rename still say `kind: 'paste'`, and
   // none written before Phase 5c names its provider.
   return upgradeLoadedReview(parsed);
+}
+
+/**
+ * One review file. A read the system refuses is explained as a read, naming
+ * the file (`readFailure`, apply.24).
+ */
+export async function loadReviewFile(file: string): Promise<Review> {
+  let text: string;
+  try {
+    text = await fs.readFile(file, 'utf8');
+  } catch (err) {
+    throw readFailure(err, reviewFileName(file));
+  }
+  return parseReview(text, file);
 }
 
 /* ------------------------------------------------------------------ */
@@ -130,40 +200,94 @@ interface Entry {
 
 const cache = new Map<string, { mtimeMs: number; size: number; entry: Entry }>();
 
-/** The file's entry, or null when it is missing, unreadable or not a review. */
-async function readEntry(file: string): Promise<Entry | null> {
+/**
+ * A review file that is there but could not be read: another program holds
+ * it open, or the system will not let the app read it (apply.25). Whose
+ * review it is cannot be told without reading it.
+ */
+interface Unread {
+  unread: true;
+  file: string;
+  error: unknown;
+}
+
+function isEntry(value: Entry | Unread | null): value is Entry {
+  return value !== null && !('unread' in value);
+}
+
+function isUnread(value: Entry | Unread | null): value is Unread {
+  return value !== null && 'unread' in value;
+}
+
+/**
+ * The file's entry; null when it is gone, not a file, or not a review (a
+ * corrupt or foreign json in the folder is skipped, never thrown at the
+ * author); `Unread` when it is there and the system refused to read it
+ * (apply.25). An entry is cached by modification time and size, so a file
+ * read before is not read again until it changes.
+ */
+async function readEntry(file: string): Promise<Entry | Unread | null> {
   const key = path.resolve(file);
+  let stat;
+  let text: string;
   try {
-    const stat = await fs.stat(file);
+    stat = await fs.stat(file);
+    if (!stat.isFile()) {
+      cache.delete(key);
+      return null;
+    }
     const hit = cache.get(key);
     if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) return hit.entry;
-    const review = await loadReviewFile(file);
-    const entry: Entry = {
-      file,
-      summary: summarize(file, review),
-      hash: review.base.hash,
-      length: review.base.text.length
-    };
-    cache.set(key, { mtimeMs: stat.mtimeMs, size: stat.size, entry });
-    return entry;
+    text = await fs.readFile(file, 'utf8');
+  } catch (err) {
+    cache.delete(key);
+    return isGone(err) ? null : { unread: true, file, error: err };
+  }
+  let review: Review;
+  try {
+    review = parseReview(text, file);
   } catch {
-    // A corrupt or foreign json in the folder is skipped, never thrown at the author.
     cache.delete(key);
     return null;
   }
+  const entry: Entry = {
+    file,
+    summary: summarize(file, review),
+    hash: review.base.hash,
+    length: review.base.text.length
+  };
+  cache.set(key, { mtimeMs: stat.mtimeMs, size: stat.size, entry });
+  return entry;
 }
 
-async function entriesIn(dir: string): Promise<Entry[]> {
+/**
+ * The review files in a chapter folder: those read, and those that are there
+ * but could not be read. A folder that is not there holds none; one that
+ * cannot be listed holds none either, unless `strict`, when its error is
+ * thrown.
+ */
+async function folderEntries(dir: string, strict = false): Promise<{ entries: Entry[]; unread: Unread[] }> {
   let names: string[];
   try {
     names = await fs.readdir(dir);
-  } catch {
-    return [];
+  } catch (err) {
+    if (strict && !isGone(err)) throw err;
+    return { entries: [], unread: [] };
   }
-  const entries = await Promise.all(
+  const read = await Promise.all(
     names.filter((name) => name.endsWith(SUFFIX)).map((name) => readEntry(path.join(dir, name)))
   );
-  return entries.filter((entry): entry is Entry => entry !== null);
+  return { entries: read.filter(isEntry), unread: read.filter(isUnread) };
+}
+
+/**
+ * The reviews in a chapter folder that could be read. History, the list's
+ * marks and adoption leave out a file they cannot read, as they leave out
+ * one that is not a review; only the review a chapter opens with must be
+ * read (`loadLatestReview`, apply.25).
+ */
+async function entriesIn(dir: string): Promise<Entry[]> {
+  return (await folderEntries(dir)).entries;
 }
 
 /** Every review in every chapter folder, with the folder it was found in. */
@@ -194,11 +318,28 @@ function lastDecided(entry: Entry): string {
 }
 
 /**
- * The chapter's current review: the one the author last decided something in,
- * so going back to an older review in History keeps it current. A review nobody
- * has touched counts from its creation.
+ * The review a chapter opens with (apply.26): the one last on screen for it,
+ * `lastOpen` naming its file in the chapter's folder. A new review counts as
+ * on screen when it arrives, so this is almost always the newest. When nothing
+ * is recorded, or the file recorded is gone or no longer this chapter's, it is
+ * the review last decided in, a review nobody has touched counting from its
+ * creation: a decision is made only on screen, so that is the one last on
+ * screen as far as the files can tell, and it is the review every chapter
+ * opened with before anything was recorded.
  */
-function currentOf(entries: readonly Entry[]): Entry | null {
+function currentOf(entries: readonly Entry[], lastOpen: string | null, ci: boolean): Entry | null {
+  return shownOf(entries, lastOpen, ci) ?? lastDecidedOf(entries);
+}
+
+/** The entry `lastOpen` names, when it is among these. */
+function shownOf(entries: readonly Entry[], lastOpen: string | null, ci: boolean): Entry | null {
+  if (lastOpen === null) return null;
+  const key = pathKey(lastOpen, ci);
+  return entries.find((entry) => pathKey(path.basename(entry.file), ci) === key) ?? null;
+}
+
+/** The review last decided in, or created when none has been decided in. */
+function lastDecidedOf(entries: readonly Entry[]): Entry | null {
   let best: Entry | null = null;
   for (const entry of entries) {
     if (!best) {
@@ -211,6 +352,80 @@ function currentOf(entries: readonly Entry[]): Entry | null {
     if (order > 0) best = entry;
   }
   return best;
+}
+
+/* ------------------------------------------------------------------ */
+/* The review last on screen (apply.26)                                  */
+/* ------------------------------------------------------------------ */
+
+/** One chapter's record: the name of a review file in the same folder. */
+interface LastOpen {
+  sourcePath: string;
+  file: string;
+}
+
+function isLastOpen(value: unknown): value is LastOpen {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Partial<LastOpen>;
+  return (
+    typeof v.sourcePath === 'string' &&
+    v.sourcePath !== '' &&
+    typeof v.file === 'string' &&
+    v.file.endsWith(SUFFIX) &&
+    path.basename(v.file) === v.file
+  );
+}
+
+/** The folder's records; none when the file is missing or not one this app wrote. */
+async function readLastOpen(dir: string): Promise<LastOpen[]> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await fs.readFile(path.join(dir, LAST_OPEN), 'utf8'));
+  } catch {
+    return [];
+  }
+  if (typeof parsed !== 'object' || parsed === null) return [];
+  const { version, chapters } = parsed as { version?: unknown; chapters?: unknown };
+  if (version !== 1 || !Array.isArray(chapters)) return [];
+  return chapters.filter(isLastOpen);
+}
+
+/** Write the folder's records, or remove the file when there are none, so an emptied folder can go. */
+async function writeLastOpen(dir: string, chapters: readonly LastOpen[]): Promise<void> {
+  const file = path.join(dir, LAST_OPEN);
+  if (chapters.length === 0) {
+    await fs.rm(file, { force: true });
+    return;
+  }
+  await atomicWriteFile(file, Buffer.from(`${JSON.stringify({ version: 1, chapters }, null, 2)}\n`, 'utf8'));
+}
+
+function lastOpenOf(chapters: readonly LastOpen[], sourcePath: string, ci: boolean): string | null {
+  return chapters.find((c) => samePath(c.sourcePath, sourcePath, ci))?.file ?? null;
+}
+
+/** Record `name` for the chapter; writes nothing when that is already what is recorded. */
+async function setLastOpen(dir: string, sourcePath: string, name: string, ci: boolean): Promise<void> {
+  const chapters = await readLastOpen(dir);
+  const others = chapters.filter((c) => !samePath(c.sourcePath, sourcePath, ci));
+  const same = chapters.filter((c) => samePath(c.sourcePath, sourcePath, ci));
+  if (same.length === 1 && same[0]?.sourcePath === sourcePath && same[0].file === name) return;
+  await writeLastOpen(dir, [...others, { sourcePath, file: name }]);
+}
+
+/**
+ * `setLastOpen`, for a caller whose own work is done: a record that cannot be
+ * written is logged and otherwise ignored, since the chapter then opens with
+ * the review last decided in, and nothing the author decided is lost.
+ */
+async function markLastOpen(dir: string, sourcePath: string, name: string, ci: boolean): Promise<boolean> {
+  try {
+    await setLastOpen(dir, sourcePath, name, ci);
+    return true;
+  } catch (err) {
+    log('warn', 'reviews.last-open-failed', loggableErrorFields(err));
+    return false;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -247,9 +462,14 @@ export async function listReviews(
 }
 
 /**
- * The review to show when a chapter opens: its current review, or, when none
- * belongs to it, the reviews of the file it used to be (see `findAdoptable`),
- * moved over to it first. `adoptedFrom` names that old path.
+ * The review to show when a chapter opens: the one it opens with
+ * (`currentOf`), or, when none belongs to it, the reviews of the file it used
+ * to be (see `findAdoptable`), moved over to it first. `adoptedFrom` names
+ * that old path. When a review file in the chapter's folder is there but
+ * cannot be read, and no review that could be read is recorded as the one
+ * last on screen, the read is explained (`readFailure`, apply.25), as it is
+ * for the chapter's folder and for the review chosen; nothing is chosen or
+ * adopted in its place.
  */
 export async function loadLatestReview(
   reviewsFolder: string,
@@ -259,24 +479,66 @@ export async function loadLatestReview(
   const ci = caseInsensitive(options);
   return serialized(async () => {
     await finishAdoption(reviewsFolder, ci);
-    const own = (await entriesIn(folderFor(reviewsFolder, sourcePath))).filter((e) =>
-      belongs(e, sourcePath, ci)
-    );
-    const chosen = currentOf(own);
+    const dir = folderFor(reviewsFolder, sourcePath);
+    let found: { entries: Entry[]; unread: Unread[] };
+    try {
+      found = await folderEntries(dir, true);
+    } catch (err) {
+      throw readFailure(err, reviewFolderName(sourcePath));
+    }
+    const own = found.entries.filter((e) => belongs(e, sourcePath, ci));
+    const lastOpen = lastOpenOf(await readLastOpen(dir), sourcePath, ci);
+    // A review file the system will not let the app read may be this
+    // chapter's, and the one it opens with: whose it is cannot be told
+    // without reading it. Opening another review, or a blank one, would let
+    // the next decision write a new review that becomes current over it, so
+    // the chapter does not open, and the page says why (apply.25). Only a
+    // record naming a review that could be read settles it.
+    const shown = shownOf(own, lastOpen, ci);
+    const [unread] = found.unread;
+    if (!shown && unread) throw readFailure(unread.error, reviewFileName(unread.file));
+    const chosen = shown ?? lastDecidedOf(own);
     if (chosen) return { path: chosen.file, review: await loadReviewFile(chosen.file) };
 
     const from = await findAdoptable(reviewsFolder, sourcePath, options);
     if (from === null) return null;
-    const moved = currentOf(await adopt(reviewsFolder, from, sourcePath, ci));
+    const adopted = await adopt(reviewsFolder, from, sourcePath, ci);
+    const moved = currentOf(adopted, lastOpenOf(await readLastOpen(dir), sourcePath, ci), ci);
     if (!moved) return null;
     return { path: moved.file, review: await loadReviewFile(moved.file), adoptedFrom: from };
   });
 }
 
 /**
- * The current review of each chapter, keyed by the chapter paths exactly as
- * passed, for the badges in the file list. One read per chapter folder, and
- * files unchanged since the last call are not parsed again.
+ * Record `file` as the review of `sourcePath` last on screen, so the chapter
+ * opens with it next time (apply.26). The page says so whenever it shows a
+ * review of the open chapter other than by opening the chapter: from History
+ * or the review selector. Only a review file directly in the chapter's folder
+ * that belongs to the chapter is recorded; anything else is ignored. The
+ * review file is not touched, so its times stay what the author's decisions
+ * made them. True when the record says `file`.
+ */
+export async function recordShown(
+  reviewsFolder: string,
+  sourcePath: string,
+  file: string,
+  options: StoreOptions = {}
+): Promise<boolean> {
+  const ci = caseInsensitive(options);
+  return serialized(async () => {
+    const dir = folderFor(reviewsFolder, sourcePath);
+    if (!file.endsWith(SUFFIX)) return false;
+    if (!samePath(path.dirname(path.resolve(file)), path.resolve(dir), ci)) return false;
+    const entry = await readEntry(file);
+    if (!isEntry(entry) || !belongs(entry, sourcePath, ci)) return false;
+    return markLastOpen(dir, sourcePath, path.basename(file), ci);
+  });
+}
+
+/**
+ * The review each chapter opens with (`currentOf`), keyed by the chapter paths
+ * exactly as passed, for the badges in the file list. One read per chapter
+ * folder, and files unchanged since the last call are not parsed again.
  */
 export async function reviewIndex(
   reviewsFolder: string,
@@ -294,8 +556,10 @@ export async function reviewIndex(
     const index: Record<string, ReviewSummary> = {};
     for (const [dir, chapters] of byFolder) {
       const entries = await entriesIn(dir);
+      const lastOpen = await readLastOpen(dir);
       for (const chapter of chapters) {
-        const chosen = currentOf(entries.filter((e) => belongs(e, chapter, ci)));
+        const own = entries.filter((e) => belongs(e, chapter, ci));
+        const chosen = currentOf(own, lastOpenOf(lastOpen, chapter, ci), ci);
         if (chosen) index[chapter] = chosen.summary;
       }
     }
@@ -317,6 +581,10 @@ export async function reviewIndex(
  * from before a reviews-folder change, a `..` path, another chapter's entry)
  * gets a new entry in the right folder instead, so a save never fails, and
  * never lands somewhere else, for a reason that has to do with the path.
+ *
+ * A new entry becomes the review the chapter opens with (apply.26): it is the
+ * review on screen, or one that finished while the author was in another
+ * chapter, which is what opens there next.
  */
 export async function saveReview(
   reviewsFolder: string,
@@ -327,23 +595,31 @@ export async function saveReview(
   const ci = caseInsensitive(options);
   return serialized(async () => {
     const dir = folderFor(reviewsFolder, review.sourcePath);
-    await fs.mkdir(dir, { recursive: true });
-    const target =
-      file !== undefined && (await mayOverwrite(file, dir, review.sourcePath, ci))
-        ? file
-        : await newEntryPath(dir, review, ci);
+    await makeFolder(dir, reviewFolderName(review.sourcePath));
+    const inPlace =
+      file !== undefined && (await mayOverwrite(file, dir, review.sourcePath, ci)) ? file : null;
+    const target = inPlace ?? (await newEntryPath(dir, review, ci));
     await atomicWriteFile(target, serialize(review));
     cache.delete(path.resolve(target));
+    if (inPlace === null) await markLastOpen(dir, review.sourcePath, path.basename(target), ci);
     return { path: target };
   });
 }
 
+/**
+ * Whether `file` may be written over with this chapter's review. A file that
+ * is there but cannot be read may be this very review, so it is neither
+ * written over nor left for a new entry, which would become the review the
+ * chapter opens with in its place: the write fails, saying why, and the
+ * review on screen is written there once it can be read (apply.25).
+ */
 async function mayOverwrite(file: string, dir: string, sourcePath: string, ci: boolean): Promise<boolean> {
   if (!file.endsWith(SUFFIX)) return false;
   if (!samePath(path.dirname(path.resolve(file)), path.resolve(dir), ci)) return false;
   if (!(await fileExists(file))) return true;
   const entry = await readEntry(file);
-  return entry !== null && belongs(entry, sourcePath, ci);
+  if (isUnread(entry)) throw readFailure(entry.error, reviewFileName(file));
+  return isEntry(entry) && belongs(entry, sourcePath, ci);
 }
 
 /**
@@ -357,7 +633,9 @@ async function newEntryPath(dir: string, review: Review, ci: boolean): Promise<s
     const candidate = path.join(dir, `${stamp}${n === 1 ? '' : `-${n}`}${SUFFIX}`);
     if (!(await fileExists(candidate))) return candidate;
     const entry = await readEntry(candidate);
-    if (entry && entry.summary.id === review.id && belongs(entry, review.sourcePath, ci)) return candidate;
+    if (isEntry(entry) && entry.summary.id === review.id && belongs(entry, review.sourcePath, ci)) {
+      return candidate;
+    }
   }
 }
 
@@ -470,7 +748,7 @@ async function adopt(
   ci: boolean
 ): Promise<Entry[]> {
   const home = folderFor(reviewsFolder, toSource);
-  await fs.mkdir(home, { recursive: true });
+  await makeFolder(home, reviewFolderName(toSource));
   const taken = new Set((await fs.readdir(home)).map((name) => pathKey(name, ci)));
 
   const moves: Journal['moves'] = [];
@@ -495,7 +773,7 @@ async function adopt(
   );
   await runJournal(reviewsFolder, journal, ci);
   const moved = await Promise.all(moves.map((m) => readEntry(m.to)));
-  return moved.filter((entry): entry is Entry => entry !== null);
+  return moved.filter(isEntry);
 }
 
 /** Complete an adoption a crash interrupted. Cheap when there is none. */
@@ -528,7 +806,7 @@ async function runJournal(reviewsFolder: string, journal: Journal, ci: boolean):
     } catch {
       continue;
     }
-    await fs.mkdir(path.dirname(move.to), { recursive: true });
+    await makeFolder(path.dirname(move.to), reviewFolderName(journal.to));
     await atomicWriteFile(move.to, serialize(rehomeReview(review, journal.to)));
     cache.delete(path.resolve(move.to));
     if (samePath(move.from, move.to, ci)) continue;
@@ -536,9 +814,40 @@ async function runJournal(reviewsFolder: string, journal: Journal, ci: boolean):
     cache.delete(path.resolve(move.from));
     emptied.add(path.dirname(move.from));
   }
+  await carryLastOpen(journal, ci);
   for (const dir of emptied) {
     // Only an empty folder is removed; one still holding another chapter's reviews stays.
     await fs.rmdir(dir).catch(() => undefined);
   }
   await fs.rm(path.join(reviewsFolder, JOURNAL), { force: true });
+}
+
+/**
+ * The review last on screen for the old path is the new path's too (apply.26):
+ * a record naming a moved file follows it to the new folder, and records whose
+ * file is gone are dropped, so a folder the move emptied holds no record and
+ * is removed. Idempotent, like the moves, since the old records are read
+ * after them. A record that cannot be carried is logged, and the chapter then
+ * opens with the review last decided in.
+ */
+async function carryLastOpen(journal: Journal, ci: boolean): Promise<void> {
+  const moved = new Map(journal.moves.map((m) => [pathKey(m.from, ci), m.to]));
+  const dirs = new Map(journal.moves.map((m) => [pathKey(path.dirname(m.from), ci), path.dirname(m.from)]));
+  try {
+    let carried: string | null = null;
+    for (const dir of dirs.values()) {
+      const chapters = await readLastOpen(dir);
+      const kept: LastOpen[] = [];
+      for (const record of chapters) {
+        const file = path.join(dir, record.file);
+        const to = moved.get(pathKey(file, ci));
+        if (to !== undefined) carried = to;
+        else if (await fileExists(file)) kept.push(record);
+      }
+      if (kept.length !== chapters.length) await writeLastOpen(dir, kept);
+    }
+    if (carried !== null) await setLastOpen(path.dirname(carried), journal.to, path.basename(carried), ci);
+  } catch (err) {
+    log('warn', 'reviews.last-open-failed', loggableErrorFields(err));
+  }
 }

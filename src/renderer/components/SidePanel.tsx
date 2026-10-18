@@ -3,12 +3,20 @@ import { isAuthored } from '../../shared/edit';
 import type { ReviewSummary } from '../../shared/ipc';
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import { groupComments } from '../../shared/ui/comments';
+import {
+  historyCounts,
+  historyWhen,
+  NO_REVIEWS_YET,
+  pickerHoldsKey,
+  reviewPicker
+} from '../../shared/ui/history';
 import { groupSuggestions, summaryLine } from '../../shared/ui/suggestions';
+import { SHOW_BACKUPS, SHOW_BACKUPS_TITLE } from '../../shared/ui/backups';
 import { PROVIDER_NAMES, type Hunk, type Review, type ReviewComment } from '../../shared/types';
 import { editFromComment, editHunk } from '../state/edit';
 import { followFocus, scrollToElement } from '../state/scroll';
 import { inDraft, isLocked, useApp } from '../state/store';
-import { IconCheck, IconPencil, IconUndo, IconX } from './icons';
+import { IconCheck, IconPencil, IconUndo, IconWarning, IconX } from './icons';
 
 interface Props {
   review: Review;
@@ -16,11 +24,8 @@ interface Props {
   activeReviewPath?: string | null;
   onSetCommentStatus: (id: string, status: ReviewComment['status']) => void;
   onOpenHistory?: (summary: ReviewSummary) => void;
-}
-
-function shortTime(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+  /** open the chapter's backup folder (apply.11); the footer shows the button when given */
+  onShowBackups?: () => void;
 }
 
 const STATUS_MARK: Record<Hunk['status'], string> = {
@@ -34,7 +39,8 @@ export function SidePanel({
   history = [],
   activeReviewPath = null,
   onSetCommentStatus,
-  onOpenHistory
+  onOpenHistory,
+  onShowBackups
 }: Props): React.JSX.Element {
   const focusedHunkId = useApp((s) => s.focusedHunkId);
   const hiddenCategories = useApp((s) => s.hiddenCategories);
@@ -56,6 +62,20 @@ export function SidePanel({
 
   const focused = review.hunks.find((h) => h.id === focusedHunkId) ?? null;
   const { open: openComments, resolved } = useMemo(() => groupComments(review.comments), [review.comments]);
+  const picker = useMemo(
+    () => reviewPicker(history, activeReviewPath, review),
+    [history, activeReviewPath, review]
+  );
+  const pickedLabel = picker.choices.find((c) => c.value === picker.selected)?.label ?? NO_REVIEWS_YET;
+
+  /* Another review from the selector opens as a History row does, without a
+     question (apply.26); the review on screen, or one History no longer
+     lists, does nothing. */
+  const chooseReview = (value: string): void => {
+    if (value === picker.selected || !onOpenHistory) return;
+    const entry = history.find((e) => e.path === value);
+    if (entry) onOpenHistory(entry);
+  };
 
   /* Keep the focused suggestion in view when the focus moves, by key or by
      click (panel.1): its row in the list, and its details in the region below
@@ -100,6 +120,56 @@ export function SidePanel({
      instead (app.css). */
   return (
     <aside className={`side ${locked ? 'side--locked' : ''}`} inert={locked}>
+      {/* The chapter's reviews, the one on screen selected, at the very top
+          and outside both regions, so it never scrolls (apply.26). The mark
+          says when that one is not the newest; the chapter opens with it all
+          the same, since it was the last on screen. */}
+      {onOpenHistory ? (
+        <div className={`side__head ${picker.notNewest ? 'side__head--older' : ''}`}>
+          {picker.notNewest ? (
+            <span
+              id="review-picker-mark"
+              className="review-picker__mark"
+              role="img"
+              aria-label={picker.notNewest}
+              title={picker.notNewest}
+            >
+              <IconWarning />
+            </span>
+          ) : null}
+          <select
+            className="review-picker"
+            aria-label="Review shown"
+            aria-describedby={picker.notNewest ? 'review-picker-mark' : undefined}
+            title={pickedLabel}
+            value={picker.selected}
+            disabled={picker.choices.length === 0}
+            onKeyDown={(event) => {
+              /* The arrows, Home, End and the page keys would open another
+                 review at every press, and the arrows are review keys too;
+                 Alt+Down, F4 and Space still open the list (apply.26 review). */
+              if (pickerHoldsKey(event)) event.preventDefault();
+            }}
+            onChange={(event) => {
+              /* A choice hands the focus back to the page, as a History row's
+                 click leaves it on a button, so j, k, a and the arrows act on
+                 the suggestions at once: a focused select takes them as typing. */
+              event.currentTarget.blur();
+              chooseReview(event.target.value);
+            }}
+          >
+            {picker.choices.length === 0 ? (
+              <option value="">{NO_REVIEWS_YET}</option>
+            ) : (
+              picker.choices.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+      ) : null}
       <div className="side__body">
         <section className="side__section side__list">
           <h3>Suggestions ({inline.length})</h3>
@@ -306,32 +376,46 @@ export function SidePanel({
             <section className="side__section">
               <h3>History ({history.length})</h3>
               <ul className="history">
-                {history.map((entry) => (
-                  <li key={entry.path}>
-                    <button
-                      type="button"
-                      className={`history__item ${entry.path === activeReviewPath ? 'history__item--active' : ''}`}
-                      onClick={() => onOpenHistory(entry)}
-                      title={entry.path}
-                    >
-                      <span className="history__when">{shortTime(entry.createdAt)}</span>
-                      {/* A model-written review names its provider and model; a
-                      manual or file review keeps its kind (Phase 5c). */}
-                      <span className="badge" title={entry.model ?? ''}>
-                        {entry.provider ? PROVIDER_NAMES[entry.provider] : entry.generatorKind}
-                      </span>
-                      {entry.model ? <span className="history__model">{entry.model}</span> : null}
-                      {entry.pendingCount > 0 ? (
-                        <span className="badge badge--pending">{entry.pendingCount}</span>
-                      ) : null}
-                    </button>
-                  </li>
-                ))}
+                {history.map((entry) => {
+                  /* The review on screen counts from the page, as the
+                     chapter list and the status bar do (apply.5). */
+                  const counts = historyCounts(entry, activeReviewPath, review);
+                  return (
+                    <li key={entry.path}>
+                      <button
+                        type="button"
+                        className={`history__item ${counts.onScreen ? 'history__item--active' : ''}`}
+                        onClick={() => onOpenHistory(entry)}
+                        title={entry.path}
+                      >
+                        <span className="history__when">{historyWhen(entry.createdAt)}</span>
+                        {/* A model-written review names its provider and model; a
+                        manual or file review keeps its kind (Phase 5c). */}
+                        <span className="badge" title={entry.model ?? ''}>
+                          {entry.provider ? PROVIDER_NAMES[entry.provider] : entry.generatorKind}
+                        </span>
+                        {entry.model ? <span className="history__model">{entry.model}</span> : null}
+                        {counts.pendingCount > 0 ? (
+                          <span className="badge badge--pending">{counts.pendingCount}</span>
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           ) : null}
         </div>
       </div>
+      {/* Pinned below both regions, so it is in view however far either has
+          scrolled (apply.11). */}
+      {onShowBackups ? (
+        <div className="side__foot">
+          <button type="button" title={SHOW_BACKUPS_TITLE} onClick={onShowBackups}>
+            {SHOW_BACKUPS}
+          </button>
+        </div>
+      ) : null}
     </aside>
   );
 }

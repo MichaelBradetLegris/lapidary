@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   activeHunks,
+  changesBase,
   commitDecisions,
   composeForFile,
   composeReview,
   composeText,
+  decidedText,
   decisionCounts,
   desiredSide,
-  findOverlaps
+  findOverlaps,
+  unsavedDecisionCount
 } from '../../src/shared/diff/compose';
 import type { Hunk, Review } from '../../src/shared/types';
 
@@ -92,6 +95,23 @@ describe('composeText', () => {
     const hunks = [{ ...began, status: 'accepted' as const }];
     expect(composeText(BASE, hunks)).toBe(composeText(BASE, [...hunks].reverse()));
   });
+
+  it('copies the base for a hunk whose two sides are the same, whatever its decision', () => {
+    // What a rewrite to the file's own words leaves (editSuggestion, apply.22).
+    const same = hunk({ id: 's', start: 14, end: 19, replacement: 'began' });
+    for (const status of ['pending', 'accepted', 'dismissed'] as const) {
+      for (const baseSide of ['original', 'replacement'] as const) {
+        const h = { ...same, status, baseSide };
+        expect(composeText(BASE, [h])).toBe(BASE);
+        expect(decidedText(BASE, h)).toBe('began');
+        expect(changesBase(h)).toBe(false);
+        expect(unsavedDecisionCount([h])).toBe(0);
+      }
+    }
+    // Even after the base drifted away from both sides, the base is what shows.
+    const drifted = { ...same, original: 'begun', replacement: 'begun', status: 'accepted' as const };
+    expect(composeText(BASE, [drifted])).toBe(BASE);
+  });
 });
 
 describe('overlap detection', () => {
@@ -138,6 +158,31 @@ describe('commitDecisions', () => {
   it('leaves stale hunks alone', () => {
     const stale = hunk({ id: 's', start: 0, end: 0, anchor: 'stale', original: 'x', replacement: 'y' });
     expect(commitDecisions(BASE, [stale]).hunks[0]).toEqual(stale);
+  });
+
+  it('keeps the base words for a hunk whose two sides are the same', () => {
+    const same = hunk({ id: 's', start: 14, end: 19, replacement: 'began', status: 'accepted' });
+    const later = hunk({ id: 'l', start: 23, end: 28, replacement: 'scale', status: 'accepted' });
+    const committed = commitDecisions(BASE, [same, later]);
+    expect(committed.text).toBe('The river had began to scale the steps.');
+    expect(committed.hunks.find((h) => h.id === 's')).toMatchObject({
+      start: 14,
+      end: 19,
+      baseSide: 'replacement'
+    });
+    expect(unsavedDecisionCount(committed.hunks)).toBe(0);
+  });
+});
+
+describe('unsavedDecisionCount', () => {
+  it('counts a decision the base does not hold yet, on either side', () => {
+    expect(unsavedDecisionCount([began])).toBe(0);
+    expect(unsavedDecisionCount([{ ...began, status: 'accepted' }])).toBe(1);
+    const applied = { ...began, baseSide: 'replacement' as const, status: 'accepted' as const };
+    expect(unsavedDecisionCount([applied])).toBe(0);
+    expect(unsavedDecisionCount([{ ...applied, status: 'pending' }])).toBe(1);
+    expect(unsavedDecisionCount([{ ...applied, status: 'dismissed' }])).toBe(1);
+    expect(unsavedDecisionCount([{ ...applied, status: 'pending', anchor: 'stale' }])).toBe(0);
   });
 });
 

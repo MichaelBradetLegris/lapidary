@@ -443,7 +443,9 @@ const LIGHT_VALUES: Record<string, string> = {
   '--hover-overlay': 'rgb(0 0 0 / 8%)',
   '--tint-pending': '9%',
   '--tint-hover': '18%',
-  '--tint-decided-hover': '16%'
+  '--tint-decided-hover': '16%',
+  // Added by apply.4: the unsaved dot and count, in ember (it was the --accent blue dot).
+  '--unsaved': '#ad4b0d'
 };
 
 /**
@@ -470,6 +472,8 @@ const DARK_VALUES: Record<string, string> = {
   '--dismiss': '#968e82',
   '--danger': '#ff8a80',
   '--warn': '#e0b955',
+  // apply.4: the ember of the logo's original palette (11.3 o).
+  '--unsaved': '#ff8a3d',
   '--focus-bg': '#4a3f14',
   '--para-active-bg': '#2f2a1a',
   '--para-flash-bg': '#3d3415',

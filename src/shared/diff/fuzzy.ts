@@ -68,7 +68,8 @@ export function occurrences(haystack: string, needle: string): number[] {
 
 const WORD_CHAR = /[\p{L}\p{N}_'’]/u;
 
-function isWordChar(ch: string | undefined): boolean {
+/** A letter, a digit, an underscore or an apostrophe: what a word is made of here. */
+export function isWordChar(ch: string | undefined): boolean {
   return ch !== undefined && WORD_CHAR.test(ch);
 }
 
@@ -82,6 +83,15 @@ export function isCleanMatch(haystack: string, start: number, needle: string): b
   if (isWordChar(needle[0]) && isWordChar(haystack[start - 1])) return false;
   if (isWordChar(needle[needle.length - 1]) && isWordChar(haystack[start + needle.length])) return false;
   return true;
+}
+
+/**
+ * True when a zero-width place falls between two word characters, inside a
+ * word. A deletion or an insertion always starts and ends on a word boundary
+ * (`trimCommonAffixes`), so a place inside a word is never where one was.
+ */
+export function insideWord(haystack: string, at: number): boolean {
+  return isWordChar(haystack[at - 1]) && isWordChar(haystack[at]);
 }
 
 /**
