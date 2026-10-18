@@ -1,12 +1,14 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { arrowsScrollBox, type KeyTarget } from '../../src/shared/ui/scroll';
 
 /* ui.5: the focused suggestion is a box of fixed height at the top of the side
    panel, directly under the review selector and above the list, so the list and
    the comments below it never move as the focus does. Its Edit is the pencil on
-   its heading line. These are source checks, as the tests run without a DOM or
-   Electron; the window checks (both themes, a one-line and a five-line
+   its heading line. Apart from the arrow rule in src/shared, which is called,
+   these are source checks, as the tests run without a DOM or Electron; the
+   window checks (both themes, a one-line and a five-line
    explanation, Tab, the comments region's height as the focus moves) are in
    PLAN (ui.5). */
 
@@ -29,25 +31,70 @@ const SHORT = /@media \(height < \d+px\) \{([\s\S]*?)\n\}/.exec(CSS);
 const SHORT_BLOCK = SHORT?.[1] ?? '';
 const BASE = SHORT ? CSS.replace(SHORT[0], '') : CSS;
 
-/** Every declaration made for exactly this selector. */
-function declsFor(selector: string, css = BASE): Map<string, string> {
-  const out = new Map<string, string>();
+/** Every declaration made for exactly this selector, in source order. */
+function declListFor(selector: string, css = BASE): [string, string][] {
+  const out: [string, string][] = [];
   for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const selectors = (match[1] ?? '').split(',').map((s) => s.trim());
     if (!selectors.includes(selector)) continue;
     for (const decl of (match[2] ?? '').split(';')) {
       const colon = decl.indexOf(':');
-      if (colon > 0) out.set(decl.slice(0, colon).trim(), decl.slice(colon + 1).trim());
+      if (colon > 0) out.push([decl.slice(0, colon).trim(), decl.slice(colon + 1).trim()]);
     }
   }
   return out;
 }
+
+/** The same, the last one of each property winning. */
+const declsFor = (selector: string, css = BASE): Map<string, string> => new Map(declListFor(selector, css));
 
 const px = (value: string | undefined): number => {
   const n = Number.parseFloat(value ?? '');
   if (!Number.isFinite(n)) throw new Error(`not a length: ${value}`);
   return n;
 };
+
+/** A border's width: `none`, `0` or a shorthand that starts with a length. */
+const borderWidth = (value: string): number => (/^(none|0)\b/.test(value) ? 0 : px(value.split(/\s+/)[0]));
+
+/**
+ * The top and bottom of an element's margin, padding or border, from the
+ * rules that match it, given from the least specific to the most, so a later
+ * one wins: shorthands and the -top and -bottom longhands alike. A property
+ * no rule sets is 0, so a box rule must set the margin of an element the
+ * browser gives one (`dl`, `p`); the test below checks that it does.
+ */
+function sides(selectors: string[], prop: 'margin' | 'padding' | 'border'): [number, number] {
+  const width = prop === 'border' ? borderWidth : px;
+  let top = 0;
+  let bottom = 0;
+  for (const selector of selectors) {
+    for (const [name, value] of declListFor(selector)) {
+      const parts = value.split(/\s+/);
+      const first = parts[0] ?? '';
+      if (name === prop) {
+        if (prop === 'border') top = bottom = width(value);
+        else {
+          top = width(first);
+          bottom = width(parts[2] ?? first);
+        }
+      } else if (name === `${prop}-top` || name === `${prop}-block-start`) top = width(value);
+      else if (name === `${prop}-bottom` || name === `${prop}-block-end`) bottom = width(value);
+      else if (name === `${prop}-block`) {
+        top = width(first);
+        bottom = width(parts[1] ?? first);
+      }
+    }
+  }
+  return [top, bottom];
+}
+
+/** What an element adds to a line height above and below it: its margin, padding and border. */
+function around(selectors: string[]): { margin: [number, number]; inside: number } {
+  const [padTop, padBottom] = sides(selectors, 'padding');
+  const [borderTop, borderBottom] = sides(selectors, 'border');
+  return { margin: sides(selectors, 'margin'), inside: padTop + padBottom + borderTop + borderBottom };
+}
 
 /** A `calc()` of sums and products of px lengths and custom properties. */
 function evalCalc(expr: string, vars: Map<string, string>): number {
@@ -125,6 +172,47 @@ describe('Edit as an icon button on the heading line (ui.5)', () => {
   });
 });
 
+/* ui.5 review: a box with more text than it shows is a Tab stop of its own
+   between the pencil and the list, as Chromium makes a scroller with nothing
+   focusable in it one. There the arrows moved the focus to the next
+   suggestion, which also sent the box back to its top, so a keyboard user who
+   tabbed in to read the explanation could scroll it only with Space. */
+describe('the box as a Tab stop (ui.5 review)', () => {
+  const element = (className: string, scrollHeight: number, clientHeight: number): KeyTarget => ({
+    classList: { contains: (name: string) => name === className },
+    scrollHeight,
+    clientHeight
+  });
+  const overflowing = element('side__focus-body', 172, 100);
+
+  it('leaves the arrows to the box while it has the focus and more text than it shows', () => {
+    expect(arrowsScrollBox('ArrowDown', overflowing)).toBe(true);
+    expect(arrowsScrollBox('ArrowUp', overflowing)).toBe(true);
+    // j and k, and every other review key, still act from the box.
+    for (const key of ['j', 'k', 'a', 'u', 'd', 'e', 'n'])
+      expect(arrowsScrollBox(key, overflowing), key).toBe(false);
+    // A box that shows its whole text is no scroller and no Tab stop: the arrows step.
+    expect(arrowsScrollBox('ArrowDown', element('side__focus-body', 100, 100))).toBe(false);
+    // Any other scroller, and an element that is none, keep them as review keys.
+    expect(arrowsScrollBox('ArrowDown', element('side__lower', 400, 100))).toBe(false);
+    expect(arrowsScrollBox('ArrowUp', null)).toBe(false);
+  });
+
+  it('is asked before the review keys act, with the key and the element it went to', () => {
+    const guard = KEYBOARD.indexOf(
+      'if (arrowsScrollBox(event.key, event.target instanceof HTMLElement ? event.target : null)) return;'
+    );
+    expect(guard).toBeGreaterThan(KEYBOARD.indexOf('if (!review) return;'));
+    expect(guard).toBeLessThan(KEYBOARD.indexOf('switch (event.key) {'));
+    expect(KEYBOARD).toMatch(/case 'j':\s*case 'ArrowDown':\s*state\.moveFocus\(1\);/);
+    expect(KEYBOARD).toMatch(/case 'k':\s*case 'ArrowUp':\s*state\.moveFocus\(-1\);/);
+    // The box takes no tabindex of its own: it is a Tab stop only while it scrolls.
+    const body = SIDE_PANEL.slice(at('className="side__focus-body"'), at('className="side__regions"'));
+    expect(body).not.toMatch(/tabIndex/);
+    expect(SIDE_PANEL).toContain('<div className="side__focus-body" ref={focusBodyRef}>');
+  });
+});
+
 describe('the fixed height (ui.5)', () => {
   const box = declsFor('.side__focus');
   const vars = new Map([...box].filter(([name]) => name.startsWith('--')));
@@ -156,19 +244,61 @@ describe('the fixed height (ui.5)', () => {
     expect(px(declsFor('.row__act').get('padding')) * 2 + 12).toBe(px(vars.get('--focus-head')));
   });
 
+  /* Every rule that adds height in the box counts, wherever it is declared:
+     the base rules (`.pair dt` has 2 px of padding on top, which the box
+     takes off) and the box's own, around the lines and between them (ui.5
+     review: the body's padding and that padding were left out, and a box 4 px
+     short of its text passed). */
   it('is exactly the heading line, the category, Original and Suggested, two lines of explanation and what lies between', () => {
-    const [padTop, , padBottom = padTop] = (box.get('padding') ?? '').split(/\s+/);
-    const border = px(box.get('border-bottom'));
-    const headGap = px(declsFor('.side__focus-head').get('margin-bottom'));
-    const pairTop = px(declsFor('.side__focus-body .pair').get('margin'));
-    const pairRowGap = px(declsFor('.pair').get('gap'));
-    const reasonTop = px(declsFor('.side__focus-body .detail__reason').get('margin'));
     const line = (name: string): number => px(vars.get(name));
-    const lines =
-      line('--focus-head') + line('--focus-cat') + 2 * line('--focus-pair') + 2 * line('--focus-reason');
-    const between = px(padTop) + headGap + pairTop + pairRowGap + reasonTop + px(padBottom) + border;
-    expect(evalCalc(box.get('height') ?? '', vars)).toBe(lines + between);
-    expect(lines + between).toBe(139);
+    const inBox = (base: string): string[] => [base, `.side__focus-body ${base}`];
+    // Margins between blocks collapse to the larger; the body is a scroller,
+    // so the first and last margins stay inside it.
+    const collapse = (bottom: number, top: number): number => Math.max(bottom, top);
+
+    // The browser gives a `dl` and a `p` margins of their own.
+    expect(declsFor('.side__focus-body .pair').has('margin')).toBe(true);
+    expect(declsFor('.side__focus-body .detail__reason').has('margin')).toBe(true);
+
+    const frame = around(['.side__focus']);
+    const head = around(['.side__focus-head']);
+    const body = around(['.side__focus-body']);
+    const cat = around(inBox('.detail__cat'));
+    const pair = around(inBox('.pair'));
+    const reason = around(inBox('.detail__reason'));
+    // A row of the pair is as tall as the taller of its dt and its dd.
+    const cell = (part: 'dt' | 'dd'): number => {
+      const { margin, inside } = around(inBox(`.pair ${part}`));
+      return margin[0] + inside + line('--focus-pair') + margin[1];
+    };
+    const row = Math.max(cell('dt'), cell('dd'));
+    const gaps = [...declListFor('.pair'), ...declListFor('.side__focus-body .pair')]
+      .filter(([name]) => name === 'gap' || name === 'row-gap')
+      .map(([, value]) => px(value.split(/\s+/)[0]));
+    const rowGap = gaps[gaps.length - 1] ?? 0;
+
+    const headLine = head.margin[0] + line('--focus-head') + head.margin[1];
+    const bodyText =
+      body.inside +
+      cat.margin[0] +
+      cat.inside +
+      line('--focus-cat') +
+      collapse(cat.margin[1], pair.margin[0]) +
+      pair.inside +
+      2 * row +
+      rowGap +
+      collapse(pair.margin[1], reason.margin[0]) +
+      reason.inside +
+      2 * line('--focus-reason') +
+      reason.margin[1];
+    const whole = frame.inside + headLine + bodyText;
+
+    expect(evalCalc(box.get('height') ?? '', vars)).toBe(whole);
+    expect(whole).toBe(139);
+    // The pieces the sum above relies on, spelt out.
+    expect(declsFor('.side__focus-body .pair dt').get('padding-top')).toBe('0');
+    expect(body.inside).toBe(0);
+    expect(cat).toEqual({ margin: [0, 0], inside: 0 });
   });
 });
 

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { sortComments } from '../../shared/ui/comments';
 import { saveShortcutAction } from '../../shared/ui/save';
+import { arrowsScrollBox } from '../../shared/ui/scroll';
 import { closeDrawer, inOpenDrawer, popupTakesEscape, useDrawer } from './columns';
 import { editHunk } from './edit';
 import { saveHintGivesWay } from './hints';
@@ -110,6 +111,11 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
       const review = state.review;
       if (!review) return;
       const focused = state.focusedHunkId;
+
+      /* The arrows scroll the focused suggestion's box when Tab has put the
+         focus in it and it has more to show; j and k still step (ui.5
+         review). The browser does the scrolling. */
+      if (arrowsScrollBox(event.key, event.target instanceof HTMLElement ? event.target : null)) return;
 
       switch (event.key) {
         case 'j':

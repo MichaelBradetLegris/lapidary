@@ -104,3 +104,30 @@ export function retarget(args: Parameters<typeof scrollTarget>[0] & { landing: n
 export function whollyInView(viewHeight: number, boxTop: number, boxHeight: number): boolean {
   return boxTop >= -1 && boxTop + boxHeight <= viewHeight + 1;
 }
+
+/** What the key handler reads of the element a key went to: a DOM element in the app. */
+export interface KeyTarget {
+  classList: { contains(token: string): boolean };
+  scrollHeight: number;
+  clientHeight: number;
+}
+
+/**
+ * Whether ArrowDown or ArrowUp is left to the browser, to scroll the focused
+ * suggestion's box (ui.5 review), rather than taken as a review key. A box
+ * with more text than it shows is a Tab stop of its own between its pencil
+ * and the list, as Chromium makes every scroller with nothing focusable in it,
+ * so a keyboard user reaches it to read the rest; there the arrows scroll it,
+ * as in any scroller, where they had moved the focus to the next suggestion
+ * and sent the box back to its top. j and k still step from it. A click in the
+ * box does not focus it, and a box that shows its whole text is no scroller,
+ * so the arrows step through the list from everywhere else.
+ */
+export function arrowsScrollBox(key: string, target: KeyTarget | null): boolean {
+  return (
+    (key === 'ArrowDown' || key === 'ArrowUp') &&
+    target !== null &&
+    target.classList.contains('side__focus-body') &&
+    target.scrollHeight > target.clientHeight
+  );
+}
