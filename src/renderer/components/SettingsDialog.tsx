@@ -24,11 +24,11 @@ interface Props {
 
 /**
  * Settings, a modal like the others (ui.1): Escape closes it, as Done does,
- * unless a question is open over it or the key is pressed in the suggestion
- * editor (`useDialogEscape`), and the page's keys do nothing behind it
- * (`reviewKeysActive`, `isModalOpen`). The focus goes into its box as it
- * opens, so Tab starts inside it and the arrow keys scroll it, and back where
- * it was, the Settings button as a rule, when it closes.
+ * unless a question is open over it (`useDialogEscape`), and the page's keys
+ * do nothing behind it (`reviewKeysActive`, `isModalOpen`), nor does the
+ * suggestion editor, which waits under it, inert (EditPopover). The focus goes
+ * into its box as it opens, so Tab starts inside it and the arrow keys scroll
+ * it, and back where it was, the Settings button as a rule, when it closes.
  */
 export function SettingsDialog({
   settings,

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   dialogTakesEscape,
   focusReturnTarget,
+  inOtherDialog,
   SETTINGS_BUTTON_SELECTOR,
+  type DialogOwner,
   type Focusable
 } from '../../src/shared/ui/dialog';
 
@@ -33,12 +35,39 @@ describe('dialogTakesEscape (ui.1)', () => {
     expect(dialogTakesEscape({ ...escape, defaultPrevented: true }, false, false)).toBe(false);
   });
 
-  it('leaves Escape pressed in another dialog, the suggestion editor, to that dialog', () => {
+  it('leaves Escape pressed in another dialog, such as a question over it, to that dialog', () => {
     expect(dialogTakesEscape(escape, false, true)).toBe(false);
   });
 
   it('lets Escape end an IME composition without closing the dialog', () => {
     expect(dialogTakesEscape({ ...escape, isComposing: true }, false, false)).toBe(false);
+  });
+});
+
+describe('inOtherDialog (ui.1 review)', () => {
+  // A dialog element as the rule sees it: what it holds, by identity.
+  const dialog = (...holds: object[]): DialogOwner => ({
+    contains: (node) => holds.includes(node as object)
+  });
+  const box = { name: 'Settings box' };
+
+  it('counts a key pressed outside every dialog as no other dialog', () => {
+    expect(inOtherDialog(null, box)).toBe(false);
+  });
+
+  it('counts a key pressed in the dialog itself, whose backdrop holds its box, as its own', () => {
+    expect(inOtherDialog(dialog(box), box)).toBe(false);
+  });
+
+  it('counts a key pressed in a dialog that does not hold the box, such as a question over it, as another', () => {
+    expect(inOtherDialog(dialog({ name: 'question box' }), box)).toBe(true);
+    expect(inOtherDialog(dialog(), box)).toBe(true);
+  });
+
+  it('counts any dialog as another when there is no box to compare', () => {
+    expect(inOtherDialog(dialog(box), null)).toBe(true);
+    expect(inOtherDialog(dialog(box), undefined)).toBe(true);
+    expect(inOtherDialog(null, null)).toBe(false);
   });
 });
 

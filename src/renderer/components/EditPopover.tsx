@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useApp, type EditorRequest } from '../state/store';
+import { isModalOpen, useApp, type EditorRequest } from '../state/store';
 
 interface Props {
   /** how the result is announced, as a notification card */
@@ -15,6 +15,12 @@ const MARGIN = 10;
  * It is a floating panel rather than a modal because the author is editing words
  * they can still see, and it places itself beside them without covering the
  * line. Prose itself is edited a paragraph at a time, in place (Phase 5d).
+ *
+ * A dialog opened while it is open covers it: every dialog's backdrop is drawn
+ * above it (`.modal-backdrop` over `.editor` in app.css), and it is inert until
+ * the dialog closes, so it can be neither clicked nor typed in, nor saved with
+ * Ctrl+Enter, behind Settings, Review with AI, New chapter or Submit manual
+ * review. It keeps its words for when the dialog closes (ui.1 review).
  *
  * Saving never writes anything to the chapter. It changes a hunk, which is what
  * keeps an edit reversible and re-anchorable (CLAUDE.md rules 1 and 5).
@@ -33,6 +39,7 @@ function EditorPanel({ request, onSaved }: Props & { request: EditorRequest }): 
   const close = useApp((s) => s.closeEditor);
   const editHunkText = useApp((s) => s.editHunkText);
   const setDialogText = useApp((s) => s.setDialogText);
+  const covered = useApp(isModalOpen);
 
   const [text, setText] = useState(request.initial);
 
@@ -87,6 +94,7 @@ function EditorPanel({ request, onSaved }: Props & { request: EditorRequest }): 
       role="dialog"
       aria-label="Edit this suggestion"
       style={{ width: WIDTH }}
+      inert={covered}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
           event.stopPropagation();

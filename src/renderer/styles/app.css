@@ -330,8 +330,8 @@ input[type='text'] {
    SaveHint.tsx sets `left`, `width` and the arrow's place from
    `saveHintPlacement`, and it stays hidden until then, like the hover card.
    Under the notification cards (12), so a card wins should the two ever meet,
-   above the page's unpositioned content, and under every dialog's backdrop
-   (20), the menus (30) and the hover card (40). */
+   above the page's unpositioned content, and under the menus (30), every
+   dialog's backdrop (39) and the hover card (40). */
 .save-hint {
   position: absolute;
   top: calc(100% + 9px);
@@ -1302,6 +1302,11 @@ input[type='text'] {
 
 /* ---------- dialogs ---------- */
 
+/* Every dialog covers the whole window: the page, the find bar, the legend and
+   the menus (30), and the suggestion editor (.editor, 38), which is inert under
+   it (EditPopover); drawn at 20, below the editor, the editor floated over
+   Settings and the other dialogs and could still be saved behind them (ui.1
+   review). Only the hover card (.tip, 40) and a question (45) are above it. */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1310,7 +1315,7 @@ input[type='text'] {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  z-index: 20;
+  z-index: 39;
 }
 
 /* The confirm dialog is asked from inside other dialogs and with the suggestion
@@ -2005,7 +2010,9 @@ input[type='text'] {
 }
 
 /* The editor popover. Floating rather than modal, because the author is editing
-   words that are still on the page behind it. */
+   words that are still on the page behind it. Above the page and its menus,
+   under every dialog's backdrop (39), so a dialog opened while it is open
+   covers it (ui.1 review). */
 .editor {
   position: fixed;
   left: 0;

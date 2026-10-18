@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
-import { dialogTakesEscape, focusReturnTarget } from '../../shared/ui/dialog';
+import { dialogTakesEscape, focusReturnTarget, inOtherDialog } from '../../shared/ui/dialog';
 import { useApp } from './store';
 
 /**
@@ -9,19 +9,20 @@ import { useApp } from './store';
  * a dialog (`reviewKeysActive`, `isModalOpen`).
  */
 
-/** Whether the key was pressed inside a `role="dialog"` other than the one holding `box`. */
+/** Whether the key was pressed inside a `role="dialog"` other than the one holding `box` (`inOtherDialog`). */
 function pressedInOtherDialog(event: KeyboardEvent, box: HTMLElement | null): boolean {
   const owner = event.target instanceof Element ? event.target.closest('[role="dialog"]') : null;
-  return owner !== null && !(box !== null && owner.contains(box));
+  return inOtherDialog(owner, box);
 }
 
 /**
  * Escape closes the dialog whose `.modal` box is `box`, wherever the focus is
- * but in another dialog (`dialogTakesEscape`). The listener is on the window
- * in the capture phase and stops the key there, so the find bar and the
- * suggestion editor behind the dialog never see it (keyboard.ts). It is added
- * once, when the dialog opens, and calls the latest `onClose`, so a re-render
- * cannot move it after a question's listener.
+ * but in another dialog, such as a question over it (`dialogTakesEscape`).
+ * The listener is on the window in the capture phase and stops the key there,
+ * so the find bar behind the dialog never sees it (keyboard.ts); the
+ * suggestion editor, if open, is under the dialog and inert (EditPopover). It
+ * is added once, when the dialog opens, and calls the latest `onClose`, so a
+ * re-render cannot move it after a question's listener.
  */
 export function useDialogEscape(box: RefObject<HTMLElement | null>, onClose: () => void): void {
   const close = useRef(onClose);

@@ -17,14 +17,33 @@ export interface DialogKey {
 /**
  * Whether a key closes the dialog: Escape, unless a question is open over it,
  * which takes Escape for itself, or has already answered it when its listener
- * ran first (`defaultPrevented`); unless it was pressed in another dialog,
- * such as the suggestion editor, which floats above every dialog but a
- * question and closes on its own Escape; or unless it ends an IME composition.
+ * ran first (`defaultPrevented`); unless it was pressed in another dialog
+ * (`inOtherDialog`), which is that dialog's to answer; or unless it ends an
+ * IME composition. The suggestion editor is no longer such a dialog: it sits
+ * under every dialog and is inert while one is open (ui.1 review), so no key
+ * reaches it then.
  */
 export function dialogTakesEscape(event: DialogKey, questionOpen: boolean, inOtherDialog: boolean): boolean {
   return (
     event.key === 'Escape' && !event.isComposing && !event.defaultPrevented && !questionOpen && !inOtherDialog
   );
+}
+
+/** The `role="dialog"` element a key was pressed in, as the rule reads it; an `Element` in the page. */
+export interface DialogOwner {
+  contains(node: unknown): boolean;
+}
+
+/**
+ * Whether a key was pressed in a dialog other than the one whose box is `box`:
+ * `owner` is the nearest `role="dialog"` around where it was pressed, or null
+ * when it was pressed outside every dialog. A dialog's own backdrop holds its
+ * box, so a key pressed anywhere in the dialog is its own; one pressed in
+ * another dialog, such as a question asked over it, is not. With no box to
+ * compare, any dialog is another.
+ */
+export function inOtherDialog(owner: DialogOwner | null, box: unknown): boolean {
+  return owner !== null && !(box !== null && box !== undefined && owner.contains(box));
 }
 
 /** What the focus can be handed back to; an `HTMLElement` in the page. */
