@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { sortComments } from '../../shared/ui/comments';
 import { saveShortcutAction } from '../../shared/ui/save';
 import { arrowsScrollBox } from '../../shared/ui/scroll';
+import { splitTakesKey } from '../../shared/ui/split';
 import { closeDrawer, inOpenDrawer, popupTakesEscape, useDrawer } from './columns';
 import { editHunk } from './edit';
 import { saveHintGivesWay } from './hints';
@@ -116,6 +117,9 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
          focus in it and it has more to show; j and k still step (ui.5
          review). The browser does the scrolling. */
       if (arrowsScrollBox(event.key, event.target instanceof HTMLElement ? event.target : null)) return;
+      /* The arrows move the side panel's split when its handle has the focus
+         (ui.6); the handle has already moved. */
+      if (splitTakesKey(event.key, event.target instanceof HTMLElement ? event.target : null)) return;
 
       switch (event.key) {
         case 'j':

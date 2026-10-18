@@ -44,6 +44,14 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings({ updateDownloadConsent: '' }).updateDownloadConsent).toBeNull();
   });
 
+  it('keeps the side panel split as a share, and the usual split as null (ui.6)', () => {
+    expect(defaultSettings().sideSplit).toBeNull();
+    expect(normalizeSettings({ sideSplit: 0.3125 }).sideSplit).toBe(0.3125);
+    expect(normalizeSettings({ sideSplit: 1.2 }).sideSplit).toBeNull();
+    expect(normalizeSettings({ sideSplit: '0.4' }).sideSplit).toBeNull();
+    expect(normalizeSettings({ sideSplit: null }).sideSplit).toBeNull();
+  });
+
   it('drops unknown keys and never shares the default array', () => {
     const settings = normalizeSettings({ surprise: 1 });
     expect(settings).not.toHaveProperty('surprise');

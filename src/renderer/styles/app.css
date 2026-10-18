@@ -1245,8 +1245,14 @@ input[type='text'] {
   line-height: var(--focus-reason);
 }
 
-/* The list and the region below it share the height the box leaves. */
+/* The list and the region below it share the height the box leaves. With a
+   split set (ui.6), the page gives the share and the limits here, measured;
+   these are the usual split's share and the limits as measured at 100%,
+   until it has. */
 .side__regions {
+  --split: 0.55;
+  --split-min: 103px;
+  --split-gap: 93px;
   flex: 1 1 0;
   min-height: 0;
   display: flex;
@@ -1271,14 +1277,87 @@ input[type='text'] {
   padding: 0 10px;
 }
 
+/* With a split set (ui.6), the list has the share of the height the author
+   gave it, whatever it holds, but never less than its heading and three rows
+   (`--split-min`) and never so much that the region below has less than
+   three rows under the handle (`--split-gap`): the page measures both
+   (`splitRoom` in src/shared/ui/split.ts, whose `splitHeight` is this sum).
+   Should the two limits cross, the least wins. A share, so the line keeps its
+   place as the window, the zoom or the chips change the height. */
+.side__regions[data-split] > .side__list {
+  flex: none;
+  max-height: none;
+  height: clamp(var(--split-min), calc(var(--split) * 100%), calc(100% - var(--split-gap)));
+}
+
+/* The handle between the two regions (ui.6): dragged, or moved with the
+   arrows in 24 px steps and with Home and End to the limits, it gives the
+   list or the region below more room, and a double-click or Enter puts back
+   the usual split. Its line is the one that divided the two regions before,
+   with a grip on it, in a band 7 px tall to aim at. The grip is in the faint
+   text's grey, which has 3:1 on the panel in both themes, so the handle can
+   be found, and darkens under the pointer. The focus ring is drawn inside the
+   band, where neither region covers it. */
+.side__split {
+  position: relative;
+  flex: none;
+  height: 7px;
+  cursor: row-resize;
+  touch-action: none;
+  background: var(--panel);
+}
+
+.side__split::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--border);
+}
+
+.side__split::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: calc(50% - 14px);
+  width: 28px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--ink-faint);
+}
+
+.side__split:hover::before,
+.side__split--dragging::before {
+  background: var(--border-strong);
+}
+
+.side__split:hover::after,
+.side__split--dragging::after {
+  background: var(--ink-soft);
+}
+
+.side__split:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* While the handle is dragged, the pointer keeps its row-resize shape over
+   whatever it crosses, and nothing is selected. */
+:root.splitting,
+:root.splitting * {
+  cursor: row-resize !important;
+  user-select: none;
+}
+
 /* Comments, Unanchored and History: the rest of the height, scrolling on its
-   own. */
+   own. The handle above it is the line between the two. */
 .side__lower {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
   padding: 10px;
-  border-top: 1px solid var(--border);
   background: var(--panel);
 }
 
@@ -1313,6 +1392,21 @@ input[type='text'] {
   .side__list .rows,
   .side__lower {
     overflow: visible;
+  }
+
+  /* No split in the one scroller (ui.6): the handle is hidden, the list runs
+     to its full length whatever the setting, and the line above the region
+     below is its own border again. */
+  .side__split {
+    display: none;
+  }
+
+  .side__regions[data-split] > .side__list {
+    height: auto;
+  }
+
+  .side__lower {
+    border-top: 1px solid var(--border);
   }
 }
 

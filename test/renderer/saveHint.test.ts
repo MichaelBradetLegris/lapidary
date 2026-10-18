@@ -100,7 +100,9 @@ describe('App puts it away for good (apply.12)', () => {
   });
 
   it('and a close waits for that write with the others', () => {
-    expect(APP).toContain('Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites()])');
+    expect(APP).toContain(
+      'Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites(), flushSplitWrites()])'
+    );
   });
 
   it('the empty page says nothing reaches the chapter until Save', () => {

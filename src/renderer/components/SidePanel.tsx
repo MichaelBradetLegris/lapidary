@@ -15,6 +15,7 @@ import { SHOW_BACKUPS, SHOW_BACKUPS_TITLE } from '../../shared/ui/backups';
 import { PROVIDER_NAMES, type Hunk, type Review, type ReviewComment } from '../../shared/types';
 import { editFromComment, editHunk } from '../state/edit';
 import { followFocus, scrollToElement } from '../state/scroll';
+import { SPLIT_LIST_ID, useSplit } from '../state/splitHandle';
 import { inDraft, isLocked, useApp } from '../state/store';
 import { IconCheck, IconPencil, IconUndo, IconWarning, IconX } from './icons';
 
@@ -53,6 +54,7 @@ export function SidePanel({
   const locked = useApp(isLocked);
   const listRef = useRef<HTMLUListElement>(null);
   const focusBodyRef = useRef<HTMLDivElement>(null);
+  const { regionsRef, regionsProps, handleProps } = useSplit();
 
   const { inline, stale } = useMemo(
     () => groupSuggestions(review.hunks, hiddenCategories),
@@ -114,10 +116,11 @@ export function SidePanel({
   /* Under the review selector, the focused suggestion in a box of fixed
      height (ui.5), then two regions that each scroll, and a panel that does
      not (panel.1): the list with its heading pinned, and below it the
-     comments, Unanchored and History. The box stays in view while j and k
+     comments, Unanchored and History, with a handle between the two that
+     moves the line between them (ui.6). The box stays in view while j and k
      step through the list, and as its height never changes, nothing below it
      moves when the focus does. In a short window the panel scrolls as one
-     instead, the box at its top (app.css). */
+     instead, the box at its top, and the handle is hidden (app.css). */
   return (
     <aside className={`side ${locked ? 'side--locked' : ''}`} inert={locked}>
       {/* The chapter's reviews, the one on screen selected, at the very top
@@ -211,8 +214,8 @@ export function SidePanel({
             )}
           </div>
         </section>
-        <div className="side__regions">
-          <section className="side__section side__list">
+        <div className="side__regions" ref={regionsRef} {...regionsProps}>
+          <section className="side__section side__list" id={SPLIT_LIST_ID}>
             <h3>Suggestions ({inline.length})</h3>
             {inline.length === 0 ? (
               <p className="side__empty">Nothing to review here.</p>
@@ -295,6 +298,11 @@ export function SidePanel({
               </ul>
             )}
           </section>
+
+          {/* Dragged, or moved with the arrows, Home and End, to give the list
+              or the region below more room; double-click or Enter puts back
+              the usual split. The split is kept in settings (ui.6). */}
+          <div {...handleProps} />
 
           <div className="side__lower">
             <section className="side__section">

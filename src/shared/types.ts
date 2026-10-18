@@ -222,6 +222,12 @@ export interface Settings {
   checkForUpdates: boolean;
   /** the version the author agreed to download, so a restart resumes it without asking again */
   updateDownloadConsent: string | null;
+  /**
+   * The side panel's split (ui.6): the suggestions list's share of the height
+   * it, the handle and the region below share, strictly between 0 and 1; null
+   * is the usual split (shared/ui/split.ts)
+   */
+  sideSplit: number | null;
 }
 
 /**
@@ -242,7 +248,8 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   onboardingDone: false,
   dismissedHints: Object.freeze([]) as unknown as string[],
   checkForUpdates: true,
-  updateDownloadConsent: null
+  updateDownloadConsent: null,
+  sideSplit: null
 });
 
 /** The model setting that belongs to a provider. */

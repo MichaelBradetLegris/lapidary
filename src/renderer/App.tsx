@@ -46,6 +46,7 @@ import {
 } from './state/drafts';
 import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
 import { dismissHint, flushHintWrites, type HintIo } from './state/hints';
+import { flushSplitWrites } from './state/split';
 import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { useKeyboardBindings } from './state/keyboard';
 import { useProgressLabel } from './state/progress';
@@ -99,12 +100,14 @@ const HINT_IO: HintIo = {
 /**
  * The review and paragraph writers, which a close and the end of a session
  * write out (apply.9), and a hint put away just before, such as the Save hint
- * that Save and close puts away (apply.12). A hint that cannot be written is
- * not reported: it only shows again at the next start.
+ * that Save and close puts away (apply.12), and the side panel's split moved
+ * just before (ui.6). A hint or a split that cannot be written is not
+ * reported: the hint shows again at the next start, which has the split last
+ * written.
  */
 const PAGE_WRITES: PageWrites = {
   flush: async () => {
-    await Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites()]);
+    await Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites(), flushSplitWrites()]);
   },
   retry: () => {
     retryReviewWrites();

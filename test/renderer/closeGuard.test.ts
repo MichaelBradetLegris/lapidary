@@ -819,9 +819,10 @@ describe('the wiring (apply.9)', () => {
     expect(app).toContain("call('app:close-decision', { close })");
     expect(app).toContain("onMain('app:close-requested'");
     expect(app).toContain("onMain('app:flush'");
-    // apply.12 adds the hint writes, so a hint Save and close puts away is on disk first.
+    // apply.12 adds the hint writes, so a hint Save and close puts away is on disk first,
+    // and ui.6 the split's, so a split moved just before a close is kept.
     expect(app).toMatch(
-      /Promise\.all\(\[flushReviewWrites\(\), flushDraftWrites\(\), flushHintWrites\(\)\]\)/
+      /Promise\.all\(\[flushReviewWrites\(\), flushDraftWrites\(\), flushHintWrites\(\), flushSplitWrites\(\)\]\)/
     );
     expect(app).toContain('retryReviewWrites();');
     expect(app).toContain('retryDraftWrites();');
