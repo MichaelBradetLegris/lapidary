@@ -74,7 +74,8 @@ describe('confirm dialog layer (apply.6 review)', () => {
   });
 
   it('leaves Escape to a question asked over Review with AI', () => {
-    expect(REVIEW_DIALOG).toMatch(/event\.key === 'Escape' && !useApp\.getState\(\)\.confirmSpec/);
+    // `useDialogEscape` refuses Escape while a question is open (dialog.test.ts, ui.1).
+    expect(REVIEW_DIALOG).toContain('useDialogEscape(boxRef, onClose);');
   });
 });
 

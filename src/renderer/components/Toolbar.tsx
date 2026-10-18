@@ -193,7 +193,8 @@ export function Toolbar({
         Copy result
       </button>
 
-      <button type="button" onClick={onSettings}>
+      {/* Where the focus goes when Settings closes (SETTINGS_BUTTON_SELECTOR, ui.1). */}
+      <button type="button" data-opens="settings" onClick={onSettings}>
         Settings
       </button>
 

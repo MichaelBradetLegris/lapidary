@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { openAiKeyLine } from '../../shared/ai/openai';
 import type { EffectivePaths, ModelInfo, OpenAiKeyStatus, RuntimeStatus } from '../../shared/ipc';
 import { EFFORT_LEVELS, type EffortLevel, type Settings } from '../../shared/types';
 import { BACKUPS_NOTE } from '../../shared/ui/backups';
+import { SETTINGS_BUTTON_SELECTOR } from '../../shared/ui/dialog';
 import { normalizeTheme, THEME_LABELS, THEMES } from '../../shared/ui/theme';
 import { call, errorMessage } from '../state/client';
+import { useDialogEscape, useDialogFocus } from '../state/dialog';
 import { modelOptions } from '../state/models';
 
 interface Props {
@@ -20,6 +22,14 @@ interface Props {
   onOpenSetup: () => void;
 }
 
+/**
+ * Settings, a modal like the others (ui.1): Escape closes it, as Done does,
+ * unless a question is open over it or the key is pressed in the suggestion
+ * editor (`useDialogEscape`), and the page's keys do nothing behind it
+ * (`reviewKeysActive`, `isModalOpen`). The focus goes into its box as it
+ * opens, so Tab starts inside it and the arrow keys scroll it, and back where
+ * it was, the Settings button as a rule, when it closes.
+ */
 export function SettingsDialog({
   settings,
   models,
@@ -38,6 +48,9 @@ export function SettingsDialog({
   const [keyDraft, setKeyDraft] = useState('');
   const [keyBusy, setKeyBusy] = useState(false);
   const appearanceId = useId();
+  const boxRef = useRef<HTMLDivElement>(null);
+  useDialogEscape(boxRef, onClose);
+  useDialogFocus(boxRef, SETTINGS_BUTTON_SELECTOR);
 
   const saveKey = (): void => {
     const key = keyDraft;
@@ -121,7 +134,7 @@ export function SettingsDialog({
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Settings">
-      <div className="modal">
+      <div className="modal" ref={boxRef} tabIndex={-1}>
         <h2>Settings</h2>
         {error ? <p className="modal__hint modal__hint--error">{error}</p> : null}
         {note ? <p className="modal__hint">{note}</p> : null}

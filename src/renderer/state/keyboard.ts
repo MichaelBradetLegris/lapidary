@@ -57,13 +57,17 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
         return;
       }
 
-      if (event.key === 'Escape' && state.editor) {
+      /* While a dialog is open Escape is the dialog's: Settings and Review
+         with AI close on it (useDialogEscape), a question cancels, and the
+         others ignore it. It never closes the find bar or the suggestion
+         editor then (ui.1). */
+      if (event.key === 'Escape' && state.editor && !isModalOpen(state)) {
         state.closeEditor();
         event.preventDefault();
         return;
       }
 
-      if (event.key === 'Escape' && state.find.open && !state.confirmSpec) {
+      if (event.key === 'Escape' && state.find.open && !isModalOpen(state)) {
         state.closeFind();
         event.preventDefault();
         return;

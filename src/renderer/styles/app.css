@@ -1331,6 +1331,12 @@ input[type='text'] {
   box-shadow: 0 18px 50px var(--modal-shadow);
 }
 
+/* Settings' box takes the focus as it opens (ui.1, useDialogFocus); it is
+   plainly the thing in front, so no ring round it. Its controls keep theirs. */
+.modal:focus {
+  outline: none;
+}
+
 .modal--wide {
   width: min(1100px, 100%);
 }

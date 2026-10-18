@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { openAiKeyLine, toOpenAiEffort } from '../../shared/ai/openai';
 import type {
   EffectivePaths,
@@ -25,7 +25,7 @@ import {
 } from '../../shared/types';
 import { call, errorMessage } from '../state/client';
 import { modelOptions, selectedModel } from '../state/models';
-import { useApp } from '../state/store';
+import { useDialogEscape } from '../state/dialog';
 import { Command } from './Command';
 
 interface Props {
@@ -96,6 +96,7 @@ export function ReviewDialog({
   /* What a save that did not reach the chapter file said. Its cards sit under
      this dialog's backdrop, so the dialog says it instead (apply.20 review). */
   const [notSaved, setNotSaved] = useState<string[]>([]);
+  const boxRef = useRef<HTMLDivElement>(null);
   const stats = chapterStats(review.base.text);
   const previous = history[0];
   const previousCounts = previous ? historyCounts(previous, reviewPath, review) : null;
@@ -134,18 +135,9 @@ export function ReviewDialog({
     onNeedModels(provider);
   }, [provider, onNeedModels]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      // A question asked over this dialog takes Escape for itself. This
-      // listener was added first, so it would otherwise close the dialog too.
-      if (event.key === 'Escape' && !useApp.getState().confirmSpec) {
-        event.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [onClose]);
+  /* Escape closes it, as in Settings (ui.1). A question asked over it, such
+     as "Review without them", takes Escape for itself. */
+  useDialogEscape(boxRef, onClose);
 
   const update = (patch: Partial<Settings>): void => {
     call('settings:set', patch)
@@ -163,7 +155,7 @@ export function ReviewDialog({
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Review with AI">
-      <div className="modal">
+      <div className="modal" ref={boxRef}>
         <h2>Review with AI</h2>
         <p className="modal__hint">
           {stats.paragraphs} paragraph{stats.paragraphs === 1 ? '' : 's'}, {stats.words.toLocaleString()} word
