@@ -113,8 +113,9 @@ export interface CloseGuardDeps<W extends GuardWindow> {
   quit(): void;
   log(level: LogLevel, event: string, fields?: Readonly<Record<string, unknown>>): void;
   /**
-   * A quiet test window (dev.1, src/main/foreground.ts): brought forward
-   * without the foreground, and its taskbar button never flashes.
+   * A quiet test window (dev.1, src/main/foreground.ts): shown without the
+   * foreground, left minimised when it is, and its taskbar button never
+   * flashes. The native box (`showBox`) is outside the switch.
    */
   quietWindow(): boolean;
 }
@@ -244,7 +245,9 @@ export function createCloseGuard<W extends GuardWindow>(deps: CloseGuardDeps<W>)
    * front, its taskbar button flashes too, because Windows often refuses the
    * focus to a window in the background, and a close can come from the
    * taskbar while another window is in front. A quiet test window is only
-   * restored and shown: it asks for no attention at all (dev.1).
+   * shown, and left minimised when it is: it asks for no attention at all
+   * (dev.1). The native box is outside the switch: it still raises the
+   * window and may take the foreground (PLAN C.61).
    */
   function reveal(target: W): void {
     const inFront = target.isFocused();

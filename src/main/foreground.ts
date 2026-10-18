@@ -11,13 +11,16 @@ import type { DevSwitches } from './devSwitches';
  * `MANUSCRIPT_REVIEW_DEV_QUIET_WINDOW` (`npm run dev:clean -- --quiet`):
  *
  * - the window is shown with `showInactive()`, never `show()`, and nothing
- *   calls `focus()` or `moveTop()`. On Windows `showInactive()` is
- *   `SW_SHOWNOACTIVATE`, which also restores a minimised window, so a second
- *   launch and a close still restore and show it, without the foreground;
- *   `restore()` would activate it. A window first shown this way keeps its
- *   place in the z-order, so a launcher that pushed it to the bottom while it
- *   was still hidden never sees it in front; a minimised one comes back on top
- *   of the others, though not in the foreground;
+ *   calls `focus()`, `moveTop()` or `restore()`. On Windows `showInactive()`
+ *   is `SW_SHOWNOACTIVATE`. A window first shown this way keeps its place in
+ *   the z-order, so a launcher that pushed it to the bottom while it was
+ *   still hidden never sees it in front;
+ * - a second launch and a close that asks the page leave a minimised window
+ *   minimised. Restoring it, even with `SW_SHOWNOACTIVATE`, sometimes put it
+ *   on top of the other windows and once gave it the foreground, likely
+ *   because the second launch hands the running copy the right to take the
+ *   foreground (`AllowSetForegroundWindow`). A test driver restores it itself,
+ *   from a process with no such right;
  * - Chromium's native occlusion calculation is off and so is background
  *   throttling, so a window covered by the author's own windows keeps
  *   rendering: its page stays visible, and the animation frames and timers
@@ -59,12 +62,12 @@ export function showWindow(win: Pick<FrontWindow, 'show' | 'showInactive'>, quie
 
 /**
  * Restore, show and focus the window: a second launch (C.40) and a close that
- * asks the page (7.7). A quiet window is restored and shown, without the
- * foreground.
+ * asks the page (7.7). A quiet window is shown without the foreground, and a
+ * minimised one is left minimised (see the top of this file).
  */
 export function bringForward(win: FrontWindow, quiet: boolean): void {
   if (quiet) {
-    win.showInactive();
+    if (!win.isMinimized()) win.showInactive();
     return;
   }
   if (win.isMinimized()) win.restore();

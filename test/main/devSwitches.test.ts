@@ -187,12 +187,18 @@ describe('the quiet window switch', () => {
     expect(usual.calls).toEqual(['show']);
   });
 
-  it('restores and shows a quiet window without the focus; the usual one is focused', () => {
+  it('shows a quiet window without the focus and leaves a minimised one minimised; the usual one is restored and focused', () => {
     const quiet = new FakeWindow();
-    quiet.minimized = true;
     bringForward(quiet, true);
     expect(quiet.calls).toEqual(['show inactive']);
-    expect(quiet.minimized).toBe(false);
+
+    // Restoring it, even without activating it, sometimes raised it and once
+    // gave it the foreground after a second launch (PLAN C.61).
+    const minimised = new FakeWindow();
+    minimised.minimized = true;
+    bringForward(minimised, true);
+    expect(minimised.calls).toEqual([]);
+    expect(minimised.minimized).toBe(true);
 
     const usual = new FakeWindow();
     usual.minimized = true;

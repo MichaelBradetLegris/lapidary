@@ -273,14 +273,12 @@ describe('asking the page', () => {
     expect(win.calls).toEqual(['show', 'focus']);
   });
 
-  it('restores and shows a quiet test window without the focus, and never flashes it (dev.1)', async () => {
+  it('shows a quiet test window without the focus, and never flashes it (dev.1)', async () => {
     const { guard, win, boxes } = setup(undefined, { quiet: true });
     guard.setState(AT_RISK);
-    win.minimized = true;
     win.focused = false;
     expect(win.userCloses()).toBe(false);
     expect(win.calls).toEqual(['show inactive']);
-    expect(win.minimized).toBe(false);
     expect(win.focused).toBe(false);
     expect(win.requests()).toEqual([{ quitting: false }]);
     // The box for a page that does not answer comes up the same way.
@@ -292,6 +290,24 @@ describe('asking the page', () => {
     expect(win.calls).not.toContain('flash');
     expect(win.calls).not.toContain('stop flashing');
     expect(win.calls).not.toContain('focus');
+  });
+
+  it('leaves a minimised quiet test window minimised, and still asks the page and shows the box (dev.1)', async () => {
+    const { guard, win, boxes } = setup(undefined, { quiet: true });
+    guard.setState(AT_RISK);
+    win.minimized = true;
+    win.focused = false;
+    expect(win.userCloses()).toBe(false);
+    expect(win.calls).toEqual([]);
+    expect(win.minimized).toBe(true);
+    expect(win.requests()).toEqual([{ quitting: false }]);
+    await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS);
+    expect(boxes).toHaveLength(1);
+    expect(win.calls).toEqual([]);
+    expect(win.minimized).toBe(true);
+    lastBox(boxes).press('wait');
+    guard.onDecision(false);
+    expect(win.calls).toEqual([]);
   });
 
   it('tells the page when the close came from a quit', () => {
