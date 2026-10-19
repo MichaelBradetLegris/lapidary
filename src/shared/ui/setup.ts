@@ -365,18 +365,21 @@ export interface RuntimeCardInput {
   pastLaunch: boolean;
   provider: 'claude' | 'openai';
   setupOpen: boolean;
+  /** the welcome guide is showing, whose first step says the same (setup.11) */
+  welcomeOpen?: boolean;
 }
 
 /**
  * The launch card after a check (5.6, section 7). Only the first check of the
  * run, with the settings in, may put it up: when Claude is the provider, Setup
- * is not open and there is something to do. While it is up, a later check
- * keeps its words current. It is taken away by its key when nothing is left to
- * do, when OpenAI becomes the provider, and when Setup is open, which says the
- * same at length. Once closed with its X, or taken away, it stays away.
+ * and the welcome guide are not open and there is something to do. While it
+ * is up, a later check keeps its words current. It is taken away by its key
+ * when nothing is left to do, when OpenAI becomes the provider, and when Setup
+ * is open, which says the same at length, or the welcome guide, whose first
+ * step does (setup.11). Once closed with its X, or taken away, it stays away.
  */
 export function runtimeCardAction(input: RuntimeCardInput): RuntimeCardAction {
-  if (!input.card || input.provider !== 'claude' || input.setupOpen) {
+  if (!input.card || input.provider !== 'claude' || input.setupOpen || input.welcomeOpen === true) {
     return input.showing ? 'withdraw' : 'none';
   }
   if (input.showing) return 'update';

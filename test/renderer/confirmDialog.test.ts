@@ -54,7 +54,8 @@ describe('confirm dialog layer (apply.6 review)', () => {
 
   it('renders the confirm dialog last in each layout, after every dialog and the editor', () => {
     // The four dialogs are made just before the two returns (ui.4): the
-    // Setup screen's (setup.7) and the main view's.
+    // Setup screen's and the welcome guide's (setup.7, setup.11) and the main
+    // view's.
     const made = APP.slice(APP.indexOf('const newChapterDialog = '));
     const components = [...made.matchAll(/<([A-Z]\w*)/g)].map((m) => m[1]);
     expect(components).toEqual(
@@ -66,7 +67,7 @@ describe('confirm dialog layer (apply.6 review)', () => {
         'SettingsDialog'
       ])
     );
-    const setupStart = made.indexOf('if (setupOpen) {');
+    const setupStart = made.indexOf('if (singleScreen) {');
     const mainStart = made.lastIndexOf('return (');
     expect(setupStart).toBeGreaterThan(0);
     for (const layout of [made.slice(setupStart, mainStart), made.slice(mainStart)]) {

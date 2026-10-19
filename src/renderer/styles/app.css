@@ -2053,6 +2053,120 @@ input[type='text'] {
   color: var(--ink-soft);
 }
 
+/* ---------- welcome guide (setup.11) ---------- */
+
+/* The guide uses the Setup screen's scroller and centred column (.setup,
+   .setup__page). Each step is a card with its number beside it, a tick once
+   it is done, and the state's colour at its edge, as Setup's status card has
+   it. Start sits under the steps, on the right, with what is left beside it. */
+.welcome__intro {
+  color: var(--ink-soft);
+}
+
+.welcome__steps {
+  list-style: none;
+  margin: 16px 0 18px;
+  padding: 0;
+}
+
+.welcome__step {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.welcome__step--done {
+  border-left-color: var(--accept);
+}
+
+.welcome__mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.welcome__step--done .welcome__mark {
+  border-color: var(--accept);
+  color: var(--accept);
+}
+
+.welcome__body {
+  min-width: 0;
+}
+
+.welcome__body h2 {
+  margin: 3px 0 2px;
+}
+
+/* Where the step stands: a folder's path can be long, so it wraps anywhere. */
+.welcome__status {
+  font-weight: 600;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.welcome__step--done .welcome__status {
+  color: var(--accept);
+}
+
+/* What the folder means for the author's files: a path in it wraps anywhere. */
+.welcome__facts {
+  margin: 0 0 8px;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+
+.welcome__facts li {
+  margin-bottom: 4px;
+}
+
+/* The buttons wrap onto more rows in a narrow column. A label could break
+   inside its button only in a column narrower than the label, which even the
+   smallest window at 200% is not for "Use OpenAI instead (experimental, pay
+   per use)". */
+.welcome__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.setup .welcome__note {
+  margin: 8px 0 0;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.setup .welcome__note--error {
+  color: var(--danger);
+}
+
+.welcome__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 16px;
+}
+
+.setup .welcome__start-note {
+  flex: 1 1 320px;
+  margin: 0;
+  color: var(--ink-soft);
+}
+
 /* A command to copy. A long one wraps rather than scrolling, so all of it can
    be read; the copy is the command as it is. One click on it selects the whole
    command, for copying by hand when the clipboard refuses (setup.7). */

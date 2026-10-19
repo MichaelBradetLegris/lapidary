@@ -157,7 +157,8 @@ describe('the dialogs', () => {
         onApply: () => undefined,
         onKeyChanged: () => undefined,
         onClose: () => undefined,
-        onOpenSetup: () => undefined
+        onOpenSetup: () => undefined,
+        onShowWelcome: () => undefined
       })
     );
     const list = buttons(html).map((b) => b.replace(/ \{.*\}$/, ''));

@@ -12,6 +12,7 @@ import { BACKUPS_NOTE } from '../../shared/ui/backups';
 import { SETTINGS_BUTTON_SELECTOR } from '../../shared/ui/dialog';
 import { openedGuidelinesNote } from '../../shared/ui/guidelines';
 import { normalizeTheme, THEME_LABELS, THEMES } from '../../shared/ui/theme';
+import { SHOW_WELCOME_AGAIN, WELCOME_GUIDE_NOTE } from '../../shared/ui/welcome';
 import { call, errorMessage } from '../state/client';
 import { useDialogEscape, useDialogFocus } from '../state/dialog';
 import { modelOptions } from '../state/models';
@@ -28,6 +29,8 @@ interface Props {
   onKeyChanged: (status: OpenAiKeyStatus) => void;
   onClose: () => void;
   onOpenSetup: () => void;
+  /** Show the welcome guide again (setup.11): it comes back in place of the main view */
+  onShowWelcome: () => void;
 }
 
 /**
@@ -47,7 +50,8 @@ export function SettingsDialog({
   onApply,
   onKeyChanged,
   onClose,
-  onOpenSetup
+  onOpenSetup,
+  onShowWelcome
 }: Props): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -343,6 +347,19 @@ export function SettingsDialog({
             environment is used.
           </p>
         )}
+
+        {/* The guide comes back in place of the main view, and Settings
+            closes so that it shows (setup.11). */}
+        <div className="modal__row">
+          <span>Welcome guide</span>
+          <span />
+          <span className="modal__buttons">
+            <button type="button" onClick={onShowWelcome}>
+              {SHOW_WELCOME_AGAIN}
+            </button>
+          </span>
+        </div>
+        <p className="modal__note">{WELCOME_GUIDE_NOTE}</p>
 
         <div className="modal__actions">
           <span className="spacer" />

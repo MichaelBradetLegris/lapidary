@@ -168,9 +168,9 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
     // No side panel there: the hint takes the toolbar's width, and the cards
     // are at the top of the Setup column, before the screen in the flow,
     // positioned so their layer counts.
-    const setup = APP.slice(APP.indexOf('if (setupOpen) {'), APP.lastIndexOf('return ('));
+    const setup = APP.slice(APP.indexOf('if (singleScreen) {'), APP.lastIndexOf('return ('));
     expect(setup).toMatch(
-      /<div className="body body--single">\s*<NotificationCards onAction=\{onCardAction\} \/>\s*<SetupScreen\s/
+      /<div className="body body--single">\s*<NotificationCards onAction=\{onCardAction\} \/>\s*\{setupOpen \? \(\s*<SetupScreen\s/
     );
     const notes = declsFor('.body--single > .notes');
     expect(notes.get('position')).toBe('relative');

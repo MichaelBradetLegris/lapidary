@@ -391,6 +391,14 @@ describe('the launch card after a check (runtimeCardAction)', () => {
     // Back on Claude, or Setup closed, it does not come back.
     expect(act({ showing: false, pastLaunch: true })).toBe('none');
   });
+
+  it('is not put up over the welcome guide, whose first step says the same, and goes when it shows (setup.11)', () => {
+    expect(act({ welcomeOpen: true })).toBe('none');
+    expect(act({ showing: true, pastLaunch: true, welcomeOpen: true })).toBe('withdraw');
+    // The guide put away after the first check: that check had its chance.
+    expect(act({ pastLaunch: true, welcomeOpen: false })).toBe('none');
+    expect(act({ welcomeOpen: false })).toBe('raise');
+  });
 });
 
 describe('reviewDialogWarning', () => {

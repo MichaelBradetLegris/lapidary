@@ -17,11 +17,12 @@ import {
   setupView
 } from '../shared/ui/setup';
 import { usageLimitCard } from '../shared/ui/usage';
+import { welcomeNotKept, welcomeShown } from '../shared/ui/welcome';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
 import { bodyClassName, columnClassName } from '../shared/ui/columns';
 import { shellInert } from '../shared/ui/dialog';
 import type { ApiEventMap, ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
-import { PROVIDER_NAMES, type Review } from '../shared/types';
+import { PROVIDER_NAMES, type Provider, type Review } from '../shared/types';
 import { ColumnStrip } from './components/ColumnStrip';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { EditPopover } from './components/EditPopover';
@@ -40,6 +41,7 @@ import { SetupScreen } from './components/SetupScreen';
 import { SidePanel } from './components/SidePanel';
 import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
+import { WelcomeScreen } from './components/WelcomeScreen';
 import { ApiError, call, errorMessage } from './state/client';
 import {
   installCloseGuard,
@@ -193,12 +195,16 @@ export function App(): React.JSX.Element {
   const claudeView = setupView(claudeRuntime, ai.lastFailure);
   const claudeInUse = activeProvider === 'claude' || setupOpen;
   const settingsLoaded = settings !== null;
+  /* The welcome guide, until Start or Skip (setup.11): a fresh install has no
+     settings file, so `onboardingDone` is false. */
+  const welcomeOpen = welcomeShown(settings);
 
   /* The launch card (section 7): once the settings and Claude's first check
      are in, a card says what Setup has to do when Claude is the provider,
-     with Open Setup, unless Setup is open already. While it is up, a later
-     check keeps its words current; a check with nothing left to say, OpenAI
-     as the provider or Setup open withdraws it by its key. Only the first
+     with Open Setup, unless Setup or the welcome guide, whose first step says
+     the same, is open already. While it is up, a later check keeps its words
+     current; a check with nothing left to say, OpenAI as the provider, or
+     Setup or the welcome guide open withdraws it by its key. Only the first
      check may put it up, so once closed with its X it stays closed
      (`runtimeCardAction`). */
   const runtimeCardPastLaunch = useRef(false);
@@ -211,7 +217,8 @@ export function App(): React.JSX.Element {
       showing,
       pastLaunch: runtimeCardPastLaunch.current,
       provider: activeProvider,
-      setupOpen
+      setupOpen,
+      welcomeOpen
     });
     runtimeCardPastLaunch.current = true;
     if (action === 'withdraw') {
@@ -225,6 +232,7 @@ export function App(): React.JSX.Element {
     settingsLoaded,
     activeProvider,
     setupOpen,
+    welcomeOpen,
     upsertNotification,
     dismissNotificationsByKey
   ]);
@@ -668,6 +676,36 @@ export function App(): React.JSX.Element {
     });
   }, [testConnection, checkRuntime]);
 
+  /* ---------------- the welcome guide (setup.11) ---------------- */
+
+  /* Start and Skip put the guide away for good. It goes at once; the setting
+     is written after, and a write that fails says so in a card, since the
+     guide then shows again at the next start. */
+  const finishWelcome = useCallback(() => {
+    const current = useApp.getState().settings;
+    if (current) setSettings({ ...current, onboardingDone: true });
+    void call('settings:set', { onboardingDone: true })
+      .then(setSettings)
+      .catch((err: unknown) => notify('error', welcomeNotKept(errorMessage(err))));
+  }, [setSettings, notify]);
+
+  /* Use OpenAI instead, and Use Claude instead, in the guide's first step:
+     the provider Review with AI starts with. */
+  const chooseProvider = useCallback(
+    (provider: Provider) => {
+      void call('settings:set', { provider }).then(setSettings).catch(fail);
+    },
+    [setSettings, fail]
+  );
+
+  /* Settings' "Show the welcome guide again": the guide comes back in place
+     of the main view, so Settings and Setup, which would cover it, close. */
+  const showWelcomeAgain = useCallback(() => {
+    setSettingsOpen(false);
+    setSetupOpen(false);
+    void call('settings:set', { onboardingDone: false }).then(setSettings).catch(fail);
+  }, [setSettingsOpen, setSetupOpen, setSettings, fail]);
+
   /** A new review replaces the working set, so open paragraph editors must be dealt with first. */
   const refuseWhileEditing = useCallback((): boolean => {
     const open = Object.keys(useApp.getState().drafts).length;
@@ -829,8 +867,10 @@ export function App(): React.JSX.Element {
     labelForRuntime(activeRuntime, activeProvider === 'claude' ? ai.lastFailure : null) ?? undefined;
 
   // The first-use hint hangs over the prose when the side panel is folded
-  // (ui.3); the Setup screen has no side panel, folded or not.
-  const sideFolded = layout.side === 'strip' && !setupOpen;
+  // (ui.3); the Setup screen and the welcome guide have no side panel,
+  // folded or not.
+  const singleScreen = setupOpen || welcomeOpen;
+  const sideFolded = layout.side === 'strip' && !singleScreen;
 
   const toolbar = (
     <Toolbar
@@ -965,6 +1005,7 @@ export function App(): React.JSX.Element {
         }}
         onClose={() => setSettingsOpen(false)}
         onOpenSetup={openSetup}
+        onShowWelcome={showWelcomeAgain}
       />
     ) : null;
   const inert = shellInert({
@@ -972,36 +1013,53 @@ export function App(): React.JSX.Element {
     question: questionOpen
   });
 
-  /* The Setup screen in place of the chapter list, the prose and the side
-     panel (setup.7). The rest is as in the layout below: the toolbar, the
-     status bar, the notification cards, here at the top of the screen and
-     before it, so they never cover its Close or Check again, the dialogs over
-     the page, inert under them, and the question over everything. Closing the
-     window can ask its question here too, with a review still open behind
-     Setup (apply.9 review), and Settings, from the toolbar or a card, opens
-     over it. The suggestion editor is not drawn here, but its words are kept
-     in the store and come back with it (`EditorRequest.text`). */
-  if (setupOpen) {
+  /* The Setup screen, or the welcome guide, in place of the chapter list, the
+     prose and the side panel (setup.7, setup.11). Setup comes first, so the
+     guide's Set up Claude opens it over the guide, and its Close goes back
+     there. The rest is as in the layout below: the toolbar, the status bar,
+     the notification cards, here at the top of the screen and before it, so
+     they never cover its Close or Check again, the dialogs over the page,
+     inert under them, and the question over everything. Closing the window
+     can ask its question here too, with a review still open behind Setup
+     (apply.9 review), and Settings, from the toolbar or a card, opens over
+     it. The suggestion editor is not drawn here, but its words are kept in
+     the store and come back with it (`EditorRequest.text`). */
+  if (singleScreen) {
     return (
       <div className="app-shell">
         <div className="app-shell__page" inert={inert.page}>
           {toolbar}
           <div className="body body--single">
             <NotificationCards onAction={onCardAction} />
-            <SetupScreen
-              runtime={claudeRuntime}
-              lastFailure={ai.lastFailure}
-              checking={ai.checking}
-              onCheckAgain={() => ai.check('claude')}
-              onClose={() => setSetupOpen(false)}
-              {...(review?.sourcePath && canTryReviewAnyway(claudeRuntime, ai.lastFailure)
-                ? { onTryAnyway: tryReviewAnyway }
-                : {})}
-              onTest={testClaude}
-              testing={ai.testing.claude ?? false}
-              testOutcome={ai.testOutcomes.claude ?? null}
-              rateLimit={ai.rateLimit}
-            />
+            {setupOpen ? (
+              <SetupScreen
+                runtime={claudeRuntime}
+                lastFailure={ai.lastFailure}
+                checking={ai.checking}
+                onCheckAgain={() => ai.check('claude')}
+                onClose={() => setSetupOpen(false)}
+                {...(review?.sourcePath && canTryReviewAnyway(claudeRuntime, ai.lastFailure)
+                  ? { onTryAnyway: tryReviewAnyway }
+                  : {})}
+                onTest={testClaude}
+                testing={ai.testing.claude ?? false}
+                testOutcome={ai.testOutcomes.claude ?? null}
+                rateLimit={ai.rateLimit}
+              />
+            ) : settings ? (
+              <WelcomeScreen
+                settings={settings}
+                claude={claudeRuntime}
+                claudeLastFailure={ai.lastFailure}
+                openai={ai.runtimes.openai ?? null}
+                onSetUpClaude={openSetup}
+                onUseProvider={chooseProvider}
+                onOpenSettings={openSettings}
+                onChooseFolder={chooseManuscriptFolder}
+                onStart={finishWelcome}
+                onSkip={finishWelcome}
+              />
+            ) : null}
           </div>
           <StatusBar
             review={review}

@@ -13,14 +13,16 @@ const withoutComments = (text: string): string =>
 const read = (file: string): string => withoutComments(readFileSync(path.join(RENDERER, file), 'utf8'));
 
 const APP = read('App.tsx');
-const SETUP = APP.slice(APP.indexOf('if (setupOpen) {'), APP.lastIndexOf('return ('));
+/* The Setup screen and the welcome guide share a layout (setup.11), Setup
+   first: `singleScreen` is `setupOpen || welcomeOpen`. */
+const SETUP = APP.slice(APP.indexOf('if (singleScreen) {'), APP.lastIndexOf('return ('));
 const MAIN = APP.slice(APP.lastIndexOf('return ('));
 
 describe('every layout has the cards, the dialogs and the question (setup.7)', () => {
   it('finds the Setup layout before the main one', () => {
     expect(SETUP).toContain('<SetupScreen');
     expect(MAIN).toContain('<ReviewPane');
-    expect(APP.indexOf('if (setupOpen) {')).toBeGreaterThan(APP.indexOf('const inert = shellInert('));
+    expect(APP.indexOf('if (singleScreen) {')).toBeGreaterThan(APP.indexOf('const inert = shellInert('));
   });
 
   for (const [name, layout] of [
@@ -45,7 +47,7 @@ describe('every layout has the cards, the dialogs and the question (setup.7)', (
     // failed review opens it with, is above its title and never covers Close
     // (setup.7 review: drawn after it, the cards sat at the foot).
     expect(SETUP).toMatch(
-      /<div className="body body--single">\s*<NotificationCards onAction=\{onCardAction\} \/>\s*<SetupScreen\s/
+      /<div className="body body--single">\s*<NotificationCards onAction=\{onCardAction\} \/>\s*\{setupOpen \? \(\s*<SetupScreen\s/
     );
     const css = withoutComments(readFileSync(path.join(RENDERER, 'styles/app.css'), 'utf8'));
     const rule = (selector: string): string =>
@@ -71,7 +73,7 @@ describe('every layout has the cards, the dialogs and the question (setup.7)', (
 
   it('offers "Try the review anyway" with a chapter open and nothing the check found in the way', () => {
     expect(SETUP).toContain(
-      '{...(review?.sourcePath && canTryReviewAnyway(claudeRuntime, ai.lastFailure)\n                ? { onTryAnyway: tryReviewAnyway }\n                : {})}'
+      '{...(review?.sourcePath && canTryReviewAnyway(claudeRuntime, ai.lastFailure)\n                  ? { onTryAnyway: tryReviewAnyway }\n                  : {})}'
     );
     const tryAnyway = APP.slice(
       APP.indexOf('const tryReviewAnyway = '),
@@ -118,14 +120,14 @@ describe('gating and entry points (setup.7)', () => {
     // every check that reaches the decision (setup.7 review): without that, a
     // card closed with its X came back on the next check.
     expect(card).toMatch(
-      /const action = runtimeCardAction\(\{\s*card,\s*showing,\s*pastLaunch: runtimeCardPastLaunch\.current,\s*provider: activeProvider,\s*setupOpen\s*\}\);\s*runtimeCardPastLaunch\.current = true;/
+      /const action = runtimeCardAction\(\{\s*card,\s*showing,\s*pastLaunch: runtimeCardPastLaunch\.current,\s*provider: activeProvider,\s*setupOpen,\s*welcomeOpen\s*\}\);\s*runtimeCardPastLaunch\.current = true;/
     );
     expect(card).toMatch(
       /if \(action === 'withdraw'\) \{\s*dismissNotificationsByKey\(CLAUDE_RUNTIME_CARD\);\s*\} else if \(card && \(action === 'raise' \|\| action === 'update'\)\) \{\s*upsertNotification\(CLAUDE_RUNTIME_CARD, card\.tone, card\.text, 'open-setup'\);/
     );
-    // A switch to OpenAI, and Setup opening, run the decision again.
+    // A switch to OpenAI, and Setup or the welcome guide opening, run the decision again.
     expect(card).toMatch(
-      /\}, \[\s*claudeRuntime,\s*claudeView,\s*settingsLoaded,\s*activeProvider,\s*setupOpen,\s*upsertNotification,\s*dismissNotificationsByKey\s*\]\);/
+      /\}, \[\s*claudeRuntime,\s*claudeView,\s*settingsLoaded,\s*activeProvider,\s*setupOpen,\s*welcomeOpen,\s*upsertNotification,\s*dismissNotificationsByKey\s*\]\);/
     );
   });
 

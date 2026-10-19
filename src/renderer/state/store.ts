@@ -6,6 +6,7 @@ import { remapAfterCommit } from '../../shared/review';
 import { splitParagraphs } from '../../shared/text/paragraphs';
 import { stepIndex } from '../../shared/ui/find';
 import type { SaveShortcutContext } from '../../shared/ui/save';
+import { welcomeShown } from '../../shared/ui/welcome';
 import type { ChangeCategory, Hunk, HunkStatus, Review, ReviewComment, Settings } from '../../shared/types';
 
 export type NotificationTone = 'info' | 'warn' | 'error';
@@ -174,20 +175,24 @@ export function changedParagraphCount(drafts: Record<number, ParagraphDraft>): n
 }
 
 /**
- * True while a dialog, a question, Settings or the Setup screen covers the page
- * (`SaveShortcutContext.modalOpen`). The suggestion editor is a floating panel,
+ * True while a dialog, a question, Settings, the Setup screen or the welcome
+ * guide covers the page (`SaveShortcutContext.modalOpen`). The welcome guide
+ * shows while the settings say it is not done (`welcomeShown`, setup.11); a
+ * state without settings has none. The suggestion editor is a floating panel,
  * not a modal, and is not counted.
  */
 export function isModalOpen(
   state: Pick<
     AppState,
     'confirmSpec' | 'settingsOpen' | 'setupOpen' | 'newChapterOpen' | 'manualReviewOpen' | 'reviewDialogOpen'
-  >
+  > &
+    Partial<Pick<AppState, 'settings'>>
 ): boolean {
   return (
     state.confirmSpec !== null ||
     state.settingsOpen ||
     state.setupOpen ||
+    welcomeShown(state.settings) ||
     state.newChapterOpen ||
     state.manualReviewOpen ||
     state.reviewDialogOpen
@@ -197,12 +202,12 @@ export function isModalOpen(
 /**
  * Whether the review pane's keys (j and k, the arrows, a, u, d, e and n) act:
  * only with a review on screen and nothing in front of the page. Behind a
- * dialog, a question, Settings or the Setup screen (`isModalOpen`) they
- * changed what the author could not see: behind Review with AI, a accepted
- * the focused suggestion, which changed the dialog's count and so its blue
- * button, and e opened the suggestion editor over it (apply.20 review). The
- * suggestion editor keeps the keys for its own box, and the pane is
- * read-only while a review of the chapter runs (`isLocked`).
+ * dialog, a question, Settings, the Setup screen or the welcome guide
+ * (`isModalOpen`) they changed what the author could not see: behind Review
+ * with AI, a accepted the focused suggestion, which changed the dialog's
+ * count and so its blue button, and e opened the suggestion editor over it
+ * (apply.20 review). The suggestion editor keeps the keys for its own box,
+ * and the pane is read-only while a review of the chapter runs (`isLocked`).
  */
 export function reviewKeysActive(
   state: Pick<
@@ -216,7 +221,8 @@ export function reviewKeysActive(
     | 'newChapterOpen'
     | 'manualReviewOpen'
     | 'reviewDialogOpen'
-  >
+  > &
+    Partial<Pick<AppState, 'settings'>>
 ): boolean {
   return state.review !== null && state.editor === null && !isModalOpen(state) && !isLocked(state);
 }

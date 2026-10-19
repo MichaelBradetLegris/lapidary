@@ -35,7 +35,7 @@ export function styleSheetNote(status: GuidelinesStatus | null): string | null {
 }
 
 /** The last part of a path, whichever slash the system uses. */
-function fileName(file: string): string {
+export function fileName(file: string): string {
   return file.split(/[\\/]/).pop() ?? file;
 }
 

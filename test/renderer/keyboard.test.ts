@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createReview } from '../../src/shared/review';
+import { normalizeSettings } from '../../src/shared/settings';
 import type { Review } from '../../src/shared/types';
 import { isModalOpen, reviewKeysActive, useApp, type AppState } from '../../src/renderer/state/store';
 
@@ -57,6 +58,7 @@ beforeEach(() => {
     editor: null,
     settingsOpen: false,
     setupOpen: false,
+    settings: null,
     newChapterOpen: false,
     manualReviewOpen: false,
     reviewDialogOpen: false
@@ -76,6 +78,11 @@ describe('reviewKeysActive (apply.20 review)', () => {
     ['New chapter', { newChapterOpen: true }],
     ['Settings', { settingsOpen: true }],
     ['the Setup screen', { setupOpen: true }],
+    // Shown again from Settings with a chapter open (setup.11).
+    [
+      'the welcome guide',
+      { settings: normalizeSettings({ manuscriptFolder: 'C:/vault', onboardingDone: false }) }
+    ],
     ['a question', { confirmSpec: { title: 'Review without saving?', body: '', confirmLabel: 'OK' } }]
   ];
   for (const [name, patch] of covers) {
@@ -85,6 +92,14 @@ describe('reviewKeysActive (apply.20 review)', () => {
       expect(reviewKeysActive(state())).toBe(false);
     });
   }
+
+  it('lets them act once the welcome guide is done, and before the settings are in', () => {
+    useApp.setState({ settings: normalizeSettings({ manuscriptFolder: 'C:/vault' }) });
+    expect(isModalOpen(state())).toBe(false);
+    expect(reviewKeysActive(state())).toBe(true);
+    useApp.setState({ settings: null });
+    expect(reviewKeysActive(state())).toBe(true);
+  });
 
   it('stops them while the suggestion editor is open, which keeps them for its box', () => {
     state().openEditor({ kind: 'suggestion', hunkId: 'h1', initial: 'As he tilted', anchor: null });
