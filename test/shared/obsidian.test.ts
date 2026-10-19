@@ -9,6 +9,21 @@ import {
   obsidianOpenUrl,
   obsidianOpensFile
 } from '../../src/shared/obsidian';
+import {
+  MARKUP_CHARS,
+  SYNTAX_KINDS,
+  SYNTAX_LABELS,
+  bodyStart,
+  hasMarkupChar,
+  syntaxSignature,
+  syntaxSpans
+} from '../../src/shared/text/obsidian';
+import type { SyntaxKind } from '../../src/shared/text/obsidian';
+import { splitParagraphs } from '../../src/shared/text/paragraphs';
+
+/* Both Obsidian modules: the Open in Obsidian link (src/shared/obsidian.ts,
+   setup.10b) first, then the syntax a review leaves alone
+   (src/shared/text/obsidian.ts, files.6). */
 
 /* setup.10b: Open in Obsidian hands the system obsidian://open?path=<full
    path>. Obsidian finds the vault that holds the path itself, so the link
@@ -159,6 +174,546 @@ describe('isObsidianOpenUrl', () => {
           expect(obsidianLinkPath(url!)).toBe(file);
         }
       )
+    );
+  });
+});
+
+/* files.6: the Obsidian syntax a review leaves alone (PLAN 11.3 k). Offsets
+   are exact, into the LF-normalised text: each kind has a positive case, the
+   plan's negatives find nothing, and an alias stays prose. */
+
+/** Each span as [kind, start, end, the text it covers]. */
+function spansOf(text: string): Array<[SyntaxKind, number, number, string]> {
+  return syntaxSpans(text).map((s) => [s.kind, s.start, s.end, text.slice(s.start, s.end)]);
+}
+
+describe('syntaxSpans: one case per kind, with exact offsets', () => {
+  it('frontmatter, with the line break after its closing ---, holding everything in it', () => {
+    const text = '---\ntitle: The Flood\n---\nIt rained.';
+    expect(spansOf(text)).toEqual([['frontmatter', 0, 25, '---\ntitle: The Flood\n---\n']]);
+    expect(bodyStart(text)).toBe(25);
+    expect(spansOf('---\ntags: [draft]\nsee: "[[Home]]"\n---\nText #tag')).toEqual([
+      ['frontmatter', 0, 38, '---\ntags: [draft]\nsee: "[[Home]]"\n---\n'],
+      ['tag', 43, 47, '#tag']
+    ]);
+  });
+
+  it('code: a fenced block from its opening line to its closing one, and inline code', () => {
+    expect(spansOf('Before.\n\n```js\nlet x = [[1]];\n```\n\nAfter.')).toEqual([
+      ['code', 9, 33, '```js\nlet x = [[1]];\n```']
+    ]);
+    expect(spansOf('~~~\n%% not a comment\n~~~~')).toEqual([['code', 0, 25, '~~~\n%% not a comment\n~~~~']]);
+    expect(spansOf('  ```\ncode\n  ```')).toEqual([['code', 0, 16, '  ```\ncode\n  ```']]);
+    // A fence closes only at its own character, at least as many of it.
+    expect(spansOf('````\ncode\n```\nstill code\n````')).toEqual([
+      ['code', 0, 29, '````\ncode\n```\nstill code\n````']
+    ]);
+    // Tildes do not close backticks: the ~~~ line opens a fence of its own, and neither closes.
+    expect(spansOf('```\ncode\n~~~')).toEqual([
+      ['code', 0, 3, '```'],
+      ['code', 9, 12, '~~~']
+    ]);
+    expect(spansOf('Run `npm test` now.')).toEqual([['code', 4, 14, '`npm test`']]);
+    expect(spansOf('A ``tick ` here`` ok')).toEqual([['code', 2, 17, '``tick ` here``']]);
+    // A backtick in the info string makes it no fence, so this is inline code.
+    expect(spansOf('```js`x```')).toEqual([['code', 0, 10, '```js`x```']]);
+  });
+
+  it('comment: %% and HTML comments, across blank lines, holding what is inside', () => {
+    expect(spansOf('One %%private%% two')).toEqual([['comment', 4, 15, '%%private%%']]);
+    expect(spansOf('%%\nNote.\n\nMore.\n%%\n\nText')).toEqual([['comment', 0, 18, '%%\nNote.\n\nMore.\n%%']]);
+    expect(spansOf('a <!-- b --> c')).toEqual([['comment', 2, 12, '<!-- b -->']]);
+    expect(spansOf('%% see [[Home]] %%')).toEqual([['comment', 0, 18, '%% see [[Home]] %%']]);
+  });
+
+  it('math: $$ blocks, on their own lines or within one', () => {
+    expect(spansOf('$$\nE = mc^2\n$$')).toEqual([['math', 0, 14, '$$\nE = mc^2\n$$']]);
+    expect(spansOf('So $$x^2$$ here.')).toEqual([['math', 3, 10, '$$x^2$$']]);
+  });
+
+  it('an unclosed %%, <!--, $$ or code fence protects only its opening marker', () => {
+    expect(spansOf('%% open\n\nText')).toEqual([['comment', 0, 2, '%%']]);
+    expect(spansOf('<!-- open')).toEqual([['comment', 0, 4, '<!--']]);
+    expect(spansOf('$$ open')).toEqual([['math', 0, 2, '$$']]);
+    expect(spansOf('```\nThe rest is prose.')).toEqual([['code', 0, 3, '```']]);
+  });
+
+  it('embed, whole', () => {
+    expect(spansOf('See ![[map.png|300]] here.')).toEqual([['embed', 4, 20, '![[map.png|300]]']]);
+  });
+
+  it('internal link, whole when it has no alias', () => {
+    expect(spansOf('See [[Chapter 3#The Flood]].')).toEqual([['wikilink', 4, 27, '[[Chapter 3#The Flood]]']]);
+  });
+
+  it('leaves the alias of an internal link editable', () => {
+    const text = 'See [[Chapter 3|the third chapter]] now.';
+    expect(spansOf(text)).toEqual([
+      ['wikilink', 4, 16, '[[Chapter 3|'],
+      ['wikilink', 33, 35, ']]']
+    ]);
+    const alias = { start: text.indexOf('the third'), end: text.indexOf(']]') };
+    expect(syntaxSpans(text).every((s) => s.end <= alias.start || s.start >= alias.end)).toBe(true);
+    // A copyedit of the alias changes no syntax; one of the target does.
+    expect(syntaxSignature('See [[Chapter 3|the 3rd chapter]] now.')).toBe(syntaxSignature(text));
+    expect(syntaxSignature('See [[Chapter 4|the third chapter]] now.')).not.toBe(syntaxSignature(text));
+  });
+
+  it('link: [ and ](destination), with the link text left as prose', () => {
+    expect(spansOf('Read [the notes](https://example.com/notes) first.')).toEqual([
+      ['link', 5, 6, '['],
+      ['link', 15, 43, '](https://example.com/notes)']
+    ]);
+    expect(spansOf('[map](<Old Mill.md> "The mill")')).toEqual([
+      ['link', 0, 1, '['],
+      ['link', 4, 31, '](<Old Mill.md> "The mill")']
+    ]);
+  });
+
+  it('image, whole', () => {
+    expect(spansOf('![A map](map.png)')).toEqual([['image', 0, 17, '![A map](map.png)']]);
+  });
+
+  it('footnote: a reference, a definition at the start of a line, and an inline one around its text', () => {
+    expect(spansOf('It rained.[^1] Then')).toEqual([['footnote', 10, 14, '[^1]']]);
+    expect(spansOf('[^1]: All night.')).toEqual([['footnote', 0, 5, '[^1]:']]);
+    expect(spansOf('It rained.^[All night.] Then')).toEqual([
+      ['footnote', 10, 12, '^['],
+      ['footnote', 22, 23, ']']
+    ]);
+  });
+
+  it('block ID at the end of a line, after a space or alone on its line', () => {
+    expect(spansOf('The river rose. ^river-1')).toEqual([['block-id', 16, 24, '^river-1']]);
+    expect(spansOf('> A quote.\n\n^quote-1')).toEqual([
+      ['quote', 0, 2, '> '],
+      ['block-id', 12, 20, '^quote-1']
+    ]);
+  });
+
+  it('tag: after a space or ( or at the start of a line, in any script, with a non-digit', () => {
+    expect(spansOf('Draft #todo, then #places/mill and (#y1984).')).toEqual([
+      ['tag', 6, 11, '#todo'],
+      ['tag', 18, 30, '#places/mill'],
+      ['tag', 36, 42, '#y1984']
+    ]);
+    expect(spansOf('#todo first')).toEqual([['tag', 0, 5, '#todo']]);
+    expect(spansOf('Le #caf\u00e9 ouvre.')).toEqual([['tag', 3, 8, '#caf\u00e9']]);
+    expect(spansOf('Hot #\u{1F525} now')).toEqual([['tag', 4, 7, '#\u{1F525}']]);
+    expect(spansOf('>#todo')).toEqual([
+      ['quote', 0, 1, '>'],
+      ['tag', 1, 6, '#todo']
+    ]);
+  });
+
+  it('callout: [!type] with its fold sign, after the quote markers, the title left as prose', () => {
+    expect(spansOf('> [!note] The mill\n> It flooded.')).toEqual([
+      ['quote', 0, 2, '> '],
+      ['callout', 2, 9, '[!note]'],
+      ['quote', 19, 21, '> ']
+    ]);
+    expect(spansOf('> > [!faq]- Why?')).toEqual([
+      ['quote', 0, 4, '> > '],
+      ['callout', 4, 11, '[!faq]-']
+    ]);
+  });
+
+  it('block quote markers, nested ones included, and the space after them', () => {
+    expect(spansOf('> She said so.')).toEqual([['quote', 0, 2, '> ']]);
+    expect(spansOf('>> Inner.')).toEqual([['quote', 0, 3, '>> ']]);
+  });
+
+  it('heading: the #s and the space after them, in a quote too; a tag in a heading is a tag', () => {
+    expect(spansOf('## The Flood\nText.')).toEqual([['heading', 0, 3, '## ']]);
+    expect(spansOf('> # In a quote')).toEqual([
+      ['quote', 0, 2, '> '],
+      ['heading', 2, 4, '# ']
+    ]);
+    expect(spansOf('## Notes #draft')).toEqual([
+      ['heading', 0, 3, '## '],
+      ['tag', 9, 15, '#draft']
+    ]);
+  });
+
+  it('horizontal rule: the line of -, * or _', () => {
+    expect(spansOf('Before.\n\n* * *\n\nAfter.')).toEqual([['thematic-break', 9, 14, '* * *']]);
+    expect(spansOf('A line\n---')).toEqual([['thematic-break', 7, 10, '---']]);
+    expect(spansOf('___')).toEqual([['thematic-break', 0, 3, '___']]);
+  });
+
+  it('web address: without the punctuation that ends the sentence or a ) that closes nothing', () => {
+    expect(spansOf('Go to https://example.com/path.')).toEqual([['url', 6, 30, 'https://example.com/path']]);
+    expect(spansOf('(see https://en.wikipedia.org/wiki/Mill_(grinding))')).toEqual([
+      ['url', 5, 50, 'https://en.wikipedia.org/wiki/Mill_(grinding)']
+    ]);
+    expect(spansOf('<https://example.com>')).toEqual([['url', 1, 20, 'https://example.com']]);
+  });
+
+  it('HTML: real elements whose attributes have values, and any tag with name=value', () => {
+    expect(spansOf('<span class="aside">Hush</span><br/>')).toEqual([
+      ['html', 0, 20, '<span class="aside">'],
+      ['html', 24, 31, '</span>'],
+      ['html', 31, 36, '<br/>']
+    ]);
+    expect(spansOf('<center>The End</center>')).toEqual([
+      ['html', 0, 8, '<center>'],
+      ['html', 15, 24, '</center>']
+    ]);
+    expect(spansOf('<x-note data-id="1">')).toEqual([['html', 0, 20, '<x-note data-id="1">']]);
+    expect(spansOf('One<BR>two')).toEqual([['html', 3, 7, '<BR>']]);
+  });
+});
+
+describe('syntaxSpans: prose that only looks like syntax', () => {
+  it("finds nothing in the plan's negatives", () => {
+    for (const text of [
+      '#1984',
+      'Room #4',
+      '$5 and $10',
+      '*em*',
+      '==hi==',
+      '\tShe kept walking, and the rain kept on.',
+      '5 < 6',
+      '<Where are you?>',
+      '<sigh>'
+    ]) {
+      expect(syntaxSpans(text), text).toEqual([]);
+    }
+  });
+
+  it('finds nothing in other prose: dialogue in angle brackets, lone markers, emphasis, lists, indented lines', () => {
+    for (const text of [
+      '<I know.>',
+      '<details open>',
+      'C# and F#',
+      'issue#5',
+      'C#minor, issue#five and "#quoted"',
+      'x^2 and ^ alone',
+      'E = mc^2',
+      '[!note] outside a quote',
+      '####### seven is too many',
+      '[[]] and [[a\nb]]',
+      '[sic] and [He paused.]',
+      'don`t',
+      '**bold**, ~~struck~~ and ***both***',
+      '- a list\n1. an item\n- [ ] a task',
+      '| a | b |\n| - | - |',
+      '    # not a heading\n    > not a quote',
+      '\t# not a heading\n\t---',
+      '50% and 20%',
+      'a ~ b',
+      '-- and --',
+      '[a](b c)',
+      '^[never closed'
+    ]) {
+      expect(syntaxSpans(text), text).toEqual([]);
+    }
+  });
+});
+
+describe('syntaxSpans: what wins', () => {
+  it('code, comments and maths hold what is inside them, whichever opens first', () => {
+    expect(spansOf('`%% not a comment %%`')).toEqual([['code', 0, 21, '`%% not a comment %%`']]);
+    expect(spansOf('%% `not code` %%')).toEqual([['comment', 0, 16, '%% `not code` %%']]);
+    expect(spansOf('$$ [[x]] $$')).toEqual([['math', 0, 11, '$$ [[x]] $$']]);
+  });
+
+  it('marks inside marks never overlap: a link in an inline footnote, code in link text', () => {
+    expect(spansOf('^[See [[Home]].]')).toEqual([
+      ['footnote', 0, 2, '^['],
+      ['wikilink', 6, 14, '[[Home]]'],
+      ['footnote', 15, 16, ']']
+    ]);
+    expect(spansOf('[a [b] `]` c](u)')).toEqual([
+      ['link', 0, 1, '['],
+      ['code', 7, 10, '`]`'],
+      ['link', 12, 16, '](u)']
+    ]);
+    expect(spansOf('[https://example.com](https://example.com)')).toEqual([
+      ['link', 0, 1, '['],
+      ['url', 1, 20, 'https://example.com'],
+      ['link', 20, 42, '](https://example.com)']
+    ]);
+  });
+
+  it('a character escaped with a backslash opens nothing', () => {
+    expect(spansOf('\\#draft \\[[Home]] \\`x\\` \\%%a\\%% \\<br>')).toEqual([]);
+    expect(spansOf('\\![[map.png]]')).toEqual([['wikilink', 2, 13, '[[map.png]]']]);
+  });
+
+  it('inline code and link text stop at a blank line', () => {
+    expect(spansOf('a `b\n\nc` d')).toEqual([]);
+    expect(spansOf('[a\n\nb](c)')).toEqual([]);
+  });
+});
+
+describe('bodyStart', () => {
+  it('is 0 without frontmatter, else just past the line break after the closing ---', () => {
+    expect(bodyStart('It rained.')).toBe(0);
+    expect(bodyStart('---\na: 1\n---\n\nBody')).toBe(13);
+    expect(bodyStart('---\na: 1\n---')).toBe(12);
+    expect(bodyStart('---\na: 1\n\nno close')).toBe(0);
+    expect(bodyStart('Text\n\n---\na: 1\n---')).toBe(0);
+  });
+
+  it('agrees with splitParagraphs on where the frontmatter ends', () => {
+    for (const text of ['---\na: 1\n---\nBody', '---\na: 1\n---\n\nBody', '---\na: 1\n---']) {
+      const front = splitParagraphs(text)[0]!;
+      expect(front.isFrontmatter, text).toBe(true);
+      expect(text.slice(front.end, bodyStart(text)), text).toBe(front.end < text.length ? '\n' : '');
+    }
+  });
+});
+
+describe('syntaxSignature', () => {
+  it("is each span's kind and text, in order", () => {
+    expect(syntaxSignature('A #tag and [[B]]')).toBe('[["tag","#tag"],["wikilink","[[B]]"]]');
+    expect(syntaxSignature('No syntax here.')).toBe('[]');
+  });
+
+  it('stays the same when only the prose around the syntax changes', () => {
+    expect(syntaxSignature('See [[Home|the house]] at noon. #draft')).toBe(
+      syntaxSignature('We left [[Home|the old house]] at dusk, #draft')
+    );
+  });
+
+  it('changes when a copyedit would change syntax without touching a span', () => {
+    // Two brackets joined make an internal link; a ! before one makes an embed.
+    expect(syntaxSignature('a [[Home]] b')).not.toBe(syntaxSignature('a [ [Home]] b'));
+    expect(syntaxSignature('a ![[map.png]] b')).not.toBe(syntaxSignature('a [[map.png]] b'));
+    // Letters run on into a tag; a backslash taken away makes one.
+    expect(syntaxSignature('#draft s')).not.toBe(syntaxSignature('#drafts'));
+    expect(syntaxSignature('\\#draft')).not.toBe(syntaxSignature('#draft'));
+    // A word after a block ID takes it off the end of its line.
+    expect(syntaxSignature('Text ^id')).not.toBe(syntaxSignature('Text ^id more'));
+  });
+});
+
+describe('MARKUP_CHARS', () => {
+  it('are the characters 11.3 (k) lists: [ ] % $ ^ # < > | ~, the backtick and the line break', () => {
+    expect([...MARKUP_CHARS].sort()).toEqual(
+      ['[', ']', '%', '$', '^', '#', '<', '>', '|', '~', '`', '\n'].sort()
+    );
+  });
+
+  it('hasMarkupChar finds any of them and nothing else', () => {
+    expect(hasMarkupChar('a,b')).toBe(false);
+    expect(hasMarkupChar('%ab%')).toBe(true);
+    for (const c of MARKUP_CHARS) expect(hasMarkupChar(`word${c}word`), JSON.stringify(c)).toBe(true);
+    expect(hasMarkupChar(`It's (nearly) done! *Really* -- = _ "so" / & @ ; : ? \\`)).toBe(false);
+    expect(hasMarkupChar('')).toBe(false);
+  });
+});
+
+describe('SYNTAX_LABELS', () => {
+  it('names every kind in plain words for the kept-out note', () => {
+    expect(Object.keys(SYNTAX_LABELS).sort()).toEqual([...SYNTAX_KINDS].sort());
+    expect(SYNTAX_LABELS).toEqual({
+      frontmatter: 'frontmatter',
+      code: 'code',
+      comment: 'a comment',
+      math: 'maths',
+      embed: 'an embed',
+      wikilink: 'an internal link',
+      link: 'a link',
+      image: 'an image',
+      footnote: 'a footnote',
+      'block-id': 'a block ID',
+      tag: 'a tag',
+      callout: 'a callout',
+      quote: 'a block quote',
+      heading: 'a heading',
+      'thematic-break': 'a horizontal rule',
+      url: 'a web address',
+      html: 'HTML'
+    });
+  });
+});
+
+describe('syntaxSpans: properties', () => {
+  /* Any text, built from pieces heavy in markup: whatever it holds, the spans
+     come in order, never overlap, are never empty and lie inside the text,
+     and only the frontmatter comes before bodyStart. */
+  const PIECES = [
+    'a',
+    'Mara',
+    ' ',
+    '\n',
+    '\n\n',
+    '\t',
+    '[',
+    ']',
+    '(',
+    ')',
+    '!',
+    '^',
+    '#',
+    '%',
+    '$',
+    '<',
+    '>',
+    '/',
+    '|',
+    '~',
+    '`',
+    '*',
+    '_',
+    '-',
+    '=',
+    ':',
+    '"',
+    "'",
+    '\\',
+    '1',
+    '\u00e9',
+    '\u{1F525}',
+    '[[',
+    ']]',
+    '%%',
+    '$$',
+    '<!--',
+    '-->',
+    '```',
+    '~~~',
+    '---',
+    '---\nk: v\n---\n',
+    '> ',
+    '# ',
+    '[!note]',
+    '[^1]',
+    '^[',
+    ' ^id',
+    'https://example.com/a',
+    '<span>',
+    '</b>',
+    '<a href="x">'
+  ];
+
+  it('spans are in order, never overlap, are never empty and lie inside the text', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.constantFrom(...PIECES), { maxLength: 60 }).map((pieces) => pieces.join('')),
+        (text) => {
+          const found = syntaxSpans(text);
+          const body = bodyStart(text);
+          let last = 0;
+          for (const span of found) {
+            expect(SYNTAX_KINDS).toContain(span.kind);
+            expect(span.start).toBeGreaterThanOrEqual(last);
+            expect(span.end).toBeGreaterThan(span.start);
+            expect(span.end).toBeLessThanOrEqual(text.length);
+            if (span.kind !== 'frontmatter') expect(span.start).toBeGreaterThanOrEqual(body);
+            last = span.end;
+          }
+          expect(found.filter((s) => s.kind === 'frontmatter')).toEqual(
+            body > 0 ? [{ kind: 'frontmatter', start: 0, end: body }] : []
+          );
+        }
+      ),
+      { numRuns: 1000 }
+    );
+  });
+
+  /* A chapter of prose lines and syntax, then one word outside every span
+     replaced: every span keeps its kind and text and moves by the change in
+     length, or not at all, so the signature is the same. Words in an alias,
+     link text, an inline footnote, a heading or a callout's title are among
+     those replaced; so are the words of prose that only looks like syntax. */
+  const WORDS = ['rain', 'night', 'river', 'Mara', 'lamp', 'stone', 'quiet', 'door'];
+  const MARKS = [
+    '[[Chapter 2]]',
+    '[[Chapter 2|the flood chapter]]',
+    '![[map.png]]',
+    '![[map.png|300]]',
+    '[the mill](https://example.com/mill)',
+    '[notes](<Mill notes.md> "Notes")',
+    '![a map](map.png)',
+    '[^1]',
+    '^[a note on the river]',
+    '#draft',
+    '#places/mill',
+    '(#draft)',
+    '`code`',
+    '``a ` b``',
+    '%%a private note%%',
+    '<!-- a note -->',
+    '$$x^2$$',
+    '<span>',
+    '</span>',
+    '<br/>',
+    '<span class="aside">',
+    'https://example.com/a_(b)',
+    '#1984',
+    'Room #4',
+    '$5 and $10',
+    '*em*',
+    '==hi==',
+    '5 < 6',
+    '<Where are you?>',
+    '<sigh>',
+    '<I know.>',
+    '[sic]',
+    '~',
+    '%',
+    '|'
+  ];
+  const OPENINGS = ['', '', '', '> ', '## ', '> [!note] ', '[^2]: ', '- ', '1. ', '\t'];
+  const ENDINGS = ['', '', ' ^mill-1'];
+  const BLOCKS = [
+    '---',
+    '* * *',
+    '```\nlet x = 1;\n```',
+    '~~~\ncode\n~~~',
+    '%%\nnote\n\nmore\n%%',
+    '$$\nx\n$$'
+  ];
+
+  const proseLine = fc
+    .tuple(
+      fc.constantFrom(...OPENINGS),
+      fc.array(fc.oneof(fc.constantFrom(...WORDS), fc.constantFrom(...MARKS)), {
+        minLength: 1,
+        maxLength: 8
+      }),
+      fc.constantFrom(...ENDINGS)
+    )
+    .map(([opening, tokens, ending]) => `${opening}${tokens.join(' ')}${ending}`);
+  const line = fc.oneof(
+    { weight: 4, arbitrary: proseLine },
+    { weight: 1, arbitrary: fc.constantFrom(...BLOCKS) }
+  );
+  const chapter = fc
+    .tuple(fc.boolean(), fc.array(fc.tuple(line, fc.boolean()), { minLength: 1, maxLength: 12 }))
+    .map(
+      ([front, lines]) =>
+        (front ? '---\ntitle: The Mill\n---\n' : '') +
+        lines.map(([text, blank], k) => (k === 0 ? '' : blank ? '\n\n' : '\n') + text).join('')
+    );
+
+  it('a prose edit outside every span moves the spans and changes nothing else', () => {
+    fc.assert(
+      fc.property(
+        chapter,
+        fc.nat(),
+        fc.constantFrom(...WORDS, 'the rain', 'Mara said'),
+        (text, pick, word) => {
+          const before = syntaxSpans(text);
+          const words = [...text.matchAll(/[A-Za-z]+/g)]
+            .map((m) => ({ start: m.index, end: m.index + m[0].length }))
+            .filter((w) => before.every((s) => s.end <= w.start || s.start >= w.end));
+          fc.pre(words.length > 0);
+          const target = words[pick % words.length]!;
+          const edited = text.slice(0, target.start) + word + text.slice(target.end);
+          const shift = word.length - (target.end - target.start);
+          expect(syntaxSpans(edited)).toEqual(
+            before.map((s) =>
+              s.start >= target.end ? { ...s, start: s.start + shift, end: s.end + shift } : s
+            )
+          );
+          expect(syntaxSignature(edited)).toBe(syntaxSignature(text));
+        }
+      ),
+      { numRuns: 500 }
     );
   });
 });
