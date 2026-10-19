@@ -125,9 +125,11 @@ describe('locateClaudeCode', () => {
    program it may run, or an older Claude Desktop's Claude.exe would be found
    and started with --version. `fs.stat` cannot follow an alias (EACCES), so
    it says no; this pins that against a change in Node or Electron, on the
-   real aliases of the machine the tests run on, Node listing each as a
-   symbolic link. None is ever run. Skipped off Windows, and where the folder
-   holds no alias. */
+   real aliases of the machine the tests run on: every `.exe` in the folder
+   that is not a folder itself. Node lists them as symbolic links today, but
+   the test does not ask for that, so a Node that listed them as plain files
+   would still be tested rather than skipped. None is ever run. Skipped off
+   Windows, and where the folder holds no `.exe`. */
 const WINDOWS_APPS =
   process.platform === 'win32' && process.env['LOCALAPPDATA']
     ? path.join(process.env['LOCALAPPDATA'], 'Microsoft', 'WindowsApps')
@@ -137,7 +139,7 @@ function windowsAppsAliases(): string[] {
   if (!WINDOWS_APPS) return [];
   try {
     return readdirSync(WINDOWS_APPS, { withFileTypes: true })
-      .filter((entry) => /\.exe$/i.test(entry.name) && entry.isSymbolicLink())
+      .filter((entry) => /\.exe$/i.test(entry.name) && !entry.isDirectory())
       .map((entry) => path.join(WINDOWS_APPS, entry.name));
   } catch {
     return [];
