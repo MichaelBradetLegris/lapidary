@@ -8,6 +8,8 @@ import {
   proPreselection
 } from '../../src/shared/ai/claudeModels';
 import { APP_NAME } from '../../src/shared/branding';
+import { normalizeSettings } from '../../src/shared/settings';
+import { welcomeAgainPatch, welcomeShown } from '../../src/shared/ui/welcome';
 import {
   FREE_PLAN_WARNING,
   LOGIN_EXPIRED_MESSAGE,
@@ -116,18 +118,58 @@ describe('Pro plans (setup.1)', () => {
     expect(isProPlan(undefined)).toBe(false);
   });
 
-  it('preselects Sonnet once for a new user on Pro', () => {
-    const patch = proPreselection(fresh, 'pro');
+  it('preselects Sonnet once for a new user on Pro, while the first guide is open', () => {
+    const patch = proPreselection(fresh, 'pro', true);
     expect(patch).toEqual({ model: 'sonnet', dismissedHints: [PRO_PRESELECT_HINT] });
-    expect(proPreselection({ ...fresh, ...patch! }, 'pro')).toBeNull();
-    expect(proPreselection({ ...fresh, dismissedHints: [PRO_PRESELECT_HINT] }, 'pro')).toBeNull();
+    expect(proPreselection({ ...fresh, ...patch! }, 'pro', true)).toBeNull();
+    expect(proPreselection({ ...fresh, dismissedHints: [PRO_PRESELECT_HINT] }, 'pro', true)).toBeNull();
   });
 
   it('never changes an existing setting, a chosen model or another plan', () => {
-    expect(proPreselection({ ...fresh, model: 'opus' }, 'pro')).toBeNull();
-    expect(proPreselection({ ...fresh, onboardingDone: true }, 'pro')).toBeNull();
-    expect(proPreselection(fresh, 'max')).toBeNull();
-    expect(proPreselection(fresh, undefined)).toBeNull();
+    expect(proPreselection({ ...fresh, model: 'opus' }, 'pro', true)).toBeNull();
+    expect(proPreselection({ ...fresh, onboardingDone: true }, 'pro', true)).toBeNull();
+    expect(proPreselection(fresh, 'max', true)).toBeNull();
+    expect(proPreselection(fresh, undefined, true)).toBeNull();
+  });
+
+  /* setup.11 review: Show the welcome guide again writes onboardingDone
+     false, which alone made an install on Pro whose model is Default look
+     new, and the next check moved it to Sonnet. */
+  it('never preselects on a guide brought back by Show the welcome guide again', () => {
+    const installs = [
+      // settings from before 1.0 that name a folder
+      normalizeSettings({ manuscriptFolder: 'C:/vault' }),
+      // a fresh install that pressed Skip before Claude was ready
+      { ...normalizeSettings({}), onboardingDone: true },
+      // one with the Save hint already put away
+      normalizeSettings({ manuscriptFolder: 'C:/vault', dismissedHints: ['save-to-chapter'] })
+    ];
+    for (const before of installs) {
+      expect(proPreselection(before, 'pro', welcomeShown(before))).toBeNull();
+      const again = { ...before, ...welcomeAgainPatch(before.dismissedHints) };
+      expect(welcomeShown(again)).toBe(true);
+      expect(again.model).toBe('default');
+      expect(proPreselection(again, 'pro', welcomeShown(again))).toBeNull();
+      expect(again.dismissedHints).toEqual([...before.dismissedHints, PRO_PRESELECT_HINT]);
+    }
+  });
+
+  /* setup.11 review, (b): the preselection belongs to the first guide (C.67).
+     Start or Skip before a check finds Claude ready leaves Default, and the
+     review dialog's Pro note says what it costs. */
+  it('leaves the model alone when Start or Skip came before the check that found Claude ready', () => {
+    const first = normalizeSettings({});
+    expect(proPreselection(first, 'pro', welcomeShown(first))).toEqual({
+      model: 'sonnet',
+      dismissedHints: [PRO_PRESELECT_HINT]
+    });
+    // Start or Skip, written
+    const done = { ...first, manuscriptFolder: 'C:/vault', onboardingDone: true };
+    expect(proPreselection(done, 'pro', welcomeShown(done))).toBeNull();
+    // Start or Skip whose write failed: main's settings still say not done,
+    // but the guide is closed for the rest of the run
+    expect(proPreselection(first, 'pro', welcomeShown(first, true))).toBeNull();
+    expect(proPlanNote('pro', done.model)).toBe(PRO_PLAN_NOTE);
   });
 
   it('notes the Pro limits for Opus and Default, not for Sonnet or Haiku', () => {

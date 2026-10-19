@@ -1,5 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { PRO_PRESELECT_HINT } from '../../src/shared/ai/claudeModels';
 import { APP_NAME } from '../../src/shared/branding';
 import type { EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../../src/shared/ipc';
 import { normalizeSettings } from '../../src/shared/settings';
@@ -15,6 +16,7 @@ import {
   USE_OPENAI,
   folderGuidelinesFact,
   folderReviewsFact,
+  welcomeAgainPatch,
   welcomeNotKept,
   welcomeShown,
   welcomeStart,
@@ -93,6 +95,33 @@ describe('welcomeShown', () => {
   it('does not show it for settings from before 1.0 that name a folder, unless asked for again', () => {
     expect(welcomeShown(normalizeSettings({ manuscriptFolder: FOLDER }))).toBe(false);
     expect(welcomeShown(normalizeSettings({ manuscriptFolder: FOLDER, onboardingDone: false }))).toBe(true);
+  });
+
+  /* setup.11 review: when writing Start or Skip failed, every later settings
+     reply carries main's false, which brought the guide back mid-session. */
+  it('keeps it closed for the run once Start or Skip was pressed, whatever the settings say', () => {
+    expect(welcomeShown(normalizeSettings({}), true)).toBe(false);
+    expect(welcomeShown(normalizeSettings({ manuscriptFolder: FOLDER, onboardingDone: false }), true)).toBe(
+      false
+    );
+    expect(welcomeShown(normalizeSettings({}), false)).toBe(true);
+    expect(welcomeShown(null, false)).toBe(false);
+  });
+});
+
+describe('welcomeAgainPatch (setup.11 review)', () => {
+  it('says the guide is not done and settles the Pro preselection in the same write', () => {
+    expect(welcomeAgainPatch([])).toEqual({ onboardingDone: false, dismissedHints: [PRO_PRESELECT_HINT] });
+  });
+
+  it('keeps the hints already put away, adds its own once, and leaves the array alone', () => {
+    const hints = Object.freeze(['save-to-chapter']);
+    expect(welcomeAgainPatch(hints).dismissedHints).toEqual(['save-to-chapter', PRO_PRESELECT_HINT]);
+    expect(hints).toEqual(['save-to-chapter']);
+    expect(welcomeAgainPatch([PRO_PRESELECT_HINT, 'save-to-chapter']).dismissedHints).toEqual([
+      PRO_PRESELECT_HINT,
+      'save-to-chapter'
+    ]);
   });
 });
 

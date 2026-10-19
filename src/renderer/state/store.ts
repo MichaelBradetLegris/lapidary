@@ -177,22 +177,23 @@ export function changedParagraphCount(drafts: Record<number, ParagraphDraft>): n
 /**
  * True while a dialog, a question, Settings, the Setup screen or the welcome
  * guide covers the page (`SaveShortcutContext.modalOpen`). The welcome guide
- * shows while the settings say it is not done (`welcomeShown`, setup.11); a
- * state without settings has none. The suggestion editor is a floating panel,
- * not a modal, and is not counted.
+ * shows while the settings say it is not done, unless Start or Skip closed it
+ * this session (`welcomeShown`, setup.11 and its review); a state without
+ * settings has none. The suggestion editor is a floating panel, not a modal,
+ * and is not counted.
  */
 export function isModalOpen(
   state: Pick<
     AppState,
     'confirmSpec' | 'settingsOpen' | 'setupOpen' | 'newChapterOpen' | 'manualReviewOpen' | 'reviewDialogOpen'
   > &
-    Partial<Pick<AppState, 'settings'>>
+    Partial<Pick<AppState, 'settings' | 'welcomeClosed'>>
 ): boolean {
   return (
     state.confirmSpec !== null ||
     state.settingsOpen ||
     state.setupOpen ||
-    welcomeShown(state.settings) ||
+    welcomeShown(state.settings, state.welcomeClosed) ||
     state.newChapterOpen ||
     state.manualReviewOpen ||
     state.reviewDialogOpen
@@ -222,7 +223,7 @@ export function reviewKeysActive(
     | 'manualReviewOpen'
     | 'reviewDialogOpen'
   > &
-    Partial<Pick<AppState, 'settings'>>
+    Partial<Pick<AppState, 'settings' | 'welcomeClosed'>>
 ): boolean {
   return state.review !== null && state.editor === null && !isModalOpen(state) && !isLocked(state);
 }
@@ -341,6 +342,13 @@ export interface AppState {
   settingsOpen: boolean;
   /** the Claude Setup screen stands in place of the chapter */
   setupOpen: boolean;
+  /**
+   * Start or Skip closed the welcome guide in this run (setup.11 review). It
+   * keeps the guide away even while the settings still say it is not done,
+   * as after a write of `onboardingDone` that failed, until Show the welcome
+   * guide again has written its settings (`state/welcome.ts`).
+   */
+  welcomeClosed: boolean;
   /** Save to chapter is writing the file (`state/saveChapter.ts`); decisions wait meanwhile */
   chapterSaving: boolean;
   /** paragraphs open for editing in place, keyed by their first paragraph index */
@@ -407,6 +415,7 @@ export interface AppState {
   setReviewDialogOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setSetupOpen: (open: boolean) => void;
+  setWelcomeClosed: (closed: boolean) => void;
   setChapterSaving: (saving: boolean) => void;
   /** say whether a dialog holds text the author typed; unchanged state sets nothing */
   setDialogText: (source: DialogTextSource, typed: boolean) => void;
@@ -488,6 +497,7 @@ export const useApp = create<AppState>()((set, get) => ({
   reviewDialogOpen: false,
   settingsOpen: false,
   setupOpen: false,
+  welcomeClosed: false,
   chapterSaving: false,
   drafts: {},
   aiBusyPath: null,
@@ -688,6 +698,7 @@ export const useApp = create<AppState>()((set, get) => ({
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
 
   setSetupOpen: (setupOpen) => set({ setupOpen }),
+  setWelcomeClosed: (welcomeClosed) => set({ welcomeClosed }),
 
   setChapterSaving: (chapterSaving) => set({ chapterSaving }),
 

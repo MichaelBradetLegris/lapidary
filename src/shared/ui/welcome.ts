@@ -16,6 +16,7 @@
  * Pure (CLAUDE.md rule 4).
  */
 
+import { PRO_PRESELECT_HINT } from '../ai/claudeModels';
 import { APP_NAME } from '../branding';
 import type { EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../ipc';
 import type { Provider, Settings } from '../types';
@@ -26,15 +27,38 @@ import {
   fileName,
   openGuidelinesTitle
 } from './guidelines';
+import { withHint } from './saveHint';
 import { runtimeLabel, setupStatus, setupView, type LastFailure } from './setup';
 
 /**
  * Whether the guide shows: once the settings are in, until Start or Skip.
  * Settings from before 1.0 count as done when they name a manuscript folder
  * (`normalizeSettings`, 11.3 d), so an existing install never sees it unasked.
+ *
+ * `closedThisSession` is Start or Skip pressed in this run (the store's
+ * `welcomeClosed`). It keeps the guide away even while the settings still say
+ * it is not done: when writing `onboardingDone` failed, every later settings
+ * reply carries main's `false`, and the guide must not come back over the
+ * chapter mid-session (`setup.11` review).
  */
-export function welcomeShown(settings: Pick<Settings, 'onboardingDone'> | null | undefined): boolean {
-  return settings !== null && settings !== undefined && !settings.onboardingDone;
+export function welcomeShown(
+  settings: Pick<Settings, 'onboardingDone'> | null | undefined,
+  closedThisSession = false
+): boolean {
+  return settings !== null && settings !== undefined && !settings.onboardingDone && !closedThisSession;
+}
+
+/**
+ * What Settings' Show the welcome guide again writes: the guide is not done,
+ * and the Pro preselection (`proPreselection`, setup.1) counts as settled, in
+ * the same write, so bringing the guide back never changes the model
+ * (`setup.11` review). `dismissedHints` is the setting as it stands; the
+ * array is not changed.
+ */
+export function welcomeAgainPatch(
+  dismissedHints: readonly string[]
+): Pick<Settings, 'onboardingDone' | 'dismissedHints'> {
+  return { onboardingDone: false, dismissedHints: withHint(dismissedHints, PRO_PRESELECT_HINT) };
 }
 
 export const WELCOME_TITLE = `Welcome to ${APP_NAME}`;

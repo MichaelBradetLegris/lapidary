@@ -71,6 +71,7 @@ describe('when it shows (apply.12)', () => {
     saving: false,
     sideFolded: false,
     editingParagraph: false,
+    singleScreen: false,
     setAside: false
   };
 
@@ -113,6 +114,15 @@ describe('when it shows (apply.12)', () => {
     expect(saveHintVisible({ ...base, setAside: true })).toBe(true);
   });
 
+  /* setup.11 review: shown again over a chapter with a change not saved, the
+     hint hung over the welcome guide, and in the smallest window over its
+     Skip, as over the Setup screen's Close. */
+  it('waits while the Setup screen or the welcome guide is up, and shows again when it closes', () => {
+    expect(saveHintVisible({ ...base, singleScreen: true })).toBe(false);
+    expect(saveHintVisible({ ...base, singleScreen: true, sideFolded: true })).toBe(false);
+    expect(saveHintVisible({ ...base, singleScreen: false })).toBe(true);
+  });
+
   it('shows exactly when every condition holds', () => {
     fc.assert(
       fc.property(
@@ -125,6 +135,7 @@ describe('when it shows (apply.12)', () => {
           saving: fc.boolean(),
           sideFolded: fc.boolean(),
           editingParagraph: fc.boolean(),
+          singleScreen: fc.boolean(),
           setAside: fc.boolean()
         }),
         (input) => {
@@ -136,6 +147,7 @@ describe('when it shows (apply.12)', () => {
             input.unsavedDecisions > 0 &&
             !input.locked &&
             !input.saving &&
+            !input.singleScreen &&
             !(input.sideFolded && (input.editingParagraph || input.setAside));
           expect(saveHintVisible(input)).toBe(expected);
         }

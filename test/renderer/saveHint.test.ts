@@ -39,7 +39,7 @@ const zIndexes = (): number[] => [...CSS.matchAll(/z-index:\s*(\d+)/g)].map((m) 
 describe('the toolbar shows the hint (apply.12)', () => {
   it('decides with saveHintVisible from what it already draws Save to chapter with', () => {
     expect(TOOLBAR).toMatch(
-      /saveHintVisible\(\{\s*dismissedHints,\s*dismissedThisSession: hintDismissedThisSession\(SAVE_HINT_ID\),\s*hasChapter: input\.hasChapter,\s*unsavedDecisions: input\.unsavedDecisions,\s*locked,\s*saving,\s*sideFolded,\s*editingParagraph: editing > 0,\s*setAside: hintSetAside\s*\}\)/
+      /saveHintVisible\(\{\s*dismissedHints,\s*dismissedThisSession: hintDismissedThisSession\(SAVE_HINT_ID\),\s*hasChapter: input\.hasChapter,\s*unsavedDecisions: input\.unsavedDecisions,\s*locked,\s*saving,\s*sideFolded,\s*editingParagraph: editing > 0,\s*singleScreen,\s*setAside: hintSetAside\s*\}\)/
     );
     expect(TOOLBAR).toContain('useApp((s) => s.settings?.dismissedHints ?? null)');
     expect(TOOLBAR).toContain('const editing = useApp((s) => Object.keys(s.drafts).length);');
@@ -164,10 +164,20 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
     expect(declsFor('.findbar').get('position')).toBeUndefined();
   });
 
+  /* setup.11 review: the hint hung over the welcome guide and the Setup
+     screen, and in the smallest window covered the guide's Skip and Setup's
+     Close. When it waits is `saveHintVisible` (test/shared/saveHint.test.ts). */
+  it('waits while the Setup screen or the welcome guide is up, as App tells the toolbar', () => {
+    expect(APP).toContain('const singleScreen = setupOpen || welcomeOpen;');
+    const toolbar = APP.slice(APP.indexOf('<Toolbar'), APP.indexOf('/>', APP.indexOf('<Toolbar')));
+    expect(toolbar).toContain('singleScreen={singleScreen}');
+    expect(TOOLBAR).toMatch(/sideFolded,\s*singleScreen,\s*onReviewWithAi,/);
+  });
+
   it('stays under the cards on the Setup screen, where they sit in the flow above it (setup.7)', () => {
-    // No side panel there: the hint takes the toolbar's width, and the cards
-    // are at the top of the Setup column, before the screen in the flow,
-    // positioned so their layer counts.
+    // The cards are at the top of the Setup column, before the screen in the
+    // flow, positioned so their layer counts; the hint waits there now
+    // (setup.11 review), but a card would win should the two ever meet.
     const setup = APP.slice(APP.indexOf('if (singleScreen) {'), APP.lastIndexOf('return ('));
     expect(setup).toMatch(
       /<div className="body body--single">\s*<NotificationCards onAction=\{onCardAction\} \/>\s*\{setupOpen \? \(\s*<SetupScreen\s/

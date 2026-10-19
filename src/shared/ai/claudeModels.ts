@@ -182,7 +182,11 @@ export function isProPlan(subscriptionType: string | undefined): boolean {
   return subscriptionType !== undefined && /\bpro\b/i.test(subscriptionType);
 }
 
-/** Recorded in `dismissedHints` once Sonnet was preselected, so it happens only once. */
+/**
+ * Recorded in `dismissedHints` once Sonnet was preselected, so it happens only
+ * once, and by Show the welcome guide again (`welcomeAgainPatch`), so a guide
+ * brought back never preselects.
+ */
 export const PRO_PRESELECT_HINT = 'pro-model-preselected';
 
 export const PRO_PLAN_NOTE =
@@ -200,16 +204,22 @@ export function proPlanNote(subscriptionType: string | undefined, model: string)
 
 /**
  * The settings patch that preselects Sonnet for a new user on a Pro plan, or
- * null. Only once, only before the welcome is finished, and only while the
- * model is still the untouched `default`: an existing settings file, or a
- * model the author picked, is never changed.
+ * null. Only once, only while the model is still the untouched `default`, and
+ * only while the first welcome guide is open (`guideOpen`, the page's
+ * `welcomeShown`): an existing settings file, or a model the author picked, is
+ * never changed. Start and Skip close the guide for good, so a check that
+ * finds Claude ready only after them leaves the model as it is, and Show the
+ * welcome guide again settles the preselection in the same write that brings
+ * the guide back (`welcomeAgainPatch`), so the guide shown again never
+ * preselects (`setup.11` review, PLAN C.67).
  */
 export function proPreselection(
   settings: { model: string; onboardingDone: boolean; dismissedHints: readonly string[] },
-  subscriptionType: string | undefined
+  subscriptionType: string | undefined,
+  guideOpen: boolean
 ): { model: string; dismissedHints: string[] } | null {
   if (!isProPlan(subscriptionType)) return null;
-  if (settings.onboardingDone || settings.model !== 'default') return null;
+  if (!guideOpen || settings.onboardingDone || settings.model !== 'default') return null;
   if (settings.dismissedHints.includes(PRO_PRESELECT_HINT)) return null;
   return { model: 'sonnet', dismissedHints: [...settings.dismissedHints, PRO_PRESELECT_HINT] };
 }

@@ -18,7 +18,8 @@ const SCREEN = read('components/WelcomeScreen.tsx');
 
 describe('when the guide shows (setup.11)', () => {
   it('shows while the settings say the guide is not done, in the layout the Setup screen has', () => {
-    expect(APP).toContain('const welcomeOpen = welcomeShown(settings);');
+    expect(APP).toContain('const welcomeClosed = useApp((s) => s.welcomeClosed);');
+    expect(APP).toContain('const welcomeOpen = welcomeShown(settings, welcomeClosed);');
     expect(APP).toContain('const singleScreen = setupOpen || welcomeOpen;');
     expect(APP.indexOf('if (singleScreen) {')).toBeGreaterThan(APP.indexOf('const inert = shellInert('));
   });
@@ -57,10 +58,22 @@ describe('when the guide shows (setup.11)', () => {
 
 describe('Start, Skip and Show the welcome guide again', () => {
   it('Start and Skip put the guide away at once and write onboardingDone, a failure saying so', () => {
+    // What closeWelcome does is tested in welcomeState.test.ts.
     const finish = APP.slice(APP.indexOf('const finishWelcome = '), APP.indexOf('const chooseProvider = '));
     expect(finish).toMatch(
-      /const current = useApp\.getState\(\)\.settings;\s*if \(current\) setSettings\(\{ \.\.\.current, onboardingDone: true \}\);\s*void call\('settings:set', \{ onboardingDone: true \}\)\s*\.then\(setSettings\)\s*\.catch\(\(err: unknown\) => notify\('error', welcomeNotKept\(errorMessage\(err\)\)\)\);/
+      /void closeWelcome\(WELCOME_IO\)\.catch\(\(err: unknown\) =>\s*notify\('error', welcomeNotKept\(errorMessage\(err\)\)\)\s*\);/
     );
+    expect(APP).toMatch(
+      /const WELCOME_IO: WelcomeIo = \{\s*setSettings: \(patch\) => call\('settings:set', patch\)\s*\};/
+    );
+  });
+
+  it('offers Sonnet on Pro only while the guide is open (setup.11 review)', () => {
+    expect(APP).toContain(
+      'const patch = proPreselection(settings, claudeRuntime.subscriptionType, welcomeOpen);'
+    );
+    expect(APP).toContain('}, [settings, claudeRuntime, welcomeOpen, setSettings]);');
+    expect(APP.indexOf('const welcomeOpen = ')).toBeLessThan(APP.indexOf('proPreselection(settings'));
   });
 
   it('Use OpenAI instead and Use Claude instead write the provider', () => {
@@ -76,8 +89,9 @@ describe('Start, Skip and Show the welcome guide again', () => {
       APP.indexOf('const showWelcomeAgain = '),
       APP.indexOf('const refuseWhileEditing = ')
     );
+    // What reopenWelcome writes is tested in welcomeState.test.ts.
     expect(again).toMatch(
-      /setSettingsOpen\(false\);\s*setSetupOpen\(false\);\s*void call\('settings:set', \{ onboardingDone: false \}\)\.then\(setSettings\)\.catch\(fail\);/
+      /setSettingsOpen\(false\);\s*setSetupOpen\(false\);\s*void reopenWelcome\(WELCOME_IO\)\.catch\(fail\);/
     );
     expect(APP).toContain('onShowWelcome={showWelcomeAgain}');
     const settings = read('components/SettingsDialog.tsx');
@@ -133,6 +147,8 @@ describe('what the guide reads, and when', () => {
 describe('the page behind it', () => {
   it('counts the guide as covering the page, so the review keys and Ctrl+S do nothing there', () => {
     const store = read('state/store.ts');
-    expect(store).toMatch(/state\.setupOpen \|\|\s*welcomeShown\(state\.settings\) \|\|/);
+    expect(store).toMatch(
+      /state\.setupOpen \|\|\s*welcomeShown\(state\.settings, state\.welcomeClosed\) \|\|/
+    );
   });
 });

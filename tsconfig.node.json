@@ -20,6 +20,7 @@
     "src/renderer/state/closeGuard.ts",
     "src/renderer/state/hints.ts",
     "src/renderer/state/split.ts",
+    "src/renderer/state/welcome.ts",
     "scripts/**/*.ts",
     "test/**/*.ts",
     "electron.vite.config.ts",

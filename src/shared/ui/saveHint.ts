@@ -6,7 +6,8 @@
  * adding its id to the `dismissedHints` setting (PLAN 11.3 d). Until then it
  * shows whenever a change is not saved to the chapter; nothing else dismisses
  * it, though in a narrow window, with the side panel folded, it gives way to
- * the prose (ui.3, `saveHintVisible`).
+ * the prose (ui.3, `saveHintVisible`), and it waits while the Setup screen or
+ * the welcome guide is up (`setup.11` review).
  *
  * The words, when it shows and where it sits are decided here, so each has a
  * test; `SaveHint.tsx` draws it and `state/hints.ts` writes the setting.
@@ -74,6 +75,12 @@ export interface SaveHintInput {
   /** a paragraph is open for editing in place (PLAN 7.4) */
   editingParagraph: boolean;
   /**
+   * The Setup screen or the welcome guide stands in place of the chapter
+   * (App's `singleScreen`). Neither has a side panel, so the hint would hang
+   * over the screen itself, and in a small window over its Close or Skip.
+   */
+  singleScreen: boolean;
+  /**
    * The author went on after the hint had shown over the prose: pressed
    * somewhere else, used a review key or opened a drawer (`saveHintGivesWay`
    * in `src/renderer/state/hints.ts`). It holds for the rest of the session.
@@ -92,10 +99,15 @@ export interface SaveHintInput {
  * text and Done it would cover, and once the author has gone on after seeing it,
  * it stays away while the panel is folded. Drawn in place, the panel is where
  * the hint hangs, and it shows there as before.
+ *
+ * While the Setup screen or the welcome guide is up it waits, and shows again
+ * when they close: they have no side panel, and in the smallest window the
+ * hint covered the guide's Skip and Setup's Close (`setup.11` review).
  */
 export function saveHintVisible(input: SaveHintInput): boolean {
   if (input.dismissedHints === null) return false;
   if (input.dismissedThisSession || input.dismissedHints.includes(SAVE_HINT_ID)) return false;
+  if (input.singleScreen) return false;
   if (input.sideFolded && (input.editingParagraph || input.setAside)) return false;
   return input.hasChapter && input.unsavedDecisions > 0 && !input.locked && !input.saving;
 }
@@ -121,8 +133,9 @@ export interface SaveHintMeasure {
   /**
    * The side panel's column, which the hint stays inside, so it never meets the
    * notification cards, the find bar or the chapter's text in the column beside
-   * it. Null when the page has no side panel (the Setup screen), and then the
-   * hint may use the toolbar's whole width.
+   * it. Null when the page has no side panel, and then the hint may use the
+   * toolbar's whole width. The Setup screen and the welcome guide have none,
+   * but the hint waits while they are up (`saveHintVisible`).
    */
   column: Span | null;
   /** the toolbar's items on rows below Save to chapter's, which the arrow must not point at */

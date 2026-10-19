@@ -64,6 +64,7 @@ import { useKeyboardBindings } from './state/keyboard';
 import { useProgressLabel } from './state/progress';
 import { reviewWithoutSaving, saveThenReview } from './state/reviewStart';
 import { useApp, type NotificationAction } from './state/store';
+import { closeWelcome, reopenWelcome, type WelcomeIo } from './state/welcome';
 import {
   flushReviewWrites,
   installReviewPersistence,
@@ -106,6 +107,11 @@ const CLOSE_GUARD_IO: CloseGuardIo = {
 
 /** How a one-time hint is put away for good (apply.12, state/hints.ts). */
 const HINT_IO: HintIo = {
+  setSettings: (patch) => call('settings:set', patch)
+};
+
+/** How Start, Skip and Show the welcome guide again write the settings (setup.11, state/welcome.ts). */
+const WELCOME_IO: WelcomeIo = {
   setSettings: (patch) => call('settings:set', patch)
 };
 
@@ -165,6 +171,7 @@ export function App(): React.JSX.Element {
   const setSettingsOpen = useApp((s) => s.setSettingsOpen);
   const setupOpen = useApp((s) => s.setupOpen);
   const setSetupOpen = useApp((s) => s.setSetupOpen);
+  const welcomeClosed = useApp((s) => s.welcomeClosed);
   const chapterSaving = useApp((s) => s.chapterSaving);
   const questionOpen = useApp((s) => s.confirmSpec !== null);
 
@@ -177,15 +184,23 @@ export function App(): React.JSX.Element {
   const claudeRuntime = ai.runtimes.claude ?? null;
   const progressLabel = useProgressLabel(ai.running, ai.startedAt, ai.progress?.outputTokens);
 
-  /* A new user on a Pro plan starts on Sonnet, once (setup.1, Appendix D 12). */
+  /* The welcome guide, until Start or Skip (setup.11): a fresh install has no
+     settings file, so `onboardingDone` is false. Start and Skip close it for
+     the rest of the run even when that could not be written (`welcomeClosed`,
+     setup.11 review). */
+  const welcomeOpen = welcomeShown(settings, welcomeClosed);
+
+  /* A new user on a Pro plan starts on Sonnet, once, when a check finds Claude
+     ready while the first welcome guide is open (setup.1, Appendix D 12,
+     C.67). */
   useEffect(() => {
     if (!settings || claudeRuntime?.state !== 'ready') return;
-    const patch = proPreselection(settings, claudeRuntime.subscriptionType);
+    const patch = proPreselection(settings, claudeRuntime.subscriptionType, welcomeOpen);
     if (!patch) return;
     void call('settings:set', patch)
       .then(setSettings)
       .catch(() => undefined);
-  }, [settings, claudeRuntime, setSettings]);
+  }, [settings, claudeRuntime, welcomeOpen, setSettings]);
 
   const fail = useCallback((err: unknown) => notify('error', errorMessage(err)), [notify]);
 
@@ -195,9 +210,6 @@ export function App(): React.JSX.Element {
   const claudeView = setupView(claudeRuntime, ai.lastFailure);
   const claudeInUse = activeProvider === 'claude' || setupOpen;
   const settingsLoaded = settings !== null;
-  /* The welcome guide, until Start or Skip (setup.11): a fresh install has no
-     settings file, so `onboardingDone` is false. */
-  const welcomeOpen = welcomeShown(settings);
 
   /* The launch card (section 7): once the settings and Claude's first check
      are in, a card says what Setup has to do when Claude is the provider,
@@ -678,16 +690,13 @@ export function App(): React.JSX.Element {
 
   /* ---------------- the welcome guide (setup.11) ---------------- */
 
-  /* Start and Skip put the guide away for good. It goes at once; the setting
-     is written after, and a write that fails says so in a card, since the
-     guide then shows again at the next start. */
+  /* Start and Skip put the guide away for good. It goes at once and stays
+     away for the rest of the run (`closeWelcome`); the setting is written
+     after, and a write that fails says so in a card, since the guide then
+     shows again at the next start. */
   const finishWelcome = useCallback(() => {
-    const current = useApp.getState().settings;
-    if (current) setSettings({ ...current, onboardingDone: true });
-    void call('settings:set', { onboardingDone: true })
-      .then(setSettings)
-      .catch((err: unknown) => notify('error', welcomeNotKept(errorMessage(err))));
-  }, [setSettings, notify]);
+    void closeWelcome(WELCOME_IO).catch((err: unknown) => notify('error', welcomeNotKept(errorMessage(err))));
+  }, [notify]);
 
   /* Use OpenAI instead, and Use Claude instead, in the guide's first step:
      the provider Review with AI starts with. */
@@ -699,12 +708,14 @@ export function App(): React.JSX.Element {
   );
 
   /* Settings' "Show the welcome guide again": the guide comes back in place
-     of the main view, so Settings and Setup, which would cover it, close. */
+     of the main view, so Settings and Setup, which would cover it, close. The
+     same write settles the Pro preselection, so the model stays as it is
+     (`reopenWelcome`, setup.11 review). */
   const showWelcomeAgain = useCallback(() => {
     setSettingsOpen(false);
     setSetupOpen(false);
-    void call('settings:set', { onboardingDone: false }).then(setSettings).catch(fail);
-  }, [setSettingsOpen, setSetupOpen, setSettings, fail]);
+    void reopenWelcome(WELCOME_IO).catch(fail);
+  }, [setSettingsOpen, setSetupOpen, fail]);
 
   /** A new review replaces the working set, so open paragraph editors must be dealt with first. */
   const refuseWhileEditing = useCallback((): boolean => {
@@ -868,7 +879,8 @@ export function App(): React.JSX.Element {
 
   // The first-use hint hangs over the prose when the side panel is folded
   // (ui.3); the Setup screen and the welcome guide have no side panel,
-  // folded or not.
+  // folded or not, and while either is up the hint waits, since it would
+  // hang over their own buttons (setup.11 review).
   const singleScreen = setupOpen || welcomeOpen;
   const sideFolded = layout.side === 'strip' && !singleScreen;
 
@@ -879,6 +891,7 @@ export function App(): React.JSX.Element {
       progressLabel={progressLabel}
       saving={chapterSaving}
       sideFolded={sideFolded}
+      singleScreen={singleScreen}
       onReviewWithAi={openReviewDialog}
       onCancelReview={ai.cancel}
       onManualReview={openManualReview}

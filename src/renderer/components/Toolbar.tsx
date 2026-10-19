@@ -16,6 +16,11 @@ interface Props {
   saving: boolean;
   /** the side panel is folded to a strip, so the first-use hint hangs over the prose (ui.3) */
   sideFolded: boolean;
+  /**
+   * the Setup screen or the welcome guide stands in place of the chapter, so
+   * the first-use hint waits (`setup.11` review)
+   */
+  singleScreen: boolean;
   onReviewWithAi: () => void;
   onCancelReview: () => void;
   onManualReview: () => void;
@@ -111,7 +116,8 @@ function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): R
  * The first time one of those changes is waiting, a hint hangs under the
  * toolbar with its arrow on Save to chapter, until Got it or a save puts it
  * away for good (apply.12, `saveHintVisible`). With the side panel folded it
- * hangs over the prose, and gives way there (ui.3 review).
+ * hangs over the prose, and gives way there (ui.3 review); while the Setup
+ * screen or the welcome guide is up it waits (`setup.11` review).
  */
 export function Toolbar({
   review,
@@ -119,6 +125,7 @@ export function Toolbar({
   progressLabel,
   saving,
   sideFolded,
+  singleScreen,
   onReviewWithAi,
   onCancelReview,
   onManualReview,
@@ -148,6 +155,7 @@ export function Toolbar({
     saving,
     sideFolded,
     editingParagraph: editing > 0,
+    singleScreen,
     setAside: hintSetAside
   });
 

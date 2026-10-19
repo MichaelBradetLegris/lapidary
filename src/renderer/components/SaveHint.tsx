@@ -73,7 +73,8 @@ export function SaveHint({ anchor, text, overProse, onGotIt }: Props): React.JSX
       const s = button.getBoundingClientRect();
       const span = (r: DOMRect): Span => ({ left: r.left - b.left, right: r.right - b.left });
       // The side panel's column, drawn in place or, folded, its drawer's,
-      // open or not, beside the strip (ui.3); the Setup screen has none.
+      // open or not, beside the strip (ui.3). The Setup screen and the welcome
+      // guide have none, but the hint waits while they are up (`saveHintVisible`).
       const side = document.querySelector('.body .side')?.getBoundingClientRect();
       // The toolbar's items on rows below Save to chapter's.
       const below = [...bar.children]
