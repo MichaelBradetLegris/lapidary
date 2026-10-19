@@ -91,6 +91,31 @@ describe('review store', () => {
     expect(useApp.getState().focusedHunkId).toBe(ids[0]);
   });
 
+  /* small.9 (PLAN 11.7): Shift+J and Shift+K, and j and k from the screen. */
+  it('goes to the next pending change and wraps, with pendingOnly', () => {
+    const ids = useApp.getState().review!.hunks.map((h) => h.id);
+    useApp.getState().focusHunk(ids[0]!);
+    useApp.getState().moveFocus(1, { pendingOnly: true });
+    expect(useApp.getState().focusedHunkId).toBe(ids[1]);
+    useApp.getState().moveFocus(1, { pendingOnly: true });
+    expect(useApp.getState().focusedHunkId).toBe(ids[0]);
+    useApp.getState().setHunkStatus(ids[1]!, 'accepted');
+    useApp.getState().moveFocus(1, { pendingOnly: true });
+    expect(useApp.getState().focusedHunkId).toBe(ids[0]);
+    useApp.getState().setHunkStatus(ids[0]!, 'dismissed');
+    const token = useApp.getState().focusScrollToken;
+    useApp.getState().moveFocus(1, { pendingOnly: true });
+    expect(useApp.getState().focusScrollToken).toBe(token);
+  });
+
+  it('starts from what is on screen when the focus is off it', () => {
+    const hunks = useApp.getState().review!.hunks;
+    const last = hunks[hunks.length - 1]!;
+    useApp.getState().focusHunk(hunks[0]!.id);
+    useApp.getState().moveFocus(1, { view: { start: last.start, end: last.end } });
+    expect(useApp.getState().focusedHunkId).toBe(last.id);
+  });
+
   it('hides and shows a category', () => {
     useApp.getState().toggleCategory('other');
     expect(useApp.getState().hiddenCategories).toEqual(['other']);

@@ -124,12 +124,30 @@ describe('the key handler asks it (apply.20 review)', () => {
   it('returns before any of j, k, the arrows, a, u, d, e or n is acted on', () => {
     const guard = code.indexOf('if (!reviewKeysActive(state)) return;');
     expect(guard).toBeGreaterThan(code.indexOf('if (isTypingTarget(event.target)) return;'));
-    expect(guard).toBeLessThan(code.indexOf('switch (event.key)'));
+    expect(guard).toBeLessThan(code.indexOf('switch (key)'));
     for (const key of ['j', 'k', 'ArrowDown', 'ArrowUp', 'a', 'u', 'd', 'e', 'n']) {
       expect(code.indexOf(`case '${key}':`), key).toBeGreaterThan(guard);
     }
     // The older guard, which let them through behind every dialog but a question, is gone.
     expect(code).not.toContain('state.confirmSpec || state.editor');
+  });
+
+  /* small.9 (PLAN 11.7): Caps Lock turned j and k off, as only lower case was
+     handled; Shift is read from the event, and Shift+J and Shift+K go to the
+     pending changes, starting from what is on screen. */
+  it('reads letters by their lower case and Shift from the event, and starts j and k from the screen', () => {
+    expect(code).toContain('const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;');
+    expect(code).toContain('if (!step && key.length === 1 && event.shiftKey) return;');
+    expect(code).toContain(
+      "state.moveFocus(1, { pendingOnly: key === 'j' && event.shiftKey, view: view() });"
+    );
+    expect(code).toContain(
+      "state.moveFocus(-1, { pendingOnly: key === 'k' && event.shiftKey, view: view() });"
+    );
+    expect(code).toContain("readingRange(document.querySelector('.center'))");
+    expect(code.indexOf('const key = ')).toBeGreaterThan(
+      code.indexOf('if (!reviewKeysActive(state)) return;')
+    );
   });
 
   it('opens the find bar on Ctrl+F only when nothing covers the page', () => {

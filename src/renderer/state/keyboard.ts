@@ -7,7 +7,7 @@ import { closeDrawer, inOpenDrawer, popupTakesEscape, useDrawer } from './column
 import { editHunk } from './edit';
 import { saveHintGivesWay } from './hints';
 import { SAVE_CARD, type SaveOptions, type SaveOutcome } from './saveChapter';
-import { scrollToElement } from './scroll';
+import { readingRange, scrollToElement } from './scroll';
 import { isModalOpen, reviewKeysActive, saveShortcutContext, useApp } from './store';
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -17,7 +17,8 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * Review-pane keys from the plan section 7: j/k move, a accepts, u returns to
+ * Review-pane keys from the plan section 7: j/k move, Shift+J and Shift+K go to
+ * the next and previous pending change (11.7, small.9), a accepts, u returns to
  * pending, d toggles dismissed, n jumps to the next commented paragraph.
  * Ctrl+F opens the find bar (item 11) and Escape closes it. Ctrl+S, or Cmd+S,
  * runs Save to chapter (apply.3), wherever the focus is, under the rules of
@@ -121,14 +122,24 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
          (ui.6); the handle has already moved. */
       if (splitTakesKey(event.key, event.target instanceof HTMLElement ? event.target : null)) return;
 
-      switch (event.key) {
+      /* Letters by their lower case, so Caps Lock does not turn the keys off;
+         Shift is read from the event. Shift+J and Shift+K go to the next and
+         previous pending change; with any other letter Shift does nothing,
+         as before. j, k and the arrows start from the paragraphs on screen
+         when the focus is not on screen (11.7, small.9). */
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      const step = key === 'j' || key === 'k' || key === 'ArrowDown' || key === 'ArrowUp';
+      if (!step && key.length === 1 && event.shiftKey) return;
+      const view = (): ReturnType<typeof readingRange> => readingRange(document.querySelector('.center'));
+
+      switch (key) {
         case 'j':
         case 'ArrowDown':
-          state.moveFocus(1);
+          state.moveFocus(1, { pendingOnly: key === 'j' && event.shiftKey, view: view() });
           break;
         case 'k':
         case 'ArrowUp':
-          state.moveFocus(-1);
+          state.moveFocus(-1, { pendingOnly: key === 'k' && event.shiftKey, view: view() });
           break;
         case 'a':
           if (focused) state.setHunkStatus(focused, 'accepted');

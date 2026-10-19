@@ -264,7 +264,7 @@ describe('the first-use hint gives way to the prose with the side panel folded (
   });
 
   it('takes a review key, after it has acted, as the author going on', () => {
-    const keys = KEYS.slice(KEYS.indexOf('switch (event.key)'));
+    const keys = KEYS.slice(KEYS.indexOf('switch (key)'));
     expect(keys).toMatch(
       /default:\s*return;\s*\}\s*event\.preventDefault\(\);\s*saveHintGivesWay\(\);\s*\};/
     );

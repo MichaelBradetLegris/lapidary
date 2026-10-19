@@ -242,7 +242,7 @@ describe('the handle in the side panel', () => {
   it('keeps the review keys from moving the focus while it takes the arrows', () => {
     const takes = KEYBOARD.indexOf('if (splitTakesKey(event.key,');
     expect(takes).toBeGreaterThan(-1);
-    expect(takes).toBeLessThan(KEYBOARD.indexOf('switch (event.key)'));
+    expect(takes).toBeLessThan(KEYBOARD.indexOf('switch (key)'));
   });
 
   it('is measured only when drawn, so the one scroller has no split', () => {

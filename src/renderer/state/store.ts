@@ -5,6 +5,7 @@ import { paragraphNumber } from '../../shared/prompt/chapter';
 import { remapAfterCommit } from '../../shared/review';
 import { splitParagraphs } from '../../shared/text/paragraphs';
 import { stepIndex } from '../../shared/ui/find';
+import { stepFocus, type StepOptions } from '../../shared/ui/navigate';
 import type { SaveShortcutContext } from '../../shared/ui/save';
 import { welcomeShown } from '../../shared/ui/welcome';
 import type { ChangeCategory, Hunk, HunkStatus, Review, ReviewComment, Settings } from '../../shared/types';
@@ -365,7 +366,11 @@ export interface AppState {
   /** apply one status to an explicit set of hunks, as planned by bulkPlan */
   applyBulk: (ids: readonly string[], status: HunkStatus) => void;
   focusHunk: (id: string | null, options?: { scroll?: boolean }) => void;
-  moveFocus: (delta: number) => void;
+  /**
+   * j and k, and with `pendingOnly` Shift+J and Shift+K; `view` is what is on
+   * screen, which they start from when the focus is not (11.7, small.9).
+   */
+  moveFocus: (delta: number, options?: StepOptions) => void;
   setHoveredHunk: (id: string | null) => void;
   setActiveComment: (id: string | null) => void;
   toggleCategory: (category: ChangeCategory) => void;
@@ -574,19 +579,17 @@ export const useApp = create<AppState>()((set, get) => ({
       focusScrollToken: options?.scroll ? state.focusScrollToken + 1 : state.focusScrollToken
     })),
 
-  moveFocus: (delta) => {
+  moveFocus: (delta, options) => {
     const review = get().review;
     if (!review) return;
     const hidden = get().hiddenCategories;
-    const visible = review.hunks
-      .filter((h) => h.anchor !== 'stale' && !hidden.includes(h.category ?? 'other'))
-      .sort((a, b) => a.start - b.start);
-    if (visible.length === 0) return;
-    const current = visible.findIndex((h) => h.id === get().focusedHunkId);
-    const nextIndex = current < 0 ? (delta > 0 ? 0 : visible.length - 1) : current + delta;
-    const clamped = Math.max(0, Math.min(visible.length - 1, nextIndex));
+    const visible = review.hunks.filter(
+      (h) => h.anchor !== 'stale' && !hidden.includes(h.category ?? 'other')
+    );
+    const next = stepFocus(visible, get().focusedHunkId, delta > 0 ? 1 : -1, options);
+    if (next === null) return;
     set((state) => ({
-      focusedHunkId: visible[clamped]?.id ?? null,
+      focusedHunkId: next,
       focusScrollToken: state.focusScrollToken + 1
     }));
   },

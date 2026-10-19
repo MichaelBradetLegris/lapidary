@@ -4,6 +4,7 @@
  */
 
 import type { ChangeCategory, Hunk } from '../types';
+import { compareHunks } from './navigate';
 import { sideText } from './small';
 
 export interface SuggestionGroups {
@@ -20,8 +21,9 @@ export function categoryOf(hunk: Hunk): ChangeCategory {
 
 /**
  * Split the review's hunks into the list the panel shows. The inline group is
- * sorted by offset so the list reads in the same order as the manuscript, and
- * hidden categories drop out of it. Stale hunks ignore the filter: they are the
+ * sorted as the page draws the changes and the keys step through them
+ * (`compareHunks`: start, end, id), so the list reads in the same order as the
+ * manuscript, and hidden categories drop out of it. Stale hunks ignore the filter: they are the
  * ones the author most needs to see, and they carry no position to sort by.
  */
 export function groupSuggestions(
@@ -32,7 +34,7 @@ export function groupSuggestions(
   const inline = hunks
     .filter((h) => h.anchor !== 'stale' && !hidden.has(categoryOf(h)))
     .slice()
-    .sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
+    .sort(compareHunks);
   const stale = hunks.filter((h) => h.anchor === 'stale');
   return { inline, stale };
 }

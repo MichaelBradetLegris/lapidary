@@ -140,7 +140,7 @@ describe('where the box is (ui.5)', () => {
       '<dt>Original:</dt>',
       '<dt>Suggested:</dt>',
       '<p className="detail__reason">{focused.reason}</p>',
-      '<p className="side__empty">Press j or click a row to focus a suggestion.</p>'
+      'Press j or click a row to focus a suggestion. Shift+J goes to the next pending one.'
     ]) {
       expect(body).toContain(part);
     }
@@ -203,9 +203,9 @@ describe('the box as a Tab stop (ui.5 review)', () => {
       'if (arrowsScrollBox(event.key, event.target instanceof HTMLElement ? event.target : null)) return;'
     );
     expect(guard).toBeGreaterThan(KEYBOARD.indexOf('if (!review) return;'));
-    expect(guard).toBeLessThan(KEYBOARD.indexOf('switch (event.key) {'));
-    expect(KEYBOARD).toMatch(/case 'j':\s*case 'ArrowDown':\s*state\.moveFocus\(1\);/);
-    expect(KEYBOARD).toMatch(/case 'k':\s*case 'ArrowUp':\s*state\.moveFocus\(-1\);/);
+    expect(guard).toBeLessThan(KEYBOARD.indexOf('switch (key) {'));
+    expect(KEYBOARD).toMatch(/case 'j':\s*case 'ArrowDown':\s*state\.moveFocus\(1, /);
+    expect(KEYBOARD).toMatch(/case 'k':\s*case 'ArrowUp':\s*state\.moveFocus\(-1, /);
     // The box takes no tabindex of its own: it is a Tab stop only while it scrolls.
     const body = SIDE_PANEL.slice(at('className="side__focus-body"'), at('className="side__regions"'));
     expect(body).not.toMatch(/tabIndex/);

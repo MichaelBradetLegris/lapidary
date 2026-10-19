@@ -236,6 +236,8 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
                     key={block.key}
                     className="para para--editing"
                     data-paragraph={first}
+                    data-start={block.start}
+                    data-end={block.end}
                     id={`para-${first}`}
                   >
                     {rail}
@@ -259,6 +261,8 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
                       : ''
                   }`}
                   data-paragraph={first}
+                  data-start={block.start}
+                  data-end={block.end}
                   id={`para-${first}`}
                 >
                   <span className="para__rail">

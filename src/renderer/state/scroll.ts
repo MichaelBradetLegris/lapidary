@@ -1,3 +1,4 @@
+import type { ReadingRange } from '../../shared/ui/navigate';
 import { easeOutCubic, retarget, scrollDuration, type ScrollBlock } from '../../shared/ui/scroll';
 
 /**
@@ -88,6 +89,26 @@ export function scrollToElement(element: Element | null | undefined, block: Scro
   const container = scrollerOf(element);
   if (!container) return;
   scrollRectIntoView(container, element.getBoundingClientRect(), block);
+}
+
+/**
+ * The base-text offsets of the paragraphs the author can see in `scroller`,
+ * from their `data-start` and `data-end`, or null when none is in view. j, k
+ * and their Shift forms start from here when the focus is off screen (11.7,
+ * small.9). A paragraph partly in view counts.
+ */
+export function readingRange(scroller: Element | null): ReadingRange | null {
+  if (!(scroller instanceof HTMLElement)) return null;
+  const box = scroller.getBoundingClientRect();
+  let start = Infinity;
+  let end = -Infinity;
+  for (const para of scroller.querySelectorAll<HTMLElement>('[data-start][data-end]')) {
+    const rect = para.getBoundingClientRect();
+    if (rect.bottom <= box.top || rect.top >= box.bottom) continue;
+    start = Math.min(start, Number(para.dataset['start']));
+    end = Math.max(end, Number(para.dataset['end']));
+  }
+  return start <= end ? { start, end } : null;
 }
 
 /**

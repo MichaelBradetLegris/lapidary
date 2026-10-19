@@ -233,7 +233,9 @@ export function SidePanel({
                 {focused.reason ? <p className="detail__reason">{focused.reason}</p> : null}
               </>
             ) : (
-              <p className="side__empty">Press j or click a row to focus a suggestion.</p>
+              <p className="side__empty">
+                Press j or click a row to focus a suggestion. Shift+J goes to the next pending one.
+              </p>
             )}
           </div>
         </section>
