@@ -14,6 +14,7 @@ import { chapterName } from '../shared/review';
 import { noBackupsYet } from '../shared/ui/backups';
 import { backupsRootFor, chapterBackupHooks, chapterBackups } from './backups';
 import { boxAnswer, createCloseGuard, messageBoxOptions } from './closeGuard';
+import { getDevSwitches } from './devSwitches';
 import {
   draftsRootFor,
   loadDrafts,
@@ -24,6 +25,8 @@ import {
 } from './drafts';
 import { fail, toAppError } from './errors';
 import { beginRequest, cancelRequest, endRequest, providers } from './providers';
+import { testConnection } from './providers/connectionTest';
+import { registerController } from './providers/controllers';
 import { clearOpenAiKey, openAiKeyStatus, storeOpenAiKey } from './secrets';
 import {
   OpenedChapters,
@@ -44,7 +47,8 @@ import {
   guidelinesStatus
 } from './guidelines';
 import { log } from './log';
-import { openGuidelinesFile } from './openGuidelines';
+import { openGuidelines } from './openGuidelines';
+import { pickShell, type ShellApi } from './shellApi';
 import {
   isDefaultReviewsFolder,
   listReviews,
@@ -95,7 +99,8 @@ export const closeGuard = createCloseGuard<BrowserWindow>({
   showBox: async (win, box, signal) =>
     boxAnswer((await dialog.showMessageBox(win, { ...messageBoxOptions(box), signal })).response),
   quit: () => app.quit(),
-  log
+  log,
+  quietWindow: () => getDevSwitches().quietWindow
 });
 
 /**
@@ -264,6 +269,20 @@ function registerAiHandlers(): void {
     cancelRequest(requestId);
     return Promise.resolve();
   });
+
+  /* Test the connection (setup.8): one very small request, only when the
+     author presses the button. A failed test is an answer, not an error, and
+     the log keeps only its outcome, never what the provider said. */
+  handle('ai:test', async ({ provider }) => {
+    const result = await testConnection(providers().get(provider), { track: registerController });
+    log('info', 'ai.test', {
+      provider,
+      ok: result.ok,
+      durationMs: result.durationMs,
+      ...(result.error ? { code: result.error.code } : {})
+    });
+    return result;
+  });
 }
 
 /**
@@ -294,6 +313,14 @@ function guidelinesTemplate(): string {
   return app.isPackaged
     ? path.join(process.resourcesPath, GUIDELINES_TEMPLATE)
     : path.join(app.getAppPath(), 'resources', GUIDELINES_TEMPLATE);
+}
+
+/**
+ * Electron's shell, or under `dev:clean --shell-stub` one that opens nothing
+ * and writes what it would have opened to the terminal (shellApi.ts, setup.10b).
+ */
+export function systemShell(): ShellApi {
+  return pickShell(shell, getDevSwitches().shellStub, (line) => console.log(line));
 }
 
 /** What Save may still write after Settings changes folder (files.2). */
@@ -361,15 +388,15 @@ function registerFileHandlers(): void {
 
   handle('guidelines:ensure', async () => ensureGuidelines(await loadSettings(), guidelinesTemplate()));
 
-  handle('guidelines:open', async ({ via }) => {
-    const info = await ensureGuidelinesFile(await loadSettings(), guidelinesTemplate());
-    await openGuidelinesFile(info.path, via, shell);
-    return info;
-  });
+  // openGuidelines refuses a file that cannot be opened this way before anything is created (setup.10b).
+  handle('guidelines:open', async ({ via }) =>
+    openGuidelines(await loadSettings(), via, guidelinesTemplate(), systemShell())
+  );
 
   handle('guidelines:status', async () => guidelinesStatus(await loadSettings()));
 
   handle('shell:reveal', async ({ target, sourcePath, name }) => {
+    const system = systemShell();
     /* Show backups for a chapter (apply.11): its own backup folder, which main
        works out from the path and refuses outside the backups root, opened
        with the newest backup selected. The folder follows the chapter's path,
@@ -384,11 +411,11 @@ function registerFileHandlers(): void {
       );
       if (!shown) throw fail('not-found', noBackupsYet(chapterName(sourcePath)));
       if (shown.newest) {
-        shell.showItemInFolder(shown.newest);
+        system.showItemInFolder(shown.newest);
         return { path: shown.newest };
       }
-      const problem = await shell.openPath(shown.folder);
-      if (problem) shell.showItemInFolder(shown.folder);
+      const problem = await system.openPath(shown.folder);
+      if (problem) system.showItemInFolder(shown.folder);
       return { path: shown.folder };
     }
     /* A set-aside card's Show the text opens its own file (apply.16), in the
@@ -397,8 +424,8 @@ function registerFileHandlers(): void {
     if (target === 'drafts' && name !== undefined) {
       const text = await setAsideFile(draftsRootFor(app.getPath('userData')), name);
       if (!text) throw fail('not-found', 'That set-aside text is no longer in the drafts folder.');
-      const problem = await shell.openPath(text);
-      if (problem) shell.showItemInFolder(text);
+      const problem = await system.openPath(text);
+      if (problem) system.showItemInFolder(text);
       return { path: text };
     }
     let file: string | null;
@@ -411,7 +438,7 @@ function registerFileHandlers(): void {
       else file = (await ensureGuidelinesFile(settings, guidelinesTemplate())).path;
     }
     if (!file) throw fail('not-configured', `There is no ${target} folder to show yet.`);
-    shell.showItemInFolder(file);
+    system.showItemInFolder(file);
     return { path: file };
   });
 }

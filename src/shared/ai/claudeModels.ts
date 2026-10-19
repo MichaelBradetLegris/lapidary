@@ -182,34 +182,79 @@ export function isProPlan(subscriptionType: string | undefined): boolean {
   return subscriptionType !== undefined && /\bpro\b/i.test(subscriptionType);
 }
 
-/** Recorded in `dismissedHints` once Sonnet was preselected, so it happens only once. */
+/**
+ * Recorded in `dismissedHints` once Sonnet was preselected, so it happens only
+ * once, and by Show the welcome guide again (`welcomeAgainPatch`), so a guide
+ * brought back never preselects.
+ */
 export const PRO_PRESELECT_HINT = 'pro-model-preselected';
 
 export const PRO_PLAN_NOTE =
   'On a Pro plan, Opus models (including Default) use your limits fastest. Sonnet is usually enough for copyediting.';
+
+/**
+ * The note where the model list says Default is not an Opus model: Claude
+ * Code 2.1.266 to 2.1.279 makes Sonnet 5 a Pro plan's Default (C.69), and
+ * `ANTHROPIC_DEFAULT_MODEL` can make it any model (setup.17).
+ */
+export const PRO_PLAN_NOTE_OPUS_ONLY =
+  'On a Pro plan, Opus models use your limits fastest. Sonnet is usually enough for copyediting.';
 
 /** Whether the model setting is Sonnet or Haiku, which the Pro note has nothing to say about. */
 function isLighterModel(model: string): boolean {
   return /sonnet|haiku/i.test(model);
 }
 
-/** The Pro note for the review dialog, or null when it does not apply. */
-export function proPlanNote(subscriptionType: string | undefined, model: string): string | null {
-  return isProPlan(subscriptionType) && !isLighterModel(model) ? PRO_PLAN_NOTE : null;
+/**
+ * Whether the model list's Default entry is an Opus model, read from its
+ * label, which `claudeModelLabel` gives from what Claude Code's `initialize`
+ * reply says Default is on this machine and account ("Default: Opus 5.5",
+ * round 5). Null when the list has not come yet, has no Default, or its
+ * label names no version.
+ */
+export function defaultIsOpus(models: readonly ModelInfo[]): boolean | null {
+  const label = models.find((m) => m.value === 'default')?.label ?? '';
+  const family = /^Default: ([A-Z][a-z]+) \d/.exec(label)?.[1];
+  if (!family || !FAMILIES.some((f) => f === family)) return null;
+  return family === 'Opus';
+}
+
+/**
+ * The Pro note for the review dialog, or null when it does not apply. Default
+ * counts among the Opus models unless the model list says it is not one
+ * (`defaultIsOpus` false): then the note says nothing of Default, and nothing
+ * at all while Default is chosen (setup.17). Before the list has come, Default
+ * is taken for Opus 5.5, as on every plan since Claude Code 2.1.280.
+ */
+export function proPlanNote(
+  subscriptionType: string | undefined,
+  model: string,
+  defaultOpus: boolean | null = null
+): string | null {
+  if (!isProPlan(subscriptionType) || isLighterModel(model)) return null;
+  if (defaultOpus !== false) return PRO_PLAN_NOTE;
+  const isDefault = model.trim() === '' || model.trim() === 'default';
+  return isDefault ? null : PRO_PLAN_NOTE_OPUS_ONLY;
 }
 
 /**
  * The settings patch that preselects Sonnet for a new user on a Pro plan, or
- * null. Only once, only before the welcome is finished, and only while the
- * model is still the untouched `default`: an existing settings file, or a
- * model the author picked, is never changed.
+ * null. Only once, only while the model is still the untouched `default`, and
+ * only while the first welcome guide is open (`guideOpen`, the page's
+ * `welcomeShown`): an existing settings file, or a model the author picked, is
+ * never changed. Start and Skip close the guide for good, so a check that
+ * finds Claude ready only after them leaves the model as it is, and Show the
+ * welcome guide again settles the preselection in the same write that brings
+ * the guide back (`welcomeAgainPatch`), so the guide shown again never
+ * preselects (`setup.11` review, PLAN C.67).
  */
 export function proPreselection(
   settings: { model: string; onboardingDone: boolean; dismissedHints: readonly string[] },
-  subscriptionType: string | undefined
+  subscriptionType: string | undefined,
+  guideOpen: boolean
 ): { model: string; dismissedHints: string[] } | null {
   if (!isProPlan(subscriptionType)) return null;
-  if (settings.onboardingDone || settings.model !== 'default') return null;
+  if (!guideOpen || settings.onboardingDone || settings.model !== 'default') return null;
   if (settings.dismissedHints.includes(PRO_PRESELECT_HINT)) return null;
   return { model: 'sonnet', dismissedHints: [...settings.dismissedHints, PRO_PRESELECT_HINT] };
 }

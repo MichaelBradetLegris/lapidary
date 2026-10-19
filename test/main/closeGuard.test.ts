@@ -116,6 +116,12 @@ class FakeWindow implements GuardWindow {
     this.calls.push('show');
   }
 
+  /** As Windows' SW_SHOWNOACTIVATE: restores a minimised window, and leaves the focus where it was. */
+  showInactive(): void {
+    this.calls.push('show inactive');
+    this.minimized = false;
+  }
+
   focus(): void {
     this.calls.push('focus');
     this.focused = true;
@@ -143,7 +149,10 @@ interface Logged {
   fields: Readonly<Record<string, unknown>>;
 }
 
-function setup(showBox?: (box: UnresponsiveBox, signal: AbortSignal) => Promise<BoxAnswer>) {
+function setup(
+  showBox?: (box: UnresponsiveBox, signal: AbortSignal) => Promise<BoxAnswer>,
+  { quiet = false }: { quiet?: boolean } = {}
+) {
   const boxes: ShownBox[] = [];
   const logged: Logged[] = [];
   let quits = 0;
@@ -159,7 +168,8 @@ function setup(showBox?: (box: UnresponsiveBox, signal: AbortSignal) => Promise<
     quit: () => {
       quits += 1;
     },
-    log: (level, event, fields = {}) => void logged.push({ level, event, fields })
+    log: (level, event, fields = {}) => void logged.push({ level, event, fields }),
+    quietWindow: () => quiet
   });
   const win = new FakeWindow();
   guard.attach(win);
@@ -261,6 +271,43 @@ describe('asking the page', () => {
     guard.setState(AT_RISK);
     win.userCloses();
     expect(win.calls).toEqual(['show', 'focus']);
+  });
+
+  it('shows a quiet test window without the focus, and never flashes it (dev.1)', async () => {
+    const { guard, win, boxes } = setup(undefined, { quiet: true });
+    guard.setState(AT_RISK);
+    win.focused = false;
+    expect(win.userCloses()).toBe(false);
+    expect(win.calls).toEqual(['show inactive']);
+    expect(win.focused).toBe(false);
+    expect(win.requests()).toEqual([{ quitting: false }]);
+    // The box for a page that does not answer comes up the same way.
+    await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS);
+    expect(boxes).toHaveLength(1);
+    expect(win.calls).toEqual(['show inactive', 'show inactive']);
+    lastBox(boxes).press('wait');
+    guard.onDecision(false);
+    expect(win.calls).not.toContain('flash');
+    expect(win.calls).not.toContain('stop flashing');
+    expect(win.calls).not.toContain('focus');
+  });
+
+  it('leaves a minimised quiet test window minimised, and still asks the page and shows the box (dev.1)', async () => {
+    const { guard, win, boxes } = setup(undefined, { quiet: true });
+    guard.setState(AT_RISK);
+    win.minimized = true;
+    win.focused = false;
+    expect(win.userCloses()).toBe(false);
+    expect(win.calls).toEqual([]);
+    expect(win.minimized).toBe(true);
+    expect(win.requests()).toEqual([{ quitting: false }]);
+    await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS);
+    expect(boxes).toHaveLength(1);
+    expect(win.calls).toEqual([]);
+    expect(win.minimized).toBe(true);
+    lastBox(boxes).press('wait');
+    guard.onDecision(false);
+    expect(win.calls).toEqual([]);
   });
 
   it('tells the page when the close came from a quit', () => {
@@ -1179,6 +1226,11 @@ describe('the wiring (apply.8)', () => {
     expect(guard).toContain('dialog.showMessageBox(win, { ...messageBoxOptions(box), signal })');
     expect(guard).toContain('boxAnswer(');
     expect(guard).toContain('quit: () => app.quit()');
+  });
+
+  it('asks the development switches whether the window is a quiet one (dev.1)', () => {
+    const guard = between(IPC, 'export const closeGuard = createCloseGuard<BrowserWindow>({', '});');
+    expect(guard).toContain('quietWindow: () => getDevSwitches().quietWindow');
   });
 
   it('lets the page use the three requests and hear the two events', () => {

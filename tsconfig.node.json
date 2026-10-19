@@ -19,10 +19,14 @@
     "src/renderer/state/reviewStart.ts",
     "src/renderer/state/closeGuard.ts",
     "src/renderer/state/hints.ts",
+    "src/renderer/state/split.ts",
+    "src/renderer/state/welcome.ts",
+    "src/renderer/state/hover.ts",
     "scripts/**/*.ts",
     "test/**/*.ts",
     "electron.vite.config.ts",
     "vitest.config.ts",
     "vitest.slow.config.ts"
-  ]
+  ],
+  "exclude": ["test/**/*.render.test.ts"]
 }

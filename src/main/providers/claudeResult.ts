@@ -1,4 +1,5 @@
 import { classifyClaudeFailure, isUsageLimit as defaultIsUsageLimit } from '../../shared/ai/claudeStatus';
+import type { RateLimitInfo } from '../../shared/ipc';
 import { fail, type AppFailure } from '../errors';
 
 /*
@@ -8,6 +9,7 @@ import { fail, type AppFailure } from '../errors';
  * `result` whose subtype says `success` while `is_error` is true, which is how
  * Claude Code reports "Not logged in" (C.47). Both go through
  * `classifyClaudeFailure`, after a refusal, which always speaks for itself.
+ * The usage notice that comes before the result is read here too (setup.9).
  * Electron-free and pure apart from building the error.
  */
 
@@ -71,6 +73,53 @@ export function resultToError(
     text
   });
   return fail(failure.code, failure.message, failure.detail);
+}
+
+/**
+ * The `rate_limit_info` of a `rate_limit_event` (setup.9). What Claude Code
+ * sends is pinned by test/helpers/fakeClaude.ts; 2.1.302's schema, which the
+ * Agent SDK's `SDKRateLimitInfo` documents:
+ *
+ * - `status`: `allowed`, `allowed_warning` or `rejected`;
+ * - `resetsAt`: when the limit resets, in Unix seconds;
+ * - `rateLimitType`: `five_hour`, `seven_day`, `seven_day_opus`,
+ *   `seven_day_sonnet`, `seven_day_overage_included` or `overage`;
+ * - `utilization`: the share of that limit used, a fraction (usually 0 to 1),
+ *   sent only with `allowed_warning`, when Claude Code itself warns (C.64);
+ * - `isUsingOverage`: the plan's limit is used up and extra usage is paying,
+ *   set on a `rejected` notice only;
+ * - and fields read nowhere here: `overageStatus`, `overageResetsAt`,
+ *   `overageDisabledReason`, `surpassedThreshold`, `unifiedWindows` and more.
+ *
+ * Only these four and the reset are kept; a field of the wrong type is left
+ * out rather than guessed, and a missing status reads as `unknown`.
+ */
+export function readRateLimit(value: unknown): RateLimitInfo {
+  const info = (typeof value === 'object' && value !== null ? value : {}) as {
+    status?: unknown;
+    resetsAt?: unknown;
+    rateLimitType?: unknown;
+    utilization?: unknown;
+    isUsingOverage?: unknown;
+  };
+  const status = typeof info.status === 'string' ? info.status : 'unknown';
+  const resets =
+    typeof info.resetsAt === 'number' && Number.isFinite(info.resetsAt)
+      ? new Date(info.resetsAt * 1000).toISOString()
+      : undefined;
+  const utilization =
+    typeof info.utilization === 'number' && Number.isFinite(info.utilization) && info.utilization >= 0
+      ? info.utilization
+      : undefined;
+  return {
+    status,
+    ...(resets ? { resetsAt: resets } : {}),
+    ...(typeof info.rateLimitType === 'string' && info.rateLimitType !== ''
+      ? { kind: info.rateLimitType }
+      : {}),
+    ...(utilization === undefined ? {} : { utilization }),
+    ...(typeof info.isUsingOverage === 'boolean' ? { usingOverage: info.isUsingOverage } : {})
+  };
 }
 
 /**

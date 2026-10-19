@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { decisionCounts, unsavedDecisionCount } from '../../shared/diff/compose';
+import type { RateLimitInfo } from '../../shared/ipc';
 import { PROVIDER_NAMES, type Review } from '../../shared/types';
 import { KEPT_TOOLTIP, keptPhrase, unsavedPhrase } from '../../shared/ui/save';
+import { describeRateLimit, rateLimitTitle } from '../../shared/ui/usage';
 import { canZoom, zoomLabel, type ZoomAction } from '../../shared/ui/zoom';
 import { call } from '../state/client';
 import { reviewKeptAt, useApp } from '../state/store';
@@ -10,21 +12,31 @@ import { IconMinus, IconPlus } from './icons';
 interface Props {
   review: Review | null;
   runtimeLabel?: string;
-  rateLimit?: string | undefined;
+  /** the label is a button: Setup for Claude, Settings for OpenAI (setup.7) */
+  onRuntime?: () => void;
+  /** what the button opens, as its tooltip */
+  runtimeTitle?: string;
+  /** Claude Code's last usage notice, worded by `describeRateLimit` (setup.9) */
+  rateLimit?: RateLimitInfo | null;
+  /** Claude Code's `subscriptionType`, on which the weekly Sonnet limit's name depends (setup.9 review) */
+  plan?: string | undefined;
 }
 
 /**
  * What the three states look like in the pane, since the swap can confuse
- * (item 6), and what the unsaved dot means, in the toolbar (apply.4) and the
- * chapter list (apply.5). The small-change marks of PLAN 11.7 join the list
- * when they land (`small.10`).
+ * (item 6), how a small change is drawn and found (PLAN 11.7, `small.10`), and
+ * what the unsaved dot means, in the toolbar (apply.4) and the chapter list
+ * (apply.5).
  */
 function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose();
+      if (event.key !== 'Escape') return;
+      // The press is the legend's: it closes no drawer as well (keyboard.ts, ui.3).
+      event.preventDefault();
+      onClose();
     };
     const onPointerDown = (event: MouseEvent): void => {
       if (!ref.current?.contains(event.target as Node)) onClose();
@@ -58,6 +70,26 @@ function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
         <li>
           <span className="legend__swatch legend__swatch--dismissed" /> <b>Dismissed.</b> The line is your
           original under a thin dotted grey line. The suggestion stays above it, faded.
+        </li>
+        <li>
+          <span className="legend__swatch legend__swatch--capsule" /> <b>Small changes.</b> A change to a
+          comma, a space or a one-letter word has a small box under it in the line, tinted while it is
+          pending, so it is easy to see and to click. Once decided, only its grey or dotted line stays.
+        </li>
+        <li>
+          <span className="legend__swatch legend__swatch--key" /> <b>Small text above.</b> A comma or a letter
+          above the line is drawn larger, and is not struck through when replaced: &quot;was&quot; says so. A
+          space or a break is boxed and named, as in SPACE.
+        </li>
+        <li>
+          <span className="legend__swatch legend__swatch--bar" /> <b>Margin bars.</b> A bar beside a line
+          marks a small change on it that is still pending. Click the bar to select the change, then press a,
+          d, u or e.
+        </li>
+        <li>
+          <span className="legend__swatch legend__swatch--focus" /> <b>Shift+J and Shift+K</b> go to the next
+          and previous pending suggestion, starting from what is on screen. The arrowhead in the margin marks
+          the focused suggestion.
         </li>
         <li>
           <span className="legend__swatch legend__swatch--unsaved" /> <b>Not saved to chapter.</b> The dot
@@ -128,6 +160,44 @@ function ZoomControl(): React.JSX.Element {
   );
 }
 
+/** How often a usage notice is worded again while it shows. */
+const USAGE_NOTICE_TICK_MS = 30_000;
+
+/**
+ * Claude's usage when there is something worth saying (setup.9,
+ * `describeRateLimit`): from 80% of a limit, a limit reached, or extra usage
+ * in use, with the whole sentence and the time left as its tooltip. While it
+ * shows it is worded again every 30 s, so the time left keeps up and the
+ * notice goes once its limit has reset.
+ */
+function UsageNotice({
+  info,
+  plan
+}: {
+  info: RateLimitInfo;
+  plan?: string | undefined;
+}): React.JSX.Element | null {
+  const [, setTick] = useState(0);
+  const now = new Date();
+  const text = describeRateLimit(info, now, plan);
+  const showing = text !== null;
+  useEffect(() => {
+    if (!showing) return;
+    const timer = window.setInterval(() => setTick((n) => n + 1), USAGE_NOTICE_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [showing]);
+  if (text === null) return null;
+  return (
+    <span
+      className="statusbar__warn"
+      data-testid="status-usage"
+      title={rateLimitTitle(info, now, plan) ?? undefined}
+    >
+      {text}
+    </span>
+  );
+}
+
 /**
  * The counts, then where the decisions are: "3 not saved to chapter" while the
  * chapter file is behind the page, and "Decisions kept 14:02" for the last
@@ -135,7 +205,14 @@ function ZoomControl(): React.JSX.Element {
  * review has not been written), which used to read "Review saved" and was
  * taken for the chapter (apply.4, PLAN 11.1 "Unsaved signal").
  */
-export function StatusBar({ review, runtimeLabel, rateLimit }: Props): React.JSX.Element {
+export function StatusBar({
+  review,
+  runtimeLabel,
+  onRuntime,
+  runtimeTitle,
+  rateLimit,
+  plan
+}: Props): React.JSX.Element {
   const counts = review ? decisionCounts(review.hunks) : { pending: 0, accepted: 0, dismissed: 0, stale: 0 };
   const unsaved = unsavedPhrase(review ? unsavedDecisionCount(review.hunks) : 0);
   const cost = review?.generator.costUsd;
@@ -188,8 +265,16 @@ export function StatusBar({ review, runtimeLabel, rateLimit }: Props): React.JSX
           {review?.generator.costEstimated ? ' estimate' : ''}
         </span>
       ) : null}
-      {rateLimit ? <span className="statusbar__warn">{rateLimit}</span> : null}
-      {runtimeLabel ? <span>{runtimeLabel}</span> : null}
+      {rateLimit ? <UsageNotice info={rateLimit} plan={plan} /> : null}
+      {runtimeLabel ? (
+        onRuntime ? (
+          <button type="button" className="statusbar__runtime" title={runtimeTitle} onClick={onRuntime}>
+            {runtimeLabel}
+          </button>
+        ) : (
+          <span>{runtimeLabel}</span>
+        )
+      ) : null}
       <ZoomControl />
     </footer>
   );

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   AiProgressEvent,
+  ConnectionTestResult,
   ModelInfo,
   OpenAiKeyStatus,
   RateLimitInfo,
@@ -10,7 +11,15 @@ import { PROMPT_PARAGRAPH_BASE, fromPromptNumbering } from '../../shared/prompt/
 import { guidelinesFingerprint } from '../../shared/prompt/system';
 import { createAiReview, toChangeCategory } from '../../shared/review';
 import { modelFor, type Provider, type Review, type Settings } from '../../shared/types';
-import { nextLastFailure, type LastFailure } from '../../shared/ui/setup';
+import {
+  failureSetupEvent,
+  focusRecheckDue,
+  nextLastFailure,
+  testSetupEvent,
+  type ConnectionTestOutcome,
+  type LastFailure,
+  type SetupViewId
+} from '../../shared/ui/setup';
 import { ApiError, call } from './client';
 
 /**
@@ -35,9 +44,32 @@ export interface AiController {
   startedAt: number;
   progress: AiProgressEvent | null;
   rateLimit: RateLimitInfo | null;
+  /**
+   * The latest usage notice, at once: a notice that arrived just before a
+   * failed review may not be drawn yet when the failure is handled, and the
+   * card for a usage limit reads which limit it was (setup.9, `usageLimitCard`).
+   */
+  latestRateLimit: () => RateLimitInfo | null;
   /** the last Claude failure that says something about setup (setup.5, nextLastFailure) */
   lastFailure: LastFailure | null;
+  /** providers whose connection test is running (setup.8) */
+  testing: Partial<Record<Provider, boolean>>;
+  /** each provider's last finished connection test, kept for the rest of the run */
+  testOutcomes: Partial<Record<Provider, ConnectionTestOutcome>>;
+  /**
+   * Test the connection: one very small request (setup.8). Resolves with the
+   * answer, or null when a test of that provider is running already. A
+   * Claude test that went through clears the last failure, as a review that
+   * went through does; one that did not is remembered (`testSetupEvent`).
+   */
+  testConnection: (provider: Provider) => Promise<ConnectionTestResult | null>;
   check: (provider: Provider) => void;
+  /**
+   * The window came back to the front: check Claude again when Setup has
+   * something for the author to do, Claude is in use, and the last check
+   * started at least 3 s ago (setup.7, `focusRecheckDue`).
+   */
+  recheckOnFocus: (claudeInUse: boolean, view: SetupViewId) => void;
   /** fetch a provider's model list if it is ready and has not been fetched yet */
   ensureModels: (provider: Provider) => void;
   refreshKeyStatus: () => void;
@@ -70,8 +102,19 @@ export function useAi(): AiController {
   const [progress, setProgress] = useState<AiProgressEvent | null>(null);
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null);
   const [lastFailure, setLastFailure] = useState<LastFailure | null>(null);
+  const [testing, setTesting] = useState<Partial<Record<Provider, boolean>>>({});
+  const [testOutcomes, setTestOutcomes] = useState<Partial<Record<Provider, ConnectionTestOutcome>>>({});
+  const testsRunning = useRef(new Set<Provider>());
   const claudeRuntime = useRef<RuntimeStatus | null>(null);
   const activeRequest = useRef<string | null>(null);
+  /* When the last check of Claude started, and how many are running, for
+     the re-check as the window comes back to the front (setup.7). */
+  const claudeCheckAt = useRef<number | null>(null);
+  const claudeChecking = useRef(0);
+  /* The usage notice as it arrives, kept beside the state for the usage-limit
+     card (setup.9): every notice is written to both. */
+  const rateLimitNow = useRef<RateLimitInfo | null>(null);
+  const latestRateLimit = useCallback(() => rateLimitNow.current, []);
 
   const loadModels = useCallback((provider: Provider) => {
     setModelsLoading((prev) => ({ ...prev, [provider]: true }));
@@ -110,14 +153,35 @@ export function useAi(): AiController {
   const check = useCallback(
     (provider: Provider) => {
       setChecking(true);
+      if (provider === 'claude') {
+        claudeCheckAt.current = Date.now();
+        claudeChecking.current += 1;
+      }
       call('ai:runtime', { provider })
         .then((status) => apply(status, true))
         .catch((err: unknown) => {
           apply({ provider, state: 'error', message: messageOf(err) }, false);
         })
-        .finally(() => setChecking(false));
+        .finally(() => {
+          if (provider === 'claude') claudeChecking.current -= 1;
+          setChecking(false);
+        });
     },
     [apply]
+  );
+
+  const recheckOnFocus = useCallback(
+    (claudeInUse: boolean, view: SetupViewId) => {
+      const due = focusRecheckDue({
+        view,
+        claudeInUse,
+        inFlight: claudeChecking.current > 0,
+        lastCheckAt: claudeCheckAt.current,
+        now: Date.now()
+      });
+      if (due) check('claude');
+    },
+    [check]
   );
 
   const refreshKeyStatus = useCallback(() => {
@@ -140,12 +204,19 @@ export function useAi(): AiController {
   useEffect(() => {
     let alive = true;
     for (const provider of ['claude', 'openai'] as const) {
+      if (provider === 'claude') {
+        claudeCheckAt.current = Date.now();
+        claudeChecking.current += 1;
+      }
       call('ai:runtime', { provider })
         .then((status) => {
           if (alive) apply(status, provider === 'claude');
         })
         .catch((err: unknown) => {
           if (alive) apply({ provider, state: 'error', message: messageOf(err) }, false);
+        })
+        .finally(() => {
+          if (provider === 'claude') claudeChecking.current -= 1;
         });
     }
     call('secrets:openai-status', undefined)
@@ -163,11 +234,47 @@ export function useAi(): AiController {
     const offProgress = window.api.on('ai:progress', (event) => {
       if (event.requestId === activeRequest.current) setProgress(event);
     });
-    const offRate = window.api.on('ai:rate-limit', setRateLimit);
+    const offRate = window.api.on('ai:rate-limit', (info) => {
+      rateLimitNow.current = info;
+      setRateLimit(info);
+    });
     return () => {
       offProgress();
       offRate();
     };
+  }, []);
+
+  const testConnection = useCallback(async (provider: Provider): Promise<ConnectionTestResult | null> => {
+    if (testsRunning.current.has(provider)) return null;
+    testsRunning.current.add(provider);
+    setTesting((prev) => ({ ...prev, [provider]: true }));
+    let result: ConnectionTestResult;
+    try {
+      result = await call('ai:test', { provider });
+    } catch (err) {
+      // Main answers a failed test; only the bridge itself can throw here.
+      result = {
+        ok: false,
+        durationMs: 0,
+        error:
+          err instanceof ApiError
+            ? { code: err.code, message: err.message }
+            : { code: 'unknown', message: messageOf(err) }
+      };
+    } finally {
+      testsRunning.current.delete(provider);
+    }
+    if (result.rateLimit) {
+      rateLimitNow.current = result.rateLimit;
+      setRateLimit(result.rateLimit);
+    }
+    if (provider === 'claude') {
+      const event = testSetupEvent(result, claudeRuntime.current);
+      if (event) setLastFailure((prev) => nextLastFailure(prev, event));
+    }
+    setTestOutcomes((prev) => ({ ...prev, [provider]: { result, finishedAt: new Date().toISOString() } }));
+    setTesting((prev) => ({ ...prev, [provider]: false }));
+    return result;
   }, []);
 
   const cancel = useCallback(() => {
@@ -202,7 +309,10 @@ export function useAi(): AiController {
         guidelines: guidelines.text
       });
 
-      if (response.rateLimit) setRateLimit(response.rateLimit);
+      if (response.rateLimit) {
+        rateLimitNow.current = response.rateLimit;
+        setRateLimit(response.rateLimit);
+      }
       if (provider === 'claude') setLastFailure((prev) => nextLastFailure(prev, { type: 'success' }));
 
       // The model was shown paragraphs numbered from 1; the app counts from 0.
@@ -237,10 +347,11 @@ export function useAi(): AiController {
       });
     } catch (err) {
       if (provider === 'claude' && err instanceof ApiError && err.code !== 'cancelled') {
-        const code = err.code;
-        setLastFailure((prev) =>
-          nextLastFailure(prev, { type: 'failure', code, runtime: claudeRuntime.current })
-        );
+        /* Read now, with the notice that came before the failure, as the
+           usage-limit card reads it, so Setup says what that card says
+           (setup.9 review). */
+        const event = failureSetupEvent(err.code, err.message, rateLimitNow.current, claudeRuntime.current);
+        setLastFailure((prev) => nextLastFailure(prev, event));
       }
       throw err;
     } finally {
@@ -262,8 +373,13 @@ export function useAi(): AiController {
     startedAt,
     progress,
     rateLimit,
+    latestRateLimit,
     lastFailure,
+    testing,
+    testOutcomes,
+    testConnection,
     check,
+    recheckOnFocus,
     ensureModels,
     refreshKeyStatus,
     keyChanged,

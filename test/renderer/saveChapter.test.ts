@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { unsavedDecisionCount } from '../../src/shared/diff/compose';
 import type { FileContent, SaveRequest, SaveResponse } from '../../src/shared/ipc';
 import { createReview } from '../../src/shared/review';
-import type { Review } from '../../src/shared/types';
+import { DEFAULT_SETTINGS, type Review } from '../../src/shared/types';
 import { SHOW_BACKUPS_CARD, noBackupsYet } from '../../src/shared/ui/backups';
 import {
   CHAPTER_MATCHES_PAGE,
@@ -105,6 +105,7 @@ beforeEach(() => {
     editor: null,
     settingsOpen: false,
     setupOpen: false,
+    settings: null,
     newChapterOpen: false,
     manualReviewOpen: false,
     reviewDialogOpen: false
@@ -781,6 +782,10 @@ describe('Ctrl+S (apply.3)', () => {
   it.each([
     ['Settings', { settingsOpen: true }],
     ['the Setup screen', { setupOpen: true }],
+    [
+      'the welcome guide',
+      { settings: { ...DEFAULT_SETTINGS, manuscriptFolder: 'C:/vault', onboardingDone: false } }
+    ],
     ['New chapter', { newChapterOpen: true }],
     ['Submit manual review', { manualReviewOpen: true }],
     ['Review with AI', { reviewDialogOpen: true }],

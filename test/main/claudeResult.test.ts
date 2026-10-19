@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { endedWithoutResult, resultToError, startupReasonOf } from '../../src/main/providers/claudeResult';
+import {
+  endedWithoutResult,
+  readRateLimit,
+  resultToError,
+  startupReasonOf
+} from '../../src/main/providers/claudeResult';
 import { LOGIN_EXPIRED_MESSAGE, NOT_SIGNED_IN_MESSAGE } from '../../src/shared/ai/claudeStatus';
 
 /* setup.5: what a Claude Code result means for the review. */
@@ -113,5 +118,82 @@ describe('endedWithoutResult', () => {
     expect(endedWithoutResult({ refusal: 'Declined.' }, 'Not logged in', 0)).toMatchObject({
       code: 'claude-refusal'
     });
+  });
+});
+
+describe('readRateLimit (setup.9)', () => {
+  const RESET = new Date(1790000000 * 1000).toISOString();
+
+  it('keeps the status, the reset, the limit, the share used and extra usage, and nothing else', () => {
+    // Claude Code 2.1.302's rate_limit_info, with fields the app does not read.
+    expect(
+      readRateLimit({
+        status: 'allowed_warning',
+        resetsAt: 1790000000,
+        rateLimitType: 'seven_day',
+        utilization: 0.85,
+        isUsingOverage: false,
+        overageStatus: 'rejected',
+        overageDisabledReason: 'org_level_disabled',
+        surpassedThreshold: 0.75,
+        unifiedWindows: { five_hour: { utilization: 0.1, resetsAt: 1790000000 } }
+      })
+    ).toEqual({
+      status: 'allowed_warning',
+      resetsAt: RESET,
+      kind: 'seven_day',
+      utilization: 0.85,
+      usingOverage: false
+    });
+  });
+
+  it('keeps extra usage in use, and a share past the whole limit', () => {
+    // As Claude Code 2.1.302 sends it: the plan's limit refused, extra usage paying.
+    expect(
+      readRateLimit({
+        status: 'rejected',
+        resetsAt: 1790000000,
+        rateLimitType: 'five_hour',
+        isUsingOverage: true,
+        overageStatus: 'allowed'
+      })
+    ).toEqual({ status: 'rejected', resetsAt: RESET, kind: 'five_hour', usingOverage: true });
+    expect(
+      readRateLimit({
+        status: 'allowed',
+        rateLimitType: 'five_hour',
+        utilization: 1.08,
+        isUsingOverage: true
+      })
+    ).toEqual({ status: 'allowed', kind: 'five_hour', utilization: 1.08, usingOverage: true });
+  });
+
+  it('leaves out a field of the wrong type rather than guessing, and reads no status as unknown', () => {
+    expect(
+      readRateLimit({
+        resetsAt: '1790000000',
+        rateLimitType: 7,
+        utilization: '85%',
+        isUsingOverage: 'yes'
+      })
+    ).toEqual({ status: 'unknown' });
+    expect(
+      readRateLimit({ status: 'allowed', resetsAt: Number.NaN, rateLimitType: '', utilization: -0.1 })
+    ).toEqual({
+      status: 'allowed'
+    });
+    expect(readRateLimit({ status: 'allowed', utilization: Number.POSITIVE_INFINITY })).toEqual({
+      status: 'allowed'
+    });
+    expect(readRateLimit({ status: 'allowed', utilization: 0 })).toEqual({
+      status: 'allowed',
+      utilization: 0
+    });
+  });
+
+  it('reads anything that is not an object as a notice with no status', () => {
+    for (const value of [undefined, null, 'rejected', 42, []]) {
+      expect(readRateLimit(value), String(value)).toEqual({ status: 'unknown' });
+    }
   });
 });

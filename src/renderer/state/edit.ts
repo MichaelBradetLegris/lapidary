@@ -14,6 +14,7 @@
 
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import type { ReviewComment } from '../../shared/types';
+import { commentEditBlocked } from '../../shared/ui/comments';
 import { hoverCancel } from './hover';
 import { scrollToElement } from './scroll';
 import { inDraft, isLocked, useApp, type AnchorRect } from './store';
@@ -63,18 +64,17 @@ export function editParagraph(paragraph: number, select?: { start: number; end: 
  */
 export function editFromComment(comment: ReviewComment): void {
   const state = useApp.getState();
-  const review = state.review;
-  if (!review || comment.paragraph === null) {
-    state.notify(
-      'warn',
-      'That comment is about the chapter as a whole, so there is no one paragraph to edit.'
-    );
+  // A comment with no paragraph says why there is none to open (ui.7).
+  const blocked = commentEditBlocked(comment);
+  if (blocked !== null) {
+    state.notify('warn', blocked);
     return;
   }
-  state.setActiveComment(comment.id);
-  if (!state.openDraft(comment.paragraph)) return;
-
   const paragraph = comment.paragraph;
+  if (!state.review || paragraph === null) return;
+  state.setActiveComment(comment.id);
+  if (!state.openDraft(paragraph)) return;
+
   const quote = comment.quote;
   const opened = Object.values(useApp.getState().drafts).find((d) => d.paragraphs.includes(paragraph));
   if (opened && quote) {
@@ -86,6 +86,6 @@ export function editFromComment(comment: ReviewComment): void {
     }
   }
   requestAnimationFrame(() => {
-    scrollToElement(document.getElementById(`para-${comment.paragraph}`), 'nearest');
+    scrollToElement(document.getElementById(`para-${paragraph}`), 'nearest');
   });
 }

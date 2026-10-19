@@ -75,6 +75,7 @@ type GuardSlices = Pick<
   | 'draftWritesPending'
   | 'chapterSaving'
   | 'dialogText'
+  | 'editor'
 >;
 
 /**
@@ -117,7 +118,8 @@ function slicesChanged(a: GuardSlices, b: GuardSlices): boolean {
     a.persistPending !== b.persistPending ||
     a.draftWritesPending !== b.draftWritesPending ||
     a.chapterSaving !== b.chapterSaving ||
-    a.dialogText !== b.dialogText
+    a.dialogText !== b.dialogText ||
+    a.editor !== b.editor
   );
 }
 

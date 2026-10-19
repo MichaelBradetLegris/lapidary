@@ -86,6 +86,13 @@ describe('remapAfterCommit', () => {
     expect(textAt(saved.text, 2)).toContain('D fourth');
   });
 
+  it('leaves an unanchored comment as it was, the paragraph it had included (ui.7)', () => {
+    const at = BASE.indexOf(' one here');
+    const lost: ReviewComment = { ...comment(0, 'gone words'), paragraph: null, wasParagraph: 2 };
+    const saved = save(BASE, [accepted(at, at + 1, ' ', '\n\n')], [lost]);
+    expect(saved.comments[0]).toBe(lost);
+  });
+
   it('relabels anchored hunks with their new paragraph', () => {
     const at = BASE.indexOf(' one here');
     const split = accepted(at, at + 1, ' ', '\n\n');

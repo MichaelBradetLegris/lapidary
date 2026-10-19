@@ -4,6 +4,8 @@
  */
 
 import type { ChangeCategory, Hunk } from '../types';
+import { compareHunks } from './navigate';
+import { sideText } from './small';
 
 export interface SuggestionGroups {
   /** every anchored hunk the filter chips leave visible, in document order */
@@ -19,8 +21,9 @@ export function categoryOf(hunk: Hunk): ChangeCategory {
 
 /**
  * Split the review's hunks into the list the panel shows. The inline group is
- * sorted by offset so the list reads in the same order as the manuscript, and
- * hidden categories drop out of it. Stale hunks ignore the filter: they are the
+ * sorted as the page draws the changes and the keys step through them
+ * (`compareHunks`: start, end, id), so the list reads in the same order as the
+ * manuscript, and hidden categories drop out of it. Stale hunks ignore the filter: they are the
  * ones the author most needs to see, and they carry no position to sort by.
  */
 export function groupSuggestions(
@@ -31,7 +34,7 @@ export function groupSuggestions(
   const inline = hunks
     .filter((h) => h.anchor !== 'stale' && !hidden.has(categoryOf(h)))
     .slice()
-    .sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
+    .sort(compareHunks);
   const stale = hunks.filter((h) => h.anchor === 'stale');
   return { inline, stale };
 }
@@ -47,11 +50,19 @@ function clip(text: string, max: number): string {
   return flat.length <= max ? flat : `${flat.slice(0, Math.max(1, max - 1))}…`;
 }
 
+/** One side, as `sideText` names it, else flattened and clipped. */
+function side(text: string, max: number): string {
+  const named = sideText(text);
+  return named === text ? clip(text, max) : named;
+}
+
 /**
  * "began → begun" for a row in the list. Both sides are clipped separately so
- * the suggested text never disappears behind a long original.
+ * the suggested text never disappears behind a long original. A side that
+ * cannot be seen, or small punctuation, is named: "- (hyphen) → (space)"
+ * (11.7, small.5), and "(nothing)" is kept for the empty string.
  */
 export function summaryLine(hunk: Hunk, max = 64): string {
   const half = Math.max(6, Math.floor((max - 3) / 2));
-  return `${clip(hunk.original, half)} → ${clip(hunk.replacement, half)}`;
+  return `${side(hunk.original, half)} → ${side(hunk.replacement, half)}`;
 }

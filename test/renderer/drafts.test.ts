@@ -623,16 +623,21 @@ describe('the store', () => {
   it('knows when a dialog holds typed text, from any of the three', () => {
     expect(hasDialogText(state())).toBe(false);
     state().setDialogText('new-chapter', true);
-    state().setDialogText('edit-popover', true);
+    state().setDialogText('manual-review', true);
     expect(hasDialogText(state())).toBe(true);
     state().setDialogText('new-chapter', false);
     expect(hasDialogText(state())).toBe(true);
     const before = state().dialogText;
-    state().setDialogText('edit-popover', true);
-    expect(state().dialogText).toBe(before);
-    state().setDialogText('edit-popover', false);
     state().setDialogText('manual-review', true);
+    expect(state().dialogText).toBe(before);
     state().setDialogText('manual-review', false);
+    expect(hasDialogText(state())).toBe(false);
+    // The suggestion editor's words are read from its request (setup.7 review).
+    useApp.setState({ editor: { kind: 'suggestion', hunkId: 'h1', initial: 'As he tilted', anchor: null } });
+    expect(hasDialogText(state())).toBe(false);
+    state().setEditorText('He tilted');
+    expect(hasDialogText(state())).toBe(true);
+    state().closeEditor();
     expect(hasDialogText(state())).toBe(false);
   });
 
@@ -668,13 +673,21 @@ describe('the wiring', () => {
   it('tells the store when each dialog holds typed text, and clears it on close', () => {
     for (const [file, sourceName] of [
       ['components/NewChapterDialog.tsx', 'new-chapter'],
-      ['components/ManualReviewDialog.tsx', 'manual-review'],
-      ['components/EditPopover.tsx', 'edit-popover']
+      ['components/ManualReviewDialog.tsx', 'manual-review']
     ] as const) {
       const text = source(file);
       expect(text).toContain(`setDialogText('${sourceName}', typed)`);
       expect(text).toContain(`() => () => setDialogText('${sourceName}', false)`);
     }
+  });
+
+  it("keeps the suggestion editor's words in the store, so a panel taken off the page loses none (setup.7 review)", () => {
+    const popover = source('components/EditPopover.tsx');
+    expect(popover).toContain('const text = editorText(request);');
+    expect(popover).toContain('onChange={(event) => setText(event.target.value)}');
+    expect(popover).toContain('const setText = useApp((s) => s.setEditorText);');
+    expect(popover).not.toContain('useState');
+    expect(popover).not.toContain('setDialogText');
   });
 
   it('keeps boxes from the start, and writes them before another chapter or review opens', () => {

@@ -64,9 +64,11 @@ export function FileList({
         >
           <IconFolder />
         </button>
+        {/* Where the focus goes when New chapter closes (NEW_CHAPTER_BUTTON_SELECTOR, ui.4). */}
         <button
           type="button"
           className="files__act"
+          data-opens="new-chapter"
           aria-label="New chapter"
           title="New chapter"
           disabled={!configured}

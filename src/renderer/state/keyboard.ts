@@ -1,9 +1,13 @@
 import { useEffect } from 'react';
 import { sortComments } from '../../shared/ui/comments';
 import { saveShortcutAction } from '../../shared/ui/save';
+import { arrowsScrollBox } from '../../shared/ui/scroll';
+import { splitTakesKey } from '../../shared/ui/split';
+import { closeDrawer, inOpenDrawer, popupTakesEscape, useDrawer } from './columns';
 import { editHunk } from './edit';
+import { saveHintGivesWay } from './hints';
 import { SAVE_CARD, type SaveOptions, type SaveOutcome } from './saveChapter';
-import { scrollToElement } from './scroll';
+import { readingRange, scrollToElement } from './scroll';
 import { isModalOpen, reviewKeysActive, saveShortcutContext, useApp } from './store';
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -13,7 +17,8 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * Review-pane keys from the plan section 7: j/k move, a accepts, u returns to
+ * Review-pane keys from the plan section 7: j/k move, Shift+J and Shift+K go to
+ * the next and previous pending change (11.7, small.9), a accepts, u returns to
  * pending, d toggles dismissed, n jumps to the next commented paragraph.
  * Ctrl+F opens the find bar (item 11) and Escape closes it. Ctrl+S, or Cmd+S,
  * runs Save to chapter (apply.3), wherever the focus is, under the rules of
@@ -57,14 +62,43 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
         return;
       }
 
-      if (event.key === 'Escape' && state.editor) {
+      /* While a dialog is open Escape is the dialog's: Settings and Review
+         with AI close on it (useDialogEscape), a question cancels, and the
+         others ignore it. It never closes the find bar or the suggestion
+         editor then (ui.1). A drawer open from a folded column (ui.3) takes
+         Escape first when the focus is in it or on its strip, and last
+         otherwise, after the suggestion editor and the find bar. One press
+         closes one thing: an Escape something else has already taken closes
+         no drawer, such as one in the find bar's box, which closes the bar
+         before this listener runs (`preventDefault`), and nor does one
+         pressed while the Bulk menu or the legend is open, which close on it
+         in listeners of their own (`popupTakesEscape`). */
+      const drawerEscape =
+        event.key === 'Escape' &&
+        useDrawer.getState().open !== null &&
+        !isModalOpen(state) &&
+        !event.defaultPrevented &&
+        !popupTakesEscape();
+      if (drawerEscape && inOpenDrawer(event.target)) {
+        closeDrawer();
+        event.preventDefault();
+        return;
+      }
+
+      if (event.key === 'Escape' && state.editor && !isModalOpen(state)) {
         state.closeEditor();
         event.preventDefault();
         return;
       }
 
-      if (event.key === 'Escape' && state.find.open && !state.confirmSpec) {
+      if (event.key === 'Escape' && state.find.open && !isModalOpen(state)) {
         state.closeFind();
+        event.preventDefault();
+        return;
+      }
+
+      if (drawerEscape) {
+        closeDrawer();
         event.preventDefault();
         return;
       }
@@ -80,14 +114,32 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
       if (!review) return;
       const focused = state.focusedHunkId;
 
-      switch (event.key) {
+      /* The arrows scroll the focused suggestion's box when Tab has put the
+         focus in it and it has more to show; j and k still step (ui.5
+         review). The browser does the scrolling. */
+      if (arrowsScrollBox(event.key, event.target instanceof HTMLElement ? event.target : null)) return;
+      /* The arrows move the side panel's split when its handle has the focus
+         (ui.6); the handle has already moved. */
+      if (splitTakesKey(event.key, event.target instanceof HTMLElement ? event.target : null)) return;
+
+      /* Letters by their lower case, so Caps Lock does not turn the keys off;
+         Shift is read from the event. Shift+J and Shift+K go to the next and
+         previous pending change; with any other letter Shift does nothing,
+         as before. j, k and the arrows start from the paragraphs on screen
+         when the focus is not on screen (11.7, small.9). */
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      const step = key === 'j' || key === 'k' || key === 'ArrowDown' || key === 'ArrowUp';
+      if (!step && key.length === 1 && event.shiftKey) return;
+      const view = (): ReturnType<typeof readingRange> => readingRange(document.querySelector('.center'));
+
+      switch (key) {
         case 'j':
         case 'ArrowDown':
-          state.moveFocus(1);
+          state.moveFocus(1, { pendingOnly: key === 'j' && event.shiftKey, view: view() });
           break;
         case 'k':
         case 'ArrowUp':
-          state.moveFocus(-1);
+          state.moveFocus(-1, { pendingOnly: key === 'k' && event.shiftKey, view: view() });
           break;
         case 'a':
           if (focused) state.setHunkStatus(focused, 'accepted');
@@ -123,6 +175,8 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
           return;
       }
       event.preventDefault();
+      // The author goes on: a first-use hint over the prose gives way (ui.3).
+      saveHintGivesWay();
     };
 
     window.addEventListener('keydown', onKeyDown);

@@ -136,7 +136,7 @@ describe("main's shell:reveal for a chapter's backups (apply.11)", () => {
       /chapterBackups\(\s*backupsRootFor\(app\.getPath\('userData'\)\),\s*sourcePath,\s*caseInsensitiveFs\(\)\s*\)/
     );
     expect(handler).toContain("if (!shown) throw fail('not-found', noBackupsYet(chapterName(sourcePath)));");
-    expect(handler).toContain('shell.showItemInFolder(shown.newest);');
+    expect(handler).toContain('system.showItemInFolder(shown.newest);');
   });
 
   it('tells Settings where the backups root is', () => {

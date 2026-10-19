@@ -1,0 +1,256 @@
+import fc from 'fast-check';
+import { describe, expect, it } from 'vitest';
+import {
+  bodyClassName,
+  columnClassName,
+  columnLayout,
+  DRAWER_MARGIN,
+  FILES_WIDTHS,
+  NARROW_PANE_PADDING,
+  preferredWidth,
+  PROSE_MIN,
+  shownDrawer,
+  SIDE_WIDTHS,
+  STRIP_WIDTH,
+  stripText,
+  toggledDrawer,
+  type ColumnLayout
+} from '../../src/shared/ui/columns';
+
+/* ui.3 (found by the M5 review): in a 900 by 600 window at 150% the chapter
+   list and the side panel kept 410 of the window's 589 CSS px, leaving the
+   prose's text 25 px, and from 175% none. `columnLayout` keeps the centre
+   column PROSE_MIN wide while it can, by shrinking both side columns, then
+   folding the chapter list to a strip, then the side panel. The page applies
+   it in src/renderer/state/columns.ts, checked in test/renderer/columns.test.ts;
+   the window checks are in PLAN (ui.3). */
+
+/** The page's width in CSS px of a window whose inside is `inner` px wide at `zoom`. */
+const at = (inner: number, zoom: number): number => inner / zoom;
+/** The smallest window, 900 by 600, is 884 px wide inside (PLAN C.49). */
+const SMALL = 884;
+const MID = 1084;
+const DEFAULT = 1424;
+
+const summary = (l: ColumnLayout): string =>
+  `${l.files} ${l.filesWidth} | ${Math.round(l.centre)} | ${l.side} ${l.sideWidth}${l.narrow ? ' narrow' : ''}`;
+
+describe('columnLayout: the windows the plan names (ui.3)', () => {
+  it('900 by 600: both columns shrink at 100%, the list folds at 110%, both from 125%', () => {
+    expect(summary(columnLayout(at(SMALL, 1)))).toBe('full 168 | 480 | full 236');
+    expect(summary(columnLayout(at(SMALL, 1.1)))).toBe('strip 32 | 532 | full 240');
+    expect(summary(columnLayout(at(SMALL, 1.25)))).toBe('strip 32 | 643 | strip 32');
+    expect(summary(columnLayout(at(SMALL, 1.5)))).toBe('strip 32 | 525 | strip 32');
+    expect(summary(columnLayout(at(SMALL, 1.75)))).toBe('strip 32 | 441 | strip 32 narrow');
+    expect(summary(columnLayout(at(SMALL, 2)))).toBe('strip 32 | 378 | strip 32 narrow');
+  });
+
+  it('1100 by 700: the list folds at 150%, both from 175%', () => {
+    expect(summary(columnLayout(at(MID, 1)))).toBe('full 195 | 629 | full 260');
+    expect(summary(columnLayout(at(MID, 1.25)))).toBe('full 162 | 481 | full 224');
+    expect(summary(columnLayout(at(MID, 1.5)))).toBe('strip 32 | 481 | full 210');
+    expect(summary(columnLayout(at(MID, 1.75)))).toBe('strip 32 | 555 | strip 32');
+    expect(summary(columnLayout(at(MID, 2)))).toBe('strip 32 | 478 | strip 32 narrow');
+  });
+
+  it('1440 by 940, the default: as before up to 150%, the list folds from 175%, the panel never', () => {
+    expect(summary(columnLayout(at(DEFAULT, 1)))).toBe('full 230 | 874 | full 320');
+    expect(summary(columnLayout(at(DEFAULT, 1.25)))).toBe('full 205 | 661 | full 273');
+    expect(summary(columnLayout(at(DEFAULT, 1.5)))).toBe('full 170 | 539 | full 240');
+    expect(summary(columnLayout(at(DEFAULT, 1.75)))).toBe('strip 32 | 542 | full 240');
+    expect(summary(columnLayout(at(DEFAULT, 2)))).toBe('strip 32 | 480 | full 200');
+  });
+
+  it('keeps the widths the columns had before ui.3 wherever they left the prose its 480 px', () => {
+    // clamp(170px, 18vw, 230px) and clamp(240px, 24vw, 320px), rounded down.
+    for (const width of [2560, 1920, 1780, 1424, 1295, 1139, 1084, 985, 949]) {
+      const layout = columnLayout(width);
+      expect(layout.filesWidth, `${width}`).toBe(Math.floor(Math.min(230, Math.max(170, 0.18 * width))));
+      expect(layout.sideWidth, `${width}`).toBe(Math.floor(Math.min(320, Math.max(240, 0.24 * width))));
+    }
+  });
+
+  it('gives drawers the columns their usual widths, less what a narrow window cannot spare', () => {
+    expect(columnLayout(442)).toMatchObject({ filesDrawer: 170, sideDrawer: 240 });
+    // 300 px: 300 - 2 * 32 - 48 = 188 for either.
+    expect(columnLayout(300)).toMatchObject({ filesDrawer: 170, sideDrawer: 188 });
+    expect(columnLayout(100)).toMatchObject({ filesDrawer: 0, sideDrawer: 0 });
+  });
+
+  it('treats a width that is not a number, or below zero, as none', () => {
+    for (const width of [Number.NaN, Number.POSITIVE_INFINITY, -50, 0]) {
+      const layout = columnLayout(width);
+      expect(layout.files).toBe('strip');
+      expect(layout.side).toBe('strip');
+      expect(layout.narrow).toBe(true);
+      expect(Number.isFinite(layout.centre)).toBe(true);
+    }
+  });
+});
+
+describe('preferredWidth (ui.3)', () => {
+  it('is the share of the window between the limits, rounded down', () => {
+    expect(preferredWidth(FILES_WIDTHS, 1000)).toBe(180);
+    expect(preferredWidth(FILES_WIDTHS, 500)).toBe(170);
+    expect(preferredWidth(FILES_WIDTHS, 5000)).toBe(230);
+    expect(preferredWidth(SIDE_WIDTHS, 1139)).toBe(273);
+  });
+
+  it('has floors below the limits, so both columns can give something before either folds', () => {
+    expect(FILES_WIDTHS.floor).toBeLessThan(FILES_WIDTHS.min);
+    expect(SIDE_WIDTHS.floor).toBeLessThan(SIDE_WIDTHS.min);
+    expect(STRIP_WIDTH).toBeLessThan(FILES_WIDTHS.floor);
+    expect(PROSE_MIN).toBe(480);
+    expect(NARROW_PANE_PADDING).toBe(16);
+  });
+});
+
+describe('columnLayout properties (ui.3)', () => {
+  const width = fc.double({ min: 0, max: 4000, noNaN: true });
+
+  it('splits the whole width, in whole pixels for the side columns', () => {
+    fc.assert(
+      fc.property(width, (w) => {
+        const l = columnLayout(w);
+        expect(l.filesWidth + l.centre + l.sideWidth).toBeCloseTo(w, 6);
+        expect(Number.isInteger(l.filesWidth)).toBe(true);
+        expect(Number.isInteger(l.sideWidth)).toBe(true);
+      })
+    );
+  });
+
+  it('leaves the centre PROSE_MIN unless both columns are folded, and says narrow exactly when it does not', () => {
+    fc.assert(
+      fc.property(width, (w) => {
+        const l = columnLayout(w);
+        if (l.files === 'full' || l.side === 'full') expect(l.centre).toBeGreaterThanOrEqual(PROSE_MIN);
+        expect(l.narrow).toBe(l.centre < PROSE_MIN);
+      })
+    );
+  });
+
+  it('draws a column in place between its floor and its limit, and a folded one as a strip', () => {
+    fc.assert(
+      fc.property(width, (w) => {
+        const l = columnLayout(w);
+        for (const [mode, size, spec] of [
+          [l.files, l.filesWidth, FILES_WIDTHS],
+          [l.side, l.sideWidth, SIDE_WIDTHS]
+        ] as const) {
+          if (mode === 'strip') expect(size).toBe(STRIP_WIDTH);
+          else {
+            expect(size).toBeGreaterThanOrEqual(spec.floor);
+            expect(size).toBeLessThanOrEqual(spec.max);
+          }
+        }
+      })
+    );
+  });
+
+  it('folds a column only when nothing less would leave the prose its width, the list before the panel', () => {
+    fc.assert(
+      fc.property(width, (w) => {
+        const l = columnLayout(w);
+        if (l.side === 'strip') {
+          expect(l.files).toBe('strip');
+          expect(w - STRIP_WIDTH - SIDE_WIDTHS.floor).toBeLessThan(PROSE_MIN);
+        }
+        if (l.files === 'strip') expect(w - FILES_WIDTHS.floor - SIDE_WIDTHS.floor).toBeLessThan(PROSE_MIN);
+        // Shrinking is shared: neither column is at its floor while the other has more to give.
+        if (l.files === 'full' && l.side === 'full' && l.centre < w) {
+          const shrunk =
+            l.filesWidth < preferredWidth(FILES_WIDTHS, w) || l.sideWidth < preferredWidth(SIDE_WIDTHS, w);
+          if (shrunk) expect(l.centre).toBeLessThan(PROSE_MIN + 2);
+        }
+      })
+    );
+  });
+
+  it('never folds a column as the window widens', () => {
+    fc.assert(
+      fc.property(width, width, (a, b) => {
+        const [narrow, wide] =
+          a <= b ? [columnLayout(a), columnLayout(b)] : [columnLayout(b), columnLayout(a)];
+        if (wide.files === 'strip') expect(narrow.files).toBe('strip');
+        if (wide.side === 'strip') expect(narrow.side).toBe('strip');
+      })
+    );
+  });
+
+  it('opens a drawer no wider than its column likes, leaving both strips and some prose uncovered', () => {
+    fc.assert(
+      fc.property(width, (w) => {
+        const l = columnLayout(w);
+        expect(l.filesDrawer).toBeLessThanOrEqual(preferredWidth(FILES_WIDTHS, w));
+        expect(l.sideDrawer).toBeLessThanOrEqual(preferredWidth(SIDE_WIDTHS, w));
+        for (const drawer of [l.filesDrawer, l.sideDrawer]) {
+          expect(drawer).toBeGreaterThanOrEqual(0);
+          if (drawer > 0) expect(drawer + 2 * STRIP_WIDTH + DRAWER_MARGIN).toBeLessThanOrEqual(w + 1e-9);
+        }
+      })
+    );
+  });
+});
+
+describe('the drawer shown (ui.3)', () => {
+  const folded = { files: 'strip', side: 'strip' } as const;
+  const inPlace = { files: 'full', side: 'full' } as const;
+
+  it('shows the one opened while its column is folded', () => {
+    expect(shownDrawer('files', folded, true)).toBe('files');
+    expect(shownDrawer('side', folded, true)).toBe('side');
+    expect(shownDrawer(null, folded, true)).toBeNull();
+  });
+
+  it('shows none once its column is drawn in place again', () => {
+    expect(shownDrawer('files', inPlace, true)).toBeNull();
+    expect(shownDrawer('side', { files: 'strip', side: 'full' }, true)).toBeNull();
+    expect(shownDrawer('files', { files: 'strip', side: 'full' }, true)).toBe('files');
+  });
+
+  it('shows no side panel while no chapter is open, since it has nothing in it', () => {
+    expect(shownDrawer('side', folded, false)).toBeNull();
+    expect(shownDrawer('files', folded, false)).toBe('files');
+  });
+
+  it("opens a strip's drawer, closes it when open, and keeps one open at a time", () => {
+    expect(toggledDrawer(null, 'files')).toBe('files');
+    expect(toggledDrawer('files', 'files')).toBeNull();
+    expect(toggledDrawer('files', 'side')).toBe('side');
+    expect(toggledDrawer('side', 'files')).toBe('files');
+  });
+});
+
+describe('class names (ui.3)', () => {
+  it('names on .body the folded columns and a centre narrow even so', () => {
+    expect(bodyClassName(columnLayout(at(DEFAULT, 1)))).toBe('body');
+    expect(bodyClassName(columnLayout(at(DEFAULT, 2)))).toBe('body body--files-strip');
+    expect(bodyClassName(columnLayout(at(SMALL, 1.5)))).toBe('body body--files-strip body--side-strip');
+    expect(bodyClassName(columnLayout(at(SMALL, 2)))).toBe(
+      'body body--files-strip body--side-strip body--narrow'
+    );
+  });
+
+  it('makes a folded column a drawer, open only when it is the one shown', () => {
+    const layout = columnLayout(at(SMALL, 1.1)); // the list folded, the panel in place
+    expect(columnClassName('files', layout, null)).toBe('column column--files column--drawer');
+    expect(columnClassName('files', layout, 'files')).toBe(
+      'column column--files column--drawer column--open'
+    );
+    expect(columnClassName('side', layout, null)).toBe('column column--side');
+    // A column in place is never "open", whatever was asked.
+    expect(columnClassName('side', layout, 'side')).toBe('column column--side');
+  });
+});
+
+describe('stripText (ui.3)', () => {
+  it('names each strip after its column and says in the tooltip what a click does', () => {
+    expect(stripText('files', false)).toEqual({ label: 'Chapters', title: 'Show the chapter list' });
+    expect(stripText('files', true)).toEqual({ label: 'Chapters', title: 'Hide the chapter list' });
+    expect(stripText('side', false)).toEqual({
+      label: 'Suggestions',
+      title: 'Show suggestions, comments and history'
+    });
+    expect(stripText('side', true).title).toBe('Hide suggestions, comments and history');
+  });
+});

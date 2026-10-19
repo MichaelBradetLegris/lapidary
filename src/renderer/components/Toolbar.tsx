@@ -4,7 +4,7 @@ import type { Review } from '../../shared/types';
 import { saveButtonInput, saveButtonState, unsavedDotLabel } from '../../shared/ui/save';
 import { SAVE_HINT_ID, saveHintText, saveHintVisible } from '../../shared/ui/saveHint';
 import { useBulkAction } from '../state/bulk';
-import { hintDismissedThisSession } from '../state/hints';
+import { hintDismissedThisSession, useSaveHintAside } from '../state/hints';
 import { changedParagraphCount, isLocked, useApp } from '../state/store';
 import { IconChevronDown } from './icons';
 import { SaveHint } from './SaveHint';
@@ -14,6 +14,13 @@ interface Props {
   running: boolean;
   progressLabel: string;
   saving: boolean;
+  /** the side panel is folded to a strip, so the first-use hint hangs over the prose (ui.3) */
+  sideFolded: boolean;
+  /**
+   * the Setup screen or the welcome guide stands in place of the chapter, so
+   * the first-use hint waits (`setup.11` review)
+   */
+  singleScreen: boolean;
   onReviewWithAi: () => void;
   onCancelReview: () => void;
   onManualReview: () => void;
@@ -32,6 +39,7 @@ interface Props {
 function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const runBulk = useBulkAction();
 
   useEffect(() => {
@@ -40,7 +48,10 @@ function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): R
       if (!ref.current?.contains(event.target as Node)) setOpen(false);
     };
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key !== 'Escape') return;
+      // The press is the menu's: it closes no drawer as well (keyboard.ts, ui.3).
+      event.preventDefault();
+      setOpen(false);
     };
     window.addEventListener('mousedown', onPointerDown);
     window.addEventListener('keydown', onKeyDown);
@@ -50,7 +61,11 @@ function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): R
     };
   }, [open]);
 
+  /* The item goes with the menu, so the focus moves to Bulk first: the
+     question the action asks then hands it back there when it closes, not to
+     nothing (ui.4). */
   const run = (action: 'accept' | 'dismiss' | 'reset'): void => {
+    buttonRef.current?.focus({ preventScroll: true });
     setOpen(false);
     runBulk(action);
   };
@@ -58,6 +73,7 @@ function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): R
   return (
     <span className="menu" ref={ref}>
       <button
+        ref={buttonRef}
         type="button"
         disabled={disabled}
         title={title}
@@ -99,13 +115,17 @@ function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): R
  *
  * The first time one of those changes is waiting, a hint hangs under the
  * toolbar with its arrow on Save to chapter, until Got it or a save puts it
- * away for good (apply.12, `saveHintVisible`).
+ * away for good (apply.12, `saveHintVisible`). With the side panel folded it
+ * hangs over the prose, and gives way there (ui.3 review); while the Setup
+ * screen or the welcome guide is up it waits (`setup.11` review).
  */
 export function Toolbar({
   review,
   running,
   progressLabel,
   saving,
+  sideFolded,
+  singleScreen,
   onReviewWithAi,
   onCancelReview,
   onManualReview,
@@ -124,6 +144,7 @@ export function Toolbar({
   const dotLabel = unsavedDotLabel(input.unsavedDecisions);
 
   const dismissedHints = useApp((s) => s.settings?.dismissedHints ?? null);
+  const hintSetAside = useSaveHintAside((s) => s.setAside);
   const saveRef = useRef<HTMLButtonElement>(null);
   const hint = saveHintVisible({
     dismissedHints,
@@ -131,7 +152,11 @@ export function Toolbar({
     hasChapter: input.hasChapter,
     unsavedDecisions: input.unsavedDecisions,
     locked,
-    saving
+    saving,
+    sideFolded,
+    editingParagraph: editing > 0,
+    singleScreen,
+    setAside: hintSetAside
   });
 
   const title = review
@@ -159,13 +184,16 @@ export function Toolbar({
           </button>
         </>
       ) : (
-        <button type="button" disabled={!review?.sourcePath} onClick={onReviewWithAi}>
+        // Where the focus goes when Review with AI closes (REVIEW_BUTTON_SELECTOR, ui.4).
+        <button type="button" data-opens="review" disabled={!review?.sourcePath} onClick={onReviewWithAi}>
           Review with AI
         </button>
       )}
 
+      {/* The same for Submit manual review (MANUAL_REVIEW_BUTTON_SELECTOR, ui.4). */}
       <button
         type="button"
+        data-opens="manual-review"
         disabled={!review?.sourcePath || locked}
         title="Paste a corrected version of this chapter and turn the differences into suggestions"
         onClick={onManualReview}
@@ -193,12 +221,18 @@ export function Toolbar({
         Copy result
       </button>
 
-      <button type="button" onClick={onSettings}>
+      {/* Where the focus goes when Settings closes (SETTINGS_BUTTON_SELECTOR, ui.1). */}
+      <button type="button" data-opens="settings" onClick={onSettings}>
         Settings
       </button>
 
       {hint && review ? (
-        <SaveHint anchor={saveRef} text={saveHintText(review.sourcePath)} onGotIt={onSaveHintDone} />
+        <SaveHint
+          anchor={saveRef}
+          text={saveHintText(review.sourcePath)}
+          overProse={sideFolded}
+          onGotIt={onSaveHintDone}
+        />
       ) : null}
     </header>
   );

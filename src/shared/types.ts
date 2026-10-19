@@ -79,8 +79,16 @@ export interface Hunk {
 
 export interface ReviewComment {
   id: string;
-  /** null when Claude gave no usable anchor */
+  /** null when Claude gave no usable anchor, or when the comment's paragraph left the file */
   paragraph: number | null;
+  /**
+   * The paragraph a comment had when a change to the file on disk took that
+   * paragraph away (`rebaseReview`); `paragraph` is then null. The side panel
+   * reads it as "unanchored (was paragraph 12)" and lists the comment by it
+   * (`ui.7`). Absent on a comment about the whole chapter, and on comments
+   * that lost their paragraph before 1.0, which read as about the chapter.
+   */
+  wasParagraph?: number;
   /** short excerpt Claude referenced, if any */
   quote?: string;
   category: CommentCategory;
@@ -222,6 +230,12 @@ export interface Settings {
   checkForUpdates: boolean;
   /** the version the author agreed to download, so a restart resumes it without asking again */
   updateDownloadConsent: string | null;
+  /**
+   * The side panel's split (ui.6): the suggestions list's share of the height
+   * it, the handle and the region below share, strictly between 0 and 1; null
+   * is the usual split (shared/ui/split.ts)
+   */
+  sideSplit: number | null;
 }
 
 /**
@@ -242,7 +256,8 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   onboardingDone: false,
   dismissedHints: Object.freeze([]) as unknown as string[],
   checkForUpdates: true,
-  updateDownloadConsent: null
+  updateDownloadConsent: null,
+  sideSplit: null
 });
 
 /** The model setting that belongs to a provider. */

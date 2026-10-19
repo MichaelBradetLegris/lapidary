@@ -650,5 +650,8 @@ function remapComment(
     const at = newText.indexOf(comment.quote);
     if (at >= 0) return { ...comment, paragraph: paragraphIndexAt(newParagraphs, at) };
   }
-  return { ...comment, paragraph: null };
+  /* Lost: the side panel says which paragraph it had and lists it there, since
+     a comment usually belongs near where it was (ui.7). A comment that is
+     already unanchored was returned above and keeps that number. */
+  return { ...comment, paragraph: null, wasParagraph: comment.paragraph };
 }

@@ -1,3 +1,4 @@
+import type { ReadingRange } from '../../shared/ui/navigate';
 import { easeOutCubic, retarget, scrollDuration, type ScrollBlock } from '../../shared/ui/scroll';
 
 /**
@@ -91,21 +92,34 @@ export function scrollToElement(element: Element | null | undefined, block: Scro
 }
 
 /**
- * Keep the focused suggestion in view in the side panel (panel.1): its row in
- * the list and, when the panel has two regions, its details in the region below
- * (`lower`, which scrolls only then). Neither moves when it is already wholly in
- * view, so a click on the first or last visible row never slides the list under
- * the pointer; one partly or wholly out of view comes in with a small margin.
- * When the window is short and the panel scrolls as one, only the row is
- * followed: the panel is then the scroller for both, and a second scroll would
- * cancel the first.
+ * The base-text offsets of the paragraphs the author can see in `scroller`,
+ * from their `data-start` and `data-end`, or null when none is in view. j, k
+ * and their Shift forms start from here when the focus is off screen (11.7,
+ * small.9). A paragraph partly in view counts.
  */
-export function followFocus(
-  row: Element | null | undefined,
-  lower: HTMLElement | null,
-  details: Element | null
-): void {
+export function readingRange(scroller: Element | null): ReadingRange | null {
+  if (!(scroller instanceof HTMLElement)) return null;
+  const box = scroller.getBoundingClientRect();
+  let start = Infinity;
+  let end = -Infinity;
+  for (const para of scroller.querySelectorAll<HTMLElement>('[data-start][data-end]')) {
+    const rect = para.getBoundingClientRect();
+    if (rect.bottom <= box.top || rect.top >= box.bottom) continue;
+    start = Math.min(start, Number(para.dataset['start']));
+    end = Math.max(end, Number(para.dataset['end']));
+  }
+  return start <= end ? { start, end } : null;
+}
+
+/**
+ * Keep the focused suggestion's row in view in the side panel's list (panel.1),
+ * in the list region or, in a short window, the panel's one scroller. It does
+ * not move when it is already wholly in view, so a click on the first or last
+ * visible row never slides the list under the pointer; one partly or wholly out
+ * of view comes in with a small margin. The suggestion's details are in a box
+ * of fixed height above the list (ui.5), which no focus moves, so only the row
+ * is followed.
+ */
+export function followFocus(row: Element | null | undefined): void {
   scrollToElement(row, 'if-needed');
-  if (!lower || !details || !/(auto|scroll)/.test(getComputedStyle(lower).overflowY)) return;
-  scrollRectIntoView(lower, details.getBoundingClientRect(), 'if-needed');
 }

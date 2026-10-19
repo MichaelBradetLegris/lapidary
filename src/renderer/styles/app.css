@@ -59,10 +59,13 @@
   --modal-shadow: rgb(0 0 0 / 22%);
   --hover-overlay: rgb(0 0 0 / 8%);
 
-  /* How strongly a suggestion's colour tints its words, as color-mix() shares. */
+  /* How strongly a suggestion's colour tints its words, as color-mix() shares.
+     A small change's capsule (11.7) is tinted more, as it is narrow. */
   --tint-pending: 9%;
   --tint-hover: 18%;
   --tint-decided-hover: 16%;
+  --tint-small: 16%;
+  --tint-small-hover: 26%;
 
   --font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-prose: Literata, Georgia, 'Times New Roman', serif;
@@ -130,6 +133,8 @@
     --tint-pending: 9%;
     --tint-hover: 18%;
     --tint-decided-hover: 16%;
+    --tint-small: 16%;
+    --tint-small-hover: 26%;
 
     --cat-spelling: #ff7b72;
     --cat-homophone: #f2875e;
@@ -180,11 +185,15 @@ button {
   cursor: pointer;
 }
 
-button:hover:not(:disabled) {
+/* A button held while its work runs is aria-disabled rather than disabled, so
+   it keeps the keyboard focus (heldButton, setup.8 review); it looks like a
+   disabled one and does not light up under the mouse. */
+button:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--panel-alt);
 }
 
-button:disabled {
+button:disabled,
+button[aria-disabled='true'] {
   opacity: 0.45;
   cursor: default;
 }
@@ -198,14 +207,14 @@ button.primary {
 /* Blue buttons darken on hover instead of taking the generic near-white hover
    above, which left their white text unreadable (round 5). The same goes for the
    active tab on the Setup screen. */
-button.primary:hover:not(:disabled),
-button.setup__tab--active:hover:not(:disabled) {
+button.primary:hover:not(:disabled, [aria-disabled='true']),
+button.setup__tab--active:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
 }
 
-button.primary:active:not(:disabled),
-button.setup__tab--active:active:not(:disabled) {
+button.primary:active:not(:disabled, [aria-disabled='true']),
+button.setup__tab--active:active:not(:disabled, [aria-disabled='true']) {
   background: var(--accent-active);
   border-color: var(--accent-active);
 }
@@ -257,10 +266,18 @@ input[type='text'] {
   height: 100%;
 }
 
-/* Everything but the confirm dialog, made inert while a question is open
-   (apply.7 review). It has no box, so its children lay out in .app-shell's
-   column as before. */
+/* Everything but the dialogs and the confirm dialog, made inert while a
+   dialog or a question is open (apply.7 review, ui.4). It has no box, so its
+   children lay out in .app-shell's column as before. */
 .app-shell__page {
+  display: contents;
+}
+
+/* Settings, New chapter, Review with AI and Submit manual review, kept out of
+   the page so that it can be inert under them, and made inert themselves
+   while a question is open (ui.4). No box either: each dialog's backdrop is
+   fixed over the whole window, at its own layer (.modal-backdrop). */
+.app-shell__dialogs {
   display: contents;
 }
 
@@ -330,8 +347,8 @@ input[type='text'] {
    SaveHint.tsx sets `left`, `width` and the arrow's place from
    `saveHintPlacement`, and it stays hidden until then, like the hover card.
    Under the notification cards (12), so a card wins should the two ever meet,
-   above the page's unpositioned content, and under every dialog's backdrop
-   (20), the menus (30) and the hover card (40). */
+   above the page's unpositioned content, and under the menus (30), every
+   dialog's backdrop (39) and the hover card (40). */
 .save-hint {
   position: absolute;
   top: calc(100% + 9px);
@@ -399,14 +416,111 @@ input[type='text'] {
   color: var(--ink-soft);
 }
 
-/* The side columns keep their width at normal size and give some of it back
-   when the window is narrow in CSS pixels, which is what zooming in does, so
-   the manuscript keeps most of the room at 150% and beyond (round 5). */
+/* The side columns keep their width at normal size and give way to the prose
+   when the window is narrow in CSS pixels, which is what zooming in does
+   (round 5, ui.3): `columnLayout` in src/shared/ui/columns.ts keeps the centre
+   column 480 px wide while it can, by shrinking both side columns, then
+   folding the chapter list to a strip, then the side panel. App sets the
+   widths below on `.body` from it; these values are the widths before ui.3,
+   for the moment before it does. Positioned for the drawers. */
 .body {
+  --files-col: clamp(170px, 18vw, 230px);
+  --side-col: clamp(240px, 24vw, 320px);
+  --files-drawer: 230px;
+  --side-drawer: 320px;
+  position: relative;
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: clamp(170px, 18vw, 230px) minmax(0, 1fr) clamp(240px, 24vw, 320px);
+  grid-template-columns: var(--files-col) minmax(0, 1fr) var(--side-col);
   min-height: 0;
+}
+
+/* A side column's wrapper (ui.3). Drawn in place, it lays out nothing, and
+   the column is a cell of the grid as before. */
+.column {
+  display: contents;
+}
+
+/* Folded, the wrapper is the column's drawer: over the edge of the prose,
+   beside the strip, as tall as the columns, at the column's usual width less
+   what the window cannot spare. Hidden and inert until its strip opens it.
+   Above the page, below the first-use hint (11), the notification cards (12)
+   and everything else that floats, so a hint or a card is never lost behind
+   it; it is the side panel's column the hint keeps to, wherever that is drawn.
+   Its background is the page's, which is what lies under the column in place:
+   while a review of the chapter runs, the side panel fades (`.side--locked`),
+   and over the prose it would otherwise let the text show through. */
+.column--drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  visibility: hidden;
+  background: var(--bg);
+  box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / 20%);
+}
+
+.column--open {
+  visibility: visible;
+}
+
+.column--files.column--drawer {
+  left: var(--files-col);
+  width: var(--files-drawer);
+}
+
+.column--side.column--drawer {
+  right: var(--side-col);
+  width: var(--side-drawer);
+}
+
+.column--drawer > .files,
+.column--drawer > .side {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* A folded column: one button the height of the column, its chevron at the
+   top and the column's name written down it. Its own colours, so it reads as
+   the column it stands for, not as a button in a row. The name is cut off
+   where a short window leaves it no room; the tooltip and the accessible name
+   carry it whole. */
+.strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 0;
+  overflow: hidden;
+  border: none;
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--ink-soft);
+}
+
+.strip--files {
+  border-right: 1px solid var(--border);
+}
+
+.strip--side {
+  border-left: 1px solid var(--border);
+}
+
+.strip[aria-expanded='true'] {
+  background: var(--panel-alt);
+  color: var(--ink);
+}
+
+.strip__label {
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
 }
 
 /* Every element that scrolls has an opaque background in a colour token, even
@@ -417,7 +531,8 @@ input[type='text'] {
    (lcd_text_disallowed_reason none) and 41. See PLAN Appendix C, "The scrollers
    have opaque backgrounds (LCD text while scrolling)". */
 .body--single {
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   overflow: auto;
   background: var(--bg);
 }
@@ -498,6 +613,22 @@ input[type='text'] {
 
 .statusbar__unsaved {
   color: var(--unsaved);
+}
+
+/* The provider's readiness is a button that opens Setup, or Settings for
+   OpenAI (setup.7), drawn as the text it was, underlined under the pointer. */
+.statusbar__runtime {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-underline-offset: 2px;
+}
+
+.statusbar__runtime:hover:not(:disabled) {
+  background: none;
+  color: var(--ink);
+  text-decoration: underline;
 }
 
 .statusbar__stale,
@@ -613,18 +744,40 @@ input[type='text'] {
 
 /* ---------- review pane ---------- */
 
+/* Nothing in the pane may make the manuscript scroll sideways (ui.2). `clipGhosts`
+   already stops every ghost 6 px inside the pane's edge, or short of the margin
+   column, the prose wraps a word too long for its line, and the paragraph
+   editor's buttons wrap; this clips anything else at the pane's own edge, the
+   outside of its side padding, rather than add a horizontal scrollbar. Whatever
+   reaches past that edge is hidden and cannot be clicked, so anything wider than
+   a narrow column has to wrap. `clip` rather than `hidden`, so the pane does not
+   become a scroller of its own. `min-width: 0` lets the pane give the position
+   strip its 14 px in a narrow pane: as a flex item it would otherwise stay as
+   wide as its longest word allows and push the strip out (a 900x600 window at
+   150%, before ui.3 let the side columns give way). */
 .pane {
   flex: 0 1 auto;
   width: 100%;
+  min-width: 0;
   max-width: 860px;
   margin: 0 auto;
   padding: 28px 40px 120px;
+  overflow-x: clip;
 }
 
 .pane--gutter {
   max-width: 1220px;
   padding-left: 22px;
   padding-right: 22px;
+}
+
+/* A window too narrow for 480 px of centre column even with both side columns
+   folded to strips (`body--narrow`, ui.3: a 900 by 600 window from 175%): the
+   pane's side padding narrows from 40 px, so the text keeps more of what is
+   left. The margin column never shows there. */
+.body--narrow .pane {
+  padding-left: 16px;
+  padding-right: 16px;
 }
 
 .pane__body {
@@ -640,7 +793,9 @@ input[type='text'] {
 
 /* The left padding is the rail: each paragraph's number and pen sit in it
    (Phase 5d). It is added to the measure, not taken from it, so the line length
-   of the prose is what it was. */
+   of the prose is what it was. A word longer than the line, such as a web
+   address, breaks onto the next line instead of running out of the pane (ui.2);
+   ghosts are `white-space: pre` and never wrap. */
 .prose {
   font-family: var(--font-prose);
   font-size: 17px;
@@ -648,10 +803,15 @@ input[type='text'] {
   max-width: calc(66ch + 50px);
   padding-left: 50px;
   margin: 0 auto;
+  overflow-wrap: break-word;
 }
 
+/* Each paragraph is a stacking context of its own, so a small change's
+   capsule (below) is painted above the paragraph's own background, an active
+   comment's yellow included, and beneath its letters (11.7). */
 .para {
   position: relative;
+  isolation: isolate;
   white-space: pre-wrap;
   margin: 0 0 1.1em;
   border-radius: 3px;
@@ -669,12 +829,13 @@ input[type='text'] {
 
 /* Number and pen beside each paragraph. The rail is one prose line tall, so both
    sit level with the paragraph's first line. It is never selected or copied with
-   the prose, and the find bar skips it. */
+   the prose, and the find bar skips it. It ends 11 px short of the text, where
+   the margin marks sit (11.7, small.8); it was 42 px wide. */
 .para__rail {
   position: absolute;
   left: -50px;
   top: 0;
-  width: 42px;
+  width: 39px;
   height: 2.3em;
   display: flex;
   align-items: center;
@@ -685,10 +846,14 @@ input[type='text'] {
   line-height: 1;
 }
 
+/* On one line: a merged "19-20" broke after its hyphen, beside the pen, in the
+   rail's 42 px as in its 39 (11.7, small.8). It reaches left past the rail
+   instead, into the prose's own padding. */
 .para__num {
   font-size: 11px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* A paragraph with an open comment: its number in the comment colour, where the
@@ -735,6 +900,60 @@ input[type='text'] {
   margin: 0 0 1.4em;
   white-space: pre-wrap;
   line-height: 1.5;
+}
+
+/* Margin marks (11.7, small.8), children of the paragraph in the 11 px between
+   the rail and the text, placed by CSS anchor positioning on the live text of
+   their change (`markAnchorName`): the line box's top is the anchor's top less
+   the half-leading, so a mark stays level with its line through reflow, zoom
+   and font loading, a caret that wrapped included. Each is a line tall. A bar,
+   3 px by 0.9em in the category colour, marks a line with a pending small
+   change and is a button: a click selects the change without scrolling, and
+   hovering shows its card. An ink arrowhead marks the line where the focused
+   suggestion starts; it is the same button, so a bar that turns into it under
+   the pointer keeps its element (ReviewPane's MarkButton), and it takes no
+   pointer. Both are drawn with borders, which forced colours keep. */
+.mark {
+  position: absolute;
+  top: calc(anchor(top) - 0.53em);
+  left: -11px;
+  width: 11px;
+  height: 2.3em;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mark::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+}
+
+.mark--bar::before {
+  right: 3px;
+  height: 0.9em;
+  border-left: 3px solid var(--cat);
+}
+
+.mark--bar:hover:not(:disabled) {
+  background: none;
+}
+
+.mark--focus {
+  pointer-events: none;
+}
+
+.mark--focus::before {
+  right: 2px;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 6px solid var(--ink);
 }
 
 /* ---------- hunks ---------- */
@@ -831,13 +1050,60 @@ input[type='text'] {
   opacity: 0.8;
 }
 
-.hunk__caret {
+/* The key (11.7, small.7): a small ghost drawn bigger, the glyph at 1.25 times
+   the ghost's size, so a comma or a hyphen is plain at a glance. An
+   inline-block, so a replaced original's line-through does not reach it; its
+   "was" says it was replaced. Whitespace, which cannot be shown, is named in
+   small caps in a keycap: a 1 px rounded border in the ghost's own colour at
+   60% and no fill (light word-choice is exactly 4.5:1 on the page, so a tint
+   behind it would fail). Punctuation has no border: with one, the rows piled
+   up on a dialogue line with six small changes, "ADDED [,]" running 11.6 px
+   over the next "-> [I]". The row above the line reaches down less far with a
+   key in it, so the taller row stays inside the gap between the lines. */
+.hunk__key {
   display: inline-block;
-  width: 0;
+  margin-left: 0.12em;
+  font-size: 1.25em;
+  line-height: 1;
+}
+
+.hunk__tag + .hunk__key {
+  margin-left: 0.3em;
+}
+
+.hunk__key--name {
+  margin-left: 0.2em;
+  padding: 0.12em 0.3em;
+  border: 1px solid color-mix(in srgb, currentColor 60%, transparent);
+  border-radius: 3px;
+  font-family: var(--font-ui);
+  font-size: 0.86em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hunk__above--key {
+  padding-bottom: 0.12em;
+}
+
+/* The caret of an insertion, 2 px by about 15 px. Inline, not inline-block, so
+   it stays on the line of the word before it: an inline-block caret broke
+   away onto the next line at some window widths (11.7, small.1). Its height
+   is the content area of its own font, so the font size sets it. It follows
+   the status as the underline does: colour means undecided. */
+.hunk__caret {
+  display: inline;
+  font-size: 0.8em;
   border-left: 2px solid var(--cat);
-  height: 0.9em;
-  vertical-align: -0.1em;
   margin: 0 1px;
+}
+
+.hunk--accepted .hunk__caret {
+  border-left-color: var(--ink-faint);
+}
+
+.hunk--dismissed .hunk__caret {
+  border-left-color: var(--border-strong);
 }
 
 /* Invisible rather than absent when not in use. An x that took no space could
@@ -922,6 +1188,117 @@ input[type='text'] {
   content: '?';
   margin-left: 2px;
   opacity: 0.7;
+}
+
+/* ---------- small changes (PLAN 11.7) ---------- */
+
+/* A change whose text in the line is a comma, a space, a one-letter word or
+   nothing at all (`isSmallLive`) is drawn bigger, never stored bigger. Its
+   capsule is an absolutely positioned box under the live text, 0.75em wide or
+   the text's own width if wider, painted beneath the letters (the paragraph
+   isolates it), with the state's line along its foot: the category colour at
+   --tint-small and a 2 px category line while pending, a 2 px grey cup once
+   accepted, a 1 px dotted line once dismissed. A transparent hit zone, 0.9em
+   wide, lies over it, so the click target grows from about 5 x 22 to 16 x 23
+   CSS px. Absolute boxes add no advance: line breaks, the span's rect (scroll
+   target, tooltip, ghost clipping) and the margin notes are unchanged.
+   Borders, not shadows, as forced colours drop shadows. On a side where
+   another change touches it, or text under two characters stands before the
+   next (`flushBefore`, `flushAfter`), both boxes stop at the change's own
+   edge, so neither covers its neighbour. */
+.hunk--small .hunk__live {
+  position: relative;
+}
+
+.hunk.hunk--small .hunk__live {
+  border-bottom: none;
+  background-color: transparent;
+}
+
+.hunk--small .hunk__live::before,
+.hunk--small .hunk__live::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  min-width: 100%;
+  translate: -50% 0;
+}
+
+.hunk--small .hunk__live::before {
+  width: 0.9em;
+  bottom: -2px;
+}
+
+.hunk--small .hunk__live::after {
+  z-index: -1;
+  width: 0.75em;
+  border-radius: 2px 2px 0 0;
+}
+
+.hunk--small.hunk--flush-before .hunk__live::before,
+.hunk--small.hunk--flush-before .hunk__live::after {
+  left: 0;
+  translate: none;
+}
+
+.hunk--small.hunk--flush-after .hunk__live::before,
+.hunk--small.hunk--flush-after .hunk__live::after {
+  left: auto;
+  right: 0;
+  translate: none;
+}
+
+.hunk--small.hunk--flush-before.hunk--flush-after .hunk__live::before,
+.hunk--small.hunk--flush-before.hunk--flush-after .hunk__live::after {
+  left: 0;
+  right: 0;
+  width: auto;
+  min-width: 0;
+}
+
+.hunk--small.hunk--pending .hunk__live::after {
+  background-color: color-mix(in srgb, var(--cat) var(--tint-small), transparent);
+  border-bottom: 2px solid var(--cat);
+}
+
+.hunk--small.hunk--pending.hunk--hovered .hunk__live::after {
+  background-color: color-mix(in srgb, var(--cat) var(--tint-small-hover), transparent);
+}
+
+.hunk--small.hunk--accepted .hunk__live::after {
+  border-bottom: 2px solid var(--ink-faint);
+}
+
+.hunk--small.hunk--dismissed .hunk__live::after {
+  border-bottom: 1px dotted var(--border-strong);
+}
+
+.hunk--small.hunk--accepted.hunk--hovered .hunk__live::after,
+.hunk--small.hunk--dismissed.hunk--hovered .hunk__live::after {
+  background-color: color-mix(in srgb, var(--ink-faint) var(--tint-decided-hover), transparent);
+}
+
+/* Focused, the capsule takes the focus yellow, not the whole span: on a small
+   change the span is a few pixels wide. In the active comment's paragraph the
+   capsule keeps theme.8's hairline. The ghost above is not filled, as a
+   word-sized change's is not: category text on the dark focus yellow came to
+   4.03 to 4.28:1 for spelling, homophone, punctuation and other, under the
+   4.5 a category as text needs (11.3 e, small review). The arrowhead in the
+   margin marks the line. */
+.hunk--small.hunk--focused,
+.para--active .hunk--small.hunk--focused {
+  background: none;
+  box-shadow: none;
+}
+
+.hunk--small.hunk--focused .hunk__live::after {
+  background-color: var(--focus-bg);
+}
+
+.para--active .hunk--small.hunk--focused .hunk__live::after {
+  box-shadow: 0 0 0 1px var(--active-ring);
 }
 
 .cat-spelling,
@@ -1028,8 +1405,110 @@ input[type='text'] {
   color: var(--warn);
 }
 
-/* The suggestions list takes what it needs, up to about 55% of the panel, with
-   its heading pinned above the rows that scroll. */
+/* The focused suggestion (ui.5): a box of fixed height directly under the
+   review selector, above the list, so that nothing below it moves when the
+   focus does; with the box between the list and the comments, its height
+   followed the explanation and the comments region grew and shrank as the
+   focus moved. The height fits the heading line with its pencil, the category,
+   Original and Suggested on a line each, and two lines of explanation. Every
+   line in it has its own line height, so the sum below does not depend on the
+   font's metrics. Anything longer scrolls inside the box, below its heading
+   line, which stays in view with the pencil. */
+.side__focus {
+  --focus-head: 18px;
+  --focus-cat: 16px;
+  --focus-pair: 19px;
+  --focus-reason: 18px;
+  flex: none;
+  /* The lines, 108 px, and 31 px between and around them: the padding (8 and
+     8), 4 under the heading line, under the category and above the
+     explanation, 2 between Original and Suggested, and the border. 139 px. */
+  height: calc(var(--focus-head) + var(--focus-cat) + 2 * var(--focus-pair) + 2 * var(--focus-reason) + 31px);
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.side__focus-head {
+  flex: none;
+  height: var(--focus-head);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  padding: 0 8px 0 10px;
+}
+
+.side__focus-head h3 {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: var(--focus-head);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-faint);
+}
+
+/* The body scrolls on its own, opaque like every scroller (theme.1). It
+   reaches the panel's edge, so its scrollbar sits where the list's does. */
+.side__focus-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 10px;
+  background: var(--panel);
+}
+
+.side__focus-body .side__empty {
+  margin: 0;
+  line-height: var(--focus-reason);
+}
+
+.side__focus-body .detail__cat {
+  line-height: var(--focus-cat);
+}
+
+.side__focus-body .pair {
+  margin: 4px 0 0;
+}
+
+.side__focus-body .pair dd {
+  line-height: var(--focus-pair);
+}
+
+.side__focus-body .pair dt {
+  line-height: var(--focus-pair);
+  padding-top: 0;
+}
+
+.side__focus-body .detail__reason {
+  margin: 4px 0 0;
+  line-height: var(--focus-reason);
+}
+
+/* The list and the region below it share the height the box leaves. With a
+   split set (ui.6), the page gives the share and the limits here, measured;
+   these are the usual split's share and the limits as measured at 100%,
+   until it has. */
+.side__regions {
+  --split: 0.55;
+  --split-min: 103px;
+  --split-gap: 93px;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The suggestions list takes what it needs, up to about 55% of the height
+   under the focused suggestion's box, with its heading pinned above the rows
+   that scroll. */
 .side__list {
   flex: 0 1 auto;
   max-height: 55%;
@@ -1045,14 +1524,104 @@ input[type='text'] {
   padding: 0 10px;
 }
 
-/* The focused suggestion's details, comments, Unanchored and History: the rest
-   of the height, scrolling on its own. */
+/* With a split set (ui.6), the list has the share of the height the author
+   gave it, whatever it holds, but never less than its heading and three rows
+   (`--split-min`) and never so much that the region below has less than
+   three rows under the handle (`--split-gap`): the page measures both
+   (`splitRoom` in src/shared/ui/split.ts, whose `splitHeight` is this sum).
+   Should the two limits cross, in a panel under about 196 px, the least wins,
+   and it is never more than the usual split's 55%: the region below then has
+   no less than under the usual split with a full list (PLAN C.59). A share,
+   so the line keeps its place as the window, the zoom or the chips change the
+   height. */
+.side__regions[data-split] > .side__list {
+  flex: none;
+  max-height: none;
+  height: clamp(min(var(--split-min), 55%), calc(var(--split) * 100%), calc(100% - var(--split-gap)));
+}
+
+/* The handle between the two regions (ui.6): dragged, or moved with the
+   arrows in 24 px steps and with Home and End to the limits, it gives the
+   list or the region below more room, and a double-click or Enter puts back
+   the usual split. Its line is the one that divided the two regions before,
+   with a grip on it, in a band 7 px tall to aim at. The grip is in the faint
+   text's grey, which has 3:1 on the panel in both themes, so the handle can
+   be found, and darkens under the pointer. The focus ring is drawn inside the
+   band, where neither region covers it. */
+.side__split {
+  position: relative;
+  flex: none;
+  height: 7px;
+  cursor: row-resize;
+  touch-action: none;
+  background: var(--panel);
+}
+
+.side__split::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--border);
+}
+
+.side__split::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: calc(50% - 14px);
+  width: 28px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--ink-faint);
+}
+
+.side__split:hover::before,
+.side__split--dragging::before {
+  background: var(--border-strong);
+}
+
+.side__split:hover::after,
+.side__split--dragging::after {
+  background: var(--ink-soft);
+}
+
+.side__split:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* A panel too short for the handle to move an arrow step (C.59): the line it
+   replaced, with no grip, the usual pointer, and no change under it. */
+.side__split[aria-disabled='true'] {
+  cursor: default;
+}
+
+.side__split[aria-disabled='true']::after {
+  display: none;
+}
+
+.side__split[aria-disabled='true']:hover::before {
+  background: var(--border);
+}
+
+/* While the handle is dragged, the pointer keeps its row-resize shape over
+   whatever it crosses, and nothing is selected. */
+:root.splitting,
+:root.splitting * {
+  cursor: row-resize !important;
+  user-select: none;
+}
+
+/* Comments, Unanchored and History: the rest of the height, scrolling on its
+   own. The handle above it is the line between the two. */
 .side__lower {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
   padding: 10px;
-  border-top: 1px solid var(--border);
   background: var(--panel);
 }
 
@@ -1064,11 +1633,18 @@ input[type='text'] {
    real window (PLAN C.49). The smallest window, 900 by 600, is 561 px high
    inside: two regions at 100%, with a panel of 374 to 451 px, and one scroller
    from 110% (510 px). The default 1440 by 940 is 901 px: two regions up to
-   150% (601 px), one scroller at 175% (515 px) and 200%. */
+   150% (601 px), one scroller at 175% (515 px) and 200%. The focused
+   suggestion's box (ui.5) is then the first thing in the one scroller, at the
+   same height, and scrolls away with it: pinned above it, it would leave the
+   list and comments a few pixels in the default window at 200%. */
 @media (height < 540px) {
   .side__body {
     display: block;
     overflow-y: auto;
+  }
+
+  .side__regions {
+    display: block;
   }
 
   .side__list {
@@ -1080,6 +1656,21 @@ input[type='text'] {
   .side__list .rows,
   .side__lower {
     overflow: visible;
+  }
+
+  /* No split in the one scroller (ui.6): the handle is hidden, the list runs
+     to its full length whatever the setting, and the line above the region
+     below is its own border again. */
+  .side__split {
+    display: none;
+  }
+
+  .side__regions[data-split] > .side__list {
+    height: auto;
+  }
+
+  .side__lower {
+    border-top: 1px solid var(--border);
   }
 }
 
@@ -1130,11 +1721,6 @@ input[type='text'] {
 .detail__reason {
   margin: 4px 0;
   color: var(--ink-soft);
-}
-
-.detail__actions {
-  display: flex;
-  gap: 4px;
 }
 
 .comments,
@@ -1302,6 +1888,11 @@ input[type='text'] {
 
 /* ---------- dialogs ---------- */
 
+/* Every dialog covers the whole window: the page, the find bar, the legend and
+   the menus (30), and the suggestion editor (.editor, 38), which is inert under
+   it (EditPopover); drawn at 20, below the editor, the editor floated over
+   Settings and the other dialogs and could still be saved behind them (ui.1
+   review). Only the hover card (.tip, 40) and a question (45) are above it. */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1310,7 +1901,7 @@ input[type='text'] {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  z-index: 20;
+  z-index: 39;
 }
 
 /* The confirm dialog is asked from inside other dialogs and with the suggestion
@@ -1329,6 +1920,12 @@ input[type='text'] {
   max-height: 100%;
   overflow: auto;
   box-shadow: 0 18px 50px var(--modal-shadow);
+}
+
+/* Settings' box takes the focus as it opens (ui.1, useDialogFocus); it is
+   plainly the thing in front, so no ring round it. Its controls keep theirs. */
+.modal:focus {
+  outline: none;
 }
 
 .modal--wide {
@@ -1456,25 +2053,150 @@ input[type='text'] {
   color: var(--ink);
 }
 
-/* ---------- setup screen ---------- */
+/* ---------- setup screen (setup.7) ---------- */
 
+/* The Setup screen takes the place of the chapter list, the prose and the
+   side panel, in .body--single. The notification cards sit at the top of it,
+   before the screen and in the flow, so they never cover its Close or its
+   Check again, and they stay in view while the screen scrolls below them
+   (.setup). Positioned, though not moved, so that they keep their layer over
+   the first-use hint. */
+.body--single > .notes {
+  position: relative;
+  inset: auto;
+  flex: none;
+  align-self: center;
+  width: 100%;
+  max-width: 720px;
+  padding: 12px 28px 0;
+}
+
+/* The scroller takes the whole width under the cards, so the wheel scrolls
+   it over the margins too and its scrollbar is at the window's edge; the page
+   inside is the centred column (setup.7 review). The gutter is kept on both
+   sides, so the page stays centred under the cards whether or not it scrolls. */
 .setup {
-  padding: 28px;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
+  background: var(--bg);
+  line-height: 1.45;
+}
+
+.setup__page {
   max-width: 720px;
   margin: 0 auto;
-  overflow: auto;
-  background: var(--bg);
+  padding: 28px;
 }
 
 .setup h1 {
   font-size: 20px;
+  margin: 0;
+}
+
+.setup h2 {
+  font-size: 15px;
+  margin: 0 0 6px;
+}
+
+.setup p {
   margin: 0 0 8px;
+}
+
+.setup__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* What the last check found: a card with the state's colour at its edge, as
+   the notification cards have, and Check again beside it. */
+.setup__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px 16px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.setup__status--ok {
+  border-left-color: var(--accept);
+}
+
+.setup__status--warn {
+  border-color: var(--warn-border);
+  border-left-color: var(--warn);
+  background: var(--warn-bg);
+}
+
+.setup__status-text {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.setup__status-text p:last-child {
+  margin-bottom: 0;
+}
+
+.setup__status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.setup__status-actions button {
+  white-space: nowrap;
+}
+
+/* Under the status card's text and buttons, across its width: what Test the
+   connection costs, and how the last test went (setup.8). */
+.setup__test {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.setup__test p {
+  margin: 0 0 4px;
+}
+
+.setup__test p:last-child {
+  margin-bottom: 0;
+}
+
+.setup__test-note,
+.setup__test-result--running {
+  color: var(--ink-soft);
+}
+
+.setup__test-result--ok {
+  color: var(--accept);
+}
+
+.setup__test-result--failed {
+  color: var(--danger);
+}
+
+.setup .modal__warn {
+  margin-bottom: 18px;
+}
+
+.setup__section {
+  margin-bottom: 18px;
 }
 
 .setup__tabs {
   display: flex;
   gap: 6px;
-  margin: 12px 0;
+  margin: 8px 0 12px;
 }
 
 .setup__tab--active {
@@ -1483,23 +2205,226 @@ input[type='text'] {
   color: var(--on-accent);
 }
 
+.setup__steps {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.setup__steps li {
+  margin-bottom: 10px;
+}
+
+.setup__steps p {
+  margin: 0 0 4px;
+}
+
+.setup__note {
+  color: var(--ink-soft);
+}
+
+.setup__others {
+  margin-top: 6px;
+}
+
+.setup__other {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.setup__trouble {
+  margin: 0 0 6px;
+}
+
+.setup__trouble summary,
+.setup__advanced summary {
+  cursor: pointer;
+}
+
+.setup__trouble p {
+  margin: 4px 0 8px 16px;
+  color: var(--ink-soft);
+}
+
+.setup__advanced {
+  margin-bottom: 18px;
+}
+
+.setup__advanced summary {
+  font-weight: 600;
+}
+
+.setup__advanced dl {
+  margin: 8px 0 0;
+}
+
+.setup__row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.setup__row dt {
+  color: var(--ink-soft);
+}
+
+.setup__row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.setup__footer {
+  color: var(--ink-soft);
+}
+
+/* ---------- welcome guide (setup.11) ---------- */
+
+/* The guide uses the Setup screen's scroller and centred column (.setup,
+   .setup__page). Each step is a card with its number beside it, a tick once
+   it is done, and the state's colour at its edge, as Setup's status card has
+   it. Start sits under the steps, on the right, with what is left beside it. */
+.welcome__intro {
+  color: var(--ink-soft);
+}
+
+.welcome__steps {
+  list-style: none;
+  margin: 16px 0 18px;
+  padding: 0;
+}
+
+.welcome__step {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.welcome__step--done {
+  border-left-color: var(--accept);
+}
+
+.welcome__mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.welcome__step--done .welcome__mark {
+  border-color: var(--accept);
+  color: var(--accept);
+}
+
+.welcome__body {
+  min-width: 0;
+}
+
+.welcome__body h2 {
+  margin: 3px 0 2px;
+}
+
+/* Where the step stands: a folder's path can be long, so it wraps anywhere. */
+.welcome__status {
+  font-weight: 600;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.welcome__step--done .welcome__status {
+  color: var(--accept);
+}
+
+/* What the folder means for the author's files: a path in it wraps anywhere. */
+.welcome__facts {
+  margin: 0 0 8px;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+
+.welcome__facts li {
+  margin-bottom: 4px;
+}
+
+/* The buttons wrap onto more rows in a narrow column. A label could break
+   inside its button only in a column narrower than the label, which even the
+   smallest window at 200% is not for "Use OpenAI instead (experimental, pay
+   per use)". */
+.welcome__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.setup .welcome__note {
+  margin: 8px 0 0;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.setup .welcome__note--error {
+  color: var(--danger);
+}
+
+.welcome__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 16px;
+}
+
+.setup .welcome__start-note {
+  flex: 1 1 320px;
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+/* A command to copy. A long one wraps rather than scrolling, so all of it can
+   be read; the copy is the command as it is. One click on it selects the whole
+   command, for copying by hand when the clipboard refuses (setup.7). */
 .cmd {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   align-items: center;
   margin: 6px 0;
 }
 
 .cmd code {
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-width: 0;
   font-family: ui-monospace, Consolas, monospace;
   font-size: 12px;
   background: var(--panel-alt);
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 5px 8px;
-  overflow-x: auto;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.cmd button {
+  white-space: nowrap;
+}
+
+.cmd__failed {
+  flex: 1 0 100%;
+  color: var(--danger);
 }
 
 .progress {
@@ -1615,6 +2540,43 @@ input[type='text'] {
 .row--dismissed .row__text {
   color: var(--ink-faint);
   text-decoration: line-through;
+}
+
+/* A small change's row (11.7, small.5): a few words of its line either side,
+   and the change between them in a chip drawn like the keycap above the line,
+   a 1 px border at 60% and no fill. The chip is inline, so where the row is
+   short of room its ellipsis cuts into the chip rather than dropping it
+   whole; the row's text box reaches 2 px above and below its line, taken
+   back by its margins, so the clip it needs for the ellipsis keeps the chip's
+   top and bottom border. Its border carries the category colour while the
+   change is pending, as the keycap does. */
+.row__text--context {
+  padding: 2px 0;
+  margin: -2px 0;
+}
+
+.row__chip {
+  margin: 0 2px;
+  padding: 0 3px;
+  border: 1px solid color-mix(in srgb, currentColor 60%, transparent);
+  border-radius: 3px;
+  white-space: pre;
+}
+
+.row--pending .row__chip {
+  border-color: color-mix(in srgb, var(--cat) 60%, transparent);
+}
+
+.row__chip svg {
+  margin: 0 2px;
+  vertical-align: -0.05em;
+}
+
+.row__tag {
+  font-family: var(--font-ui);
+  font-size: 0.75em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .row__act {
@@ -1934,6 +2896,42 @@ input[type='text'] {
   border-top: 1px dotted var(--border-strong);
 }
 
+/* The small-change marks (11.7, small.10), each drawn as on the page and
+   centred in the swatch's 16 px, so the text lines up: the capsule, the keycap
+   of a named space, the margin bar and the focus arrowhead. */
+.legend__swatch--capsule {
+  width: 10px;
+  height: 11px;
+  margin: 0 3px;
+  border-radius: 2px 2px 0 0;
+  background: color-mix(in srgb, var(--cat-punctuation) var(--tint-small), transparent);
+  border-bottom: 2px solid var(--cat-punctuation);
+}
+
+.legend__swatch--key {
+  height: 11px;
+  border: 1px solid color-mix(in srgb, var(--ink-faint) 60%, transparent);
+  border-radius: 3px;
+}
+
+.legend__swatch--bar {
+  width: 0;
+  height: 12px;
+  margin: 0 7px 0 6px;
+  border-left: 3px solid var(--cat-punctuation);
+  border-radius: 0;
+}
+
+.legend__swatch--focus {
+  width: 0;
+  height: 0;
+  margin: 0 5px;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 6px solid var(--ink);
+  border-radius: 0;
+}
+
 /* The unsaved dot itself, centred in the swatch's 16 px so the text lines up. */
 .legend__swatch--unsaved {
   width: 8px;
@@ -1984,8 +2982,16 @@ input[type='text'] {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-fill) 24%, transparent);
 }
 
+/* The hint, then Cancel and Done on the right. Where the column is too narrow
+   for one row, Cancel and Done wrap below the hint instead of running out of
+   the pane, which clips whatever reaches past its side padding: in a 900x600
+   window at 150% Done was out of reach (ui.2 review). The hint takes the free
+   room on a shared row; on a row of their own the buttons keep to the right by
+   Cancel's auto margin, which is zero when they do not fit, so they never spill
+   out on the left. */
 .para-editor__foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   font-family: var(--font-ui);
@@ -1994,12 +3000,19 @@ input[type='text'] {
 }
 
 .para-editor__hint {
+  flex: 1 1 8em;
   color: var(--ink-faint);
   font-size: 11px;
 }
 
+.para-editor__foot > button:first-of-type {
+  margin-left: auto;
+}
+
 /* The editor popover. Floating rather than modal, because the author is editing
-   words that are still on the page behind it. */
+   words that are still on the page behind it. Above the page and its menus,
+   under every dialog's backdrop (39), so a dialog opened while it is open
+   covers it (ui.1 review). */
 .editor {
   position: fixed;
   left: 0;
@@ -2069,12 +3082,6 @@ input[type='text'] {
 /* The tooltip carries a control now, so the pointer has to be able to reach it. */
 .tip {
   pointer-events: auto;
-}
-
-.detail__actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
 }
 
 /* ---------- resolved comments (item 4) ---------- */

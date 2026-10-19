@@ -6,6 +6,7 @@ import {
   type UnresponsiveBox,
   type UnresponsiveStage
 } from '../shared/ui/save';
+import { bringForward } from './foreground';
 import type { LogLevel } from './log';
 
 /**
@@ -83,6 +84,7 @@ export interface GuardWindow {
   isFocused(): boolean;
   restore(): void;
   show(): void;
+  showInactive(): void;
   focus(): void;
   flashFrame(flag: boolean): void;
   /** close as the title bar's X does, which emits `close` */
@@ -110,6 +112,12 @@ export interface CloseGuardDeps<W extends GuardWindow> {
   /** `app.quit()` */
   quit(): void;
   log(level: LogLevel, event: string, fields?: Readonly<Record<string, unknown>>): void;
+  /**
+   * A quiet test window (dev.1, src/main/foreground.ts): shown without the
+   * foreground, left minimised when it is, and its taskbar button never
+   * flashes. The native box (`showBox`) is outside the switch.
+   */
+  quietWindow(): boolean;
 }
 
 export interface CloseGuard<W extends GuardWindow> {
@@ -236,14 +244,16 @@ export function createCloseGuard<W extends GuardWindow>(deps: CloseGuardDeps<W>)
    * Bring the window forward: restored, shown and focused. When it was not in
    * front, its taskbar button flashes too, because Windows often refuses the
    * focus to a window in the background, and a close can come from the
-   * taskbar while another window is in front.
+   * taskbar while another window is in front. A quiet test window is only
+   * shown, and left minimised when it is: it asks for no attention at all
+   * (dev.1). The native box is outside the switch: it still raises the
+   * window and may take the foreground (PLAN C.61).
    */
   function reveal(target: W): void {
     const inFront = target.isFocused();
-    if (target.isMinimized()) target.restore();
-    target.show();
-    target.focus();
-    if (!inFront) {
+    const quiet = deps.quietWindow();
+    bringForward(target, quiet);
+    if (!inFront && !quiet) {
       target.flashFrame(true);
       flashing = true;
     }

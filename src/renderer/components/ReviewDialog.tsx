@@ -1,16 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { openAiKeyLine, toOpenAiEffort } from '../../shared/ai/openai';
 import type {
   EffectivePaths,
+  GuidelinesStatus,
   ModelInfo,
   OpenAiKeyStatus,
+  OpenGuidelinesVia,
   ReviewSummary,
   RuntimeStatus
 } from '../../shared/ipc';
-import { proPlanNote } from '../../shared/ai/claudeModels';
+import { defaultIsOpus, proPlanNote } from '../../shared/ai/claudeModels';
 import { claudeUpdateAdvice } from '../../shared/ai/claudeStatus';
+import { reviewDialogWarning, type LastFailure } from '../../shared/ui/setup';
 import { chapterStats } from '../../shared/text/stats';
 import { historyCounts, historyWhen } from '../../shared/ui/history';
+import { REVIEW_BUTTON_SELECTOR } from '../../shared/ui/dialog';
 import { reviewStartLabels, reviewStartNote } from '../../shared/ui/save';
 import {
   EFFORT_LEVELS,
@@ -25,8 +29,9 @@ import {
 } from '../../shared/types';
 import { call, errorMessage } from '../state/client';
 import { modelOptions, selectedModel } from '../state/models';
-import { useApp } from '../state/store';
-import { Command } from './Command';
+import { useDialogEscape, useDialogFocus } from '../state/dialog';
+import { GuidelinesRow } from './Guidelines';
+import { UpdateNote } from './UpdateNote';
 
 interface Props {
   review: Review;
@@ -59,6 +64,10 @@ interface Props {
   onCheckClaude: () => void;
   /** true while a runtime check is running */
   checking: boolean;
+  /** the last Claude failure that says something about setup, for the warning (setup.7) */
+  claudeLastFailure: LastFailure | null;
+  /** close this dialog and open the Setup screen (setup.7) */
+  onOpenSetup: () => void;
   onStart: () => void;
   onClose: () => void;
 }
@@ -88,14 +97,18 @@ export function ReviewDialog({
   onOpenSettings,
   onCheckClaude,
   checking,
+  claudeLastFailure,
+  onOpenSetup,
   onStart,
   onClose
 }: Props): React.JSX.Element {
   const [paths, setPaths] = useState<EffectivePaths | null>(null);
+  const [guidelines, setGuidelines] = useState<GuidelinesStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   /* What a save that did not reach the chapter file said. Its cards sit under
      this dialog's backdrop, so the dialog says it instead (apply.20 review). */
   const [notSaved, setNotSaved] = useState<string[]>([]);
+  const boxRef = useRef<HTMLDivElement>(null);
   const stats = chapterStats(review.base.text);
   const previous = history[0];
   const previousCounts = previous ? historyCounts(previous, reviewPath, review) : null;
@@ -115,7 +128,8 @@ export function ReviewDialog({
     setNotSaved([]);
     onSaveThenStart(setNotSaved);
   };
-  const planNote = isOpenAi ? null : proPlanNote(runtime?.subscriptionType, current);
+  const planNote = isOpenAi ? null : proPlanNote(runtime?.subscriptionType, current, defaultIsOpus(list));
+  const claudeWarning = isOpenAi ? null : reviewDialogWarning(runtime, claudeLastFailure);
   const updateAdvice = isOpenAi
     ? null
     : claudeUpdateAdvice(
@@ -134,18 +148,12 @@ export function ReviewDialog({
     onNeedModels(provider);
   }, [provider, onNeedModels]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      // A question asked over this dialog takes Escape for itself. This
-      // listener was added first, so it would otherwise close the dialog too.
-      if (event.key === 'Escape' && !useApp.getState().confirmSpec) {
-        event.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [onClose]);
+  /* Escape closes it, as in Settings (ui.1). A question asked over it, such
+     as "Review without them", takes Escape for itself. The focus goes into
+     its box as it opens and back to Review with AI when it closes, and the
+     page behind it is inert meanwhile, so Tab stays inside it (ui.4). */
+  useDialogEscape(boxRef, onClose);
+  useDialogFocus(boxRef, REVIEW_BUTTON_SELECTOR);
 
   const update = (patch: Partial<Settings>): void => {
     call('settings:set', patch)
@@ -153,9 +161,27 @@ export function ReviewDialog({
       .catch((err: unknown) => setError(errorMessage(err)));
   };
 
-  const openGuidelines = (): void => {
+  /* Whether the style sheet is still empty (setup.10b): read as the dialog
+     opens, after an open, which may create the file, and whenever the window
+     gets the focus back, as when the author returns from filling it in. A
+     status that cannot be read shows no note; starting the review says what
+     is wrong with the file. */
+  const readGuidelines = useCallback((): void => {
+    call('guidelines:status', undefined).then(setGuidelines, () => setGuidelines(null));
+  }, []);
+
+  useEffect(() => {
+    readGuidelines();
+    window.addEventListener('focus', readGuidelines);
+    return () => window.removeEventListener('focus', readGuidelines);
+  }, [readGuidelines]);
+
+  const openGuidelines = (via: OpenGuidelinesVia): void => {
     setError(null);
-    call('guidelines:open', { via: 'default' }).catch((err: unknown) => setError(errorMessage(err)));
+    call('guidelines:open', { via }).then(
+      () => readGuidelines(),
+      (err: unknown) => setError(errorMessage(err))
+    );
   };
 
   const modelPlaceholder =
@@ -163,7 +189,7 @@ export function ReviewDialog({
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Review with AI">
-      <div className="modal">
+      <div className="modal" ref={boxRef} tabIndex={-1}>
         <h2>Review with AI</h2>
         <p className="modal__hint">
           {stats.paragraphs} paragraph{stats.paragraphs === 1 ? '' : 's'}, {stats.words.toLocaleString()} word
@@ -232,28 +258,19 @@ export function ReviewDialog({
             {planNote}
           </p>
         ) : null}
-        {updateAdvice ? (
-          <div className="modal__warn modal__warn--stack" role="note" data-testid="claude-update-note">
-            <span>
-              Claude Code {updateAdvice.installed} is out of date, so it may not offer the newest models.
-              Version {updateAdvice.recommended} or newer is recommended. To update it, run this in a
-              terminal, then check again:
-            </span>
-            <Command text={updateAdvice.command} />
-            {updateAdvice.fullPathCommand ? (
-              <>
-                <span className="modal__note">
-                  If the terminal does not recognise <code>claude</code>, use this instead:
-                </span>
-                <Command text={updateAdvice.fullPathCommand} />
-              </>
-            ) : null}
-            <span className="modal__buttons">
-              <button type="button" disabled={checking} onClick={onCheckClaude}>
-                {checking ? 'Checking…' : 'Check again'}
-              </button>
-            </span>
+        {/* Claude is the provider and Setup has something to say, but nothing
+            the check found stops a review: the dialog opens with a warning
+            and Open Setup rather than Setup itself (setup.7, 11.3 f). An
+            out-of-date Claude Code has its commands in Setup then. */}
+        {claudeWarning ? (
+          <div className="modal__warn" role="note" data-testid="claude-setup-warning">
+            <span>{claudeWarning}</span>
+            <button type="button" onClick={onOpenSetup}>
+              Open Setup
+            </button>
           </div>
+        ) : updateAdvice ? (
+          <UpdateNote advice={updateAdvice} checking={checking} onCheckAgain={onCheckClaude} />
         ) : null}
         {runtime?.state === 'ready' && runtime.message && isOpenAi ? (
           <p className="modal__note">{runtime.message}</p>
@@ -282,15 +299,7 @@ export function ReviewDialog({
           </p>
         ) : null}
 
-        <div className="modal__row">
-          <span>Guidelines</span>
-          <span className="modal__path">{paths?.guidelinesPath ?? 'choose a manuscript folder first'}</span>
-          <span className="modal__buttons">
-            <button type="button" disabled={!paths?.guidelinesPath} onClick={openGuidelines}>
-              Open
-            </button>
-          </span>
-        </div>
+        <GuidelinesRow path={paths?.guidelinesPath ?? null} status={guidelines} onOpen={openGuidelines} />
 
         <p className="modal__note">
           {previous && previousCounts

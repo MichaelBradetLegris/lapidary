@@ -6,10 +6,24 @@ import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
 import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
 import { rebaseCardText } from '../shared/ui/rebase';
 import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
-import { runtimeLabel as labelForRuntime } from '../shared/ui/setup';
+import {
+  CLAUDE_RUNTIME_CARD,
+  canTryReviewAnyway,
+  reviewGate,
+  runtimeButtonTitle,
+  runtimeCard,
+  runtimeCardAction,
+  runtimeLabel as labelForRuntime,
+  setupView
+} from '../shared/ui/setup';
+import { usageLimitCard } from '../shared/ui/usage';
+import { welcomeNotKept, welcomeShown } from '../shared/ui/welcome';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
+import { bodyClassName, columnClassName } from '../shared/ui/columns';
+import { shellInert } from '../shared/ui/dialog';
 import type { ApiEventMap, ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
-import { PROVIDER_NAMES, type Review } from '../shared/types';
+import { PROVIDER_NAMES, type Provider, type Review } from '../shared/types';
+import { ColumnStrip } from './components/ColumnStrip';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { EditPopover } from './components/EditPopover';
 import { FileList } from './components/FileList';
@@ -27,6 +41,7 @@ import { SetupScreen } from './components/SetupScreen';
 import { SidePanel } from './components/SidePanel';
 import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
+import { WelcomeScreen } from './components/WelcomeScreen';
 import { ApiError, call, errorMessage } from './state/client';
 import {
   installCloseGuard,
@@ -41,12 +56,15 @@ import {
   retryDraftWrites,
   type DraftIo
 } from './state/drafts';
+import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
 import { dismissHint, flushHintWrites, type HintIo } from './state/hints';
+import { flushSplitWrites } from './state/split';
 import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { useKeyboardBindings } from './state/keyboard';
 import { useProgressLabel } from './state/progress';
 import { reviewWithoutSaving, saveThenReview } from './state/reviewStart';
-import { useApp } from './state/store';
+import { useApp, type NotificationAction } from './state/store';
+import { closeWelcome, reopenWelcome, type WelcomeIo } from './state/welcome';
 import {
   flushReviewWrites,
   installReviewPersistence,
@@ -92,15 +110,22 @@ const HINT_IO: HintIo = {
   setSettings: (patch) => call('settings:set', patch)
 };
 
+/** How Start, Skip and Show the welcome guide again write the settings (setup.11, state/welcome.ts). */
+const WELCOME_IO: WelcomeIo = {
+  setSettings: (patch) => call('settings:set', patch)
+};
+
 /**
  * The review and paragraph writers, which a close and the end of a session
  * write out (apply.9), and a hint put away just before, such as the Save hint
- * that Save and close puts away (apply.12). A hint that cannot be written is
- * not reported: it only shows again at the next start.
+ * that Save and close puts away (apply.12), and the side panel's split moved
+ * just before (ui.6). A hint or a split that cannot be written is not
+ * reported: the hint shows again at the next start, which has the split last
+ * written.
  */
 const PAGE_WRITES: PageWrites = {
   flush: async () => {
-    await Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites()]);
+    await Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites(), flushSplitWrites()]);
   },
   retry: () => {
     retryReviewWrites();
@@ -135,6 +160,7 @@ export function App(): React.JSX.Element {
   const setSettings = useApp((s) => s.setSettings);
   const setReview = useApp((s) => s.setReview);
   const notify = useApp((s) => s.notify);
+  const upsertNotification = useApp((s) => s.upsertNotification);
   const dismissNotificationsByKey = useApp((s) => s.dismissNotificationsByKey);
   const setNewChapterOpen = useApp((s) => s.setNewChapterOpen);
   const setManualReviewOpen = useApp((s) => s.setManualReviewOpen);
@@ -145,6 +171,7 @@ export function App(): React.JSX.Element {
   const setSettingsOpen = useApp((s) => s.setSettingsOpen);
   const setupOpen = useApp((s) => s.setupOpen);
   const setSetupOpen = useApp((s) => s.setSetupOpen);
+  const welcomeClosed = useApp((s) => s.welcomeClosed);
   const chapterSaving = useApp((s) => s.chapterSaving);
   const questionOpen = useApp((s) => s.confirmSpec !== null);
 
@@ -157,17 +184,81 @@ export function App(): React.JSX.Element {
   const claudeRuntime = ai.runtimes.claude ?? null;
   const progressLabel = useProgressLabel(ai.running, ai.startedAt, ai.progress?.outputTokens);
 
-  /* A new user on a Pro plan starts on Sonnet, once (setup.1, Appendix D 12). */
+  /* The welcome guide, until Start or Skip (setup.11): a fresh install has no
+     settings file, so `onboardingDone` is false. Start and Skip close it for
+     the rest of the run even when that could not be written (`welcomeClosed`,
+     setup.11 review). */
+  const welcomeOpen = welcomeShown(settings, welcomeClosed);
+
+  /* A new user on a Pro plan starts on Sonnet, once, when a check finds Claude
+     ready while the first welcome guide is open (setup.1, Appendix D 12,
+     C.67). */
   useEffect(() => {
     if (!settings || claudeRuntime?.state !== 'ready') return;
-    const patch = proPreselection(settings, claudeRuntime.subscriptionType);
+    const patch = proPreselection(settings, claudeRuntime.subscriptionType, welcomeOpen);
     if (!patch) return;
     void call('settings:set', patch)
       .then(setSettings)
       .catch(() => undefined);
-  }, [settings, claudeRuntime, setSettings]);
+  }, [settings, claudeRuntime, welcomeOpen, setSettings]);
 
   const fail = useCallback((err: unknown) => notify('error', errorMessage(err)), [notify]);
+
+  /* ---------------- Claude's setup (setup.7, PLAN 5.6) ---------------- */
+
+  const activeProvider = settings?.provider ?? 'claude';
+  const claudeView = setupView(claudeRuntime, ai.lastFailure);
+  const claudeInUse = activeProvider === 'claude' || setupOpen;
+  const settingsLoaded = settings !== null;
+
+  /* The launch card (section 7): once the settings and Claude's first check
+     are in, a card says what Setup has to do when Claude is the provider,
+     with Open Setup, unless Setup or the welcome guide, whose first step says
+     the same, is open already. While it is up, a later check keeps its words
+     current; a check with nothing left to say, OpenAI as the provider, or
+     Setup or the welcome guide open withdraws it by its key. Only the first
+     check may put it up, so once closed with its X it stays closed
+     (`runtimeCardAction`). */
+  const runtimeCardPastLaunch = useRef(false);
+  useEffect(() => {
+    if (!claudeRuntime || !settingsLoaded) return;
+    const card = runtimeCard(claudeView, claudeRuntime);
+    const showing = useApp.getState().notifications.some((n) => n.key === CLAUDE_RUNTIME_CARD);
+    const action = runtimeCardAction({
+      card,
+      showing,
+      pastLaunch: runtimeCardPastLaunch.current,
+      provider: activeProvider,
+      setupOpen,
+      welcomeOpen
+    });
+    runtimeCardPastLaunch.current = true;
+    if (action === 'withdraw') {
+      dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);
+    } else if (card && (action === 'raise' || action === 'update')) {
+      upsertNotification(CLAUDE_RUNTIME_CARD, card.tone, card.text, 'open-setup');
+    }
+  }, [
+    claudeRuntime,
+    claudeView,
+    settingsLoaded,
+    activeProvider,
+    setupOpen,
+    welcomeOpen,
+    upsertNotification,
+    dismissNotificationsByKey
+  ]);
+
+  /* Back from a terminal where the author installed, signed in or updated:
+     check again as the window comes back to the front, while Setup has
+     something to do and Claude is in use, at most every 3 s
+     (`focusRecheckDue`). */
+  const { recheckOnFocus } = ai;
+  useEffect(() => {
+    const onFocus = (): void => recheckOnFocus(claudeInUse, claudeView);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [recheckOnFocus, claudeInUse, claudeView]);
 
   /* ---------------- loading ---------------- */
 
@@ -249,6 +340,17 @@ export function App(): React.JSX.Element {
   const saveChapter = useCallback(() => void save({ applyDrafts: 'ask' }), [save]);
 
   useKeyboardBindings(save);
+
+  /* The side columns give way to the prose in a narrow window, which is what
+     zooming in makes: they shrink, then fold to strips that open them as
+     drawers over the edge of the prose (ui.3, state/columns.ts). */
+  const {
+    layout,
+    shown,
+    measure: measureBody,
+    style: columnStyle,
+    toggle: toggleDrawer
+  } = useColumns(review !== null);
 
   /* ---------------- leaving (apply.7, state/leave.ts) ---------------- */
 
@@ -446,6 +548,16 @@ export function App(): React.JSX.Element {
     };
   }, [setReview, notify, refreshFiles, fail]);
 
+  /* A chapter chosen from the list, folded to a drawer in a narrow window,
+     is what the drawer was opened for, so it closes (ui.3). */
+  const openFromList = useCallback(
+    (file: ChapterFile) => {
+      closeDrawer('files');
+      openChapter(file);
+    },
+    [openChapter]
+  );
+
   /* ---------------- review persistence (apply.1) ---------------- */
 
   useEffect(() => installReviewPersistence(), []);
@@ -556,12 +668,55 @@ export function App(): React.JSX.Element {
     setSettingsOpen(true);
   }, [setReviewDialogOpen, setSetupOpen, setSettingsOpen]);
 
-  /**
-   * The dialog collects provider, model and effort before anything is sent
-   * (item 6). The Claude Setup screen only stands in front of it when Claude is
-   * the provider; OpenAI's only prerequisite is a key, which the dialog itself
-   * shows, and a card points at Settings when there is none (Phase 5c).
-   */
+  /* The Setup screen, from the launch card, the status bar, Settings or the
+     review dialog's warning (setup.7). The launch card has done its job once
+     Setup is open, which says the same at length, so it goes. */
+  const openSetup = useCallback(() => {
+    setReviewDialogOpen(false);
+    setSettingsOpen(false);
+    dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);
+    setSetupOpen(true);
+  }, [setReviewDialogOpen, setSettingsOpen, setSetupOpen, dismissNotificationsByKey]);
+
+  /* Test the connection, on the Setup screen (setup.8): one very small
+     request. A test that fails for a reason Setup can fix checks again, as a
+     review that fails so does (setup.5); Setup is open already. */
+  const { testConnection, check: checkRuntime } = ai;
+  const testClaude = useCallback(() => {
+    void testConnection('claude').then((result) => {
+      if (result?.error && SETUP_FAILURES.has(result.error.code)) checkRuntime('claude');
+    });
+  }, [testConnection, checkRuntime]);
+
+  /* ---------------- the welcome guide (setup.11) ---------------- */
+
+  /* Start and Skip put the guide away for good. It goes at once and stays
+     away for the rest of the run (`closeWelcome`); the setting is written
+     after, and a write that fails says so in a card, since the guide then
+     shows again at the next start. */
+  const finishWelcome = useCallback(() => {
+    void closeWelcome(WELCOME_IO).catch((err: unknown) => notify('error', welcomeNotKept(errorMessage(err))));
+  }, [notify]);
+
+  /* Use OpenAI instead, and Use Claude instead, in the guide's first step:
+     the provider Review with AI starts with. */
+  const chooseProvider = useCallback(
+    (provider: Provider) => {
+      void call('settings:set', { provider }).then(setSettings).catch(fail);
+    },
+    [setSettings, fail]
+  );
+
+  /* Settings' "Show the welcome guide again": the guide comes back in place
+     of the main view, so Settings and Setup, which would cover it, close. The
+     same write settles the Pro preselection, so the model stays as it is
+     (`reopenWelcome`, setup.11 review). */
+  const showWelcomeAgain = useCallback(() => {
+    setSettingsOpen(false);
+    setSetupOpen(false);
+    void reopenWelcome(WELCOME_IO).catch(fail);
+  }, [setSettingsOpen, setSetupOpen, fail]);
+
   /** A new review replaces the working set, so open paragraph editors must be dealt with first. */
   const refuseWhileEditing = useCallback((): boolean => {
     const open = Object.keys(useApp.getState().drafts).length;
@@ -579,13 +734,22 @@ export function App(): React.JSX.Element {
     setManualReviewOpen(true);
   }, [refuseWhileEditing, setManualReviewOpen]);
 
+  /**
+   * The dialog collects provider, model and effort before anything is sent
+   * (item 6). The Claude Setup screen stands in front of it only when Claude
+   * is the provider and Claude Code is missing or definitely signed out; a
+   * check that failed or an old Claude Code opens the dialog with a warning
+   * (`reviewGate`, setup.7, 11.3 f). OpenAI's only prerequisite is a key,
+   * which the dialog itself shows, and a card points at Settings when there is
+   * none (Phase 5c).
+   */
   const openReviewDialog = useCallback(() => {
     const current = useApp.getState().review;
     if (!current?.sourcePath) return;
     if (refuseWhileEditing()) return;
     const provider = settings?.provider ?? 'claude';
-    if (provider === 'claude' && claudeRuntime && claudeRuntime.state !== 'ready') {
-      setSetupOpen(true);
+    if (provider === 'claude' && reviewGate(claudeRuntime) === 'setup') {
+      openSetup();
       return;
     }
     if (provider === 'openai' && ai.keyStatus && !ai.keyStatus.configured) {
@@ -597,7 +761,7 @@ export function App(): React.JSX.Element {
       );
     }
     setReviewDialogOpen(true);
-  }, [settings, claudeRuntime, ai.keyStatus, notify, setReviewDialogOpen, refuseWhileEditing, setSetupOpen]);
+  }, [settings, claudeRuntime, ai.keyStatus, notify, setReviewDialogOpen, refuseWhileEditing, openSetup]);
 
   /**
    * Run a review. The chapter's review is read-only until it returns (round 3,
@@ -661,10 +825,19 @@ export function App(): React.JSX.Element {
         // Setup can fix these: re-check, then show what to do (setup.5).
         if (err instanceof ApiError && SETUP_FAILURES.has(err.code)) {
           ai.check('claude');
-          setSetupOpen(true);
+          openSetup();
         }
         if (err instanceof ApiError && err.code === 'cancelled') {
           notify('info', 'Review cancelled.');
+          return;
+        }
+        // Claude Code's words, then what to do for a plan limit: wait, or another model
+        // (setup.9). useAi records the same decision for Setup (failureSetupEvent).
+        if (err instanceof ApiError && err.code === 'claude-usage-limit') {
+          notify(
+            'error',
+            usageLimitCard(err.message, ai.latestRateLimit(), ai.runtimes.claude?.subscriptionType)
+          );
           return;
         }
         if (err instanceof ApiError && (err.code === 'openai-invalid-key' || err.code === 'openai-no-key')) {
@@ -675,7 +848,7 @@ export function App(): React.JSX.Element {
         fail(err);
       })
       .finally(() => useApp.getState().setAiBusy(null));
-  }, [ai, adoptReview, notify, setReviewDialogOpen, fail, refreshFiles, setSetupOpen]);
+  }, [ai, adoptReview, notify, setReviewDialogOpen, fail, refreshFiles, openSetup]);
 
   /* No stranded decisions (apply.20, state/reviewStart.ts): with changes not
      saved to the chapter, the dialog's blue button saves them and starts the
@@ -693,10 +866,23 @@ export function App(): React.JSX.Element {
     [startReview, reviewDialogStillOpen]
   );
 
-  const activeProvider = settings?.provider ?? 'claude';
+  /* Setup's "Try the review anyway": nothing the check found stops a review,
+     so the dialog opens, with its warning (11.3 f). */
+  const tryReviewAnyway = useCallback(() => {
+    setSetupOpen(false);
+    openReviewDialog();
+  }, [setSetupOpen, openReviewDialog]);
+
   const activeRuntime = ai.runtimes[activeProvider];
   const runtimeLabel =
     labelForRuntime(activeRuntime, activeProvider === 'claude' ? ai.lastFailure : null) ?? undefined;
+
+  // The first-use hint hangs over the prose when the side panel is folded
+  // (ui.3); the Setup screen and the welcome guide have no side panel,
+  // folded or not, and while either is up the hint waits, since it would
+  // hang over their own buttons (setup.11 review).
+  const singleScreen = setupOpen || welcomeOpen;
+  const sideFolded = layout.side === 'strip' && !singleScreen;
 
   const toolbar = (
     <Toolbar
@@ -704,6 +890,8 @@ export function App(): React.JSX.Element {
       running={ai.running}
       progressLabel={progressLabel}
       saving={chapterSaving}
+      sideFolded={sideFolded}
+      singleScreen={singleScreen}
       onReviewWithAi={openReviewDialog}
       onCancelReview={ai.cancel}
       onManualReview={openManualReview}
@@ -714,23 +902,190 @@ export function App(): React.JSX.Element {
     />
   );
 
-  if (setupOpen && claudeRuntime) {
+  /* What a card's button does (setup.7a), in either layout: the notification
+     cards show over the Setup screen too (setup.7). */
+  const onCardAction = useCallback(
+    (action: NotificationAction, arg?: string) => {
+      switch (action) {
+        case 'open-settings':
+          openSettings();
+          break;
+        case 'open-setup':
+          openSetup();
+          break;
+        case 'reveal-drafts':
+          // A set-aside card names its file, which Show the text opens (apply.16).
+          void call('shell:reveal', { target: 'drafts', ...(arg ? { name: arg } : {}) }).catch(fail);
+          break;
+        case 'reveal-backups':
+          // The save card names the chapter it saved (apply.11).
+          revealBackups(arg);
+          break;
+        case 'reveal-all-backups':
+          // The no-backups card: the backups root, as in Settings (apply.11).
+          revealBackups();
+          break;
+        default:
+          // Diagnostics (hardening.5) and updates (release.9) wire theirs in when they land.
+          break;
+      }
+    },
+    [openSettings, openSetup, fail, revealBackups]
+  );
+
+  /* The status bar's runtime label is a button: Setup for Claude, Settings
+     for OpenAI (setup.7). */
+  const statusRuntime = {
+    ...(runtimeLabel ? { runtimeLabel } : {}),
+    onRuntime: activeProvider === 'claude' ? openSetup : openSettings,
+    runtimeTitle: runtimeButtonTitle(activeProvider)
+  };
+  /* Claude's usage, in the status bar while Claude is in use: the notice is
+     about the Claude plan, and beside OpenAI's status it would read as
+     OpenAI's (setup.9). */
+  const usageNotice = claudeInUse ? ai.rateLimit : null;
+
+  /* The four dialogs, each drawn only when it can be. They sit outside the
+     page, which is inert while one of them is open, so Tab and Shift+Tab go
+     round the dialog's own controls and nothing behind its backdrop can take
+     the focus; a question makes the dialogs inert too (ui.4, `shellInert`). */
+  const newChapterDialog = newChapterOpen ? (
+    <NewChapterDialog
+      onClose={() => setNewChapterOpen(false)}
+      onCreated={(file) => {
+        setNewChapterOpen(false);
+        refreshFiles();
+        openChapter(file);
+        // made from the chapter list's +, perhaps in its drawer (ui.3)
+        closeDrawer('files');
+        notify('info', `Created ${file.name}.`);
+      }}
+    />
+  ) : null;
+  const manualReviewDialog =
+    manualReviewOpen && review?.sourcePath ? (
+      <ManualReviewDialog
+        review={review}
+        onClose={() => setManualReviewOpen(false)}
+        onLoadCorrected={loadCorrectedFromFile}
+        onSave={save}
+        onCreated={(next) => {
+          adoptReview(next);
+          notify(
+            'info',
+            `Built ${next.hunks.length} suggestion${next.hunks.length === 1 ? '' : 's'} from your text.`
+          );
+        }}
+      />
+    ) : null;
+  const reviewDialog =
+    reviewDialogOpen && review && settings ? (
+      <ReviewDialog
+        review={review}
+        settings={settings}
+        models={ai.models}
+        modelsLoading={ai.modelsLoading}
+        runtimes={ai.runtimes}
+        keyStatus={ai.keyStatus}
+        history={history}
+        reviewPath={reviewPath}
+        unsavedDecisions={unsavedDecisionCount(review.hunks)}
+        saving={chapterSaving}
+        onSaveThenStart={saveThenStartReview}
+        onStartWithout={startReviewWithoutSaving}
+        onApplySettings={setSettings}
+        onNeedModels={ai.ensureModels}
+        onOpenSettings={openSettings}
+        onCheckClaude={() => ai.check('claude')}
+        checking={ai.checking}
+        claudeLastFailure={ai.lastFailure}
+        onOpenSetup={openSetup}
+        onStart={startReview}
+        onClose={() => setReviewDialogOpen(false)}
+      />
+    ) : null;
+  const settingsDialog =
+    settingsOpen && settings ? (
+      <SettingsDialog
+        settings={settings}
+        models={ai.models.claude ?? []}
+        runtime={claudeRuntime}
+        keyStatus={ai.keyStatus}
+        onKeyChanged={ai.keyChanged}
+        onApply={(next) => {
+          setSettings(next);
+          refreshFiles();
+        }}
+        onClose={() => setSettingsOpen(false)}
+        onOpenSetup={openSetup}
+        onShowWelcome={showWelcomeAgain}
+      />
+    ) : null;
+  const inert = shellInert({
+    dialog: [newChapterDialog, manualReviewDialog, reviewDialog, settingsDialog].some((d) => d !== null),
+    question: questionOpen
+  });
+
+  /* The Setup screen, or the welcome guide, in place of the chapter list, the
+     prose and the side panel (setup.7, setup.11). Setup comes first, so the
+     guide's Set up Claude opens it over the guide, and its Close goes back
+     there. The rest is as in the layout below: the toolbar, the status bar,
+     the notification cards, here at the top of the screen and before it, so
+     they never cover its Close or Check again, the dialogs over the page,
+     inert under them, and the question over everything. Closing the window
+     can ask its question here too, with a review still open behind Setup
+     (apply.9 review), and Settings, from the toolbar or a card, opens over
+     it. The suggestion editor is not drawn here, but its words are kept in
+     the store and come back with it (`EditorRequest.text`). */
+  if (singleScreen) {
     return (
       <div className="app-shell">
-        {/* Closing the window can ask its question here too, with a review
-            still open behind Setup (apply.9 review), so this layout has the
-            dialog and goes inert under it, as the one below does. */}
-        <div className="app-shell__page" inert={questionOpen}>
+        <div className="app-shell__page" inert={inert.page}>
           {toolbar}
           <div className="body body--single">
-            <SetupScreen
-              runtime={claudeRuntime}
-              checking={ai.checking}
-              onCheckAgain={() => ai.check('claude')}
-              onClose={() => setSetupOpen(false)}
-            />
+            <NotificationCards onAction={onCardAction} />
+            {setupOpen ? (
+              <SetupScreen
+                runtime={claudeRuntime}
+                lastFailure={ai.lastFailure}
+                checking={ai.checking}
+                onCheckAgain={() => ai.check('claude')}
+                onClose={() => setSetupOpen(false)}
+                {...(review?.sourcePath && canTryReviewAnyway(claudeRuntime, ai.lastFailure)
+                  ? { onTryAnyway: tryReviewAnyway }
+                  : {})}
+                onTest={testClaude}
+                testing={ai.testing.claude ?? false}
+                testOutcome={ai.testOutcomes.claude ?? null}
+                rateLimit={ai.rateLimit}
+              />
+            ) : settings ? (
+              <WelcomeScreen
+                settings={settings}
+                claude={claudeRuntime}
+                claudeLastFailure={ai.lastFailure}
+                openai={ai.runtimes.openai ?? null}
+                onSetUpClaude={openSetup}
+                onUseProvider={chooseProvider}
+                onOpenSettings={openSettings}
+                onChooseFolder={chooseManuscriptFolder}
+                onStart={finishWelcome}
+                onSkip={finishWelcome}
+              />
+            ) : null}
           </div>
-          <StatusBar review={review} {...(runtimeLabel ? { runtimeLabel } : {})} />
+          <StatusBar
+            review={review}
+            {...statusRuntime}
+            rateLimit={usageNotice}
+            plan={claudeRuntime?.subscriptionType}
+          />
+        </div>
+        <div className="app-shell__dialogs" inert={inert.dialogs}>
+          {newChapterDialog}
+          {manualReviewDialog}
+          {reviewDialog}
+          {settingsDialog}
         </div>
         <ConfirmDialog />
       </div>
@@ -739,32 +1094,54 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="app-shell">
-      {/* Everything but the question. While one is open this is inert, so Tab,
-          a click or a screen reader cannot reach the page behind it (apply.7
-          review; the dialog is apply.6's). It lays out nothing of its own. */}
-      <div className="app-shell__page" inert={questionOpen}>
+      {/* Everything but the dialogs and the question. While either is open
+          this is inert, so Tab, a click or a screen reader cannot reach the
+          page behind it (apply.7 review for the question, ui.4 for the
+          dialogs; the question is apply.6's). It lays out nothing of its own. */}
+      <div className="app-shell__page" inert={inert.page}>
         {toolbar}
         {review ? <FilterChips review={review} /> : null}
 
-        <div className="body">
-          <FileList
-            files={files}
-            index={index}
-            review={review}
-            configured={Boolean(settings?.manuscriptFolder)}
-            problem={filesProblem}
-            onOpen={openChapter}
-            onChooseFolder={chooseManuscriptFolder}
-            onReadAgain={refreshFiles}
-            onNewChapter={() => setNewChapterOpen(true)}
-          />
+        {/* Each side column is drawn in place, its wrapper laying out nothing,
+            or, in a narrow window, folded to a strip whose button opens it as
+            a drawer over the edge of the prose (ui.3). The wrappers are always
+            there, so a column keeps its state as the window narrows or widens;
+            a closed drawer is hidden and inert. */}
+        <div className={bodyClassName(layout)} style={columnStyle} ref={measureBody}>
+          {layout.files === 'strip' ? (
+            <ColumnStrip column="files" open={shown === 'files'} onToggle={() => toggleDrawer('files')} />
+          ) : null}
+          <div
+            id={drawerId('files')}
+            className={columnClassName('files', layout, shown)}
+            inert={layout.files === 'strip' && shown !== 'files'}
+          >
+            <FileList
+              files={files}
+              index={index}
+              review={review}
+              configured={Boolean(settings?.manuscriptFolder)}
+              problem={filesProblem}
+              onOpen={openFromList}
+              onChooseFolder={chooseManuscriptFolder}
+              onReadAgain={refreshFiles}
+              onNewChapter={() => setNewChapterOpen(true)}
+            />
+          </div>
 
           {/* The find bar is a strip above the scroller, not a sticky bar inside
             it: inside, it scrolled out of view once the author was more than
             a screen down, and Ctrl+F then seemed to do nothing (round 4). */}
           <div className={`center-wrap ${findOpen ? 'center-wrap--find' : ''}`}>
             {review ? <FindBar /> : null}
-            <main className="center">
+            {/* A press in the prose closes an open drawer, as a click
+                outside a menu closes it (ui.3), and does what it would anyway. */}
+            <main
+              className="center"
+              onPointerDown={() => {
+                if (useDrawer.getState().open !== null) useDrawer.getState().setOpen(null);
+              }}
+            >
               {review ? (
                 <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
               ) : (
@@ -778,126 +1155,54 @@ export function App(): React.JSX.Element {
                 </div>
               )}
             </main>
-            <NotificationCards
-              onAction={(action, arg) => {
-                switch (action) {
-                  case 'open-settings':
-                    openSettings();
-                    break;
-                  case 'open-setup':
-                    setSetupOpen(true);
-                    break;
-                  case 'reveal-drafts':
-                    // A set-aside card names its file, which Show the text opens (apply.16).
-                    void call('shell:reveal', { target: 'drafts', ...(arg ? { name: arg } : {}) }).catch(
-                      fail
-                    );
-                    break;
-                  case 'reveal-backups':
-                    // The save card names the chapter it saved (apply.11).
-                    revealBackups(arg);
-                    break;
-                  case 'reveal-all-backups':
-                    // The no-backups card: the backups root, as in Settings (apply.11).
-                    revealBackups();
-                    break;
-                  default:
-                    // Diagnostics (hardening.5) and updates (release.9) wire theirs in when they land.
-                    break;
-                }
-              }}
-            />
+            <NotificationCards onAction={onCardAction} />
             <LockCard label={progressLabel} onCancel={ai.cancel} />
           </div>
 
-          {review ? (
-            <SidePanel
-              review={review}
-              history={history}
-              activeReviewPath={reviewPath}
-              onSetCommentStatus={setCommentStatus}
-              onOpenHistory={openHistoryEntry}
-              onShowBackups={() => revealBackups(review.sourcePath)}
-            />
-          ) : (
-            <aside className="side" />
-          )}
+          {layout.side === 'strip' ? (
+            review ? (
+              <ColumnStrip column="side" open={shown === 'side'} onToggle={() => toggleDrawer('side')} />
+            ) : (
+              // Nothing open, nothing to show: the strip without its button.
+              <div className="strip strip--side strip--empty" />
+            )
+          ) : null}
+          <div
+            id={drawerId('side')}
+            className={columnClassName('side', layout, shown)}
+            inert={layout.side === 'strip' && shown !== 'side'}
+          >
+            {review ? (
+              <SidePanel
+                review={review}
+                history={history}
+                activeReviewPath={reviewPath}
+                onSetCommentStatus={setCommentStatus}
+                onOpenHistory={openHistoryEntry}
+                onShowBackups={() => revealBackups(review.sourcePath)}
+              />
+            ) : (
+              <aside className="side" />
+            )}
+          </div>
         </div>
 
         <StatusBar
           review={review}
-          {...(runtimeLabel ? { runtimeLabel } : {})}
-          rateLimit={ai.rateLimit?.message}
+          {...statusRuntime}
+          rateLimit={usageNotice}
+          plan={claudeRuntime?.subscriptionType}
         />
         <HunkTooltip />
         <EditPopover onSaved={(message, tone) => notify(tone ?? 'info', message, 'edit')} />
-        {newChapterOpen ? (
-          <NewChapterDialog
-            onClose={() => setNewChapterOpen(false)}
-            onCreated={(file) => {
-              setNewChapterOpen(false);
-              refreshFiles();
-              openChapter(file);
-              notify('info', `Created ${file.name}.`);
-            }}
-          />
-        ) : null}
-        {manualReviewOpen && review?.sourcePath ? (
-          <ManualReviewDialog
-            review={review}
-            onClose={() => setManualReviewOpen(false)}
-            onLoadCorrected={loadCorrectedFromFile}
-            onSave={save}
-            onCreated={(next) => {
-              adoptReview(next);
-              notify(
-                'info',
-                `Built ${next.hunks.length} suggestion${next.hunks.length === 1 ? '' : 's'} from your text.`
-              );
-            }}
-          />
-        ) : null}
-        {reviewDialogOpen && review && settings ? (
-          <ReviewDialog
-            review={review}
-            settings={settings}
-            models={ai.models}
-            modelsLoading={ai.modelsLoading}
-            runtimes={ai.runtimes}
-            keyStatus={ai.keyStatus}
-            history={history}
-            reviewPath={reviewPath}
-            unsavedDecisions={unsavedDecisionCount(review.hunks)}
-            saving={chapterSaving}
-            onSaveThenStart={saveThenStartReview}
-            onStartWithout={startReviewWithoutSaving}
-            onApplySettings={setSettings}
-            onNeedModels={ai.ensureModels}
-            onOpenSettings={openSettings}
-            onCheckClaude={() => ai.check('claude')}
-            checking={ai.checking}
-            onStart={startReview}
-            onClose={() => setReviewDialogOpen(false)}
-          />
-        ) : null}
-        {settingsOpen && settings ? (
-          <SettingsDialog
-            settings={settings}
-            models={ai.models.claude ?? []}
-            runtime={claudeRuntime}
-            keyStatus={ai.keyStatus}
-            onKeyChanged={ai.keyChanged}
-            onApply={(next) => {
-              setSettings(next);
-              refreshFiles();
-            }}
-            onClose={() => setSettingsOpen(false)}
-            onOpenSetup={() => {
-              setSettingsOpen(false);
-              setSetupOpen(true);
-            }}
-          />
-        ) : null}
+      </div>
+      {/* The dialogs, over the page; inert under a question. Like the page,
+          it lays out nothing of its own. */}
+      <div className="app-shell__dialogs" inert={inert.dialogs}>
+        {newChapterDialog}
+        {manualReviewDialog}
+        {reviewDialog}
+        {settingsDialog}
       </div>
       {/* Last, above everything: a question can be asked from any dialog above. */}
       <ConfirmDialog />

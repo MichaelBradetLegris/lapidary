@@ -11,11 +11,12 @@ import { paragraphNumber } from '../../shared/prompt/chapter';
 import { buildRenderBlocks, type RenderBlock } from '../../shared/render';
 import { splitParagraphs } from '../../shared/text/paragraphs';
 import { gutterComments as gutterCommentsOf } from '../../shared/ui/comments';
+import { marginMarks, markAnchorName, type MarginMark } from '../../shared/ui/marks';
 import type { Review, ReviewComment } from '../../shared/types';
 import { editParagraph } from '../state/edit';
 import { useFindHighlight } from '../state/find';
 import { clipGhosts } from '../state/ghosts';
-import { hoverOff, hoverOn } from '../state/hover';
+import { hoverOff, hoverOn, markHover } from '../state/hover';
 import { proseInRange } from '../state/prose';
 import { scrollToElement } from '../state/scroll';
 import { isLocked, useApp, type ParagraphDraft } from '../state/store';
@@ -32,7 +33,8 @@ interface Props {
 /**
  * Below this the gutter would squeeze the prose too hard, so comments fall back
  * to the sidebar alone. Measured against the scroller, not the window: the file
- * list and the side panel take a fixed 550px between them.
+ * list and the side panel take up to 550px between them, and less once they
+ * give way to the prose in a narrow window (ui.3).
  */
 const GUTTER_MIN_WIDTH = 820;
 
@@ -57,6 +59,48 @@ function copyProse(event: ClipboardEvent<HTMLDivElement>): void {
   if (text === null) return;
   event.clipboardData.setData('text/plain', text);
   event.preventDefault();
+}
+
+/**
+ * One margin mark (11.7, small.8). A bar is a target 11 by 39 CSS px outside
+ * the prose: a click selects its change without scrolling and leaves the
+ * keyboard where it was, so a, d, u and e act on it, and hovering shows its
+ * card under the change. The arrowhead takes no pointer (app.css).
+ *
+ * Both are the same button under the same key, so a bar that becomes the
+ * arrowhead under the pointer, by a click or by any other way to the focus,
+ * keeps its element, and its leave still runs when the pointer moves off. The
+ * arrowhead was a span, which replaced the button; React fires no leave for an
+ * element that has gone, and the card stayed open over the prose (small
+ * review). A mark that goes away while the pointer is on it closes its card
+ * itself (`markHover`).
+ */
+function MarkButton({
+  mark,
+  anchor,
+  onSelect
+}: {
+  mark: MarginMark;
+  anchor: string;
+  onSelect: (id: string) => void;
+}): React.JSX.Element {
+  const id = mark.hunk.id;
+  const hover = useMemo(() => markHover(id), [id]);
+  useEffect(() => hover.gone, [hover]);
+  const bar = mark.kind === 'bar';
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      aria-hidden="true"
+      className={bar ? `mark mark--bar cat-${mark.hunk.category ?? 'other'}` : 'mark mark--focus'}
+      style={{ positionAnchor: anchor }}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={bar ? () => onSelect(id) : undefined}
+      onMouseEnter={bar ? hover.enter : undefined}
+      onMouseLeave={hover.leave}
+    />
+  );
 }
 
 export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Element {
@@ -129,12 +173,6 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
     return () => observer.disconnect();
   }, [blocks]);
 
-  /* Ghosts are laid out by the browser, so collisions between two of them can
-     only be found by measuring (item 2). */
-  useLayoutEffect(() => {
-    clipGhosts(proseRef.current);
-  }, [blocks, layout.version, layout.width]);
-
   /* Scroll only when something asked for it: keyboard navigation, or a click in
      the suggestions list. Hover and clicks in the prose never bump the token. */
   const lastToken = useRef(focusScrollToken);
@@ -175,6 +213,15 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
   };
 
   const showGutter = layout.width >= GUTTER_MIN_WIDTH && gutterComments.length > 0;
+
+  /* Ghosts are laid out by the browser, so collisions between two of them, and
+     a ghost running out of the pane or into the margin column, can only be
+     found by measuring (item 2, ui.2). The margin column narrows the prose as it
+     appears, so its arrival clips at once rather than a frame later, when the
+     prose's resize comes back through the observer above. */
+  useLayoutEffect(() => {
+    clipGhosts(proseRef.current);
+  }, [blocks, layout.version, layout.width, showGutter]);
 
   const marks = useMemo(() => {
     const length = Math.max(1, review.base.text.length);
@@ -231,6 +278,8 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
                     key={block.key}
                     className="para para--editing"
                     data-paragraph={first}
+                    data-start={block.start}
+                    data-end={block.end}
                     id={`para-${first}`}
                   >
                     {rail}
@@ -239,6 +288,12 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
                 );
               }
 
+              /* Margin marks (11.7, small.8): a bar beside each line with a
+                 pending small change, an arrowhead beside the line where the
+                 focused suggestion starts. Children of the paragraph, placed
+                 by CSS anchor positioning on the change's live text. */
+              const marks = marginMarks(block.segments, focusedHunkId);
+              const markAt = new Map<number, MarginMark>(marks.map((m) => [m.index, m]));
               return (
                 <p
                   key={block.key}
@@ -248,6 +303,8 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
                       : ''
                   }`}
                   data-paragraph={first}
+                  data-start={block.start}
+                  data-end={block.end}
                   id={`para-${first}`}
                 >
                   <span className="para__rail">
@@ -277,6 +334,9 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
                         hunk={segment.hunk}
                         focused={segment.hunk.id === focusedHunkId}
                         hovered={segment.hunk.id === hoveredHunkId}
+                        flushBefore={segment.flushBefore}
+                        flushAfter={segment.flushAfter}
+                        markAnchor={markAt.has(index) ? markAnchorName(block.key, index) : null}
                         onToggleAccept={toggleAccepted}
                         onToggleDismiss={toggleDismissed}
                         onHover={hoverOn}
@@ -284,6 +344,14 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
                       />
                     )
                   )}
+                  {marks.map((mark) => (
+                    <MarkButton
+                      key={`mark-${mark.hunk.id}`}
+                      mark={mark}
+                      anchor={markAnchorName(block.key, mark.index)}
+                      onSelect={focusHunk}
+                    />
+                  ))}
                 </p>
               );
             })}

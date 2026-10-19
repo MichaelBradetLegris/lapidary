@@ -5,7 +5,9 @@ import { paragraphNumber } from '../../shared/prompt/chapter';
 import { remapAfterCommit } from '../../shared/review';
 import { splitParagraphs } from '../../shared/text/paragraphs';
 import { stepIndex } from '../../shared/ui/find';
+import { stepFocus, type StepOptions } from '../../shared/ui/navigate';
 import type { SaveShortcutContext } from '../../shared/ui/save';
+import { welcomeShown } from '../../shared/ui/welcome';
 import type { ChangeCategory, Hunk, HunkStatus, Review, ReviewComment, Settings } from '../../shared/types';
 
 export type NotificationTone = 'info' | 'warn' | 'error';
@@ -73,6 +75,18 @@ export interface EditorRequest {
   hunkId: string;
   initial: string;
   anchor: AnchorRect | null;
+  /**
+   * the words in the box once the author has typed, `initial` until then.
+   * Kept here rather than in the panel, so the Setup screen, which takes the
+   * panel off the page with the rest of the main view, gives them back as
+   * typed when it closes (`setup.7` review).
+   */
+  text?: string;
+}
+
+/** The words in the suggestion editor's box. */
+export function editorText(request: EditorRequest): string {
+  return request.text ?? request.initial;
 }
 
 /** What an edit did, so the caller can put the right card on screen. */
@@ -133,13 +147,22 @@ export function reviewKeptAt(state: Pick<AppState, 'reviewSavedAt' | 'reviewPath
 
 /**
  * The dialogs that can hold text the author typed, which closing the window
- * would lose (`CloseGuardState.dialogText`, PLAN 11.3 i).
+ * would lose (`CloseGuardState.dialogText`, PLAN 11.3 i). The suggestion
+ * editor's words are read from its request instead (`hasDialogText`).
  */
-export type DialogTextSource = 'new-chapter' | 'manual-review' | 'edit-popover';
+export type DialogTextSource = 'new-chapter' | 'manual-review';
 
-/** True while any dialog holds text the author typed. */
-export function hasDialogText(state: Pick<AppState, 'dialogText'>): boolean {
-  return Object.values(state.dialogText).some(Boolean);
+/**
+ * True while any dialog holds text the author typed, the suggestion editor
+ * included, whether or not it is drawn: the Setup screen leaves it off the
+ * page, with its words kept (`EditorRequest.text`).
+ */
+export function hasDialogText(state: Pick<AppState, 'dialogText' | 'editor'>): boolean {
+  const editor = state.editor;
+  return (
+    Object.values(state.dialogText).some(Boolean) ||
+    (editor !== null && editorText(editor) !== editor.initial)
+  );
 }
 
 /** True when a paragraph editor is open on this paragraph index. */
@@ -153,20 +176,25 @@ export function changedParagraphCount(drafts: Record<number, ParagraphDraft>): n
 }
 
 /**
- * True while a dialog, a question, Settings or the Setup screen covers the page
- * (`SaveShortcutContext.modalOpen`). The suggestion editor is a floating panel,
- * not a modal, and is not counted.
+ * True while a dialog, a question, Settings, the Setup screen or the welcome
+ * guide covers the page (`SaveShortcutContext.modalOpen`). The welcome guide
+ * shows while the settings say it is not done, unless Start or Skip closed it
+ * this session (`welcomeShown`, setup.11 and its review); a state without
+ * settings has none. The suggestion editor is a floating panel, not a modal,
+ * and is not counted.
  */
 export function isModalOpen(
   state: Pick<
     AppState,
     'confirmSpec' | 'settingsOpen' | 'setupOpen' | 'newChapterOpen' | 'manualReviewOpen' | 'reviewDialogOpen'
-  >
+  > &
+    Partial<Pick<AppState, 'settings' | 'welcomeClosed'>>
 ): boolean {
   return (
     state.confirmSpec !== null ||
     state.settingsOpen ||
     state.setupOpen ||
+    welcomeShown(state.settings, state.welcomeClosed) ||
     state.newChapterOpen ||
     state.manualReviewOpen ||
     state.reviewDialogOpen
@@ -176,12 +204,12 @@ export function isModalOpen(
 /**
  * Whether the review pane's keys (j and k, the arrows, a, u, d, e and n) act:
  * only with a review on screen and nothing in front of the page. Behind a
- * dialog, a question, Settings or the Setup screen (`isModalOpen`) they
- * changed what the author could not see: behind Review with AI, a accepted
- * the focused suggestion, which changed the dialog's count and so its blue
- * button, and e opened the suggestion editor over it (apply.20 review). The
- * suggestion editor keeps the keys for its own box, and the pane is
- * read-only while a review of the chapter runs (`isLocked`).
+ * dialog, a question, Settings, the Setup screen or the welcome guide
+ * (`isModalOpen`) they changed what the author could not see: behind Review
+ * with AI, a accepted the focused suggestion, which changed the dialog's
+ * count and so its blue button, and e opened the suggestion editor over it
+ * (apply.20 review). The suggestion editor keeps the keys for its own box,
+ * and the pane is read-only while a review of the chapter runs (`isLocked`).
  */
 export function reviewKeysActive(
   state: Pick<
@@ -195,7 +223,8 @@ export function reviewKeysActive(
     | 'newChapterOpen'
     | 'manualReviewOpen'
     | 'reviewDialogOpen'
-  >
+  > &
+    Partial<Pick<AppState, 'settings' | 'welcomeClosed'>>
 ): boolean {
   return state.review !== null && state.editor === null && !isModalOpen(state) && !isLocked(state);
 }
@@ -288,8 +317,8 @@ export interface AppState {
   draftWritesPending: boolean;
   /**
    * which dialogs hold text the author typed: New chapter's name or text,
-   * Submit manual review's corrected text, the suggestion editor's changed
-   * words (apply.16). Read through `hasDialogText`.
+   * Submit manual review's corrected text (apply.16). Read through
+   * `hasDialogText`, which counts the suggestion editor's changed words too.
    */
   dialogText: Record<DialogTextSource, boolean>;
   focusedHunkId: string | null;
@@ -314,6 +343,13 @@ export interface AppState {
   settingsOpen: boolean;
   /** the Claude Setup screen stands in place of the chapter */
   setupOpen: boolean;
+  /**
+   * Start or Skip closed the welcome guide in this run (setup.11 review). It
+   * keeps the guide away even while the settings still say it is not done,
+   * as after a write of `onboardingDone` that failed, until Show the welcome
+   * guide again has written its settings (`state/welcome.ts`).
+   */
+  welcomeClosed: boolean;
   /** Save to chapter is writing the file (`state/saveChapter.ts`); decisions wait meanwhile */
   chapterSaving: boolean;
   /** paragraphs open for editing in place, keyed by their first paragraph index */
@@ -330,7 +366,11 @@ export interface AppState {
   /** apply one status to an explicit set of hunks, as planned by bulkPlan */
   applyBulk: (ids: readonly string[], status: HunkStatus) => void;
   focusHunk: (id: string | null, options?: { scroll?: boolean }) => void;
-  moveFocus: (delta: number) => void;
+  /**
+   * j and k, and with `pendingOnly` Shift+J and Shift+K; `view` is what is on
+   * screen, which they start from when the focus is not (11.7, small.9).
+   */
+  moveFocus: (delta: number, options?: StepOptions) => void;
   setHoveredHunk: (id: string | null) => void;
   setActiveComment: (id: string | null) => void;
   toggleCategory: (category: ChangeCategory) => void;
@@ -380,6 +420,7 @@ export interface AppState {
   setReviewDialogOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setSetupOpen: (open: boolean) => void;
+  setWelcomeClosed: (closed: boolean) => void;
   setChapterSaving: (saving: boolean) => void;
   /** say whether a dialog holds text the author typed; unchanged state sets nothing */
   setDialogText: (source: DialogTextSource, typed: boolean) => void;
@@ -395,7 +436,10 @@ export interface AppState {
 
   /* ---- editing (item 3) ---- */
   setCommentStatus: (id: string, status: ReviewComment['status']) => void;
+  /** open the editor; on the suggestion it is already open on, the words typed stay */
   openEditor: (request: EditorRequest) => void;
+  /** the words in the editor's box, as the author types them */
+  setEditorText: (text: string) => void;
   closeEditor: () => void;
   setEditorAccept: (accept: boolean) => void;
   /** rewrite a suggestion's replacement text (item 3a) */
@@ -442,7 +486,7 @@ export const useApp = create<AppState>()((set, get) => ({
   reviewSavedAt: null,
   persistPending: false,
   draftWritesPending: false,
-  dialogText: { 'new-chapter': false, 'manual-review': false, 'edit-popover': false },
+  dialogText: { 'new-chapter': false, 'manual-review': false },
   focusedHunkId: null,
   focusScrollToken: 0,
   hoveredHunkId: null,
@@ -458,6 +502,7 @@ export const useApp = create<AppState>()((set, get) => ({
   reviewDialogOpen: false,
   settingsOpen: false,
   setupOpen: false,
+  welcomeClosed: false,
   chapterSaving: false,
   drafts: {},
   aiBusyPath: null,
@@ -534,19 +579,17 @@ export const useApp = create<AppState>()((set, get) => ({
       focusScrollToken: options?.scroll ? state.focusScrollToken + 1 : state.focusScrollToken
     })),
 
-  moveFocus: (delta) => {
+  moveFocus: (delta, options) => {
     const review = get().review;
     if (!review) return;
     const hidden = get().hiddenCategories;
-    const visible = review.hunks
-      .filter((h) => h.anchor !== 'stale' && !hidden.includes(h.category ?? 'other'))
-      .sort((a, b) => a.start - b.start);
-    if (visible.length === 0) return;
-    const current = visible.findIndex((h) => h.id === get().focusedHunkId);
-    const nextIndex = current < 0 ? (delta > 0 ? 0 : visible.length - 1) : current + delta;
-    const clamped = Math.max(0, Math.min(visible.length - 1, nextIndex));
+    const visible = review.hunks.filter(
+      (h) => h.anchor !== 'stale' && !hidden.includes(h.category ?? 'other')
+    );
+    const next = stepFocus(visible, get().focusedHunkId, delta > 0 ? 1 : -1, options);
+    if (next === null) return;
     set((state) => ({
-      focusedHunkId: visible[clamped]?.id ?? null,
+      focusedHunkId: next,
       focusScrollToken: state.focusScrollToken + 1
     }));
   },
@@ -658,6 +701,7 @@ export const useApp = create<AppState>()((set, get) => ({
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
 
   setSetupOpen: (setupOpen) => set({ setupOpen }),
+  setWelcomeClosed: (welcomeClosed) => set({ welcomeClosed }),
 
   setChapterSaving: (chapterSaving) => set({ chapterSaving }),
 
@@ -685,8 +729,17 @@ export const useApp = create<AppState>()((set, get) => ({
     const state = get();
     const hunk = state.review?.hunks.find((h) => h.id === editor.hunkId);
     if (!hunk || frozen(state, hunk)) return;
-    set({ editor });
+    // The pencil again on the suggestion being edited moves the editor and
+    // keeps what was typed, as when the panel kept the words itself.
+    const open = state.editor;
+    const typed = open?.hunkId === editor.hunkId && editor.text === undefined ? open.text : undefined;
+    set({ editor: typed === undefined ? editor : { ...editor, text: typed } });
   },
+
+  setEditorText: (text) =>
+    set((state) =>
+      state.editor && editorText(state.editor) !== text ? { editor: { ...state.editor, text } } : {}
+    ),
 
   closeEditor: () => set({ editor: null }),
 

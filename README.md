@@ -40,34 +40,36 @@ To update later, get the newest source the same way, run the two commands again 
 
 ## Connecting Claude
 
-The app does not include Claude Code. You install it once and sign in with your own account:
+The app reviews with Claude through Claude Code, Anthropic's command-line tool, and does not include it. You install Claude Code once and sign in to it yourself, with a Claude plan that includes it (Pro, Max, Team or Enterprise; the free plan does not) or with an Anthropic API key ([below](#with-an-anthropic-api-key-instead)). The app's **Setup** screen tells you what to do, one step at a time, and checks each step. If Claude Code is already installed and signed in on this computer, the app finds it and there is nothing to do.
 
-1. Open PowerShell: click Start, type `PowerShell` and press Enter. Paste this line (Ctrl+V) and press Enter:
+**Opening Setup.** Setup opens by itself when you start a review with Claude while Claude Code is missing or not signed in. You can also open it from the card the app shows at start when Claude needs something (**Open Setup**), from the Claude label in the status bar, beside the zoom control, from **Settings** (**Setup** beside "Claude account"), or from the welcome guide (**Set up Claude**; see [First run](#first-run)).
+
+**Installing and signing in.** Setup shows the steps for your system; Windows is chosen for you.
+
+1. Open PowerShell: press the Start key, type `PowerShell`, and press Enter.
+2. On Setup, click **Copy** beside the install line, paste it into PowerShell with Ctrl+V, and press Enter. The line is:
 
    ```powershell
-   irm https://claude.ai/install.ps1 | iex
+   irm https://claude.ai/install.ps1 | iex; & "$env:USERPROFILE\.local\bin\claude.exe" auth login
    ```
 
-2. Sign in. In the same window, run:
+   It installs Claude Code with Anthropic's installer, then opens your browser so that you can sign in with your Claude account. If no browser window opens, Claude Code prints a sign-in link in PowerShell: open it in your browser, and if the browser then shows a code, paste it into PowerShell.
 
-   ```powershell
-   & "$env:USERPROFILE\.local\bin\claude.exe" auth login
-   ```
+3. Come back to the app once PowerShell says you are signed in. Setup checks again when the app's window comes back to the front, or click **Check again**. "Claude is ready", with your account and plan, means reviews can run, and the status bar at the bottom then says "Claude ready" followed by your account's email.
 
-   or open a new PowerShell window and run `claude auth login`. A browser opens: sign in with your Claude account. For an Anthropic Console account billed per token, end the command with `--console`, as in `claude auth login --console`.
-
-3. Check it worked: in a new PowerShell window, `claude auth status --text` shows your account.
-4. Start the app. The status bar at the bottom says "Claude ready" followed by your account's email. If the app was already open, open **Settings**, click **Setup** beside "Claude account", and click **Check again**.
+To be sure, click **Test the connection**. It sends one very small request to Claude through Claude Code, which counts against your plan like any other, and says whether Claude answered and how long it took. Nothing else on Setup sends anything to Claude: its checks only ask Claude Code for its version and its sign-in.
 
 Before your first review, decide whether Anthropic may train its models on your chapters: see **Model training** under [Privacy](#privacy).
 
-The app's Setup screen does not show these steps yet. It says to run `claude` and sign in there, which works too, and it lists other ways to install Claude Code. Use the PowerShell installer above: the app does not find a copy installed with npm.
+**Later.** A sign-in ends from time to time. When yours does, the app says so, and Setup shows the command that signs you in again, `claude auth login`. If PowerShell says it does not recognise `claude`, use the longer form Setup shows under it, which names the program in full: Anthropic's installer puts `claude.exe` in `%USERPROFILE%\.local\bin`, a folder that may not be on your PATH. The longer form is also the way round a PowerShell where typing `claude` starts Claude Desktop instead, which an older Claude Desktop can cause. If Claude Code is too old for the app, Setup says so and shows `claude update`. A copy from Anthropic's installer keeps itself up to date.
+
+**Other ways to install.** WinGet works too: `winget install Anthropic.ClaudeCode`, then `claude auth login` to sign in. A WinGet copy does not update itself, so run `winget upgrade Anthropic.ClaudeCode` now and then. A copy installed only with npm is not found: npm installs `claude.cmd`, a script the app cannot start, so install with the line above as well; the two can stay side by side.
 
 ### With an Anthropic API key instead
 
 1. Create a key in the Claude Console. Reviews are then billed per token to that Console account, not to a Claude plan.
 2. Add it as a Windows environment variable: open the Start menu, search for "environment variables", and choose **Edit environment variables for your account**. Under "User variables", click **New**, enter the name `ANTHROPIC_API_KEY`, paste the key as the value, and click **OK**. Then click **OK** again to close the Environment Variables window; closing it any other way loses the change.
-3. Start the app, or quit it and start it again if it was running. Claude Code uses the key ahead of any sign-in, and the status bar says "Claude ready (API key)". Delete the variable to go back to your plan.
+3. Start the app, or quit it and start it again if it was running. Claude Code uses the key ahead of any sign-in, the status bar says "Claude ready (API key)", and Setup says "Claude is ready, with an API key". Delete the variable to go back to your plan.
 
 The key must be a real environment variable, set before the app starts. Claude Code settings in `~/.claude/settings.json`, such as an `env` block or `apiKeyHelper`, are not read, because the app starts Claude Code without your settings files.
 
@@ -81,13 +83,19 @@ Alternatively, set `OPENAI_API_KEY` as an environment variable, the same way as 
 
 ## First run
 
-1. Click **Settings**, then **Change** beside **Manuscript folder**, and choose the folder that holds your novel's chapters. The app lists every `.md` and `.txt` file in it and its subfolders, skipping folders whose names start with a dot, such as `.obsidian` and `.trash`. So choose the novel's own folder rather than a whole vault of other notes. Reviews are saved in the app's data folder unless you also choose a **Reviews folder**.
-2. Connect at least one provider, as above.
-3. Fill in the guidelines file.
+The first time you start the app, a welcome guide takes the place of the main window. Each of its three steps says when it is done, and you can do them in any order:
+
+1. **Connect Claude** says where Claude stands, in Setup's words ("Claude Code is not installed", "Claude is ready" and so on). **Set up Claude** opens Setup ([Connecting Claude](#connecting-claude)), and its **Close** brings you back to the guide. To review with OpenAI instead, click **Use OpenAI instead (experimental, pay per use)**, then save a key in Settings ([Connecting OpenAI](#connecting-openai)).
+2. **Choose your manuscript folder.** Click **Choose folder** and pick the folder that holds your novel's chapters: your Obsidian vault, or a folder inside it. The app lists every `.md` and `.txt` file in it and its subfolders as a chapter, leaving out folders whose names start with a dot, such as `.obsidian` and `.trash`, so choose the novel's own folder rather than a vault full of other notes. It changes a chapter file only when you press **Save to chapter**, and first copies the version it replaces into a backup in its own data folder. The one file it adds of its own is `GUIDELINES.md` (the next step); the chapters you make with **New chapter**, the + beside "Chapters", go there too. Reviews are kept in the app's data folder unless you choose a **Reviews folder** in Settings.
+3. **Fill in your style sheet.** **Create and open in Obsidian** makes `GUIDELINES.md` from a template and opens it in Obsidian; once the file is there, the button reads **Open in Obsidian**. **Open with default app** opens it in your computer's app for `.md` files instead, and **Show in folder** shows it in File Explorer; each makes the file first if it is not there yet. Fill in its Style sheet section ([The guidelines file](#the-guidelines-file)), save it, and come back to the app: the step is done once the section holds something.
+
+Then click **Start**, which works once a folder is chosen; the line beside it says what is still to do. **Skip** closes the guide at any time. You can change the folder later in **Settings**, which also has **Show the welcome guide again**.
+
+If your Claude plan is Pro, the guide sets the review model to Sonnet the first time it finds Claude ready, unless you have chosen a model already. Claude Code's Default model is Opus, which uses a Pro plan's limits fastest, and Sonnet is usually enough for copyediting. You can choose another model in **Review with AI** at any time.
 
 ## The guidelines file
 
-`GUIDELINES.md` in your manuscript folder is sent with every review, after the app's own instructions. It is created from a template the first time you start a review or open it from Settings, and **Settings > Open guidelines file** opens it. Fill in your style sheet: spelling variant, Oxford comma, character names, invented words, anything the reviewer must not "fix". Both providers read the same file.
+`GUIDELINES.md` in your manuscript folder is sent with every review, after the app's own instructions. It is created from a template the first time you start a review or open it. **Settings > Open guidelines file**, or **Open** in Review with AI, opens it in your computer's app for .md files, and **Open in Obsidian** beside either opens it in Obsidian. Review with AI also says when your style sheet is still empty. Fill in your style sheet: spelling variant, Oxford comma, character names, invented words, anything the reviewer must not "fix". Both providers read the same file.
 
 ## Reviewing a chapter
 

@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   PRO_PLAN_NOTE,
+  PRO_PLAN_NOTE_OPUS_ONLY,
   PRO_PRESELECT_HINT,
+  claudeModelOptions,
+  defaultIsOpus,
   isProPlan,
   modelArgs,
   proPlanNote,
   proPreselection
 } from '../../src/shared/ai/claudeModels';
 import { APP_NAME } from '../../src/shared/branding';
+import { normalizeSettings } from '../../src/shared/settings';
+import { welcomeAgainPatch, welcomeShown } from '../../src/shared/ui/welcome';
 import {
   FREE_PLAN_WARNING,
   LOGIN_EXPIRED_MESSAGE,
@@ -116,18 +121,58 @@ describe('Pro plans (setup.1)', () => {
     expect(isProPlan(undefined)).toBe(false);
   });
 
-  it('preselects Sonnet once for a new user on Pro', () => {
-    const patch = proPreselection(fresh, 'pro');
+  it('preselects Sonnet once for a new user on Pro, while the first guide is open', () => {
+    const patch = proPreselection(fresh, 'pro', true);
     expect(patch).toEqual({ model: 'sonnet', dismissedHints: [PRO_PRESELECT_HINT] });
-    expect(proPreselection({ ...fresh, ...patch! }, 'pro')).toBeNull();
-    expect(proPreselection({ ...fresh, dismissedHints: [PRO_PRESELECT_HINT] }, 'pro')).toBeNull();
+    expect(proPreselection({ ...fresh, ...patch! }, 'pro', true)).toBeNull();
+    expect(proPreselection({ ...fresh, dismissedHints: [PRO_PRESELECT_HINT] }, 'pro', true)).toBeNull();
   });
 
   it('never changes an existing setting, a chosen model or another plan', () => {
-    expect(proPreselection({ ...fresh, model: 'opus' }, 'pro')).toBeNull();
-    expect(proPreselection({ ...fresh, onboardingDone: true }, 'pro')).toBeNull();
-    expect(proPreselection(fresh, 'max')).toBeNull();
-    expect(proPreselection(fresh, undefined)).toBeNull();
+    expect(proPreselection({ ...fresh, model: 'opus' }, 'pro', true)).toBeNull();
+    expect(proPreselection({ ...fresh, onboardingDone: true }, 'pro', true)).toBeNull();
+    expect(proPreselection(fresh, 'max', true)).toBeNull();
+    expect(proPreselection(fresh, undefined, true)).toBeNull();
+  });
+
+  /* setup.11 review: Show the welcome guide again writes onboardingDone
+     false, which alone made an install on Pro whose model is Default look
+     new, and the next check moved it to Sonnet. */
+  it('never preselects on a guide brought back by Show the welcome guide again', () => {
+    const installs = [
+      // settings from before 1.0 that name a folder
+      normalizeSettings({ manuscriptFolder: 'C:/vault' }),
+      // a fresh install that pressed Skip before Claude was ready
+      { ...normalizeSettings({}), onboardingDone: true },
+      // one with the Save hint already put away
+      normalizeSettings({ manuscriptFolder: 'C:/vault', dismissedHints: ['save-to-chapter'] })
+    ];
+    for (const before of installs) {
+      expect(proPreselection(before, 'pro', welcomeShown(before))).toBeNull();
+      const again = { ...before, ...welcomeAgainPatch(before.dismissedHints) };
+      expect(welcomeShown(again)).toBe(true);
+      expect(again.model).toBe('default');
+      expect(proPreselection(again, 'pro', welcomeShown(again))).toBeNull();
+      expect(again.dismissedHints).toEqual([...before.dismissedHints, PRO_PRESELECT_HINT]);
+    }
+  });
+
+  /* setup.11 review, (b): the preselection belongs to the first guide (C.67).
+     Start or Skip before a check finds Claude ready leaves Default, and the
+     review dialog's Pro note says what it costs. */
+  it('leaves the model alone when Start or Skip came before the check that found Claude ready', () => {
+    const first = normalizeSettings({});
+    expect(proPreselection(first, 'pro', welcomeShown(first))).toEqual({
+      model: 'sonnet',
+      dismissedHints: [PRO_PRESELECT_HINT]
+    });
+    // Start or Skip, written
+    const done = { ...first, manuscriptFolder: 'C:/vault', onboardingDone: true };
+    expect(proPreselection(done, 'pro', welcomeShown(done))).toBeNull();
+    // Start or Skip whose write failed: main's settings still say not done,
+    // but the guide is closed for the rest of the run
+    expect(proPreselection(first, 'pro', welcomeShown(first, true))).toBeNull();
+    expect(proPlanNote('pro', done.model)).toBe(PRO_PLAN_NOTE);
   });
 
   it('notes the Pro limits for Opus and Default, not for Sonnet or Haiku', () => {
@@ -136,6 +181,38 @@ describe('Pro plans (setup.1)', () => {
     expect(proPlanNote('pro', 'sonnet')).toBeNull();
     expect(proPlanNote('pro', 'haiku')).toBeNull();
     expect(proPlanNote('max', 'opus')).toBeNull();
+  });
+
+  /* setup.17 (c): on Claude Code 2.1.266 to 2.1.279 a Pro plan's Default is
+     Sonnet 5 (C.69), and the model list says so in Default's label. */
+  it('reads from the model list whether Default is an Opus model', () => {
+    const list = (description: string | undefined) =>
+      claudeModelOptions([
+        { value: 'default', displayName: 'Default (recommended)', ...(description ? { description } : {}) },
+        { value: 'opus', description: 'Opus 5.5 · Most capable' }
+      ]);
+    expect(defaultIsOpus(list('Opus 5.5 · Best for everyday, complex tasks'))).toBe(true);
+    expect(defaultIsOpus(list('Sonnet 5 · Best for everyday tasks'))).toBe(false);
+    // No version to read, no Default, or no list yet: not known.
+    expect(defaultIsOpus(list(undefined))).toBeNull();
+    expect(defaultIsOpus(list('Use the default model'))).toBeNull();
+    expect(defaultIsOpus([{ value: 'opus', label: 'Opus 5.5' }])).toBeNull();
+    expect(defaultIsOpus([])).toBeNull();
+  });
+
+  it('leaves Default out of the Pro note where the model list says it is not an Opus model', () => {
+    expect(proPlanNote('pro', 'default', false)).toBeNull();
+    expect(proPlanNote('pro', '', false)).toBeNull();
+    expect(proPlanNote('pro', 'opus', false)).toBe(PRO_PLAN_NOTE_OPUS_ONLY);
+    expect(proPlanNote('pro', 'claude-opus-5', false)).toBe(PRO_PLAN_NOTE_OPUS_ONLY);
+    expect(PRO_PLAN_NOTE_OPUS_ONLY).not.toContain('Default');
+    // Opus, or not known yet: as before, since Default is Opus 5.5 from 2.1.280.
+    for (const known of [true, null]) {
+      expect(proPlanNote('pro', 'default', known)).toBe(PRO_PLAN_NOTE);
+      expect(proPlanNote('pro', 'opus', known)).toBe(PRO_PLAN_NOTE);
+    }
+    expect(proPlanNote('pro', 'sonnet', false)).toBeNull();
+    expect(proPlanNote('max', 'default', false)).toBeNull();
   });
 });
 
@@ -224,6 +301,32 @@ describe('classifyClaude', () => {
     ['nothing to go on', null, null, { state: 'error' }]
   ] as const)('%s', (_label, auth, account, expected) => {
     expect(classifyClaude({ auth, account })).toMatchObject(expected);
+  });
+
+  /* setup.17 (e): Claude Code 2.1.302 with ANTHROPIC_AUTH_TOKEN set, as
+     `auth status --json` and the initialize reply gave it on 2026-10-19, with
+     an empty config folder, over a Claude plan's sign-in, and beside an
+     ANTHROPIC_API_KEY. Not a Claude plan: the token outranks the sign-in. */
+  it('reads an ANTHROPIC_AUTH_TOKEN as the token, never as a Claude plan', () => {
+    const tokenAuth = { loggedIn: true, authMethod: 'oauth_token', apiProvider: 'firstParty' };
+    const tokenAccount = { tokenSource: 'ANTHROPIC_AUTH_TOKEN', apiProvider: 'firstParty' };
+    expect(classifyClaude({ auth: tokenAuth, account: tokenAccount })).toEqual({
+      state: 'ready',
+      credential: 'auth-token'
+    });
+    // Beside an API key, which it outranks; `auth status` names the key's source too.
+    expect(
+      classifyClaude({
+        auth: { ...tokenAuth, apiKeySource: 'ANTHROPIC_API_KEY' },
+        account: { ...tokenAccount, apiKeySource: 'ANTHROPIC_API_KEY' }
+      }).credential
+    ).toBe('auth-token');
+    // A cloud provider outranks the token.
+    expect(
+      classifyClaude({ auth: tokenAuth, account: { ...tokenAccount, apiProvider: 'bedrock' } }).credential
+    ).toBe('cloud');
+    // With no account to read, oauth_token reads as before.
+    expect(classifyClaude({ auth: tokenAuth, account: null }).credential).toBe('subscription');
   });
 
   it('explains a sign-in that lives in settings the app does not load', () => {

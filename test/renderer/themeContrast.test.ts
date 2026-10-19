@@ -94,6 +94,12 @@ const TEXT_PAIRS: Pair[] = [
   { ink: '--warn', on: '--warn-bg-strong', min: 4.5, why: 'the unsaved-decisions box in the review dialog' },
   { ink: '--unsaved', on: '--panel', min: 4.5, why: 'the count not saved to the chapter, in the status bar' },
   { ink: '--danger', on: '--danger-bg', min: 4.5, why: 'the error card' },
+  ...['--ink-soft', '--accept', '--danger'].map((ink) => ({
+    ink,
+    on: '--warn-bg',
+    min: 4.5,
+    why: "Test the connection's note and result in a Setup status card that warns (setup.8)"
+  })),
   ...each(CATEGORIES, UNDER_SUGGESTIONS).flatMap(([tint, base]) =>
     ['--tint-pending', '--tint-hover'].map((share) => ({
       ink: '--ink',
@@ -107,6 +113,12 @@ const TEXT_PAIRS: Pair[] = [
     on: { tint: '--ink-faint', share: '--tint-decided-hover', base },
     min: 4.5,
     why: 'a decided suggestion, hovered'
+  })),
+  ...CATEGORIES.map((tint) => ({
+    ink: '--ink',
+    on: { tint, share: '--tint-small-hover', base: '--bg' },
+    min: 4.5,
+    why: "a small change's capsule, hovered (11.7, small.6)"
   })),
   ...['--panel', '--warn-bg', '--danger-bg'].map((base) => ({
     ink: '--ink',
@@ -169,7 +181,7 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
         expect(() => paint(scheme, pair.on)).not.toThrow();
       }
     }
-    expect([TEXT_PAIRS.length, FAINT_PAIRS.length]).toEqual([137, 61]);
+    expect([TEXT_PAIRS.length, FAINT_PAIRS.length]).toEqual([147, 61]);
   });
 
   it('paints a tint the way color-mix() does, so the tinted pairs mean something', () => {
@@ -205,6 +217,26 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
       expect(ring).toBeGreaterThan(yellow);
     });
   }
+
+  /* Ghost text, in a category colour or --ink-faint, sits on whatever its line
+     sits on: the page or an active or flashing paragraph, the pairs above.
+     Nothing fills behind it. small.6 filled a focused small change's ghost
+     with --focus-bg, where spelling, homophone, punctuation and other came to
+     4.14, 4.18, 4.28 and 4.03:1 in dark, under the 4.5 of a category as text
+     (small review); the capsule and the arrowhead mark the focus instead. */
+  it('fills nothing behind the ghost row, so its text meets only the backgrounds checked above', () => {
+    const css = APP_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    const filled = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((m) => /\.hunk__(above|ghost|role|tag|key)\b/.test(m[1] ?? ''))
+      .filter((m) =>
+        (m[2] ?? '').split(';').some((decl) => {
+          const [name = '', value = ''] = decl.split(':').map((s) => s.trim());
+          return /^background(-color|-image)?$/.test(name) && !/^(none|transparent)$/.test(value);
+        })
+      )
+      .map((m) => (m[1] ?? '').trim());
+    expect(filled).toEqual([]);
+  });
 
   it('fails a pair that is too faint, so the checks above can fail', () => {
     const grey = parseColour('#999999');

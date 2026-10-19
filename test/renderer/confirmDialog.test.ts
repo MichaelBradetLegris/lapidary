@@ -52,9 +52,12 @@ describe('confirm dialog layer (apply.6 review)', () => {
     expect(CONFIRM).toContain('className="modal-backdrop modal-backdrop--confirm"');
   });
 
-  it('renders the confirm dialog last in the main view, after every dialog and the editor', () => {
-    const main = APP.slice(APP.lastIndexOf('return ('));
-    const components = [...main.matchAll(/<([A-Z]\w*)/g)].map((m) => m[1]);
+  it('renders the confirm dialog last in each layout, after every dialog and the editor', () => {
+    // The four dialogs are made just before the two returns (ui.4): the
+    // Setup screen's and the welcome guide's (setup.7, setup.11) and the main
+    // view's.
+    const made = APP.slice(APP.indexOf('const newChapterDialog = '));
+    const components = [...made.matchAll(/<([A-Z]\w*)/g)].map((m) => m[1]);
     expect(components).toEqual(
       expect.arrayContaining([
         'EditPopover',
@@ -64,8 +67,17 @@ describe('confirm dialog layer (apply.6 review)', () => {
         'SettingsDialog'
       ])
     );
-    expect(components.at(-1)).toBe('ConfirmDialog');
-    expect(components.filter((name) => name === 'ConfirmDialog')).toHaveLength(1);
+    const setupStart = made.indexOf('if (singleScreen) {');
+    const mainStart = made.lastIndexOf('return (');
+    expect(setupStart).toBeGreaterThan(0);
+    for (const layout of [made.slice(setupStart, mainStart), made.slice(mainStart)]) {
+      const names = [...layout.matchAll(/<([A-Z]\w*)/g)].map((m) => m[1]);
+      expect(names.at(-1)).toBe('ConfirmDialog');
+      expect(names.filter((name) => name === 'ConfirmDialog')).toHaveLength(1);
+      expect(layout.indexOf('{settingsDialog}')).toBeLessThan(layout.indexOf('<ConfirmDialog />'));
+    }
+    const main = made.slice(mainStart);
+    expect(main.indexOf('<EditPopover')).toBeLessThan(main.indexOf('{newChapterDialog}'));
   });
 
   it('focuses the default with its focus ring showing, however the question was opened', () => {
@@ -74,20 +86,26 @@ describe('confirm dialog layer (apply.6 review)', () => {
   });
 
   it('leaves Escape to a question asked over Review with AI', () => {
-    expect(REVIEW_DIALOG).toMatch(/event\.key === 'Escape' && !useApp\.getState\(\)\.confirmSpec/);
+    // `useDialogEscape` refuses Escape while a question is open (dialog.test.ts, ui.1).
+    expect(REVIEW_DIALOG).toContain('useDialogEscape(boxRef, onClose);');
   });
 });
 
 /* apply.7 review: Tab from the leave question reached the toolbar's Save
    behind it, and Enter there saved the chapter with the question still open. */
-describe('the question holds the keyboard (apply.7 review)', () => {
+describe('the question holds the keyboard (apply.7 review), and so does every dialog (ui.4)', () => {
   const main = APP.slice(APP.lastIndexOf('return ('));
-  const page = '<div className="app-shell__page" inert={questionOpen}>';
+  const page = '<div className="app-shell__page" inert={inert.page}>';
+  const dialogs = '<div className="app-shell__dialogs" inert={inert.dialogs}>';
 
-  it('makes everything in the window but the question inert while one is open', () => {
+  it('makes everything in the window but the dialogs and the question inert while either is open', () => {
     expect(APP).toContain('const questionOpen = useApp((s) => s.confirmSpec !== null);');
+    // What is open is what is drawn, so the page is never inert under nothing.
+    expect(APP).toMatch(
+      /const inert = shellInert\(\{\s*dialog: \[newChapterDialog, manualReviewDialog, reviewDialog, settingsDialog\]\.some\(\(d\) => d !== null\),\s*question: questionOpen\s*\}\);/
+    );
     expect(main.indexOf(page)).toBeGreaterThan(main.indexOf('<div className="app-shell">'));
-    const inside = main.slice(main.indexOf(page));
+    const inside = main.slice(main.indexOf(page), main.indexOf(dialogs));
     for (const name of [
       '{toolbar}',
       '<FilterChips',
@@ -97,21 +115,39 @@ describe('the question holds the keyboard (apply.7 review)', () => {
       '<SidePanel',
       '<StatusBar',
       '<HunkTooltip',
-      '<EditPopover',
-      '<NewChapterDialog',
-      '<ManualReviewDialog',
-      '<ReviewDialog',
-      '<SettingsDialog'
+      '<EditPopover'
     ]) {
       expect(inside.indexOf(name), name).toBeGreaterThan(0);
     }
-    // The wrapper closes just before the question, which stays outside it
-    // (the `{}` is a JSX comment with its text taken out).
-    expect(main).toMatch(/<\/div>\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*<\/div>\s*\);\s*\}\s*$/);
+    // The page closes just before the dialogs' wrapper, which holds the four
+    // dialogs and closes just before the question, which stays outside both
+    // (each `{}` is a JSX comment with its text taken out).
+    expect(main).toMatch(
+      /<\/div>\s*(\{\s*\}\s*)?<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*<\/div>\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*<\/div>\s*\);\s*\}\s*$/
+    );
+    for (const name of ['<NewChapterDialog', '<ManualReviewDialog', '<ReviewDialog', '<SettingsDialog']) {
+      expect(main, name).not.toContain(name);
+    }
   });
 
-  it('gives the wrapper no box, so the layout is as it was', () => {
+  it('makes each dialog only where it is drawn, from the flag that opens it', () => {
+    const made = APP.slice(
+      APP.indexOf('const newChapterDialog = '),
+      APP.indexOf('const inert = shellInert(')
+    );
+    expect(made).toMatch(/const newChapterDialog = newChapterOpen \? \(\s*<NewChapterDialog/);
+    expect(made).toMatch(
+      /const manualReviewDialog =\s*manualReviewOpen && review\?\.sourcePath \? \(\s*<ManualReviewDialog/
+    );
+    expect(made).toMatch(
+      /const reviewDialog =\s*reviewDialogOpen && review && settings \? \(\s*<ReviewDialog/
+    );
+    expect(made).toMatch(/const settingsDialog =\s*settingsOpen && settings \? \(\s*<SettingsDialog/);
+  });
+
+  it('gives both wrappers no box, so the layout is as it was', () => {
     expect(CSS).toMatch(/\.app-shell__page\s*\{\s*display:\s*contents;\s*\}/);
+    expect(CSS).toMatch(/\.app-shell__dialogs\s*\{\s*display:\s*contents;\s*\}/);
   });
 
   it('puts the focus back where it was when the question closes, if that is still there', () => {

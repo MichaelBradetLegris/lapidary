@@ -195,7 +195,7 @@ beforeEach(() => {
     editor: null,
     persistPending: false,
     draftWritesPending: false,
-    dialogText: { 'new-chapter': false, 'manual-review': false, 'edit-popover': false }
+    dialogText: { 'new-chapter': false, 'manual-review': false }
   });
   state().setReview(chapterReview(), REVIEW_PATH);
   state().clearNotifications();
@@ -296,6 +296,20 @@ describe('the state push (apply.9)', () => {
       expect.objectContaining({ dialogText: true }),
       expect.objectContaining({ writesPending: true })
     ]);
+  });
+
+  it("pushes the suggestion editor's typed words, which the Setup screen keeps (setup.7 review)", () => {
+    const h = guard();
+    state().openEditor({ kind: 'suggestion', hunkId: 'h1', initial: 'As he tilted', anchor: null });
+    expect(h.pushes).toHaveLength(1); // an editor as it opened puts nothing at risk
+    state().setEditorText('He tilted');
+    expect(h.pushes.at(-1)).toMatchObject({ dialogText: true });
+    // Setup takes the panel off the page; the words still count.
+    state().setSetupOpen(true);
+    expect(closeGuardStateOf(state()).dialogText).toBe(true);
+    state().setSetupOpen(false);
+    state().closeEditor();
+    expect(h.pushes.map((p) => p.dialogText)).toEqual([false, true, false]);
   });
 
   it('stops when uninstalled, and a new install pushes again', () => {
@@ -819,9 +833,10 @@ describe('the wiring (apply.9)', () => {
     expect(app).toContain("call('app:close-decision', { close })");
     expect(app).toContain("onMain('app:close-requested'");
     expect(app).toContain("onMain('app:flush'");
-    // apply.12 adds the hint writes, so a hint Save and close puts away is on disk first.
+    // apply.12 adds the hint writes, so a hint Save and close puts away is on disk first,
+    // and ui.6 the split's, so a split moved just before a close is kept.
     expect(app).toMatch(
-      /Promise\.all\(\[flushReviewWrites\(\), flushDraftWrites\(\), flushHintWrites\(\)\]\)/
+      /Promise\.all\(\[flushReviewWrites\(\), flushDraftWrites\(\), flushHintWrites\(\), flushSplitWrites\(\)\]\)/
     );
     expect(app).toContain('retryReviewWrites();');
     expect(app).toContain('retryDraftWrites();');
@@ -845,7 +860,9 @@ describe('the wiring (apply.9)', () => {
     );
     expect(layouts).toHaveLength(2);
     for (const layout of layouts) {
-      expect(layout).toContain('<div className="app-shell__page" inert={questionOpen}>');
+      // The main layout's page is inert under a dialog too, and under a
+      // question through `shellInert` (ui.4, test/shared/dialog.test.ts).
+      expect(layout).toMatch(/<div className="app-shell__page" inert=\{(questionOpen|inert\.page)\}>/);
       expect(layout.match(/<ConfirmDialog \/>/g)).toHaveLength(1);
       expect(layout).toMatch(/<ConfirmDialog \/>\s*<\/div>\s*$/);
     }

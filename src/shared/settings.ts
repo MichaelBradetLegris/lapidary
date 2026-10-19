@@ -6,6 +6,7 @@ import {
   type Provider,
   type Settings
 } from './types';
+import { normalizeSplit } from './ui/split';
 import { normalizeTheme } from './ui/theme';
 import { normalizeZoom } from './ui/zoom';
 
@@ -62,7 +63,8 @@ export function normalizeSettings(input: unknown): Settings {
     dismissedHints: stringSet(raw['dismissedHints']),
     checkForUpdates:
       typeof raw['checkForUpdates'] === 'boolean' ? raw['checkForUpdates'] : DEFAULT_SETTINGS.checkForUpdates,
-    updateDownloadConsent: nullableString(raw['updateDownloadConsent'], null)
+    updateDownloadConsent: nullableString(raw['updateDownloadConsent'], null),
+    sideSplit: normalizeSplit(raw['sideSplit'])
   };
 }
 

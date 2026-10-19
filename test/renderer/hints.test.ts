@@ -3,7 +3,13 @@ import { PRO_PRESELECT_HINT } from '../../src/shared/ai/claudeModels';
 import { defaultSettings, normalizeSettings } from '../../src/shared/settings';
 import type { Settings } from '../../src/shared/types';
 import { SAVE_HINT_ID } from '../../src/shared/ui/saveHint';
-import { createHints, type HintIo } from '../../src/renderer/state/hints';
+import {
+  createHints,
+  hintDismissedThisSession,
+  saveHintGivesWay,
+  useSaveHintAside,
+  type HintIo
+} from '../../src/renderer/state/hints';
 import { useApp } from '../../src/renderer/state/store';
 
 /* apply.12: putting a one-time hint away for good writes `dismissedHints`
@@ -161,5 +167,39 @@ describe('dismissing a hint (apply.12)', () => {
     expect(main.patches).toEqual([]);
     expect(hints.dismissedThisSession(SAVE_HINT_ID)).toBe(true);
     expect(useApp.getState().settings).toBeNull();
+  });
+});
+
+/* ui.3 review: with the side panel folded the first-use hint hangs over the
+   prose, so once the author goes on after it has shown, it is set aside for
+   the session. `SaveHint.tsx` says when it is over the prose; a press, a
+   review key and a drawer opened call `saveHintGivesWay`. */
+describe('setting the hint aside over the prose (ui.3 review)', () => {
+  beforeEach(() => {
+    useSaveHintAside.setState({ overProse: false, setAside: false });
+  });
+
+  it('sets it aside when the author goes on while it hangs over the prose', () => {
+    useSaveHintAside.setState({ overProse: true });
+    saveHintGivesWay();
+    expect(useSaveHintAside.getState().setAside).toBe(true);
+    // For the rest of the session, whatever happens next.
+    useSaveHintAside.setState({ overProse: false });
+    saveHintGivesWay();
+    expect(useSaveHintAside.getState().setAside).toBe(true);
+  });
+
+  it('leaves it be when it is not over the prose: the press or key that makes the first change, or the panel in place', () => {
+    saveHintGivesWay();
+    saveHintGivesWay();
+    expect(useSaveHintAside.getState()).toMatchObject({ overProse: false, setAside: false });
+  });
+
+  it('puts nothing away, so the settings are untouched and a restart shows it again', () => {
+    const before = useApp.getState().settings;
+    useSaveHintAside.setState({ overProse: true });
+    saveHintGivesWay();
+    expect(useApp.getState().settings).toBe(before);
+    expect(hintDismissedThisSession(SAVE_HINT_ID)).toBe(false);
   });
 });

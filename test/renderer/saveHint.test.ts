@@ -39,15 +39,17 @@ const zIndexes = (): number[] => [...CSS.matchAll(/z-index:\s*(\d+)/g)].map((m) 
 describe('the toolbar shows the hint (apply.12)', () => {
   it('decides with saveHintVisible from what it already draws Save to chapter with', () => {
     expect(TOOLBAR).toMatch(
-      /saveHintVisible\(\{\s*dismissedHints,\s*dismissedThisSession: hintDismissedThisSession\(SAVE_HINT_ID\),\s*hasChapter: input\.hasChapter,\s*unsavedDecisions: input\.unsavedDecisions,\s*locked,\s*saving\s*\}\)/
+      /saveHintVisible\(\{\s*dismissedHints,\s*dismissedThisSession: hintDismissedThisSession\(SAVE_HINT_ID\),\s*hasChapter: input\.hasChapter,\s*unsavedDecisions: input\.unsavedDecisions,\s*locked,\s*saving,\s*sideFolded,\s*editingParagraph: editing > 0,\s*singleScreen,\s*setAside: hintSetAside\s*\}\)/
     );
     expect(TOOLBAR).toContain('useApp((s) => s.settings?.dismissedHints ?? null)');
+    expect(TOOLBAR).toContain('const editing = useApp((s) => Object.keys(s.drafts).length);');
+    expect(TOOLBAR).toContain('const hintSetAside = useSaveHintAside((s) => s.setAside);');
   });
 
   it('points the hint at Save to chapter, with the chapter on screen in its words', () => {
     expect(TOOLBAR).toMatch(/<button\s+ref=\{saveRef\}\s+type="button"\s+className="primary"/);
-    expect(TOOLBAR).toContain(
-      '<SaveHint anchor={saveRef} text={saveHintText(review.sourcePath)} onGotIt={onSaveHintDone} />'
+    expect(TOOLBAR).toMatch(
+      /<SaveHint\s+anchor=\{saveRef\}\s+text=\{saveHintText\(review\.sourcePath\)\}\s+overProse=\{sideFolded\}\s+onGotIt=\{onSaveHintDone\}\s*\/>/
     );
   });
 
@@ -74,7 +76,7 @@ describe('the toolbar shows the hint (apply.12)', () => {
   });
 
   it('keeps it to the side panel column and its arrow off the buttons under Save to chapter', () => {
-    expect(HINT).toContain("const side = document.querySelector('.body > .side')?.getBoundingClientRect();");
+    expect(HINT).toContain("const side = document.querySelector('.body .side')?.getBoundingClientRect();");
     expect(HINT).toContain('column: side && side.width > 0 ? span(side) : null,');
     // The toolbar's items on later rows than Save's, the hint itself left out.
     expect(HINT).toMatch(
@@ -98,7 +100,9 @@ describe('App puts it away for good (apply.12)', () => {
   });
 
   it('and a close waits for that write with the others', () => {
-    expect(APP).toContain('Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites()])');
+    expect(APP).toContain(
+      'Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites(), flushSplitWrites()])'
+    );
   });
 
   it('the empty page says nothing reaches the chapter until Save', () => {
@@ -134,24 +138,57 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
   });
 
   it('stays clear of the cards and the find bar, which live in the centre column beside the side panel', () => {
-    // The hint keeps to `.body > .side` (above). The find bar and the cards are
+    // The hint keeps to `.body .side` (above). The find bar and the cards are
     // in `.center-wrap`, the column before it, and never reach out of it: the
     // find bar is a strip in its flow, and the cards are pinned inside it.
-    const wrap = APP.indexOf('<div className={`center-wrap');
-    const find = APP.indexOf('<FindBar />');
-    const cards = APP.indexOf('<NotificationCards');
-    const lock = APP.indexOf('<LockCard');
-    const side = APP.indexOf('<SidePanel');
+    // With the side panel folded to a strip (ui.3), its drawer's column lies
+    // over the prose's edge, so there the hint may meet them: see
+    // test/renderer/columns.test.ts.
+    // The main layout, the last App returns: the Setup screen's has its
+    // cards in its own column (setup.7, below).
+    const main = APP.slice(APP.lastIndexOf('return ('));
+    const wrap = main.indexOf('<div className={`center-wrap');
+    const find = main.indexOf('<FindBar />');
+    const cards = main.indexOf('<NotificationCards');
+    const lock = main.indexOf('<LockCard');
+    const side = main.indexOf('<SidePanel');
     expect(wrap).toBeGreaterThan(0);
     expect(find).toBeGreaterThan(wrap);
     expect(cards).toBeGreaterThan(find);
     expect(lock).toBeGreaterThan(cards);
     expect(side).toBeGreaterThan(lock);
-    expect(APP.slice(lock, side)).toMatch(/\/>\s*<\/div>/);
+    expect(main.slice(lock, side)).toMatch(/\/>\s*<\/div>/);
     expect(declsFor('.center-wrap').get('position')).toBe('relative');
     expect(declsFor('.notes').get('position')).toBe('absolute');
     expect(parseFloat(declsFor('.notes').get('right') ?? '')).toBeGreaterThanOrEqual(0);
     expect(declsFor('.findbar').get('position')).toBeUndefined();
+  });
+
+  /* setup.11 review: the hint hung over the welcome guide and the Setup
+     screen, and in the smallest window covered the guide's Skip and Setup's
+     Close. When it waits is `saveHintVisible` (test/shared/saveHint.test.ts). */
+  it('waits while the Setup screen or the welcome guide is up, as App tells the toolbar', () => {
+    expect(APP).toContain('const singleScreen = setupOpen || welcomeOpen;');
+    const toolbar = APP.slice(APP.indexOf('<Toolbar'), APP.indexOf('/>', APP.indexOf('<Toolbar')));
+    expect(toolbar).toContain('singleScreen={singleScreen}');
+    expect(TOOLBAR).toMatch(/sideFolded,\s*singleScreen,\s*onReviewWithAi,/);
+  });
+
+  it('stays under the cards on the Setup screen, where they sit in the flow above it (setup.7)', () => {
+    // The cards are at the top of the Setup column, before the screen in the
+    // flow, positioned so their layer counts; the hint waits there now
+    // (setup.11 review), but a card would win should the two ever meet.
+    const setup = APP.slice(APP.indexOf('if (singleScreen) {'), APP.lastIndexOf('return ('));
+    expect(setup).toMatch(
+      /<div className="body body--single">\s*<NotificationCards onAction=\{onCardAction\} \/>\s*\{setupOpen \? \(\s*<SetupScreen\s/
+    );
+    const notes = declsFor('.body--single > .notes');
+    expect(notes.get('position')).toBe('relative');
+    expect(notes.get('inset')).toBe('auto');
+    expect(notes.get('order')).toBeUndefined();
+    expect(Number(declsFor('.save-hint').get('z-index'))).toBeLessThan(
+      Number(declsFor('.notes').get('z-index'))
+    );
   });
 
   it('draws in tokens only, so both themes reach it', () => {

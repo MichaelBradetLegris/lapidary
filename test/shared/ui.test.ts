@@ -86,6 +86,20 @@ describe('suggestion list', () => {
     expect(long.length).toBeLessThanOrEqual(30);
     expect(long.endsWith('→ y')).toBe(true);
   });
+
+  /* small.5 (PLAN 11.7), on purpose: "(nothing)" is kept for the empty string,
+     and a side that cannot be seen, or small punctuation, is named. Case 1 of
+     the round 6 screenshot read "- → (nothing)", as if the hyphen were deleted. */
+  it('names a side that cannot be seen, and small punctuation', () => {
+    expect(summaryLine(hunk({ id: 'a', original: '-', replacement: ' ' }))).toBe('- (hyphen) → (space)');
+    expect(summaryLine(hunk({ id: 'a', original: '', replacement: ',' }))).toBe('(nothing) → , (comma)');
+    expect(summaryLine(hunk({ id: 'a', original: '  ', replacement: ' ' }))).toBe('(2 spaces) → (space)');
+    expect(summaryLine(hunk({ id: 'a', original: '\n\n', replacement: ' ' }))).toBe(
+      '(paragraph break) → (space)'
+    );
+    expect(summaryLine(hunk({ id: 'a', original: 'i', replacement: 'I' }))).toBe('i → I');
+    expect(summaryLine(hunk({ id: 'a', original: '     ', replacement: '' }))).toBe('(5 spaces) → (nothing)');
+  });
 });
 
 describe('bulk confirmation semantics', () => {

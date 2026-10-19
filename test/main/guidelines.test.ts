@@ -4,7 +4,14 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppFailure, explainReadError, explainWriteError, toAppError } from '../../src/main/errors';
 import { ensureGuidelines, ensureGuidelinesFile, guidelinesStatus } from '../../src/main/guidelines';
-import { obsidianOpenUrl, openGuidelinesFile, type ShellApi } from '../../src/main/openGuidelines';
+import {
+  assertCanOpen,
+  openGuidelines,
+  openGuidelinesFile,
+  openInObsidian
+} from '../../src/main/openGuidelines';
+import type { ShellApi } from '../../src/main/shellApi';
+import { obsidianOpenUrl } from '../../src/shared/obsidian';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
 
 /* setup.10: the guidelines file is created once, never overwritten, and opened
@@ -189,10 +196,13 @@ describe('guidelinesStatus', () => {
 });
 
 describe('opening the guidelines file', () => {
-  function fakeShell(openPathResult = '') {
+  function fakeShell(openPathResult = '', externalFails?: string) {
     const calls: string[] = [];
     const shell: ShellApi = {
-      openExternal: (url) => (calls.push(`external ${url}`), Promise.resolve()),
+      openExternal: (url) => {
+        calls.push(`external ${url}`);
+        return externalFails === undefined ? Promise.resolve() : Promise.reject(new Error(externalFails));
+      },
       openPath: (file) => (calls.push(`open ${file}`), Promise.resolve(openPathResult)),
       showItemInFolder: (file) => void calls.push(`show ${file}`)
     };
@@ -209,6 +219,63 @@ describe('opening the guidelines file', () => {
     const { calls, shell } = fakeShell();
     await openGuidelinesFile('C:\\Vault\\Novel One\\GUIDELINES.md', 'obsidian', shell);
     expect(calls).toEqual(['external obsidian://open?path=C%3A%5CVault%5CNovel%20One%5CGUIDELINES.md']);
+  });
+
+  /* setup.10b: Open in Obsidian, from Review with AI and Settings. */
+
+  it('hands the shell the link for a path with spaces, other scripts and link characters', async () => {
+    const { calls, shell } = fakeShell();
+    await openInObsidian('C:\\Vaults\\Roman d’été & co #2\\小説\\GUIDELINES.md', shell);
+    expect(calls).toEqual([
+      'external obsidian://open?path=C%3A%5CVaults%5CRoman%20d%E2%80%99%C3%A9t%C3%A9%20%26%20co%20%232%5C%E5%B0%8F%E8%AA%AC%5CGUIDELINES.md'
+    ]);
+    await openInObsidian('/home/writer/Notes (2026)/GUIDELINES.md', shell); // check-public: allow
+    expect(calls[1]).toBe(
+      'external obsidian://open?path=%2Fhome%2Fwriter%2FNotes%20%282026%29%2FGUIDELINES.md'
+    );
+  });
+
+  it('refuses a .txt guidelines file for Obsidian, before the shell is called, but opens it with Open', async () => {
+    const { calls, shell } = fakeShell();
+    await expect(openGuidelinesFile('C:\\Vault\\GUIDELINES.txt', 'obsidian', shell)).rejects.toMatchObject({
+      code: 'invalid-input',
+      message: 'Obsidian opens .md files, and GUIDELINES.txt is not one. Use Open to open it in another app.'
+    });
+    expect(calls).toEqual([]);
+    await openGuidelinesFile('C:\\Vault\\GUIDELINES.txt', 'default', shell);
+    expect(calls).toEqual(['open C:\\Vault\\GUIDELINES.txt']);
+  });
+
+  it('assertCanOpen takes a .md or .txt file, and only a .md one for Obsidian', () => {
+    expect(() => assertCanOpen('C:\\Vault\\GUIDELINES.md', 'obsidian')).not.toThrow();
+    expect(() => assertCanOpen('C:\\Vault\\GUIDELINES.txt', 'default')).not.toThrow();
+    expect(() => assertCanOpen('C:\\Vault\\GUIDELINES.txt', 'obsidian')).toThrow(
+      /^Obsidian opens \.md files/
+    );
+    expect(() => assertCanOpen('C:\\Vault\\run.bat', 'obsidian')).toThrow(/has to be a \.md or \.txt file/);
+  });
+
+  it('gives the shell no link for a path that is not a full one', async () => {
+    const { calls, shell } = fakeShell();
+    const relative = await openInObsidian('Novel\\GUIDELINES.md', shell).catch((err: unknown) => err);
+    expect(relative).toMatchObject({ code: 'invalid-input' });
+    expect((relative as Error).message).toMatch(
+      /^There is no Obsidian link for Novel\\GUIDELINES\.md: it is not a full path/
+    );
+    await expect(openInObsidian('C:\\Vault\\\uD800.md', shell)).rejects.toMatchObject({
+      code: 'invalid-input'
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('says what to do when the system cannot start Obsidian, keeping its reason as the detail', async () => {
+    const { shell } = fakeShell('', 'Failed to open: No application is associated with the specified file');
+    await expect(openInObsidian('C:\\Vault\\GUIDELINES.md', shell)).rejects.toMatchObject({
+      code: 'io',
+      message:
+        'Obsidian could not be started to open GUIDELINES.md. Check that Obsidian is installed, or use Open to open the file in another app.',
+      detail: 'Failed to open: No application is associated with the specified file'
+    });
   });
 
   it('opens with the default app, or shows the file in its folder when there is none', async () => {
@@ -232,5 +299,68 @@ describe('opening the guidelines file', () => {
       code: 'invalid-input'
     });
     expect(calls).toEqual([]);
+  });
+
+  /* setup.10b review: guidelines:open is openGuidelines with the settings, the
+     template and systemShell(), so these pin its order on disk: refuse, then
+     create from the template, then open. */
+  describe('guidelines:open', () => {
+    it('refuses a missing .txt guidelines file for Obsidian before it creates anything', async () => {
+      const txt = path.join(root, 'Novel', 'GUIDELINES.txt');
+      const { calls, shell } = fakeShell();
+      await expect(
+        openGuidelines(settings({ guidelinesPath: txt }), 'obsidian', template, shell)
+      ).rejects.toMatchObject({
+        code: 'invalid-input',
+        message:
+          'Obsidian opens .md files, and GUIDELINES.txt is not one. Use Open to open it in another app.'
+      });
+      await expect(fs.access(txt)).rejects.toThrow();
+      await expect(fs.access(path.dirname(txt))).rejects.toThrow();
+      expect(calls).toEqual([]);
+    });
+
+    it('creates the same missing .txt file from the template for Open, and opens it', async () => {
+      const txt = path.join(root, 'Novel', 'GUIDELINES.txt');
+      const { calls, shell } = fakeShell();
+      expect(await openGuidelines(settings({ guidelinesPath: txt }), 'default', template, shell)).toEqual({
+        path: txt,
+        created: true
+      });
+      expect(await fs.readFile(txt, 'utf8')).toBe(await fs.readFile(template, 'utf8'));
+      expect(calls).toEqual([`open ${txt}`]);
+    });
+
+    it('creates GUIDELINES.md for Obsidian and hands the shell its link, and leaves an existing one as it is', async () => {
+      const md = path.join(root, 'Novel', 'GUIDELINES.md');
+      const { calls, shell } = fakeShell();
+      expect(await openGuidelines(settings(), 'obsidian', template, shell)).toEqual({
+        path: md,
+        created: true
+      });
+      expect(calls).toEqual([`external ${obsidianOpenUrl(md)}`]);
+      await fs.writeFile(md, 'My own rules.\n');
+      expect(await openGuidelines(settings(), 'obsidian', template, shell)).toEqual({
+        path: md,
+        created: false
+      });
+      expect(await fs.readFile(md, 'utf8')).toBe('My own rules.\n');
+      expect(calls).toEqual([`external ${obsidianOpenUrl(md)}`, `external ${obsidianOpenUrl(md)}`]);
+    });
+
+    it('makes and opens nothing for a file that is not .md or .txt, or with no manuscript folder', async () => {
+      const docx = path.join(root, 'Novel', 'rules.docx');
+      const { calls, shell } = fakeShell();
+      for (const via of ['obsidian', 'default'] as const) {
+        await expect(
+          openGuidelines(settings({ guidelinesPath: docx }), via, template, shell)
+        ).rejects.toMatchObject({ code: 'invalid-input' });
+        await expect(
+          openGuidelines(settings({ manuscriptFolder: null }), via, template, shell)
+        ).rejects.toMatchObject({ code: 'not-configured' });
+      }
+      await expect(fs.access(path.dirname(docx))).rejects.toThrow();
+      expect(calls).toEqual([]);
+    });
   });
 });

@@ -49,15 +49,29 @@ function pathDirs(deps: Pick<LocateDeps, 'platform' | 'pathEnv'>): string[] {
   return deps.pathEnv.split(deps.platform === 'win32' ? ';' : ':').filter((dir) => dir.trim() !== '');
 }
 
+/**
+ * `%LOCALAPPDATA%\Microsoft\WindowsApps`, the folder of Windows' App
+ * Execution Aliases, where an older Claude Desktop puts a `Claude.exe` that
+ * Windows matches to `claude.exe` (troubleshoot-install; PLAN 5.6 item 1).
+ * Left out of the lookup, so that Claude Desktop is never found and run with
+ * `--version`. `canRun` refuses such an alias as well, since `fs.stat` cannot
+ * follow it (EACCES), and `test/main/claudeBinary.test.ts` pins that on the
+ * aliases of the machine it runs on (setup.17).
+ */
+export function isWindowsAppsDir(dir: string): boolean {
+  return /[\\/]Microsoft[\\/]WindowsApps[\\/]*$/i.test(dir.trim());
+}
+
 /** Every place Claude Code may be, in the order they are tried, without duplicates. */
 export function claudeCandidates(
   deps: Pick<LocateDeps, 'platform' | 'home' | 'pathEnv' | 'pathApi'>
 ): ClaudeCandidate[] {
   const name = exeName(deps.platform);
   const p = deps.pathApi;
+  const dirs = pathDirs(deps).filter((dir) => deps.platform !== 'win32' || !isWindowsAppsDir(dir));
   const list: ClaudeCandidate[] = [
     { path: p.join(deps.home, '.local', 'bin', name), source: 'installer' },
-    ...pathDirs(deps).map((dir) => ({ path: p.join(dir, name), source: 'path' as const })),
+    ...dirs.map((dir) => ({ path: p.join(dir, name), source: 'path' as const })),
     ...(SYSTEM_DIRS[deps.platform] ?? []).map((dir) => ({
       path: p.join(dir, name),
       source: 'system' as const

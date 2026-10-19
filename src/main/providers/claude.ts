@@ -19,12 +19,18 @@ import {
   type LocateDeps,
   type RunOptions
 } from './claudeBinary';
-import { cliInitialize, runCliReview, type CliDeps } from './claudeCli';
+import { cliInitialize, runCliReview, runCliTest, type CliDeps } from './claudeCli';
 import { createHandshake } from './claudeHandshake';
 import { createClaudeRuntimeCheck } from './claudeRuntime';
 import { buildClaudeEnv } from './claudeOptions';
 import { registerController } from './controllers';
-import type { ProviderHooks, ProviderResult, ReviewProvider } from './types';
+import type {
+  ProviderHooks,
+  ProviderResult,
+  ProviderTestHooks,
+  ProviderTestResult,
+  ReviewProvider
+} from './types';
 
 /**
  * Claude, through the Claude Code the user installed (PLAN 11.3 q, C.42).
@@ -35,7 +41,7 @@ import type { ProviderHooks, ProviderResult, ReviewProvider } from './types';
  * flow (CLAUDE.md rule 2).
  *
  * The provider surface (`runtime`, `models`, `review`) is the same as before, so
- * nothing above this file changed.
+ * nothing above this file changed; `test` came with setup.8.
  */
 
 /* ------------------------------------------------------------------ */
@@ -164,6 +170,24 @@ export async function reviewChapter(request: ReviewRequest, hooks: ProviderHooks
 }
 
 /* ------------------------------------------------------------------ */
+/* Test the connection (setup.8)                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One very small request, through the same Claude Code, flags, environment
+ * and folder as a review (CLAUDE.md rule 6): Haiku, one turn, "Reply with the
+ * single word OK." It counts against the author's plan, so it runs only when
+ * the author presses Test the connection on the Setup screen.
+ */
+export async function testClaude(hooks: ProviderTestHooks): Promise<ProviderTestResult> {
+  if (executableCache === undefined) executableCache = await locateExecutable();
+  if (!executableCache) {
+    throw fail('claude-missing-binary', 'Claude Code is not installed. Open Setup to install it.');
+  }
+  return runCliTest(cliDeps(executableCache), hooks);
+}
+
+/* ------------------------------------------------------------------ */
 /* The provider                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -172,5 +196,6 @@ export const claudeProvider: ReviewProvider = {
   label: 'Claude',
   runtime: checkRuntime,
   models: listModels,
-  review: reviewChapter
+  review: reviewChapter,
+  test: testClaude
 };

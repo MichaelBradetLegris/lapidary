@@ -1,8 +1,19 @@
 import { activeHunks } from './diff/compose';
 import type { Paragraph } from './text/paragraphs';
 import type { Hunk } from './types';
+import { isSmallText, whitespaceName } from './ui/small';
 
-export type RenderSegment = { kind: 'text'; text: string } | { kind: 'hunk'; hunk: Hunk; text: string };
+/**
+ * A run of a block: plain text, or one suggestion. A suggestion's
+ * `flushBefore` and `flushAfter` say that its neighbour on that side is too
+ * close to reach over: another suggestion, or plain text shorter than two
+ * code points, as a single space between two suggestions is (11.7,
+ * `small.4`). The capsule and the hit zone under small text pull back to the
+ * suggestion's own edge there, so neither covers a touching suggestion.
+ */
+export type RenderSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'hunk'; hunk: Hunk; text: string; flushBefore: boolean; flushAfter: boolean };
 
 export interface RenderBlock {
   /** stable key for React */
@@ -87,11 +98,27 @@ function segmentsIn(base: string, active: readonly Hunk[], start: number, end: n
     if (hunk.start < start || hunk.end > end) continue;
     if (hunk.start < cursor) continue;
     if (hunk.start > cursor) segments.push({ kind: 'text', text: base.slice(cursor, hunk.start) });
-    segments.push({ kind: 'hunk', hunk, text: base.slice(hunk.start, hunk.end) });
+    segments.push({
+      kind: 'hunk',
+      hunk,
+      text: base.slice(hunk.start, hunk.end),
+      flushBefore: false,
+      flushAfter: false
+    });
     cursor = hunk.end;
   }
   if (cursor < end) segments.push({ kind: 'text', text: base.slice(cursor, end) });
-  return segments;
+  return segments.map((segment, i) =>
+    segment.kind === 'hunk'
+      ? { ...segment, flushBefore: crowds(segments[i - 1]), flushAfter: crowds(segments[i + 1]) }
+      : segment
+  );
+}
+
+/** A neighbour a suggestion's capsule must not reach over: another suggestion, or text under 2 characters. */
+function crowds(neighbour: RenderSegment | undefined): boolean {
+  if (!neighbour) return false;
+  return neighbour.kind === 'hunk' || [...neighbour.text].length < 2;
 }
 
 /**
@@ -111,4 +138,63 @@ export function hunkFaces(hunk: Hunk): { live: string; ghost: string; role: Ghos
   const live = hunk.status === 'accepted' ? hunk.replacement : hunk.original;
   const ghost = hunk.status === 'accepted' ? hunk.original : hunk.replacement;
   return { live, ghost, role: ghostRole(hunk) };
+}
+
+/** A small side of a change in its box (the keycap): the character, or the name of what cannot be seen. */
+export interface GhostKey {
+  text: string;
+  /** a name, such as "space", drawn in small caps */
+  name: boolean;
+}
+
+/**
+ * What the ghost row shows, in order: the role label ("was", "added", or an
+ * arrow), the "delete" tag of a deletion still on offer, then the ghost's own
+ * text, or, when that text is small, a box holding it (11.7, `small.4`).
+ */
+export interface GhostContent {
+  role: GhostRole;
+  label: 'was' | 'added' | 'arrow';
+  tag: 'delete' | null;
+  key: GhostKey | null;
+  /** the ghost's text when it has no box; empty with a box, after "added" and after "delete" */
+  text: string;
+}
+
+function keyFor(text: string): GhostKey {
+  const name = whitespaceName(text);
+  return name ? { text: name, name: true } : { text, name: false };
+}
+
+/**
+ * The ghost row's content. A small ghost goes in a box, whitespace by its
+ * name: "-> [,]", "WAS [-]", "-> [SPACE]". An accepted insertion has no
+ * original to show, so it reads "ADDED", with what was added in a box when
+ * that is small ("ADDED [,]"). A deletion still on offer reads "-> DELETE",
+ * and when what it takes out cannot be seen, its name follows in a box
+ * ("-> DELETE [SPACE]"). Anything bigger is shown as it is, as before.
+ */
+export function ghostContent(hunk: Hunk): GhostContent {
+  const { live, ghost, role } = hunkFaces(hunk);
+  if (role === 'original') {
+    if (ghost.length === 0) {
+      return {
+        role,
+        label: 'added',
+        tag: null,
+        key: live.length > 0 && isSmallText(live) ? keyFor(live) : null,
+        text: ''
+      };
+    }
+    return isSmallText(ghost)
+      ? { role, label: 'was', tag: null, key: keyFor(ghost), text: '' }
+      : { role, label: 'was', tag: null, key: null, text: ghost };
+  }
+  if (ghost.length === 0) {
+    const name = whitespaceName(live);
+    return { role, label: 'arrow', tag: 'delete', key: name ? { text: name, name: true } : null, text: '' };
+  }
+  return isSmallText(ghost)
+    ? { role, label: 'arrow', tag: null, key: keyFor(ghost), text: '' }
+    : { role, label: 'arrow', tag: null, key: null, text: ghost };
 }

@@ -1,11 +1,23 @@
-import { useCallback, useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { openAiKeyLine } from '../../shared/ai/openai';
-import type { EffectivePaths, ModelInfo, OpenAiKeyStatus, RuntimeStatus } from '../../shared/ipc';
+import type {
+  EffectivePaths,
+  ModelInfo,
+  OpenAiKeyStatus,
+  OpenGuidelinesVia,
+  RuntimeStatus
+} from '../../shared/ipc';
 import { EFFORT_LEVELS, type EffortLevel, type Settings } from '../../shared/types';
 import { BACKUPS_NOTE } from '../../shared/ui/backups';
+import { SETTINGS_BUTTON_SELECTOR } from '../../shared/ui/dialog';
+import { openedGuidelinesNote } from '../../shared/ui/guidelines';
+import { claudeAccountLine } from '../../shared/ui/setup';
 import { normalizeTheme, THEME_LABELS, THEMES } from '../../shared/ui/theme';
+import { SHOW_WELCOME_AGAIN, WELCOME_GUIDE_NOTE } from '../../shared/ui/welcome';
 import { call, errorMessage } from '../state/client';
+import { useDialogEscape, useDialogFocus } from '../state/dialog';
 import { modelOptions } from '../state/models';
+import { GuidelinesButtons } from './Guidelines';
 
 interface Props {
   settings: Settings;
@@ -18,8 +30,19 @@ interface Props {
   onKeyChanged: (status: OpenAiKeyStatus) => void;
   onClose: () => void;
   onOpenSetup: () => void;
+  /** Show the welcome guide again (setup.11): it comes back in place of the main view */
+  onShowWelcome: () => void;
 }
 
+/**
+ * Settings, a modal like the others (ui.1): Escape closes it, as Done does,
+ * unless a question is open over it (`useDialogEscape`), and the page's keys
+ * do nothing behind it (`reviewKeysActive`, `isModalOpen`), nor does the
+ * suggestion editor, which waits under it, inert (EditPopover). The focus goes
+ * into its box as it opens, so Tab starts inside it and the arrow keys scroll
+ * it, and back where it was, the Settings button as a rule, when it closes.
+ * The page behind it is inert meanwhile, so Tab stays inside it (ui.4).
+ */
 export function SettingsDialog({
   settings,
   models,
@@ -28,7 +51,8 @@ export function SettingsDialog({
   onApply,
   onKeyChanged,
   onClose,
-  onOpenSetup
+  onOpenSetup,
+  onShowWelcome
 }: Props): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -38,6 +62,9 @@ export function SettingsDialog({
   const [keyDraft, setKeyDraft] = useState('');
   const [keyBusy, setKeyBusy] = useState(false);
   const appearanceId = useId();
+  const boxRef = useRef<HTMLDivElement>(null);
+  useDialogEscape(boxRef, onClose);
+  useDialogFocus(boxRef, SETTINGS_BUTTON_SELECTOR);
 
   const saveKey = (): void => {
     const key = keyDraft;
@@ -102,11 +129,11 @@ export function SettingsDialog({
       .catch((err: unknown) => setError(errorMessage(err)));
   };
 
-  const openGuidelines = (): void => {
+  const openGuidelines = (via: OpenGuidelinesVia): void => {
     setError(null);
-    call('guidelines:open', { via: 'default' })
+    call('guidelines:open', { via })
       .then((result) => {
-        setNote(result.created ? `Created ${result.path} from the template.` : `Opened ${result.path}.`);
+        setNote(openedGuidelinesNote(result, via));
         refreshPaths();
       })
       .catch((err: unknown) => setError(errorMessage(err)));
@@ -121,7 +148,7 @@ export function SettingsDialog({
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Settings">
-      <div className="modal">
+      <div className="modal" ref={boxRef} tabIndex={-1}>
         <h2>Settings</h2>
         {error ? <p className="modal__hint modal__hint--error">{error}</p> : null}
         {note ? <p className="modal__hint">{note}</p> : null}
@@ -173,20 +200,31 @@ export function SettingsDialog({
         </div>
         <p className="modal__note">{BACKUPS_NOTE}</p>
 
+        {/* Two rows, so the path keeps its room: Change and Show in folder
+            beside it, and under them the two ways to open the file, Open in
+            Obsidian and the system's app (setup.10b). */}
         <div className="modal__row">
           <span>Guidelines file</span>
-          <span className="modal__path">{paths?.guidelinesPath ?? 'choose a manuscript folder first'}</span>
+          <span className="modal__path" title={paths?.guidelinesPath ?? undefined}>
+            {paths?.guidelinesPath ?? 'choose a manuscript folder first'}
+          </span>
           <span className="modal__buttons">
             <button type="button" onClick={pickGuidelines}>
               Change
-            </button>
-            <button type="button" disabled={!paths?.guidelinesPath} onClick={openGuidelines}>
-              Open guidelines file
             </button>
             <button type="button" disabled={!paths?.guidelinesPath} onClick={() => reveal('guidelines')}>
               Show in folder
             </button>
           </span>
+        </div>
+        <div className="modal__row">
+          <span />
+          <span />
+          <GuidelinesButtons
+            path={paths?.guidelinesPath ?? null}
+            openLabel="Open guidelines file"
+            onOpen={openGuidelines}
+          />
         </div>
 
         <div className="modal__row">
@@ -237,14 +275,8 @@ export function SettingsDialog({
 
         <div className="modal__row">
           <span>Claude account</span>
-          <span className="modal__path">
-            {runtime
-              ? runtime.state === 'ready'
-                ? `${runtime.email ?? 'signed in'}${runtime.subscriptionType ? ` (${runtime.subscriptionType})` : ''}${
-                    runtime.apiKeySource ? ` key from ${runtime.apiKeySource}` : ''
-                  }`
-                : (runtime.message ?? runtime.state)
-              : 'not checked'}
+          <span className="modal__path" data-testid="claude-account-line">
+            {claudeAccountLine(runtime)}
           </span>
           <span className="modal__buttons">
             <button type="button" onClick={onOpenSetup}>
@@ -310,6 +342,19 @@ export function SettingsDialog({
             environment is used.
           </p>
         )}
+
+        {/* The guide comes back in place of the main view, and Settings
+            closes so that it shows (setup.11). */}
+        <div className="modal__row">
+          <span>Welcome guide</span>
+          <span />
+          <span className="modal__buttons">
+            <button type="button" onClick={onShowWelcome}>
+              {SHOW_WELCOME_AGAIN}
+            </button>
+          </span>
+        </div>
+        <p className="modal__note">{WELCOME_GUIDE_NOTE}</p>
 
         <div className="modal__actions">
           <span className="spacer" />

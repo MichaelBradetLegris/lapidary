@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { isAuthored } from '../../shared/edit';
 import type { ReviewSummary } from '../../shared/ipc';
 import { paragraphNumber } from '../../shared/prompt/chapter';
-import { groupComments } from '../../shared/ui/comments';
+import { commentList, commentPlace, commentsHeading } from '../../shared/ui/comments';
 import {
   historyCounts,
   historyWhen,
@@ -10,13 +10,15 @@ import {
   pickerHoldsKey,
   reviewPicker
 } from '../../shared/ui/history';
+import { changeInContext, isSmallChange, sideText, type ChangeInContext } from '../../shared/ui/small';
 import { groupSuggestions, summaryLine } from '../../shared/ui/suggestions';
 import { SHOW_BACKUPS, SHOW_BACKUPS_TITLE } from '../../shared/ui/backups';
 import { PROVIDER_NAMES, type Hunk, type Review, type ReviewComment } from '../../shared/types';
 import { editFromComment, editHunk } from '../state/edit';
 import { followFocus, scrollToElement } from '../state/scroll';
+import { SPLIT_LIST_ID, useSplit } from '../state/splitHandle';
 import { inDraft, isLocked, useApp } from '../state/store';
-import { IconCheck, IconPencil, IconUndo, IconWarning, IconX } from './icons';
+import { IconArrow, IconCheck, IconPencil, IconUndo, IconWarning, IconX } from './icons';
 
 interface Props {
   review: Review;
@@ -33,6 +35,30 @@ const STATUS_MARK: Record<Hunk['status'], string> = {
   accepted: 'accepted',
   dismissed: 'dismissed'
 };
+
+/**
+ * A small change's row: a few words of its line on either side, and the
+ * change between them in a chip like the keycap above the line, each side
+ * named as the tooltip names it (11.7, small.5): "...up with Mira [-> , (comma)]
+ * who had...". The words are what finds a comma in a list of commas.
+ */
+function ContextText({ context }: { context: ChangeInContext }): React.JSX.Element {
+  return (
+    <span className="row__text row__text--context">
+      {context.before}
+      <span className="row__chip">
+        {context.original !== null ? <span className="row__old">{context.original}</span> : null}
+        <IconArrow size={9} />
+        {context.replacement !== null ? (
+          <span className="row__new">{context.replacement}</span>
+        ) : (
+          <span className="row__tag">delete</span>
+        )}
+      </span>
+      {context.after}
+    </span>
+  );
+}
 
 export function SidePanel({
   review,
@@ -52,8 +78,8 @@ export function SidePanel({
   const drafts = useApp((s) => s.drafts);
   const locked = useApp(isLocked);
   const listRef = useRef<HTMLUListElement>(null);
-  const lowerRef = useRef<HTMLDivElement>(null);
-  const detailsRef = useRef<HTMLElement>(null);
+  const focusBodyRef = useRef<HTMLDivElement>(null);
+  const { regionsRef, regionsProps, handleProps } = useSplit();
 
   const { inline, stale } = useMemo(
     () => groupSuggestions(review.hunks, hiddenCategories),
@@ -61,7 +87,7 @@ export function SidePanel({
   );
 
   const focused = review.hunks.find((h) => h.id === focusedHunkId) ?? null;
-  const { open: openComments, resolved } = useMemo(() => groupComments(review.comments), [review.comments]);
+  const comments = useMemo(() => commentList(review.comments), [review.comments]);
   const picker = useMemo(
     () => reviewPicker(history, activeReviewPath, review),
     [history, activeReviewPath, review]
@@ -77,16 +103,15 @@ export function SidePanel({
     if (entry) onOpenHistory(entry);
   };
 
-  /* Keep the focused suggestion in view when the focus moves, by key or by
-     click (panel.1): its row in the list, and its details in the region below
-     when that region has been scrolled away from them. Each moves only when
-     not already wholly in view, with the app's own timing, and only the region
-     that holds it: `scrollIntoView` would also move any ancestor that clips,
-     the panel itself included, which is not meant to scroll at all. */
+  /* When the focus moves, by key or by click: the box above the list shows
+     the new suggestion from its first line, however far the last one's
+     explanation was scrolled (ui.5), and the row is kept in view in the list
+     (panel.1), moving only when not already wholly in view. The box never
+     moves, so it needs no following. */
   useEffect(() => {
+    if (focusBodyRef.current) focusBodyRef.current.scrollTop = 0;
     if (!focusedHunkId) return;
-    const row = listRef.current?.querySelector(`[data-row-id="${CSS.escape(focusedHunkId)}"]`);
-    followFocus(row, lowerRef.current, detailsRef.current);
+    followFocus(listRef.current?.querySelector(`[data-row-id="${CSS.escape(focusedHunkId)}"]`));
   }, [focusedHunkId]);
 
   const scrollToParagraph = (index: number | null, commentId: string): void => {
@@ -104,20 +129,21 @@ export function SidePanel({
         onClick={() => scrollToParagraph(comment.paragraph, comment.id)}
       >
         <span className="comment__cat">{comment.category}</span>
-        <span className="comment__para">
-          {comment.paragraph === null ? 'chapter' : `paragraph ${paragraphNumber(comment.paragraph)}`}
-        </span>
+        <span className="comment__para">{commentPlace(comment)}</span>
       </button>
       {comment.quote ? <blockquote>{comment.quote}</blockquote> : null}
       <p>{comment.text}</p>
     </>
   );
 
-  /* Two regions that each scroll, and a panel that does not (panel.1): the
-     list on top with its heading pinned, and below it everything about the
-     focused suggestion and the chapter, so the details stay in view while j and
-     k step through the list. In a short window the panel scrolls as one
-     instead (app.css). */
+  /* Under the review selector, the focused suggestion in a box of fixed
+     height (ui.5), then two regions that each scroll, and a panel that does
+     not (panel.1): the list with its heading pinned, and below it the
+     comments, Unanchored and History, with a handle between the two that
+     moves the line between them (ui.6). The box stays in view while j and k
+     step through the list, and as its height never changes, nothing below it
+     moves when the focus does. In a short window the panel scrolls as one
+     instead, the box at its top, and the handle is hidden (app.css). */
   return (
     <aside className={`side ${locked ? 'side--locked' : ''}`} inert={locked}>
       {/* The chapter's reviews, the one on screen selected, at the very top
@@ -171,95 +197,27 @@ export function SidePanel({
         </div>
       ) : null}
       <div className="side__body">
-        <section className="side__section side__list">
-          <h3>Suggestions ({inline.length})</h3>
-          {inline.length === 0 ? (
-            <p className="side__empty">Nothing to review here.</p>
-          ) : (
-            <ul className="rows" ref={listRef}>
-              {inline.map((hunk) => {
-                /* A suggestion inside a paragraph that is open for editing is
-                 frozen until the author is done with it: the editor started
-                 from the page as it was, and must commit against the same. */
-                const editing = inDraft(drafts, hunk.paragraph);
-                return (
-                  <li key={hunk.id}>
-                    <div
-                      data-row-id={hunk.id}
-                      className={`row row--${hunk.status} cat-${hunk.category ?? 'other'} ${
-                        hunk.id === focusedHunkId ? 'row--focused' : ''
-                      } ${editing ? 'row--editing' : ''}`}
-                      title={
-                        editing
-                          ? `Paragraph ${paragraphNumber(hunk.paragraph)} is open for editing`
-                          : undefined
-                      }
-                    >
-                      <button
-                        type="button"
-                        className="row__main"
-                        onClick={() => focusHunk(hunk.id, { scroll: true })}
-                        title={hunk.reason ?? ''}
-                      >
-                        {/* Words the author wrote are marked "you" rather than given
-                        a category colour they never chose (item 3). */}
-                        {isAuthored(hunk) ? (
-                          <span className="row__you" title="Your own words">
-                            you
-                          </span>
-                        ) : (
-                          <span className="row__dot" aria-hidden="true" />
-                        )}
-                        <span className="row__text">{summaryLine(hunk)}</span>
-                        {STATUS_MARK[hunk.status] ? (
-                          <span className="row__status">{STATUS_MARK[hunk.status]}</span>
-                        ) : null}
-                      </button>
-                      <button
-                        type="button"
-                        className="row__act"
-                        aria-label="Edit this suggestion"
-                        title="Edit"
-                        disabled={editing}
-                        onClick={() => editHunk(hunk.id)}
-                      >
-                        <IconPencil />
-                      </button>
-                      <button
-                        type="button"
-                        className={`row__act ${hunk.status === 'accepted' ? 'row__act--on' : ''}`}
-                        aria-label={hunk.status === 'accepted' ? 'Undo accept' : 'Accept suggestion'}
-                        title={hunk.status === 'accepted' ? 'Undo accept' : 'Accept'}
-                        disabled={editing}
-                        onClick={() => toggleAccepted(hunk.id)}
-                      >
-                        <IconCheck />
-                      </button>
-                      <button
-                        type="button"
-                        className={`row__act ${hunk.status === 'dismissed' ? 'row__act--on' : ''}`}
-                        aria-label={
-                          hunk.status === 'dismissed' ? 'Undismiss suggestion' : 'Dismiss suggestion'
-                        }
-                        title={hunk.status === 'dismissed' ? 'Undismiss' : 'Dismiss'}
-                        disabled={editing}
-                        onClick={() => toggleDismissed(hunk.id)}
-                      >
-                        {hunk.status === 'dismissed' ? <IconUndo /> : <IconX />}
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        <div className="side__lower" ref={lowerRef}>
-          <section className="side__section" ref={detailsRef}>
+        {/* Its heading line holds the pencil, which opens the suggestion
+            editor as e does; a longer suggestion or explanation scrolls inside
+            the box. With nothing focused the box keeps its height. */}
+        <section className="side__focus">
+          <div className="side__focus-head">
             <h3>Focused suggestion</h3>
             {focused ? (
-              <div className="detail">
+              <button
+                type="button"
+                className="row__act side__focus-edit"
+                aria-label="Edit suggestion"
+                title="Edit suggestion (e)"
+                onClick={() => editHunk(focused.id)}
+              >
+                <IconPencil />
+              </button>
+            ) : null}
+          </div>
+          <div className="side__focus-body" ref={focusBodyRef}>
+            {focused ? (
+              <>
                 <div className={`detail__cat cat-${focused.category ?? 'other'}`}>
                   {isAuthored(focused) ? 'your edit' : (focused.category ?? 'change')}
                   {focused.anchor !== 'exact' ? (
@@ -268,143 +226,234 @@ export function SidePanel({
                 </div>
                 <dl className="pair">
                   <dt>Original:</dt>
-                  <dd className="pair__original">{focused.original || '(nothing)'}</dd>
+                  <dd className="pair__original">{sideText(focused.original)}</dd>
                   <dt>Suggested:</dt>
-                  <dd className="pair__suggested">{focused.replacement || '(nothing)'}</dd>
+                  <dd className="pair__suggested">{sideText(focused.replacement)}</dd>
                 </dl>
                 {focused.reason ? <p className="detail__reason">{focused.reason}</p> : null}
-                <div className="detail__actions">
-                  <button type="button" onClick={() => editHunk(focused.id)}>
-                    <IconPencil /> Edit
-                  </button>
-                </div>
-              </div>
+              </>
             ) : (
-              <p className="side__empty">Press j or click a row to focus a suggestion.</p>
+              <p className="side__empty">
+                Press j or click a row to focus a suggestion. Shift+J goes to the next pending one.
+              </p>
             )}
-          </section>
-
-          <section className="side__section">
-            <h3>Comments ({openComments.length})</h3>
-            {openComments.length === 0 && resolved.length === 0 ? (
-              <p className="side__empty">No comments.</p>
-            ) : null}
-            {openComments.length === 0 && resolved.length > 0 ? (
-              <p className="side__empty">All resolved.</p>
-            ) : null}
-            <ul className="comments">
-              {openComments.map((comment) => (
-                <li
-                  key={comment.id}
-                  className={`comment cat-${comment.category} ${
-                    comment.id === activeCommentId ? 'comment--active' : ''
-                  }`}
-                >
-                  {commentBody(comment)}
-                  <div className="comment__foot">
-                    <label className="comment__resolve">
-                      <input
-                        type="checkbox"
-                        checked={false}
-                        onChange={() => onSetCommentStatus(comment.id, 'resolved')}
-                      />
-                      Resolve
-                    </label>
-                    <span className="spacer" />
-                    <button type="button" className="link" onClick={() => editFromComment(comment)}>
-                      Edit text
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          {/* Resolved comments move down here rather than disappearing (item 4). */}
-          {resolved.length > 0 ? (
-            <section className="side__section">
-              <h3>Resolved comments ({resolved.length})</h3>
-              <ul className="comments">
-                {resolved.map((comment) => (
-                  <li
-                    key={comment.id}
-                    className={`comment comment--resolved cat-${comment.category} ${
-                      comment.id === activeCommentId ? 'comment--active' : ''
-                    }`}
-                  >
-                    {commentBody(comment)}
-                    <div className="comment__foot">
-                      <button
-                        type="button"
-                        className="link"
-                        onClick={() => onSetCommentStatus(comment.id, 'open')}
-                      >
-                        Unresolve
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-
-          <section className="side__section">
-            <h3>Unanchored ({stale.length})</h3>
-            {stale.length === 0 ? (
-              <p className="side__empty">Every suggestion found its place.</p>
+          </div>
+        </section>
+        <div className="side__regions" ref={regionsRef} {...regionsProps}>
+          <section className="side__section side__list" id={SPLIT_LIST_ID}>
+            <h3>Suggestions ({inline.length})</h3>
+            {inline.length === 0 ? (
+              <p className="side__empty">Nothing to review here.</p>
             ) : (
-              <ul className="stale">
-                {stale.map((hunk) => (
-                  <li key={hunk.id} className={`stale__item cat-${hunk.category ?? 'other'}`}>
-                    <dl className="pair">
-                      <dt>Original:</dt>
-                      <dd className="pair__original">{hunk.original || '(nothing)'}</dd>
-                      <dt>Suggested:</dt>
-                      <dd className="pair__suggested">{hunk.replacement || '(nothing)'}</dd>
-                    </dl>
-                    {hunk.reason ? <p className="detail__reason">{hunk.reason}</p> : null}
-                    <span className="stale__where">
-                      Paragraph {paragraphNumber(hunk.paragraph)} in the original review
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          {history.length > 0 && onOpenHistory ? (
-            <section className="side__section">
-              <h3>History ({history.length})</h3>
-              <ul className="history">
-                {history.map((entry) => {
-                  /* The review on screen counts from the page, as the
-                     chapter list and the status bar do (apply.5). */
-                  const counts = historyCounts(entry, activeReviewPath, review);
+              <ul className="rows" ref={listRef}>
+                {inline.map((hunk) => {
+                  /* A suggestion inside a paragraph that is open for editing is
+                 frozen until the author is done with it: the editor started
+                 from the page as it was, and must commit against the same. */
+                  const editing = inDraft(drafts, hunk.paragraph);
+                  const context = isSmallChange(hunk) ? changeInContext(review.base.text, hunk) : null;
                   return (
-                    <li key={entry.path}>
-                      <button
-                        type="button"
-                        className={`history__item ${counts.onScreen ? 'history__item--active' : ''}`}
-                        onClick={() => onOpenHistory(entry)}
-                        title={entry.path}
+                    <li key={hunk.id}>
+                      <div
+                        data-row-id={hunk.id}
+                        className={`row row--${hunk.status} cat-${hunk.category ?? 'other'} ${
+                          hunk.id === focusedHunkId ? 'row--focused' : ''
+                        } ${editing ? 'row--editing' : ''}`}
+                        title={
+                          editing
+                            ? `Paragraph ${paragraphNumber(hunk.paragraph)} is open for editing`
+                            : undefined
+                        }
                       >
-                        <span className="history__when">{historyWhen(entry.createdAt)}</span>
-                        {/* A model-written review names its provider and model; a
-                        manual or file review keeps its kind (Phase 5c). */}
-                        <span className="badge" title={entry.model ?? ''}>
-                          {entry.provider ? PROVIDER_NAMES[entry.provider] : entry.generatorKind}
-                        </span>
-                        {entry.model ? <span className="history__model">{entry.model}</span> : null}
-                        {counts.pendingCount > 0 ? (
-                          <span className="badge badge--pending">{counts.pendingCount}</span>
-                        ) : null}
-                      </button>
+                        <button
+                          type="button"
+                          className="row__main"
+                          onClick={() => focusHunk(hunk.id, { scroll: true })}
+                          title={hunk.reason ?? ''}
+                          aria-label={
+                            context
+                              ? [isAuthored(hunk) ? 'you' : '', summaryLine(hunk), STATUS_MARK[hunk.status]]
+                                  .filter(Boolean)
+                                  .join(', ')
+                              : undefined
+                          }
+                        >
+                          {/* Words the author wrote are marked "you" rather than given
+                        a category colour they never chose (item 3). */}
+                          {isAuthored(hunk) ? (
+                            <span className="row__you" title="Your own words">
+                              you
+                            </span>
+                          ) : (
+                            <span className="row__dot" aria-hidden="true" />
+                          )}
+                          {context ? (
+                            <ContextText context={context} />
+                          ) : (
+                            <span className="row__text">{summaryLine(hunk)}</span>
+                          )}
+                          {STATUS_MARK[hunk.status] ? (
+                            <span className="row__status">{STATUS_MARK[hunk.status]}</span>
+                          ) : null}
+                        </button>
+                        <button
+                          type="button"
+                          className="row__act"
+                          aria-label="Edit this suggestion"
+                          title="Edit"
+                          disabled={editing}
+                          onClick={() => editHunk(hunk.id)}
+                        >
+                          <IconPencil />
+                        </button>
+                        <button
+                          type="button"
+                          className={`row__act ${hunk.status === 'accepted' ? 'row__act--on' : ''}`}
+                          aria-label={hunk.status === 'accepted' ? 'Undo accept' : 'Accept suggestion'}
+                          title={hunk.status === 'accepted' ? 'Undo accept' : 'Accept'}
+                          disabled={editing}
+                          onClick={() => toggleAccepted(hunk.id)}
+                        >
+                          <IconCheck />
+                        </button>
+                        <button
+                          type="button"
+                          className={`row__act ${hunk.status === 'dismissed' ? 'row__act--on' : ''}`}
+                          aria-label={
+                            hunk.status === 'dismissed' ? 'Undismiss suggestion' : 'Dismiss suggestion'
+                          }
+                          title={hunk.status === 'dismissed' ? 'Undismiss' : 'Dismiss'}
+                          disabled={editing}
+                          onClick={() => toggleDismissed(hunk.id)}
+                        >
+                          {hunk.status === 'dismissed' ? <IconUndo /> : <IconX />}
+                        </button>
+                      </div>
                     </li>
                   );
                 })}
               </ul>
+            )}
+          </section>
+
+          {/* Dragged, or moved with the arrows, Home and End, to give the list
+              or the region below more room; double-click or Enter puts back
+              the usual split. The split is kept in settings (ui.6). */}
+          <div {...handleProps} />
+
+          <div className="side__lower">
+            {/* One list under one heading that counts the resolved ones (ui.7):
+                the open comments, then those whose paragraph left the file,
+                then the resolved, which keep their quieter look and Unresolve
+                rather than disappearing (item 4). Each run is in reading
+                order, an unanchored comment by the paragraph it had. */}
+            <section className="side__section">
+              <h3>{commentsHeading(review.comments)}</h3>
+              {comments.length === 0 ? (
+                <p className="side__empty">No comments.</p>
+              ) : (
+                <ul className="comments">
+                  {comments.map((comment) => {
+                    const resolved = comment.status === 'resolved';
+                    return (
+                      <li
+                        key={comment.id}
+                        className={`comment ${resolved ? 'comment--resolved' : ''} cat-${comment.category} ${
+                          comment.id === activeCommentId ? 'comment--active' : ''
+                        }`}
+                      >
+                        {commentBody(comment)}
+                        <div className="comment__foot">
+                          {resolved ? (
+                            <button
+                              type="button"
+                              className="link"
+                              onClick={() => onSetCommentStatus(comment.id, 'open')}
+                            >
+                              Unresolve
+                            </button>
+                          ) : (
+                            <>
+                              <label className="comment__resolve">
+                                <input
+                                  type="checkbox"
+                                  checked={false}
+                                  onChange={() => onSetCommentStatus(comment.id, 'resolved')}
+                                />
+                                Resolve
+                              </label>
+                              <span className="spacer" />
+                              <button type="button" className="link" onClick={() => editFromComment(comment)}>
+                                Edit text
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </section>
-          ) : null}
+
+            <section className="side__section">
+              <h3>Unanchored ({stale.length})</h3>
+              {stale.length === 0 ? (
+                <p className="side__empty">Every suggestion found its place.</p>
+              ) : (
+                <ul className="stale">
+                  {stale.map((hunk) => (
+                    <li key={hunk.id} className={`stale__item cat-${hunk.category ?? 'other'}`}>
+                      <dl className="pair">
+                        <dt>Original:</dt>
+                        <dd className="pair__original">{sideText(hunk.original)}</dd>
+                        <dt>Suggested:</dt>
+                        <dd className="pair__suggested">{sideText(hunk.replacement)}</dd>
+                      </dl>
+                      {hunk.reason ? <p className="detail__reason">{hunk.reason}</p> : null}
+                      <span className="stale__where">
+                        Paragraph {paragraphNumber(hunk.paragraph)} in the original review
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {history.length > 0 && onOpenHistory ? (
+              <section className="side__section">
+                <h3>History ({history.length})</h3>
+                <ul className="history">
+                  {history.map((entry) => {
+                    /* The review on screen counts from the page, as the
+                     chapter list and the status bar do (apply.5). */
+                    const counts = historyCounts(entry, activeReviewPath, review);
+                    return (
+                      <li key={entry.path}>
+                        <button
+                          type="button"
+                          className={`history__item ${counts.onScreen ? 'history__item--active' : ''}`}
+                          onClick={() => onOpenHistory(entry)}
+                          title={entry.path}
+                        >
+                          <span className="history__when">{historyWhen(entry.createdAt)}</span>
+                          {/* A model-written review names its provider and model; a
+                        manual or file review keeps its kind (Phase 5c). */}
+                          <span className="badge" title={entry.model ?? ''}>
+                            {entry.provider ? PROVIDER_NAMES[entry.provider] : entry.generatorKind}
+                          </span>
+                          {entry.model ? <span className="history__model">{entry.model}</span> : null}
+                          {counts.pendingCount > 0 ? (
+                            <span className="badge badge--pending">{counts.pendingCount}</span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ) : null}
+          </div>
         </div>
       </div>
       {/* Pinned below both regions, so it is in view however far either has
