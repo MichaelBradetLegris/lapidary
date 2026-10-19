@@ -95,7 +95,7 @@ const SHAPES: { name: string; original: string; replacement: string }[] = [
   { name: 'a hyphen swapped for a space', original: '-', replacement: ' ' },
   { name: 'a one-letter word', original: 'i', replacement: 'I' },
   { name: 'two paragraphs joined', original: '\n\n', replacement: ' ' },
-  { name: 'a no-break space', original: ' ', replacement: ' ' },
+  { name: 'a no-break space', original: '\u00a0', replacement: ' ' },
   { name: 'a word', original: 'began', replacement: 'begun' },
   { name: 'words inserted', original: '', replacement: 'most of ' },
   { name: 'a word deleted', original: 'the ', replacement: '' },
