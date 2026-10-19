@@ -1,5 +1,5 @@
 import { anchorChanges, type ChangeInput } from './diff/anchor';
-import { guardTouching, screenModelHunks } from './diff/protect';
+import { guardTouching, screenModelHunks, touchingRule } from './diff/protect';
 import { diffToHunks } from './diff/wordDiff';
 import { nextId, slugify } from './ids';
 import { normalizeText } from './text/eol';
@@ -108,8 +108,9 @@ export function createReview(args: CreateReviewArgs): Review {
 /**
  * A review built from a model's change list, anchored into the chapter. Each
  * suggestion is screened before overlaps are resolved, and the touching rule
- * runs after, so one that would change Obsidian syntax is kept out of the
- * text and listed under Unanchored (`files.7`, PLAN 11.3 k).
+ * runs within the overlap pass, so one that would change Obsidian syntax is
+ * kept out of the text and listed under Unanchored, and pushes no other off
+ * the page as an overlap (`files.7`, PLAN 4.3 and 11.3 k).
  */
 export function createAiReview(args: {
   sourcePath: string;
@@ -125,11 +126,11 @@ export function createAiReview(args: {
   // `source: 'claude'` is the hunk's provenance marker for "a model wrote this",
   // and everything downstream keys off it. Renaming it would invalidate every
   // review on disk for no gain, so both providers keep using it.
-  const anchored = anchorChanges(text, paragraphs, args.changes, {
+  const hunks = anchorChanges(text, paragraphs, args.changes, {
     source: 'claude',
-    screen: (located) => screenModelHunks(text, located)
+    screen: (located) => screenModelHunks(text, located),
+    touching: touchingRule(text)
   });
-  const hunks = guardTouching(text, anchored);
   return createReview({
     sourcePath: args.sourcePath,
     base: args.base,
@@ -211,8 +212,10 @@ export function withGeneratorProvider(review: Review): Review {
 /**
  * The guard on a review loaded from disk (`files.7`): its model suggestions
  * still pending are screened as a new review's are, then the touching rule
- * runs, so a review saved before the guard existed opens with a suggestion
- * that would change Obsidian syntax under Unanchored, kept out of the text.
+ * runs (`guardTouching`: a saved review's hunks on the page never overlap,
+ * so there is no overlap pass to run it in), so a review saved before the
+ * guard existed opens with a suggestion that would change Obsidian syntax
+ * under Unanchored, kept out of the text.
  * What the author decided, wrote or rewrote is left as it is, and so is a
  * suggestion kept out already. The review comes back untouched when nothing
  * is kept out, so loading it again changes nothing.

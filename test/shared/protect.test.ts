@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { anchorChanges } from '../../src/shared/diff/anchor';
+import { anchorChanges, resolveOverlaps } from '../../src/shared/diff/anchor';
 import {
   KEPT_OUT_LABELS,
   guardTouching,
   isGuarded,
   keptOutNote,
-  screenModelHunks
+  screenModelHunks,
+  touchingRule
 } from '../../src/shared/diff/protect';
 import { rebaseReview } from '../../src/shared/diff/rebase';
 import { createAiReview, guardLoadedReview, upgradeLoadedReview } from '../../src/shared/review';
@@ -266,6 +267,90 @@ describe('screenModelHunks: the signature rule, a suggestion applied alone', () 
   });
 });
 
+describe('screenModelHunks: a paragraph the chapter reads in a wider context (the files.7 review)', () => {
+  const FENCE = '`'.repeat(3);
+  /* Read alone, the paragraph after the blank line ends in what looks like an
+     unclosed opener, whose run a suggestion after it leaves as it was. */
+  const BLOCK = (fence: string): string =>
+    `Rain fell.\n\n${fence}\nlet x = 1;\n\nlet y = 2;\n${fence}\n\nSun came out.`;
+
+  it.each([FENCE, '~~~'])(
+    'keeps out words added after the closing %s of a block that holds a blank line',
+    (fence) => {
+      const text = BLOCK(fence);
+      for (const added of ['.', ' x']) {
+        expect(verdict(text, suggest(text, `${fence}¦\n\nSun`, '', added)), added).toBe('code');
+      }
+    }
+  );
+
+  it('keeps out an indent added to the opening fence of such a block, which runs out of its paragraph', () => {
+    const text = BLOCK(FENCE);
+    expect(verdict(text, suggest(text, `¦${FENCE}\nlet x`, '', ' '))).toBe('code');
+    const after = `Rain fell.\n\nNow.\n${FENCE}\nlet x = 1;\n\nlet y = 2;\n${FENCE}\n\nSun came out.`;
+    expect(verdict(after, suggest(after, `Now.\n¦${FENCE}`, '', '  '))).toBe('code');
+  });
+
+  it('keeps out a line made into the closer of an opener the chapter leaves unclosed in an earlier paragraph', () => {
+    const backticks = `Rain fell.\n\n${FENCE}\n\nSun came out.\n\n${FENCE}js\nlet x;`;
+    expect(verdict(backticks, suggest(backticks, `${FENCE}¦js`, 'js', ''))).toBe('code');
+    const tildes = 'Rain fell.\n\n~~~\n\nSun came out.\n\n~~~ The end';
+    expect(verdict(tildes, suggest(tildes, '~~~¦ The end', ' The end', ''))).toBe('code');
+    const spaced = 'Rain fell. <!-- a note\n\nSun came out.\n\nIt went on - > there.';
+    expect(verdict(spaced, suggest(spaced, 'on -¦ > there', ' ', '-'))).toBe('comment');
+    const arrow = 'Rain fell. <!-- a note\n\nSun came out.\n\nIt went on -> there.';
+    expect(verdict(arrow, suggest(arrow, 'on ¦-> there', '', '-'))).toBe('comment');
+  });
+
+  it('leaves the prose of such paragraphs to be corrected, and what closes as before', () => {
+    const text = `Rain fell.\n\nNow.\n${FENCE}\nlet x = 1;\n\nlet y = 2;\n${FENCE}\nThe sun came out.`;
+    expect(verdict(text, suggest(text, '¦Now.', 'Now', 'Then'))).toBeNull();
+    expect(verdict(text, suggest(text, 'The ¦sun came', 'sun', 'Sun'))).toBeNull();
+    const comment = 'Rain.\n\n%%\nnote\n\nmore\n%%\n\nSun.';
+    expect(verdict(comment, suggest(comment, 'more\n%%¦\n\nSun', '', ' x'))).toBeNull();
+    const maths = 'Rain.\n\n$$\nx\n\ny\n$$\n\nSun.';
+    expect(verdict(maths, suggest(maths, 'y\n$$¦\n\nSun', '', '.'))).toBeNull();
+    const unclosed = 'Rain fell. <!-- a note\n\nSun came out.\n\nIt went on - > there.';
+    expect(verdict(unclosed, suggest(unclosed, 'Sun ¦came', 'came', 'had come'))).toBeNull();
+    expect(verdict(unclosed, suggest(unclosed, 'went on - > ¦there', 'there', 'away'))).toBeNull();
+  });
+});
+
+describe('the touching rule in the overlap pass (the files.7 review)', () => {
+  it("keeps out a touching suggestion before overlaps are measured, so it pushes none off the page: 'abcd efgh'", () => {
+    const text = 'abcd efgh';
+    const ab = suggest(text, '¦abcd', 'ab', 'AB');
+    const cd = suggest(text, 'ab¦cd', 'cd', 'CD');
+    const d = suggest(text, 'abc¦d e', 'd', 'D');
+    const out = resolveOverlaps([d, cd, ab], touchingRule(text));
+    expect(out).toEqual([ab, { ...cd, anchor: 'stale', start: 0, end: 0, keptOut: 'combined' }, d]);
+    expect(out[0]).toBe(ab);
+    expect(out[2]).toBe(d);
+    // Without the rule, cd stays on the page and pushes d off as an overlap.
+    expect(resolveOverlaps([d, cd, ab]).map((h) => h.reason ?? null)).toEqual([
+      'The model said so.',
+      'The model said so.',
+      'The model said so. [Overlapped an earlier suggestion.]'
+    ]);
+  });
+
+  it("measures against the hunk before that stayed, the author's own included, and still pushes off one that overlaps it", () => {
+    const text = 'abcd efgh';
+    const mine = suggest(text, '¦abcd', 'ab', 'AB', { source: 'manual', status: 'accepted' });
+    const inside = suggest(text, 'a¦bcd', 'b', 'B');
+    const cd = suggest(text, 'ab¦cd', 'cd', 'CD');
+    const d = suggest(text, 'abc¦d e', 'd', 'D');
+    const out = resolveOverlaps([mine, inside, cd, d], touchingRule(text));
+    expect(out.map((h) => [h.original, h.anchor === 'stale', h.keptOut ?? null])).toEqual([
+      ['ab', false, null],
+      ['b', true, null],
+      ['cd', true, 'combined'],
+      ['d', false, null]
+    ]);
+    expect(out[1]?.reason).toContain('Overlapped');
+  });
+});
+
 describe('guardTouching', () => {
   it("keeps out a suggestion that starts where the one before it ends: 'a,b'", () => {
     const text = 'a,b';
@@ -470,7 +555,7 @@ describe('a review made or loaded', () => {
     expect(r.comments).toHaveLength(1);
   });
 
-  it('applies the touching rule after overlaps are resolved', () => {
+  it('applies the touching rule as overlaps are resolved', () => {
     const r = made('It was a dark,stormy night.', [
       { paragraph: 0, before: 'dark,', after: 'dark;' },
       { paragraph: 0, before: ',stormy', after: ', stormy' }
@@ -479,6 +564,37 @@ describe('a review made or loaded', () => {
       [',', ';', 'exact', undefined],
       ['', ' ', 'stale', 'combined']
     ]);
+  });
+
+  it('keeps out a touching suggestion in the overlap pass, so it pushes no good one off the page', () => {
+    const r = made('abcd efgh', [
+      { paragraph: 0, before: 'ab', after: 'AB' },
+      { paragraph: 0, before: 'cd', after: 'CD' },
+      { paragraph: 0, before: 'd e', after: 'D e' }
+    ]);
+    expect(
+      r.hunks.map((h) => [h.original, h.replacement, h.anchor === 'stale', h.keptOut, h.reason])
+    ).toEqual([
+      ['ab', 'AB', false, undefined, undefined],
+      ['cd', 'CD', true, 'combined', undefined],
+      ['d', 'D', false, undefined, undefined]
+    ]);
+  });
+
+  it('keeps out a full stop after the closing fence of a code block that holds a blank line', () => {
+    const fence = '`'.repeat(3);
+    const text = `Rain fell.\n\n${fence}\nlet x = 1;\n\nlet y = 2;\n${fence}\n\nSun came out.`;
+    const [hunk] = made(text, [
+      { paragraph: 2, before: `let y = 2;\n${fence}`, after: `let y = 2;\n${fence}.` }
+    ]).hunks;
+    expect(hunk).toMatchObject({
+      anchor: 'stale',
+      start: 0,
+      end: 0,
+      keptOut: 'code',
+      original: '',
+      replacement: '.'
+    });
   });
 
   it('keeps everything a kept-out suggestion said: words, category, reason, paragraph, pending', () => {

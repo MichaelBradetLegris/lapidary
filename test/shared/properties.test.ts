@@ -8,6 +8,7 @@ import {
 } from '../../src/shared/diff/compose';
 import { anchorChanges, type ChangeInput } from '../../src/shared/diff/anchor';
 import { insideWord } from '../../src/shared/diff/fuzzy';
+import { screenModelHunks } from '../../src/shared/diff/protect';
 import { rebaseReview } from '../../src/shared/diff/rebase';
 import { editSuggestion } from '../../src/shared/edit';
 import { createAiReview, createReview, guardLoadedReview } from '../../src/shared/review';
@@ -968,7 +969,11 @@ describe('the guard on model suggestions (files.7)', () => {
     '-',
     '--',
     '%',
-    '|'
+    '|',
+    // A comment opener nothing may close, and arrows a suggestion could make into its closer.
+    '<!--',
+    '->',
+    '- >'
   ];
   const OPENINGS = ['', '', '', '> ', '## ', '> [!note] ', '[^2]: ', '- ', '- - ', '1. ', '\t', '    '];
   const ENDINGS = ['', '', ' ^mill-1'];
@@ -978,6 +983,13 @@ describe('the guard on model suggestions (files.7)', () => {
     '* * *',
     '```\nlet x = 1;\n```',
     '~~~\ncode\n~~~',
+    // Fences that hold a blank line: read alone, the closing fence opens one (the files.7 review).
+    '```\nlet x = 1;\n\nlet y = 2;\n```',
+    '~~~\ncode\n\nmore\n~~~',
+    // A fence line alone, and fence lines with words after the run, which close nothing until they go.
+    '```',
+    '~~~ The end',
+    '```js\nlet z = 3;',
     '%%\nnote\n\nmore\n%%',
     '$$\nx\n$$'
   ];
@@ -1158,5 +1170,70 @@ describe('the guard on model suggestions (files.7)', () => {
       { numRuns: 500 }
     );
     expect(onPage).toBeGreaterThan(500);
+  });
+
+  /* Short chapters of fence, comment and maths lines, with and without words
+     after them, so that one often opens in one paragraph and closes, or could
+     close, in another, and one edit at any place: what a paragraph read alone
+     does not show (the files.7 review). */
+  const PAIRING_LINES = [
+    '```',
+    '~~~',
+    '```js',
+    '~~~ The end',
+    '<!--',
+    '-->',
+    '- >',
+    '->',
+    '%%',
+    '$$',
+    'Rain fell.',
+    'Sun came out.'
+  ];
+  const pairingArb = fc
+    .array(fc.tuple(fc.constantFrom(...PAIRING_LINES), fc.boolean()), { minLength: 2, maxLength: 10 })
+    .map((lines) => lines.map(([text, blank], k) => (k === 0 ? '' : blank ? '\n\n' : '\n') + text).join(''));
+
+  it('so does one in a chapter whose code, comments and maths open in one paragraph and close in another', () => {
+    let onPage = 0;
+    let keptOut = 0;
+    fc.assert(
+      fc.property(
+        pairingArb,
+        fc.nat(),
+        fc.nat({ max: 12 }),
+        fc.constantFrom('', ' ', '  ', '-', '.', 'x', ' x', 'js'),
+        (text, at, length, replacement) => {
+          const start = at % (text.length + 1);
+          const end = Math.min(text.length, start + length);
+          const original = text.slice(start, end);
+          if (original === replacement) return;
+          const hunk: Hunk = {
+            id: 'h1',
+            start,
+            end,
+            baseSide: 'original',
+            original,
+            replacement,
+            paragraph: 0,
+            source: 'claude',
+            status: 'pending',
+            anchor: 'exact'
+          };
+          const [out] = screenModelHunks(text, [hunk]);
+          if (out?.keptOut !== undefined) {
+            keptOut += 1;
+            return;
+          }
+          onPage += 1;
+          const after = composeText(text, [{ ...hunk, status: 'accepted' }]);
+          expect(syntaxSignature(after), JSON.stringify({ text, hunk })).toBe(syntaxSignature(text));
+          expect(splitParagraphs(after).length).toBe(splitParagraphs(text).length);
+        }
+      ),
+      { numRuns: 3000 }
+    );
+    expect(onPage).toBeGreaterThan(300);
+    expect(keptOut).toBeGreaterThan(300);
   });
 });

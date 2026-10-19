@@ -18,18 +18,21 @@
  * Two steps. `screenModelHunks` takes each suggestion alone, before overlaps
  * are resolved (`AnchorOptions.screen`), so one kept out never pushes a good
  * one off the page as an overlap; the first rule it fails names the reason.
- * `guardTouching` runs after `resolveOverlaps`, on the hunks left on the page:
- * a suggestion that starts exactly where the one before it on the line ends
- * could make syntax together with it, such as two halves of a web address,
- * so it is kept out as `combined`. Both run when a review is made
- * (`createAiReview`) and when one is loaded (`guardLoadedReview`), so a
- * review saved before the guard is screened when it opens. A suggestion kept
- * out stays out: neither step looks at it again.
+ * The touching rule (`touchingRule`) runs within the overlap pass
+ * (`AnchorOptions.touching`), for the same reason: a suggestion that starts
+ * exactly where the one before it on the line ends could make syntax
+ * together with it, such as two halves of a web address, so it is kept out
+ * as `combined`. Both run when a review is made (`createAiReview`), and both
+ * again when one is loaded (`guardLoadedReview`, where `guardTouching` applies
+ * the touching rule to hunks that no longer overlap), so a review saved
+ * before the guard is screened when it opens. A suggestion kept out stays
+ * out: neither step looks at it again.
  *
  * Pure (CLAUDE.md rule 4).
  */
 
 import { isAuthored } from '../edit';
+import type { TouchingRule } from './anchor';
 import {
   SYNTAX_LABELS,
   bodyStart,
@@ -91,24 +94,74 @@ function keepOut(hunk: Hunk, reason: KeptOutReason): Hunk {
 /** A body paragraph read alone, as the guard reads one (C.72). */
 const ALONE: SyntaxOptions = { frontmatter: false };
 
+/**
+ * The text of a span that is a code fence or an HTML comment nothing closes:
+ * left unclosed, either is only its opening run or marker (C.72), which no
+ * closed one is, and inline code is never a bare run. These two are the
+ * openers a later line can close while reading as nothing new alone: a fence
+ * line reads alone as an opener whether or not it could close one, as
+ * `~~~ The end` and `~~~` both do, and `-->` alone is no syntax at all. An
+ * unclosed `%%` or `$$` is closed only by another, which reads alone as an
+ * opener, so the paragraph's own signature changes.
+ */
+const UNCLOSED = /^(?:`{3,}|~{3,}|<!--)$/;
+
+/** A line that could close one of those: a fence line, or one holding `-->`. */
+const CLOSER = /^ {0,3}(?:`{3,}|~{3,})|-->/;
+
 /** What the screen needs of the chapter, read once for all its suggestions. */
 interface Chapter {
+  text: string;
   /** where the body starts (`bodyStart`): every offset before it is frontmatter */
   body: number;
   paragraphs: Paragraph[];
-  /** the chapter's spans, read as a whole note: the overlap rule uses these */
+  /** the chapter's spans, read as a whole note: the overlap rule and `readsWider` use these */
   spans: SyntaxSpan[];
+  /** where the first code fence or HTML comment the chapter leaves unclosed starts, or Infinity */
+  unclosed: number;
   /** each paragraph's signature read alone, by its start, as it is first needed */
   signatures: Map<number, string>;
+  /** the chapter's own signature, read whole, once a suggestion needs it */
+  signature?: string;
 }
 
 function readChapter(text: string): Chapter {
+  const spans = syntaxSpans(text);
+  const unclosed = spans.find((s) => UNCLOSED.test(text.slice(s.start, s.end)));
   return {
+    text,
     body: bodyStart(text),
     paragraphs: bodyParagraphs(splitParagraphs(text)),
-    spans: syntaxSpans(text),
+    spans,
+    unclosed: unclosed?.start ?? Infinity,
     signatures: new Map()
   };
+}
+
+/**
+ * Whether the chapter reads a suggestion's paragraph in a wider context than
+ * the paragraph alone shows: a span of the chapter runs into it or out of it
+ * across a blank line, such as a code fence holding one; or a code fence or
+ * HTML comment the chapter leaves unclosed comes before it, and the line the
+ * suggestion is on (`line`, as it would read once made) could close it.
+ * Otherwise the paragraph read alone finds just what the chapter finds in it
+ * (C.72), before the suggestion and after, and the paragraph's own signature
+ * is enough.
+ */
+function readsWider(chapter: Chapter, paragraph: Paragraph, line: string): boolean {
+  const crossed = chapter.spans.some(
+    (s) =>
+      (s.start < paragraph.start && paragraph.start < s.end) ||
+      (s.start < paragraph.end && paragraph.end < s.end)
+  );
+  return crossed || (chapter.unclosed < paragraph.start && CLOSER.test(line));
+}
+
+/** The line of `text` that holds `from` to `to`, which hold no line break. */
+function lineAround(text: string, from: number, to: number): string {
+  const start = text.lastIndexOf('\n', from - 1) + 1;
+  const end = text.indexOf('\n', to);
+  return text.slice(start, end < 0 ? text.length : end);
 }
 
 /**
@@ -131,7 +184,11 @@ function reaches(span: SyntaxSpan, hunk: Hunk): boolean {
  * kind); its original or its replacement holds a character of
  * `MARKUP_CHARS` (`markup`); applied alone, it changes its paragraph's
  * syntax, read alone with `{ frontmatter: false }` (the kind of what
- * changed), or its paragraph count (`paragraph-break`).
+ * changed), or its paragraph count (`paragraph-break`); or, in a paragraph
+ * the chapter reads in a wider context (`readsWider`), it changes the
+ * chapter's syntax read whole (the kind of what changed), as `.` after the
+ * closing fence of a code block that holds a blank line would: the fence
+ * would no longer close.
  */
 function failedRule(chapter: Chapter, hunk: Hunk): KeptOutReason | null {
   if (hunk.start < chapter.body) return 'frontmatter';
@@ -151,21 +208,29 @@ function failedRule(chapter: Chapter, hunk: Hunk): KeptOutReason | null {
     signature = syntaxSignature(before, ALONE);
     chapter.signatures.set(paragraph.start, signature);
   }
-  if (syntaxSignature(after, ALONE) !== signature) return changedKind(before, after);
+  if (syntaxSignature(after, ALONE) !== signature) return changedKind(before, after, ALONE);
   if (countParagraphs(after) !== countParagraphs(before)) return 'paragraph-break';
-  return null;
+
+  const at = hunk.start - paragraph.start;
+  const line = lineAround(after, at, at + hunk.replacement.length);
+  if (!readsWider(chapter, paragraph, line)) return null;
+  const { text } = chapter;
+  const changed = text.slice(0, hunk.start) + hunk.replacement + text.slice(hunk.end);
+  chapter.signature ??= syntaxSignature(text);
+  return syntaxSignature(changed) === chapter.signature ? null : changedKind(text, changed, {});
 }
 
 /**
- * The kind of syntax that differs between a paragraph and the same paragraph
- * with a suggestion applied, both read alone: past the spans the two share at
- * the start and at the end, the first span of the paragraph as it was, or,
- * where the suggestion only adds syntax, the first one it adds. `markup` only
- * when nothing differs, which the caller has ruled out.
+ * The kind of syntax that differs between a text and the same text with a
+ * suggestion applied, both read with `options`: a paragraph alone, or the
+ * chapter whole. Past the spans the two share at the start and at the end,
+ * the first span of the text as it was, or, where the suggestion only adds
+ * syntax, the first one it adds. `markup` only when nothing differs, which
+ * the caller has ruled out.
  */
-function changedKind(before: string, after: string): SyntaxKind | 'markup' {
-  const was = syntaxSpans(before, ALONE).map((s) => ({ kind: s.kind, text: before.slice(s.start, s.end) }));
-  const now = syntaxSpans(after, ALONE).map((s) => ({ kind: s.kind, text: after.slice(s.start, s.end) }));
+function changedKind(before: string, after: string, options: SyntaxOptions): SyntaxKind | 'markup' {
+  const was = syntaxSpans(before, options).map((s) => ({ kind: s.kind, text: before.slice(s.start, s.end) }));
+  const now = syntaxSpans(after, options).map((s) => ({ kind: s.kind, text: after.slice(s.start, s.end) }));
   const same = (i: number, j: number): boolean =>
     was[i]?.kind === now[j]?.kind && was[i]?.text === now[j]?.text;
   let head = 0;
@@ -202,17 +267,33 @@ export function screenModelHunks(text: string, hunks: readonly Hunk[]): Hunk[] {
 }
 
 /**
- * The touching rule of 11.3 (k), run after `resolveOverlaps`: of the hunks
- * on the page, in order, a guarded one that starts exactly where the one
- * before it on the line ends is kept out as `combined`, since two
- * suggestions that each keep the syntax alone could make some together, as
- * `http` and `s://` would. The one before it is any hunk on the page, the
- * author's own included; a hunk kept out here is no longer on the page, so
- * the next one is measured against the one before it. Hunks keep their
- * order, and the same objects come back for those it leaves, so running it
- * again changes nothing.
+ * The touching rule of 11.3 (k) for the chapter `text`: a guarded hunk that
+ * starts exactly where the hunk on the page before it ends, on its line,
+ * comes back kept out as `combined`, since two suggestions that each keep the
+ * syntax alone could make some together, as `http` and `s://` would; any
+ * other comes back as null and stays. The one before it is any hunk on the
+ * page, the author's own included. `createAiReview` hands it to the overlap
+ * pass (`AnchorOptions.touching`), so a hunk it keeps out is off the page
+ * before the hunks after it are measured, and pushes none of them off as an
+ * overlap (the `files.7` review).
+ */
+export function touchingRule(text: string): TouchingRule {
+  return (hunk, previous) =>
+    hunk.start === previous.end && endsOnLine(text, previous) && isGuarded(hunk)
+      ? keepOut(hunk, 'combined')
+      : null;
+}
+
+/**
+ * The touching rule (`touchingRule`) over hunks that do not overlap, such as
+ * a loaded review's: of the hunks on the page, in order of position, each is
+ * put to the rule against the one before it that stayed; a hunk kept out is
+ * no longer on the page, so the next one is measured against the one before
+ * it. Hunks keep their order, and the same objects come back for those it
+ * leaves, so running it again changes nothing.
  */
 export function guardTouching(text: string, hunks: readonly Hunk[]): Hunk[] {
+  const rule = touchingRule(text);
   const onPage = hunks
     .map((hunk, index) => ({ hunk, index }))
     .filter(({ hunk }) => hunk.anchor !== 'stale')
@@ -220,8 +301,9 @@ export function guardTouching(text: string, hunks: readonly Hunk[]): Hunk[] {
   const out = [...hunks];
   let previous: Hunk | null = null;
   for (const { hunk, index } of onPage) {
-    if (previous && hunk.start === previous.end && endsOnLine(text, previous) && isGuarded(hunk)) {
-      out[index] = keepOut(hunk, 'combined');
+    const off = previous ? rule(hunk, previous) : null;
+    if (off) {
+      out[index] = off;
       continue;
     }
     previous = hunk;
