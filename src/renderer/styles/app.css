@@ -829,12 +829,13 @@ input[type='text'] {
 
 /* Number and pen beside each paragraph. The rail is one prose line tall, so both
    sit level with the paragraph's first line. It is never selected or copied with
-   the prose, and the find bar skips it. */
+   the prose, and the find bar skips it. It ends 11 px short of the text, where
+   the margin marks sit (11.7, small.8); it was 42 px wide. */
 .para__rail {
   position: absolute;
   left: -50px;
   top: 0;
-  width: 42px;
+  width: 39px;
   height: 2.3em;
   display: flex;
   align-items: center;
@@ -845,10 +846,14 @@ input[type='text'] {
   line-height: 1;
 }
 
+/* On one line: a merged "19-20" broke after its hyphen, beside the pen, in the
+   rail's 42 px as in its 39 (11.7, small.8). It reaches left past the rail
+   instead, into the prose's own padding. */
 .para__num {
   font-size: 11px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* A paragraph with an open comment: its number in the comment colour, where the
@@ -895,6 +900,58 @@ input[type='text'] {
   margin: 0 0 1.4em;
   white-space: pre-wrap;
   line-height: 1.5;
+}
+
+/* Margin marks (11.7, small.8), children of the paragraph in the 11 px between
+   the rail and the text, placed by CSS anchor positioning on the live text of
+   their change (`markAnchorName`): the line box's top is the anchor's top less
+   the half-leading, so a mark stays level with its line through reflow, zoom
+   and font loading, a caret that wrapped included. Each is a line tall. A bar,
+   3 px by 0.9em in the category colour, marks a line with a pending small
+   change and is a button: a click selects the change without scrolling, and
+   hovering shows its card. An ink arrowhead marks the line where the focused
+   suggestion starts. Both are drawn with borders, which forced colours keep. */
+.mark {
+  position: absolute;
+  top: calc(anchor(top) - 0.53em);
+  left: -11px;
+  width: 11px;
+  height: 2.3em;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mark::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+}
+
+.mark--bar::before {
+  right: 3px;
+  height: 0.9em;
+  border-left: 3px solid var(--cat);
+}
+
+.mark--bar:hover:not(:disabled) {
+  background: none;
+}
+
+.mark--focus {
+  pointer-events: none;
+}
+
+.mark--focus::before {
+  right: 2px;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 6px solid var(--ink);
 }
 
 /* ---------- hunks ---------- */

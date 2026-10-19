@@ -13,6 +13,8 @@ interface Props {
   /** a neighbour touches it on that side, so a small change's capsule stops at its edge (11.7) */
   flushBefore?: boolean;
   flushAfter?: boolean;
+  /** the anchor name a margin mark is placed by, when this change has one (11.7, small.8) */
+  markAnchor?: string | null;
   onToggleAccept: (id: string) => void;
   onToggleDismiss: (id: string) => void;
   onHover: (id: string) => void;
@@ -40,6 +42,7 @@ export function HunkSpan({
   hovered,
   flushBefore = false,
   flushAfter = false,
+  markAnchor = null,
   onToggleAccept,
   onToggleDismiss,
   onHover,
@@ -153,7 +156,7 @@ export function HunkSpan({
           {hunk.status === 'dismissed' ? <IconUndo size={11} /> : <IconX size={11} />}
         </button>
       </span>
-      <span className="hunk__live">
+      <span className="hunk__live" style={markAnchor ? { anchorName: markAnchor } : undefined}>
         {live.length === 0 ? <span className="hunk__caret" aria-hidden="true" /> : live}
       </span>
     </span>

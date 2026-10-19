@@ -11,11 +11,12 @@ import { paragraphNumber } from '../../shared/prompt/chapter';
 import { buildRenderBlocks, type RenderBlock } from '../../shared/render';
 import { splitParagraphs } from '../../shared/text/paragraphs';
 import { gutterComments as gutterCommentsOf } from '../../shared/ui/comments';
+import { marginMarks, markAnchorName, type MarginMark } from '../../shared/ui/marks';
 import type { Review, ReviewComment } from '../../shared/types';
 import { editParagraph } from '../state/edit';
 import { useFindHighlight } from '../state/find';
 import { clipGhosts } from '../state/ghosts';
-import { hoverOff, hoverOn } from '../state/hover';
+import { hoverOff, hoverOn, hoverSoon } from '../state/hover';
 import { proseInRange } from '../state/prose';
 import { scrollToElement } from '../state/scroll';
 import { isLocked, useApp, type ParagraphDraft } from '../state/store';
@@ -243,6 +244,12 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
                 );
               }
 
+              /* Margin marks (11.7, small.8): a bar beside each line with a
+                 pending small change, an arrowhead beside the line where the
+                 focused suggestion starts. Children of the paragraph, placed
+                 by CSS anchor positioning on the change's live text. */
+              const marks = marginMarks(block.segments, focusedHunkId);
+              const markAt = new Map<number, MarginMark>(marks.map((m) => [m.index, m]));
               return (
                 <p
                   key={block.key}
@@ -283,10 +290,38 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
                         hovered={segment.hunk.id === hoveredHunkId}
                         flushBefore={segment.flushBefore}
                         flushAfter={segment.flushAfter}
+                        markAnchor={markAt.has(index) ? markAnchorName(block.key, index) : null}
                         onToggleAccept={toggleAccepted}
                         onToggleDismiss={toggleDismissed}
                         onHover={hoverOn}
                         onHoverEnd={hoverOff}
+                      />
+                    )
+                  )}
+                  {marks.map((mark) =>
+                    mark.kind === 'focus' ? (
+                      <span
+                        key={`mark-${mark.hunk.id}`}
+                        className="mark mark--focus"
+                        aria-hidden="true"
+                        style={{ positionAnchor: markAnchorName(block.key, mark.index) }}
+                      />
+                    ) : (
+                      /* A target 11 by 39 CSS px outside the prose. A click
+                         selects the change without scrolling, and leaves the
+                         keyboard where it was, so a, d, u and e act on it;
+                         hovering shows its card under the change. */
+                      <button
+                        key={`mark-${mark.hunk.id}`}
+                        type="button"
+                        tabIndex={-1}
+                        aria-hidden="true"
+                        className={`mark mark--bar cat-${mark.hunk.category ?? 'other'}`}
+                        style={{ positionAnchor: markAnchorName(block.key, mark.index) }}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => focusHunk(mark.hunk.id)}
+                        onMouseEnter={() => hoverSoon(mark.hunk.id)}
+                        onMouseLeave={hoverOff}
                       />
                     )
                   )}
