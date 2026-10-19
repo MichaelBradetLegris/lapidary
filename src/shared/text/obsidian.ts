@@ -118,10 +118,29 @@ export function bodyStart(text: string): number {
   return text.charCodeAt(range.end) === LINE_FEED ? range.end + 1 : range.end;
 }
 
+/** How `syntaxSpans` and `syntaxSignature` read their text. */
+export interface SyntaxOptions {
+  /**
+   * Whether the text starts a note, so that a `---` block at its start is
+   * frontmatter. True, the default, for a whole chapter. False for one
+   * paragraph of a chapter's body: a `---` line there is a horizontal rule,
+   * as it is in the chapter, even at the paragraph's start (C.72).
+   */
+  frontmatter?: boolean;
+}
+
 /**
- * The syntax in `text`, in order of position. `text` is LF-normalised, a
- * whole chapter or one paragraph of it; a construct is found only where it
- * opens and closes inside the text it is given.
+ * The syntax in `text`, in order of position. `text` is LF-normalised: a
+ * whole chapter, or one paragraph of a chapter's body read with
+ * `{ frontmatter: false }`, as the guard reads one (`files.7`). Read alone
+ * without it, a paragraph such as `---\nThree days later.\n---` would be
+ * frontmatter, prose and all, where the chapter has two horizontal rules.
+ *
+ * A construct is found only where it opens and closes inside the text it is
+ * given. A paragraph that a comment, maths or code fence runs into or out of
+ * across a blank line therefore reads differently alone than in its chapter;
+ * one that no span of the chapter crosses finds just what the chapter finds
+ * in it.
  *
  * Two passes. Code, comments and maths come first, left to right: whichever
  * opens first runs to its close, and nothing inside it is anything else, so a
@@ -129,9 +148,9 @@ export function bodyStart(text: string): number {
  * them, the markers at the start of each line and the marks within lines,
  * again left to right, each in characters no earlier span holds.
  */
-export function syntaxSpans(text: string): SyntaxSpan[] {
+export function syntaxSpans(text: string, options: SyntaxOptions = {}): SyntaxSpan[] {
   const scan = new Scan(text);
-  const body = bodyStart(text);
+  const body = options.frontmatter === false ? 0 : bodyStart(text);
   if (body > 0) scan.claim('frontmatter', [0, body]);
   findRaw(scan, body);
   findMarks(scan, body);
@@ -142,11 +161,14 @@ export function syntaxSpans(text: string): SyntaxSpan[] {
  * What the syntax in `text` is, without where it is: each span's kind and
  * exact text, in order. A copyedit of the prose around the syntax leaves it
  * unchanged, however far it moves the spans; one that adds, removes or alters
- * any syntax changes it. The guard compares it before and after applying a
- * model's suggestion alone (`files.7`).
+ * any syntax changes it. The guard compares a paragraph's before and after
+ * applying a model's suggestion alone, read with `{ frontmatter: false }`
+ * (`files.7`).
  */
-export function syntaxSignature(text: string): string {
-  return JSON.stringify(syntaxSpans(text).map((span) => [span.kind, text.slice(span.start, span.end)]));
+export function syntaxSignature(text: string, options: SyntaxOptions = {}): string {
+  return JSON.stringify(
+    syntaxSpans(text, options).map((span) => [span.kind, text.slice(span.start, span.end)])
+  );
 }
 
 const LINE_FEED = 10;
