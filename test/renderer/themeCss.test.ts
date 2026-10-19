@@ -444,6 +444,8 @@ const LIGHT_VALUES: Record<string, string> = {
   '--tint-pending': '9%',
   '--tint-hover': '18%',
   '--tint-decided-hover': '16%',
+  '--tint-small': '16%',
+  '--tint-small-hover': '26%',
   // Added by apply.4: the unsaved dot and count, in ember (it was the --accent blue dot).
   '--unsaved': '#ad4b0d'
 };
@@ -498,6 +500,8 @@ const DARK_VALUES: Record<string, string> = {
   '--tint-pending': '9%',
   '--tint-hover': '18%',
   '--tint-decided-hover': '16%',
+  '--tint-small': '16%',
+  '--tint-small-hover': '26%',
   '--cat-spelling': '#ff7b72',
   '--cat-homophone': '#f2875e',
   '--cat-grammar': '#5cc0e0',

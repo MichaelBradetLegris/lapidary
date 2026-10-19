@@ -114,6 +114,12 @@ const TEXT_PAIRS: Pair[] = [
     min: 4.5,
     why: 'a decided suggestion, hovered'
   })),
+  ...CATEGORIES.map((tint) => ({
+    ink: '--ink',
+    on: { tint, share: '--tint-small-hover', base: '--bg' },
+    min: 4.5,
+    why: "a small change's capsule, hovered (11.7, small.6)"
+  })),
   ...['--panel', '--warn-bg', '--danger-bg'].map((base) => ({
     ink: '--ink',
     on: { overlay: '--hover-overlay', base },
@@ -175,7 +181,7 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
         expect(() => paint(scheme, pair.on)).not.toThrow();
       }
     }
-    expect([TEXT_PAIRS.length, FAINT_PAIRS.length]).toEqual([140, 61]);
+    expect([TEXT_PAIRS.length, FAINT_PAIRS.length]).toEqual([147, 61]);
   });
 
   it('paints a tint the way color-mix() does, so the tinted pairs mean something', () => {

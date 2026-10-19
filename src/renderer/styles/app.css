@@ -59,10 +59,13 @@
   --modal-shadow: rgb(0 0 0 / 22%);
   --hover-overlay: rgb(0 0 0 / 8%);
 
-  /* How strongly a suggestion's colour tints its words, as color-mix() shares. */
+  /* How strongly a suggestion's colour tints its words, as color-mix() shares.
+     A small change's capsule (11.7) is tinted more, as it is narrow. */
   --tint-pending: 9%;
   --tint-hover: 18%;
   --tint-decided-hover: 16%;
+  --tint-small: 16%;
+  --tint-small-hover: 26%;
 
   --font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-prose: Literata, Georgia, 'Times New Roman', serif;
@@ -130,6 +133,8 @@
     --tint-pending: 9%;
     --tint-hover: 18%;
     --tint-decided-hover: 16%;
+    --tint-small: 16%;
+    --tint-small-hover: 26%;
 
     --cat-spelling: #ff7b72;
     --cat-homophone: #f2875e;
@@ -801,8 +806,12 @@ input[type='text'] {
   overflow-wrap: break-word;
 }
 
+/* Each paragraph is a stacking context of its own, so a small change's
+   capsule (below) is painted above the paragraph's own background, an active
+   comment's yellow included, and beneath its letters (11.7). */
 .para {
   position: relative;
+  isolation: isolate;
   white-space: pre-wrap;
   margin: 0 0 1.1em;
   border-radius: 3px;
@@ -1084,6 +1093,119 @@ input[type='text'] {
   content: '?';
   margin-left: 2px;
   opacity: 0.7;
+}
+
+/* ---------- small changes (PLAN 11.7) ---------- */
+
+/* A change whose text in the line is a comma, a space, a one-letter word or
+   nothing at all (`isSmallLive`) is drawn bigger, never stored bigger. Its
+   capsule is an absolutely positioned box under the live text, 0.75em wide or
+   the text's own width if wider, painted beneath the letters (the paragraph
+   isolates it), with the state's line along its foot: the category colour at
+   --tint-small and a 2 px category line while pending, a 2 px grey cup once
+   accepted, a 1 px dotted line once dismissed. A transparent hit zone, 0.9em
+   wide, lies over it, so the click target grows from about 5 x 22 to 16 x 23
+   CSS px. Absolute boxes add no advance: line breaks, the span's rect (scroll
+   target, tooltip, ghost clipping) and the margin notes are unchanged.
+   Borders, not shadows, as forced colours drop shadows. On a side where
+   another change touches it, or text under two characters stands before the
+   next (`flushBefore`, `flushAfter`), both boxes stop at the change's own
+   edge, so neither covers its neighbour. */
+.hunk--small .hunk__live {
+  position: relative;
+}
+
+.hunk.hunk--small .hunk__live {
+  border-bottom: none;
+  background-color: transparent;
+}
+
+.hunk--small .hunk__live::before,
+.hunk--small .hunk__live::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  min-width: 100%;
+  translate: -50% 0;
+}
+
+.hunk--small .hunk__live::before {
+  width: 0.9em;
+  bottom: -2px;
+}
+
+.hunk--small .hunk__live::after {
+  z-index: -1;
+  width: 0.75em;
+  border-radius: 2px 2px 0 0;
+}
+
+.hunk--small.hunk--flush-before .hunk__live::before,
+.hunk--small.hunk--flush-before .hunk__live::after {
+  left: 0;
+  translate: none;
+}
+
+.hunk--small.hunk--flush-after .hunk__live::before,
+.hunk--small.hunk--flush-after .hunk__live::after {
+  left: auto;
+  right: 0;
+  translate: none;
+}
+
+.hunk--small.hunk--flush-before.hunk--flush-after .hunk__live::before,
+.hunk--small.hunk--flush-before.hunk--flush-after .hunk__live::after {
+  left: 0;
+  right: 0;
+  width: auto;
+  min-width: 0;
+}
+
+.hunk--small.hunk--pending .hunk__live::after {
+  background-color: color-mix(in srgb, var(--cat) var(--tint-small), transparent);
+  border-bottom: 2px solid var(--cat);
+}
+
+.hunk--small.hunk--pending.hunk--hovered .hunk__live::after {
+  background-color: color-mix(in srgb, var(--cat) var(--tint-small-hover), transparent);
+}
+
+.hunk--small.hunk--accepted .hunk__live::after {
+  border-bottom: 2px solid var(--ink-faint);
+}
+
+.hunk--small.hunk--dismissed .hunk__live::after {
+  border-bottom: 1px dotted var(--border-strong);
+}
+
+.hunk--small.hunk--accepted.hunk--hovered .hunk__live::after,
+.hunk--small.hunk--dismissed.hunk--hovered .hunk__live::after {
+  background-color: color-mix(in srgb, var(--ink-faint) var(--tint-decided-hover), transparent);
+}
+
+/* Focused, the capsule and the ghost text take the focus yellow, not the
+   whole span: on a small change the span is a few pixels wide. In the active
+   comment's paragraph the capsule keeps theme.8's hairline. */
+.hunk--small.hunk--focused,
+.para--active .hunk--small.hunk--focused {
+  background: none;
+  box-shadow: none;
+}
+
+.hunk--small.hunk--focused .hunk__live::after {
+  background-color: var(--focus-bg);
+}
+
+.para--active .hunk--small.hunk--focused .hunk__live::after {
+  box-shadow: 0 0 0 1px var(--active-ring);
+}
+
+.hunk--small.hunk--focused .hunk__ghost {
+  background: var(--focus-bg);
+  box-shadow: 0 0 0 2px var(--focus-bg);
+  border-radius: 2px;
 }
 
 .cat-spelling,

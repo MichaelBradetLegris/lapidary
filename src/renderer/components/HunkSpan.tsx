@@ -1,7 +1,7 @@
 import { useEffect, useRef, type MouseEvent } from 'react';
 import { hunkFaces } from '../../shared/render';
 import { isAuthored } from '../../shared/edit';
-import { sideText } from '../../shared/ui/small';
+import { isSmallLive, sideText } from '../../shared/ui/small';
 import { TOOLTIP_DELAY_MS } from '../../shared/ui/tooltip';
 import type { Hunk } from '../../shared/types';
 import { IconArrow, IconUndo, IconX } from './icons';
@@ -10,6 +10,9 @@ interface Props {
   hunk: Hunk;
   focused: boolean;
   hovered: boolean;
+  /** a neighbour touches it on that side, so a small change's capsule stops at its edge (11.7) */
+  flushBefore?: boolean;
+  flushAfter?: boolean;
   onToggleAccept: (id: string) => void;
   onToggleDismiss: (id: string) => void;
   onHover: (id: string) => void;
@@ -35,6 +38,8 @@ export function HunkSpan({
   hunk,
   focused,
   hovered,
+  flushBefore = false,
+  flushAfter = false,
   onToggleAccept,
   onToggleDismiss,
   onHover,
@@ -43,6 +48,7 @@ export function HunkSpan({
   const { live, ghost, role } = hunkFaces(hunk);
   const isInsertion = hunk.original.length === 0;
   const isDeletion = hunk.replacement.length === 0;
+  const small = isSmallLive(hunk);
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -69,7 +75,12 @@ export function HunkSpan({
     focused ? 'hunk--focused' : '',
     hovered ? 'hunk--hovered' : '',
     isAuthored(hunk) ? 'hunk--authored' : '',
-    hunk.anchor === 'fuzzy' || hunk.anchor === 'ambiguous' ? 'hunk--uncertain' : ''
+    hunk.anchor === 'fuzzy' || hunk.anchor === 'ambiguous' ? 'hunk--uncertain' : '',
+    /* A comma, a space or a one-letter word in the line gets a capsule under
+       it, drawn by app.css (11.7, small.6). */
+    small ? 'hunk--small' : '',
+    small && flushBefore ? 'hunk--flush-before' : '',
+    small && flushAfter ? 'hunk--flush-after' : ''
   ]
     .filter(Boolean)
     .join(' ');

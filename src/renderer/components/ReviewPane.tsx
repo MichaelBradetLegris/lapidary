@@ -281,6 +281,8 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
                         hunk={segment.hunk}
                         focused={segment.hunk.id === focusedHunkId}
                         hovered={segment.hunk.id === hoveredHunkId}
+                        flushBefore={segment.flushBefore}
+                        flushAfter={segment.flushAfter}
                         onToggleAccept={toggleAccepted}
                         onToggleDismiss={toggleDismissed}
                         onHover={hoverOn}
