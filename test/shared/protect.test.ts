@@ -624,6 +624,50 @@ describe('a review made or loaded', () => {
     });
   });
 
+  it('reads a change trimmed to the words it alters, so markup quoted unchanged round them is harmless (files.8 review)', () => {
+    // The prompt (C.75) tells the model so: quoting [ ] ^ | < > unchanged is
+    // fine, and what is set aside is a change that adds, removes or changes
+    // one, or alters words on both sides of one.
+    const text = [
+      'She said <where are you> softly.',
+      'They walked to [[The Mill|teh mill]] at dusk.',
+      'The map is at [teh old map](https://example.com/map) for now.',
+      'Rain fell.^[A note wiht a typo.] Then sun.',
+      '> [!note] Teh weather\n> The rain wiht no end.',
+      'The flood came in spring.[^1]',
+      '[^1]: A footnote wiht a typo.',
+      'It cost 5 dollars at the gate.',
+      'He said <come here> twice.',
+      'teh word #draft and teh rest.'
+    ].join('\n\n');
+    const change = (paragraph: number, before: string, after: string) => ({ paragraph, before, after });
+    const r = made(text, [
+      change(0, '<where are you>', '<Where are you?>'),
+      change(1, '|teh mill', '|the mill'),
+      change(2, '[teh old map]', '[the old map]'),
+      change(3, '^[A note wiht', '^[A note with'),
+      change(4, '> [!note] Teh weather', '> [!note] The weather'),
+      change(4, '> The rain wiht', '> The rain with'),
+      change(6, '[^1]: A footnote wiht', '[^1]: A footnote with'),
+      change(7, '5 dollars', '$5'),
+      change(8, '<come here>', '"Come here."'),
+      change(9, 'teh word #draft and teh', 'the word #draft and the')
+    ]);
+    // Kept out first: each is at offset 0.
+    expect(r.hunks.map((h) => [h.original, h.replacement, h.anchor, h.keptOut])).toEqual([
+      ['5 dollars', '$5', 'stale', 'markup'],
+      ['<come here>', '"Come here."', 'stale', 'markup'],
+      ['teh word #draft and teh', 'the word #draft and the', 'stale', 'tag'],
+      ['where are you', 'Where are you?', 'exact', undefined],
+      ['teh', 'the', 'exact', undefined],
+      ['teh', 'the', 'exact', undefined],
+      ['wiht', 'with', 'exact', undefined],
+      ['Teh', 'The', 'exact', undefined],
+      ['wiht', 'with', 'exact', undefined],
+      ['wiht', 'with', 'exact', undefined]
+    ]);
+  });
+
   it('screens a review saved before the guard as it loads, and leaves what the author decided', () => {
     const decided = suggest(CHAPTER, '#¦draft', 'draft', 'drafts', { status: 'accepted' });
     const pending = suggest(CHAPTER, 'See [[Chapter ¦2]]', '2', 'Two');

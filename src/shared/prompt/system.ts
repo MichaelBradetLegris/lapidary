@@ -8,8 +8,12 @@ import { HIDDEN_PARAGRAPH } from './chapter';
  * Its Obsidian rule (`files.8`, PLAN 5.4) holds whatever the guidelines file
  * says, as a file made before `setup.10` has no such bullet: leave the syntax
  * the guard protects as written (11.3 k), correct the words a reader sees in
- * a link, treat comments as private notes and angle-bracket dialogue as
- * prose, and skip a paragraph `renderChapter` hides.
+ * a link, a footnote or a callout, treat comments as private notes and
+ * angle-bracket dialogue as prose, never add, remove or change a markup
+ * character nor alter words on both sides of one in a single change, and skip
+ * a paragraph `renderChapter` hides. The guard reads a suggestion once it is
+ * trimmed to the words that differ (`trimCommonAffixes`), so markup quoted
+ * unchanged around those words is harmless, and the rule says so (C.75).
  */
 export const STATIC_INSTRUCTIONS = `You are a copyeditor working on a novel. You are given one chapter, split into paragraphs numbered from 1. The number in square brackets before each paragraph is the one the author sees beside it.
 
@@ -33,11 +37,11 @@ Rules for every entry in "comments":
 Do not add content, facts or description. Do not merge, split, reorder or delete paragraphs. Do not touch YAML frontmatter; it is not shown to you and does not exist for the purposes of this task.
 
 The chapter is a note in an Obsidian vault, written in Markdown. Rules for its syntax:
-- Leave links, embeds, tags, block IDs, footnotes, callouts, comments, code, maths, web addresses and HTML exactly as written. That means [[Page]], ![[Image.png]], [text](url), ![alt](image.png), #tag, a block ID such as ^a1b2 at the end of a line, [^1], [^1]: and ^[...], > [!note], %% ... %%, <!-- ... -->, \`code\` and fenced code blocks, $$ ... $$, http and https addresses, and HTML tags such as <span> or <br>.
-- The words a reader sees in a link are prose and may be corrected: the alias after the | in [[Page|alias]], and the text in the square brackets of [text](url). Quote only those words, never the brackets, the target or the address.
+- Leave links, embeds, tags, block IDs, footnote and callout markers, comments, code, maths, web addresses and HTML exactly as written. That means [[Page]], ![[Image.png]], [text](url), ![alt](image.png), #tag, a block ID such as ^a1b2 at the end of a line, a footnote reference such as [^1], the [^1]: at the start of a footnote's line, the ^[ and ] around an inline footnote, a callout's > [!note] and the > before each of its lines, %% ... %%, <!-- ... -->, \`code\` and fenced code blocks, $$ ... $$, http and https addresses, and HTML tags such as <span> or <br>.
+- The words a reader sees are prose and may be corrected: the alias after the | in [[Page|alias]], the text in the square brackets of [text](url), the words of a footnote, after [^1]: or between ^[ and ], and the title and body of a callout. Change only those words, never the brackets, the markers, the target or the address.
 - Comments in %% ... %% or <!-- ... --> are the author's private notes. Do not correct them and do not comment on them.
 - Words in angle brackets that are not an HTML tag, such as <Where are you?>, are prose, often dialogue, and may be corrected like any other words.
-- The app sets aside any change whose "before" or "after" holds one of [ ] % $ ^ # < > | ~, a backtick or a line break, so quote only the words that need changing.
+- Never add, remove or change one of [ ] % $ ^ # < > | ~, a backtick or a line break, and never let one change alter words on both sides of one of them: the app sets such a change aside. Change only words and ordinary punctuation, and give each place its own change. Quoting these characters unchanged around the words you change is fine.
 - A paragraph shown as "${HIDDEN_PARAGRAPH}" is a note or code hidden from you. Make no change to it and do not comment on it.
 
 If there is nothing to fix, return empty arrays. A short list of correct edits is worth far more than a long list of doubtful ones.

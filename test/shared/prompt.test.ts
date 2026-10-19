@@ -400,31 +400,51 @@ describe('system prompt', () => {
     expect(rule.length).toBeLessThan(STATIC_INSTRUCTIONS.length);
     // Leave the syntax as written.
     expect(rule).toContain(
-      'Leave links, embeds, tags, block IDs, footnotes, callouts, comments, code, maths, web addresses and HTML exactly as written.'
+      'Leave links, embeds, tags, block IDs, footnote and callout markers, comments, code, maths, web addresses and HTML exactly as written.'
     );
     for (const example of [
       '[[Page]]',
       '![[Image.png]]',
       '#tag',
       '^a1b2',
-      '[^1]',
-      '> [!note]',
+      'a footnote reference such as [^1]',
+      "the [^1]: at the start of a footnote's line",
+      'the ^[ and ] around an inline footnote',
+      "a callout's > [!note] and the > before each of its lines",
       '%% ... %%',
       '<!-- ... -->',
       '$$ ... $$',
       '`code`'
     ])
       expect(rule).toContain(example);
-    // Alias text may be corrected.
-    expect(rule).toContain('The words a reader sees in a link are prose and may be corrected');
+    // Only the markers of a footnote or a callout are syntax (11.3 k), never their words.
+    expect(rule).not.toContain('^[...]');
+    expect(rule).not.toMatch(/footnotes, callouts/);
+    // The words a reader sees, in a link, a footnote or a callout, may be corrected.
+    expect(rule).toContain('The words a reader sees are prose and may be corrected');
     expect(rule).toContain('[[Page|alias]]');
+    expect(rule).toContain('the text in the square brackets of [text](url)');
+    expect(rule).toContain('the words of a footnote, after [^1]: or between ^[ and ]');
+    expect(rule).toContain('and the title and body of a callout.');
+    expect(rule).toContain(
+      'Change only those words, never the brackets, the markers, the target or the address.'
+    );
     // Comments are private notes.
     expect(rule).toContain("are the author's private notes. Do not correct them and do not comment on them.");
     // Angle-bracket dialogue is prose.
     expect(rule).toContain('<Where are you?>');
     expect(rule).toContain('are prose, often dialogue');
-    // The markup characters the guard keeps out (11.3 k), and the hidden paragraph.
-    expect(rule).toContain('[ ] % $ ^ # < > | ~, a backtick or a line break');
+    // The markup rule as the guard applies it (11.3 k): to the words a change
+    // alters, once trimmed, so markup quoted unchanged around them is harmless
+    // (C.75; protect.test.ts pins the guard's side).
+    expect(rule).toContain(
+      'Never add, remove or change one of [ ] % $ ^ # < > | ~, a backtick or a line break, and never let one change alter words on both sides of one of them: the app sets such a change aside.'
+    );
+    expect(rule).toContain('Change only words and ordinary punctuation, and give each place its own change.');
+    expect(rule).toContain('Quoting these characters unchanged around the words you change is fine.');
+    expect(rule).not.toMatch(/"before" or "after" holds/);
+    expect(rule).not.toMatch(/[Qq]uote only/);
+    // The hidden paragraph.
     expect(rule).toContain(`A paragraph shown as "${HIDDEN_PARAGRAPH}" is a note or code hidden from you.`);
     expect(rule).toContain('Make no change to it and do not comment on it.');
     // In the static part, so it is there with any guidelines and none.
