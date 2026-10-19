@@ -982,13 +982,24 @@ input[type='text'] {
   opacity: 0.8;
 }
 
+/* The caret of an insertion, 2 px by about 15 px. Inline, not inline-block, so
+   it stays on the line of the word before it: an inline-block caret broke
+   away onto the next line at some window widths (11.7, small.1). Its height
+   is the content area of its own font, so the font size sets it. It follows
+   the status as the underline does: colour means undecided. */
 .hunk__caret {
-  display: inline-block;
-  width: 0;
+  display: inline;
+  font-size: 0.8em;
   border-left: 2px solid var(--cat);
-  height: 0.9em;
-  vertical-align: -0.1em;
   margin: 0 1px;
+}
+
+.hunk--accepted .hunk__caret {
+  border-left-color: var(--ink-faint);
+}
+
+.hunk--dismissed .hunk__caret {
+  border-left-color: var(--border-strong);
 }
 
 /* Invisible rather than absent when not in use. An x that took no space could
