@@ -4,7 +4,7 @@ import { rebaseReview } from '../shared/diff/rebase';
 import { proPreselection } from '../shared/ai/claudeModels';
 import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
 import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
-import { rebaseCardText, rebaseCardTone } from '../shared/ui/rebase';
+import { mergeReloadRun, rebaseCardText, rebaseCardTone, type ReloadRun } from '../shared/ui/rebase';
 import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
 import {
   CLAUDE_RUNTIME_CARD,
@@ -356,6 +356,13 @@ export function App(): React.JSX.Element {
 
   const leaveDeps = useMemo<LeaveDeps>(() => ({ save }), [save]);
 
+  /* The reloads the reload card on screen reports, with the card's id: while
+     that card is up, the next reload adds to them, so a run of saves in
+     Obsidian cannot hide a suggestion lost in the first (`mergeReloadRun`,
+     PLAN 6.2, the `files.20` review). Opening a chapter or a review starts a
+     new run. */
+  const reloadRun = useRef<{ card: string; run: ReloadRun } | null>(null);
+
   /* ---------------- opening a chapter ---------------- */
 
   /* Opening a chapter or another review of the open one lets a save under way
@@ -420,6 +427,7 @@ export function App(): React.JSX.Element {
           await marked;
           // An open that worked closes the card of one that did not.
           dismissNotificationsByKey(OPEN_CHAPTER_CARD);
+          reloadRun.current = null;
           if (!loaded) {
             setReview(
               createReview({ sourcePath: file.path, base, hunks: [], generator: { kind: 'file' } }),
@@ -475,6 +483,7 @@ export function App(): React.JSX.Element {
           const base = baseFrom(content);
           // An open that worked closes the card of one that did not.
           dismissNotificationsByKey(OPEN_CHAPTER_CARD);
+          reloadRun.current = null;
           if (review.base.hash === base.hash) {
             if (review === loaded.review) markReviewPersistedState(review, loaded.path);
             setReview(review, loaded.path);
@@ -522,9 +531,18 @@ export function App(): React.JSX.Element {
         .then((content) => {
           const latest = useApp.getState().review;
           if (!latest) return;
-          const { review: rebased, stats } = rebaseReview(latest, baseFrom(content));
-          setReview(rebased, useApp.getState().reviewPath);
-          notify(rebaseCardTone(stats), rebaseCardText('reloaded', stats), 'file-reload');
+          const result = rebaseReview(latest, baseFrom(content));
+          setReview(result.review, useApp.getState().reviewPath);
+          // While the reload card is up, this reload adds to what it reported (PLAN 6.2).
+          const shown = reloadRun.current;
+          const up = shown !== null && useApp.getState().notifications.some((n) => n.id === shown.card);
+          const run = mergeReloadRun(up ? shown.run : null, result);
+          const card = notify(
+            rebaseCardTone(run.stats),
+            rebaseCardText('reloaded', run.stats),
+            'file-reload'
+          );
+          reloadRun.current = { card, run };
         })
         .catch(fail);
     });

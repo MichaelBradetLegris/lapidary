@@ -10,6 +10,7 @@ import { insideWord } from '../../src/shared/diff/fuzzy';
 import { rebaseReview } from '../../src/shared/diff/rebase';
 import { createDiffReview, createReview } from '../../src/shared/review';
 import { normalizeText } from '../../src/shared/text/eol';
+import { bodyStart } from '../../src/shared/text/obsidian';
 import type { Hunk, HunkStatus, Review, ReviewBase } from '../../src/shared/types';
 
 const ORIGINAL = [
@@ -979,6 +980,72 @@ describe('the body only (files.20)', () => {
       start: later.indexOf('color in'),
       end: later.indexOf('color in') + 'color'.length
     });
+  });
+
+  it('never takes a suggestion already off the page as made, with a copy of its words in the frontmatter or without', () => {
+    // A model's "teh river" that was never found; then the author types "the river" in the body (the files.20 review).
+    for (const front of ['', '---\nsummary: the river rose\n---\n\n']) {
+      const text = `${front}Rain fell on the roof.`;
+      const lost: Hunk = {
+        ...hunkAt(0, 'teh river', 'the river', 'pending', 'c1'),
+        end: 0,
+        anchor: 'stale',
+        source: 'claude'
+      };
+      const later = `${front}Rain fell on the river.`;
+      const { review: next, stats } = rebaseOnto(reviewOn(text, [lost]), later);
+      expect(next.hunks[0], front).toMatchObject({
+        anchor: 'stale',
+        status: 'pending',
+        baseSide: 'original',
+        start: 0,
+        end: 0
+      });
+      expect(stats, front).toMatchObject({ anchored: 0, adopted: 0, newlyStale: 0 });
+      // Dismissed, it writes nothing: "teh river" was never in the chapter.
+      const dismissed = { ...next, hunks: next.hunks.map((h) => ({ ...h, status: 'dismissed' as const })) };
+      expect(composeReview(dismissed)).toBe(later);
+      // On its own words it comes back, its decision as it was.
+      const typed = `${front}Rain fell on teh river.`;
+      const back = rebaseOnto(reviewOn(text, [lost]), typed).review.hunks[0];
+      expect(back, front).toMatchObject({
+        anchor: 'exact',
+        status: 'pending',
+        baseSide: 'original',
+        start: typed.indexOf('teh river')
+      });
+    }
+    // Nor is a saved change off the page turned back into a suggestion where its old words now stand.
+    const text = 'Rain fell on the roof.';
+    const saved: Hunk = {
+      ...hunkAt(0, 'colour', 'color', 'accepted', 'c2'),
+      end: 0,
+      baseSide: 'replacement',
+      anchor: 'stale'
+    };
+    const { review: next, stats } = rebaseOnto(reviewOn(text, [saved]), 'Rain of a grey colour fell.');
+    expect(next.hunks[0]).toMatchObject({ anchor: 'stale', status: 'accepted', baseSide: 'replacement' });
+    expect(stats.adopted).toBe(0);
+  });
+
+  it('places a hunk that starts right at the start of the body, where it follows the closing line at once', () => {
+    // The usual layout in Obsidian: the body on the line after the closing "---" (the files.20 review).
+    const text = '---\ntitle: x\n---\nTeh river rose in the night.\n\nSecond.';
+    const body = bodyStart(text);
+    expect(body).toBe('---\ntitle: x\n---\n'.length);
+    const later = `${text}\n\nA paragraph added.`;
+    for (const status of ['pending', 'accepted'] as const) {
+      const word = rebaseOnto(reviewOn(text, [hunkAt(body, 'Teh', 'The', status)]), later).review.hunks[0];
+      expect(word, status).toMatchObject({ anchor: 'exact', status, start: body, end: body + 3 });
+      const insertion = hunkAt(body, '', 'Late that year, ', status, 'i1');
+      const top = rebaseOnto(reviewOn(text, [insertion]), later).review.hunks[0];
+      expect(top, status).toMatchObject({ anchor: 'exact', status, start: body, end: body });
+    }
+    // Words changed a little, found by the fuzzy search from the start of the body.
+    const phrase = hunkAt(body, 'Teh river rose in', 'The river rose in', 'pending');
+    const changed = later.replace('Teh river rose in', 'Teh rivers rose in');
+    const fuzzy = rebaseOnto(reviewOn(text, [phrase]), changed).review.hunks[0];
+    expect(fuzzy).toMatchObject({ anchor: 'fuzzy', start: body, end: body + 'Teh rivers rose in'.length });
   });
 
   it('never places a hunk at the line break that closes the frontmatter', () => {

@@ -945,6 +945,14 @@ describe('kept out, and out of the frontmatter, through a rebase (files.20)', ()
   });
 
   /**
+   * Where the body goes after a frontmatter: after a blank line, or on the
+   * line right after the closing `---`, as Obsidian writes it, so that the
+   * body, and a hunk at its very start, begins at `bodyStart` (the `files.20`
+   * review).
+   */
+  type FrontLayout = 'none' | 'blank' | 'tight';
+
+  /**
    * A chapter of apply.23's pieces, with the hunks' sources mixed, a few
    * suggestions kept out of the text on words it holds, and, when asked, a
    * frontmatter that holds the whole body again on one line: a rebase that
@@ -955,10 +963,13 @@ describe('kept out, and out of the frontmatter, through a rebase (files.20)', ()
     pieces: readonly Piece[],
     sources: readonly HunkSource[],
     kept: readonly number[],
-    fronted: boolean
+    layout: FrontLayout
   ): { base: string; hunks: Hunk[]; keptOut: Hunk[] } {
     const built = buildChapter(pieces);
-    const front = fronted ? `---\ntitle: ${built.base.replace(/\n+/g, ' ')}\n---\n\n` : '';
+    const front =
+      layout === 'none'
+        ? ''
+        : `---\ntitle: ${built.base.replace(/\n+/g, ' ')}\n---\n${layout === 'blank' ? '\n' : ''}`;
     const words = [...built.base.matchAll(/w\d+/g)].map((m) => m[0]);
     const keptOut = kept.flatMap((k, i): Hunk[] => {
       const word = words[k % words.length];
@@ -994,11 +1005,12 @@ describe('kept out, and out of the frontmatter, through a rebase (files.20)', ()
   /**
    * The words a hunk on the page holds on its base side replaced by a new
    * one ("y3"), or, for a hunk that holds none, the word either side of its
-   * place: the body then has them no more, and the frontmatter still may.
+   * place, in the body: the body then has them no more, and the frontmatter,
+   * its closing `---` included, still may.
    */
   function strike(text: string, hunk: Hunk, fresh: string): string {
     if (hunk.start < hunk.end) return text.slice(0, hunk.start) + fresh + text.slice(hunk.end);
-    const before = /\S+\s*$/.exec(text.slice(0, hunk.start));
+    const before = /\S+\s*$/.exec(text.slice(bodyStart(text), hunk.start));
     const after = /^\s*\S+/.exec(text.slice(hunk.start));
     const from = before ? hunk.start - before[0].length : hunk.start;
     const to = after ? hunk.start + after[0].length : hunk.start;
@@ -1008,12 +1020,14 @@ describe('kept out, and out of the frontmatter, through a rebase (files.20)', ()
   it('a kept-out suggestion stays kept out and in place, and no hunk of any source is placed before the body, through rounds of edits', () => {
     // Rounds in which words of a hunk on the page were left in the frontmatter and nowhere else.
     let tempted = 0;
+    // Chapters with a hunk at the very start of a body that follows the closing line at once.
+    let atBody = 0;
     fc.assert(
       fc.property(
         piecesArb,
         sourcesArb,
         fc.array(fc.nat(), { minLength: 1, maxLength: 4 }),
-        fc.constantFrom(true, true, true, false),
+        fc.constantFrom<FrontLayout>('blank', 'tight', 'tight', 'none'),
         fc.array(
           fc.record({
             strike: fc.option(fc.nat(), { nil: null }),
@@ -1021,10 +1035,21 @@ describe('kept out, and out of the frontmatter, through a rebase (files.20)', ()
           }),
           { minLength: 1, maxLength: 3 }
         ),
-        (pieces, sources, kept, withFront, rounds) => {
-          const chapter = frontedChapter(pieces, sources, kept, withFront);
+        (pieces, sources, kept, layout, rounds) => {
+          const chapter = frontedChapter(pieces, sources, kept, layout);
           let review = reviewOf(chapter.base, chapter.hunks);
           let text = chapter.base;
+          // Onto the text it already has, a rebase finds every hunk on the page on its own words or place,
+          // where it was, at the very start of the body included (the files.20 review).
+          const start = bodyStart(text);
+          if (start > 0 && review.hunks.some((h) => h.anchor !== 'stale' && h.start === start)) atBody += 1;
+          const same = rebaseReview(review, nextBase(text)).review;
+          for (const h of review.hunks) {
+            if (h.anchor === 'stale') continue;
+            const now = same.hunks.find((s) => s.id === h.id);
+            expect(['exact', 'ambiguous'], JSON.stringify({ text, h, now })).toContain(now?.anchor);
+            expect(now).toMatchObject({ start: h.start, end: h.end, status: h.status, baseSide: h.baseSide });
+          }
           for (const [round, change] of rounds.entries()) {
             // Another editor changes the body, the words of one hunk among them; the frontmatter stays as it was.
             const onPage = review.hunks.filter((h) => h.anchor !== 'stale');
@@ -1037,7 +1062,7 @@ describe('kept out, and out of the frontmatter, through a rebase (files.20)', ()
               .filter((w) => w.length > 0);
             if (words.some((w) => text.slice(0, body).includes(w) && !text.includes(w, body))) tempted += 1;
 
-            const { review: next, stats } = rebaseReview(review, nextBase(text));
+            const { review: next, stats, changes } = rebaseReview(review, nextBase(text));
             for (const h of next.hunks) {
               if (h.anchor !== 'stale')
                 expect(h.start, JSON.stringify({ text, h })).toBeGreaterThanOrEqual(body);
@@ -1049,11 +1074,19 @@ describe('kept out, and out of the frontmatter, through a rebase (files.20)', ()
             const newly = off.filter(
               (h) => h.keptOut !== undefined && before.get(h.id)?.keptOut === undefined
             );
+            const lost = off.filter((h) => h.keptOut === undefined && before.get(h.id)?.anchor !== 'stale');
             expect(stats.stale).toBe(off.length);
             expect(stats.keptOut).toBe(newly.length);
-            expect(stats.newlyStale).toBe(
-              off.filter((h) => h.keptOut === undefined && before.get(h.id)?.anchor !== 'stale').length
-            );
+            expect(stats.newlyStale).toBe(lost.length);
+            // And the hunks behind them, which the reload card reads (the files.20 review).
+            expect(changes.keptOut).toEqual(newly.map((h) => h.id));
+            expect(changes.newlyStale).toEqual(lost.map((h) => h.id));
+            expect(changes.adopted).toHaveLength(stats.adopted);
+            expect(
+              changes.adopted.every(
+                (id) => next.hunks.find((h) => h.id === id)?.status !== before.get(id)?.status
+              )
+            ).toBe(true);
             // A rebased review loads as it is: the guard has run on it.
             expect(guardLoadedReview(next)).toBe(next);
             review = next;
@@ -1063,6 +1096,7 @@ describe('kept out, and out of the frontmatter, through a rebase (files.20)', ()
       { numRuns: 500 }
     );
     expect(tempted).toBeGreaterThan(100);
+    expect(atBody).toBeGreaterThan(25);
   });
 });
 

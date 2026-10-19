@@ -28,9 +28,22 @@ export interface RebaseStats {
   orphanedComments: number;
 }
 
+/**
+ * The hunks behind three of the counts, by id: those the rebase took off the
+ * page (`newlyStale`), those it kept out of the text (`keptOut`) and those
+ * whose decision it changed to match the file (`adopted`). The reload card
+ * reads them to report a run of reloads (`mergeReloadRun`, PLAN 6.2, C.74).
+ */
+export interface RebaseChanges {
+  newlyStale: string[];
+  keptOut: string[];
+  adopted: string[];
+}
+
 export interface RebaseResult {
   review: Review;
   stats: RebaseStats;
+  changes: RebaseChanges;
 }
 
 export interface RebaseOptions {
@@ -85,7 +98,7 @@ export function rebaseReview(
 
   const present = new Set(review.hunks.map((h) => h.id));
 
-  let adopted = 0;
+  const adopted: string[] = [];
   const moved: Hunk[] = review.hunks.map((hunk) => {
     /* A suggestion the guard kept out of the text stays out (files.7, 11.3 k):
        found again, it would be back on the page, the syntax it would change
@@ -103,7 +116,7 @@ export function rebaseReview(
       return { ...hunk, anchor: 'stale', start: 0, end: 0 };
     }
     const status = decisionOn(hunk, found.side);
-    if (status !== hunk.status) adopted += 1;
+    if (status !== hunk.status) adopted.push(hunk.id);
     return {
       ...hunk,
       start: found.start,
@@ -126,14 +139,14 @@ export function rebaseReview(
 
   const was = new Map(review.hunks.map((h) => [h.id, h]));
   let stale = 0;
-  let newlyStale = 0;
-  let keptOut = 0;
+  const newlyStale: string[] = [];
+  const keptOut: string[] = [];
   for (const hunk of hunks) {
     if (hunk.anchor !== 'stale') continue;
     stale += 1;
     const before = was.get(hunk.id);
-    if (hunk.keptOut !== undefined && before?.keptOut === undefined) keptOut += 1;
-    else if (before !== undefined && before.anchor !== 'stale') newlyStale += 1;
+    if (hunk.keptOut !== undefined && before?.keptOut === undefined) keptOut.push(hunk.id);
+    else if (before !== undefined && before.anchor !== 'stale') newlyStale.push(hunk.id);
   }
 
   return {
@@ -144,7 +157,15 @@ export function rebaseReview(
       hunks,
       comments
     },
-    stats: { anchored: hunks.length - stale, stale, newlyStale, keptOut, adopted, orphanedComments }
+    stats: {
+      anchored: hunks.length - stale,
+      stale,
+      newlyStale: newlyStale.length,
+      keptOut: keptOut.length,
+      adopted: adopted.length,
+      orphanedComments
+    },
+    changes: { newlyStale, keptOut, adopted }
   };
 }
 
@@ -228,6 +249,13 @@ function betterCandidate(a: Candidate, b: Candidate): number {
  * made or undone: that is how a saved deletion of one word of a doubled
  * "the the" came back as a suggestion to delete the "the" that remained, or
  * another "the" nearby (apply.23).
+ *
+ * A hunk already off the page never counts: it has no place in the old text,
+ * so nothing shows that its other side, wherever it stands, is the change
+ * made or undone there. It comes back only on its own side's words, with its
+ * decision as it was (the `files.20` review): a model's "teh river" that was
+ * never found was taken as made once "the river" stood once in the body, and
+ * dismissed, Save would have written "teh river", which the chapter never held.
  */
 function plainlyOnDisk(
   c: Candidate,
@@ -237,6 +265,7 @@ function plainlyOnDisk(
   expected: string,
   other: string
 ): boolean {
+  if (hunk.anchor === 'stale') return false;
   if (c.place) {
     if (c.before === CONTEXT_CHARS || c.after === CONTEXT_CHARS) return true;
     const before = hunk.start < PINNED || wordsBefore(oldText, hunk.start, newText, c.start) >= PINNED;
