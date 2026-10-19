@@ -4,7 +4,7 @@ import { rebaseReview } from '../shared/diff/rebase';
 import { proPreselection } from '../shared/ai/claudeModels';
 import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
 import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
-import { rebaseCardText } from '../shared/ui/rebase';
+import { rebaseCardText, rebaseCardTone } from '../shared/ui/rebase';
 import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
 import {
   CLAUDE_RUNTIME_CARD,
@@ -431,7 +431,7 @@ export function App(): React.JSX.Element {
           } else {
             const { review: rebased, stats } = rebaseReview(loaded.review, base);
             setReview(rebased, loaded.path);
-            notify(stats.stale > 0 ? 'warn' : 'info', rebaseCardText('opened', stats));
+            notify(rebaseCardTone(stats), rebaseCardText('opened', stats));
           }
           if (adoptedFrom) {
             notify('info', `Reopened the review made when this chapter was at ${adoptedFrom}.`);
@@ -524,7 +524,7 @@ export function App(): React.JSX.Element {
           if (!latest) return;
           const { review: rebased, stats } = rebaseReview(latest, baseFrom(content));
           setReview(rebased, useApp.getState().reviewPath);
-          notify(stats.stale > 0 ? 'warn' : 'info', rebaseCardText('reloaded', stats), 'file-reload');
+          notify(rebaseCardTone(stats), rebaseCardText('reloaded', stats), 'file-reload');
         })
         .catch(fail);
     });

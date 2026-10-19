@@ -886,3 +886,109 @@ describe('no place by a guess (apply.23 review)', () => {
     expect(next.hunks[0]?.anchor).toBe('stale');
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* files.20: nothing is placed before the body                         */
+/* ------------------------------------------------------------------ */
+
+describe('the body only (files.20)', () => {
+  const sources: Array<Pick<Hunk, 'source' | 'status' | 'edited'>> = [
+    { source: 'diff', status: 'pending' },
+    { source: 'diff', status: 'accepted' },
+    { source: 'manual', status: 'accepted' },
+    { source: 'claude', status: 'pending' },
+    { source: 'claude', status: 'accepted', edited: true }
+  ];
+
+  it('never places a hunk of any source on its words where only the frontmatter still has them', () => {
+    const body = 'Mara walked to teh mill at dusk.\n\nRain fell on a roof.';
+    const later = 'Mara walked to a mill at dusk.\n\nRain fell on a roof.';
+    for (const kind of sources) {
+      // In the frontmatter, the words are not the chapter's: the hunk leaves the page.
+      const front = '---\naliases: [teh mill]\n---\n\n';
+      const text = front + body;
+      const hunk = { ...hunkAt(text.indexOf('teh mill at'), 'teh', 'the', kind.status), ...kind };
+      const { review: next, stats } = rebaseOnto(reviewOn(text, [hunk]), front + later);
+      expect(next.hunks[0], kind.source).toMatchObject({ anchor: 'stale', start: 0, end: 0 });
+      expect(stats).toMatchObject({ anchored: 0, newlyStale: 1 });
+      expect(composeReview(next)).toBe(front + later);
+      // In a body paragraph, the same words are found.
+      const lead = 'aliases: [teh mill]\n\n';
+      const plain = { ...hunkAt((lead + body).indexOf('teh mill at'), 'teh', 'the', kind.status), ...kind };
+      const kept = rebaseOnto(reviewOn(lead + body, [plain]), lead + later).review.hunks[0];
+      expect(kept, kind.source).toMatchObject({ start: lead.indexOf('teh'), end: lead.indexOf('teh') + 3 });
+    }
+  });
+
+  it('never places a deletion or an insertion by surroundings that only the frontmatter still has', () => {
+    const body = 'It was late, and the river rose in the night.';
+    const later = 'It was late, and the sea rose in the dawn.';
+    const places = (summary: string): Hunk | undefined => {
+      const front = `---\nsummary: ${summary}\n---\n\n`;
+      const point = front.length + body.indexOf('night');
+      const review = reviewOn(front + body, [hunkAt(point, '', 'dark ', 'pending', 'i1')]);
+      return rebaseOnto(review, front + later).review.hunks[0];
+    };
+    // The frontmatter holds the words around the place, which the body no longer does.
+    const tempted = places('the river rose in the night');
+    const front = '---\nsummary: the river rose in the night\n---\n\n';
+    expect(tempted?.anchor).not.toBe('stale');
+    expect(tempted?.start).toBeGreaterThanOrEqual(front.length);
+    // Just where it goes when the frontmatter holds other words, as many.
+    expect(tempted?.start).toBe(places('a flood came over the hills')?.start);
+  });
+
+  it('searches the body alone for words changed a little, past a copy in the frontmatter', () => {
+    const front = '---\nsummary: the river had begun to climb the steps\n---\n\n';
+    const body = 'It was the third night of rain, and the river had begun to climb the steps.';
+    const at = front.length + body.indexOf('had begun');
+    const review = reviewOn(front + body, [hunkAt(at, 'had begun to climb', 'began climbing', 'pending')]);
+    const later = front + body.replace('had begun to climb', 'had begun to clamb');
+    const { review: next } = rebaseOnto(review, later);
+    expect(next.hunks[0]).toMatchObject({ anchor: 'fuzzy', start: at });
+  });
+
+  it('weighs no copy of the words in the frontmatter against a place in the body', () => {
+    // "the" deleted by hand, and "and" made "but": the copy in the frontmatter reads
+    // as the old text before the deletion did, and would take the place's claim away.
+    const front = '---\nsummary: and the river rose\n---\n';
+    const text = `${front}It was late and the river rose at dusk.`;
+    const later = `${front}It was late but river rose at dusk.`;
+    const hunk = hunkAt(text.indexOf('the river rose at'), 'the ', '', 'pending');
+    const { review: next, stats } = rebaseOnto(reviewOn(text, [hunk]), later);
+    const place = later.indexOf('river rose at');
+    expect(next.hunks[0]).toMatchObject({
+      status: 'accepted',
+      baseSide: 'replacement',
+      start: place,
+      end: place
+    });
+    expect(stats.adopted).toBe(1);
+  });
+
+  it('counts only the body in finding the only such words in the file', () => {
+    // "colour" made "color" by hand, with the words either side changed too.
+    const front = '---\ntags: [color]\n---\n\n';
+    const text = `${front}The grey colour of the sky.`;
+    const later = `${front}A pale color in the sky.`;
+    const hunk = hunkAt(text.indexOf('colour'), 'colour', 'color', 'pending');
+    const { review: next } = rebaseOnto(reviewOn(text, [hunk]), later);
+    expect(next.hunks[0]).toMatchObject({
+      status: 'accepted',
+      baseSide: 'replacement',
+      start: later.indexOf('color in'),
+      end: later.indexOf('color in') + 'color'.length
+    });
+  });
+
+  it('never places a hunk at the line break that closes the frontmatter', () => {
+    // As the paragraph box makes one today, where the body starts on the next line (files.22).
+    const text = '---\na: 1\n---\nFirst words.\n\nSecond.';
+    const brk = text.indexOf('\nFirst');
+    const hunk = { ...hunkAt(brk, '\n', '', 'accepted'), source: 'manual' as const };
+    const later = `${text}\n\nThird.`;
+    const { review: next } = rebaseOnto(reviewOn(text, [hunk]), later);
+    expect(next.hunks[0]).toMatchObject({ anchor: 'stale', start: 0, end: 0 });
+    expect(composeReview(next)).toBe(later);
+  });
+});

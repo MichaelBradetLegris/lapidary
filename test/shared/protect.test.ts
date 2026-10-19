@@ -641,6 +641,120 @@ describe('a review made or loaded', () => {
   });
 });
 
+describe('the guard through a rebase (files.20)', () => {
+  const onDisk = (r: Review, text: string): ReturnType<typeof rebaseReview> =>
+    rebaseReview(r, { ...base(text), hash: 'next' });
+
+  it('keeps out a suggestion that a change on disk put inside syntax, and counts it apart from those lost', () => {
+    const text = 'She walked to the old mill at dusk.\n\nRain fell on teh roof.';
+    const mill = suggest(text, 'old ¦mill', 'mill', 'watermill');
+    const teh = suggest(text, '¦teh roof', 'teh', 'the');
+    const r = review(text, [mill, teh]);
+    // The author made the mill a link in Obsidian, and fixed "teh" there too.
+    const next = 'She walked to the old [[mill]] at dusk.\n\nRain fell on the roof.';
+    const { review: moved, stats } = onDisk(r, next);
+    expect(moved.hunks.find((h) => h.id === mill.id)).toMatchObject({
+      anchor: 'stale',
+      start: 0,
+      end: 0,
+      keptOut: 'wikilink',
+      status: 'pending',
+      original: 'mill',
+      replacement: 'watermill'
+    });
+    expect(moved.hunks.find((h) => h.id === teh.id)).toMatchObject({
+      status: 'accepted',
+      baseSide: 'replacement'
+    });
+    expect(stats).toMatchObject({ anchored: 1, stale: 1, newlyStale: 0, keptOut: 1, adopted: 1 });
+  });
+
+  it('screens again a suggestion that was off the page and is found inside syntax', () => {
+    const text = 'Rain fell.\n\nThe sun came out.';
+    const lost = { ...suggest(text, 'The ¦sun', 'sun', 'Sun'), anchor: 'stale' as const, start: 0, end: 0 };
+    const { review: moved, stats } = onDisk(review(text, [lost]), 'Rain fell. #sun\n\nThe moon came out.');
+    expect(moved.hunks[0]).toMatchObject({ anchor: 'stale', keptOut: 'tag', start: 0, end: 0 });
+    expect(stats).toMatchObject({ newlyStale: 0, keptOut: 1 });
+  });
+
+  it('leaves where it is found a suggestion the author decided, as the guard does when a review loads', () => {
+    const text = 'She walked to the old mill at dusk.';
+    const next = 'She walked to the old [[mill]] at dusk.';
+    for (const status of ['accepted', 'dismissed'] as const) {
+      const mill = suggest(text, 'old ¦mill', 'mill', 'watermill', { status });
+      const { review: moved, stats } = onDisk(review(text, [mill]), next);
+      expect(moved.hunks[0]).toMatchObject({ anchor: 'exact', status, start: next.indexOf('mill') });
+      expect(moved.hunks[0]?.keptOut).toBeUndefined();
+      expect(stats).toMatchObject({ newlyStale: 0, keptOut: 0 });
+    }
+  });
+
+  it('screens before overlaps are resolved, so a suggestion kept out pushes none off the page', () => {
+    const text = 'She wrote draft notes.';
+    const tn = suggest(text, 'draf¦t n', 't n', 'T N');
+    // ", N" overlapped "T N" when the review was made, so it was off the page.
+    const comma = {
+      ...suggest(text, 'draft¦ notes', ' n', ', N'),
+      anchor: 'stale' as const,
+      start: 0,
+      end: 0
+    };
+    const next = 'She wrote #draft notes.';
+    const { review: moved, stats } = onDisk(review(text, [tn, comma]), next);
+    expect(moved.hunks.find((h) => h.id === tn.id)).toMatchObject({ anchor: 'stale', keptOut: 'tag' });
+    expect(moved.hunks.find((h) => h.id === comma.id)).toMatchObject({
+      start: next.indexOf(' notes'),
+      end: next.indexOf(' notes') + 2
+    });
+    expect(moved.hunks.find((h) => h.id === comma.id)?.anchor).not.toBe('stale');
+    expect(stats).toMatchObject({ anchored: 1, newlyStale: 0, keptOut: 1 });
+  });
+
+  it("measures touching in the overlap pass: 'ab-cd efgh' made into 'abcd efgh' on disk", () => {
+    const text = 'ab-cd efgh';
+    const ab = suggest(text, '¦ab-', 'ab', 'AB');
+    const cd = suggest(text, '-¦cd', 'cd', 'CD');
+    // d e overlapped cd when the review was made, so it was off the page.
+    const de = { ...suggest(text, 'c¦d e', 'd e', 'D E'), anchor: 'stale' as const, start: 0, end: 0 };
+    const { review: moved, stats } = onDisk(review(text, [ab, cd, de]), 'abcd efgh');
+    const byId = (id: string): Hunk | undefined => moved.hunks.find((h) => h.id === id);
+    expect(byId(ab.id)).toMatchObject({ start: 0, end: 2 });
+    expect(byId(cd.id)).toMatchObject({ anchor: 'stale', keptOut: 'combined' });
+    // Kept out in the pass, cd pushes nothing off the page: d e, which overlapped only cd, stays.
+    expect(byId(de.id)).toMatchObject({ start: 3, end: 6 });
+    expect(byId(de.id)?.anchor).not.toBe('stale');
+    expect(stats).toMatchObject({ anchored: 2, newlyStale: 0, keptOut: 1 });
+  });
+
+  it('counts as could not be found only what was on the page, and loading the result changes nothing', () => {
+    const text = 'Rain fell on teh roof.\n\nThe mill stood by teh river.\n\nShe saw it.';
+    const roof = suggest(text, '¦teh roof', 'teh', 'the');
+    const river = suggest(text, '¦teh river', 'teh', 'the');
+    const gone = { ...suggest(text, '¦She saw', 'She', 'He'), anchor: 'stale' as const, start: 0, end: 0 };
+    const out: Hunk = {
+      ...suggest(text, 'The ¦mill', 'mill', 'Mill'),
+      anchor: 'stale',
+      start: 0,
+      end: 0,
+      keptOut: 'markup'
+    };
+    const r = review(text, [roof, river, gone, out]);
+    // The last two paragraphs were rewritten in Obsidian: the second "teh" goes, as an overlap of the first.
+    const next = 'Rain fell on teh roof.\n\nNothing stood by a pond.\n\nIt was late.';
+    const { review: moved, stats } = onDisk(r, next);
+    expect(moved.hunks.find((h) => h.id === out.id)).toBe(out);
+    expect(stats).toEqual({
+      anchored: 1,
+      stale: 3,
+      newlyStale: 1,
+      keptOut: 0,
+      adopted: 0,
+      orphanedComments: 0
+    });
+    expect(guardLoadedReview(moved)).toBe(moved);
+  });
+});
+
 describe('keptOutNote', () => {
   it('reads as 11.3 (k) words it, with the label of what would change', () => {
     expect(keptOutNote('wikilink')).toBe(

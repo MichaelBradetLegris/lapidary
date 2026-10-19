@@ -8,7 +8,7 @@ import {
 } from '../../src/shared/diff/compose';
 import { anchorChanges, type ChangeInput } from '../../src/shared/diff/anchor';
 import { insideWord } from '../../src/shared/diff/fuzzy';
-import { screenModelHunks } from '../../src/shared/diff/protect';
+import { isGuarded, screenModelHunks } from '../../src/shared/diff/protect';
 import { rebaseReview } from '../../src/shared/diff/rebase';
 import { editSuggestion } from '../../src/shared/edit';
 import { createAiReview, createReview, guardLoadedReview } from '../../src/shared/review';
@@ -935,6 +935,138 @@ describe('deletions and insertions whose words stay (apply.23 review)', () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* files.20: kept out, and out of the frontmatter, through a rebase    */
+/* ------------------------------------------------------------------ */
+
+describe('kept out, and out of the frontmatter, through a rebase (files.20)', () => {
+  const sourcesArb = fc.array(fc.constantFrom<HunkSource>('diff', 'manual', 'claude'), {
+    minLength: 1,
+    maxLength: 6
+  });
+
+  /**
+   * A chapter of apply.23's pieces, with the hunks' sources mixed, a few
+   * suggestions kept out of the text on words it holds, and, when asked, a
+   * frontmatter that holds the whole body again on one line: a rebase that
+   * read the frontmatter would find every hunk's words, and most of the text
+   * around them, there too.
+   */
+  function frontedChapter(
+    pieces: readonly Piece[],
+    sources: readonly HunkSource[],
+    kept: readonly number[],
+    fronted: boolean
+  ): { base: string; hunks: Hunk[]; keptOut: Hunk[] } {
+    const built = buildChapter(pieces);
+    const front = fronted ? `---\ntitle: ${built.base.replace(/\n+/g, ' ')}\n---\n\n` : '';
+    const words = [...built.base.matchAll(/w\d+/g)].map((m) => m[0]);
+    const keptOut = kept.flatMap((k, i): Hunk[] => {
+      const word = words[k % words.length];
+      return word === undefined
+        ? []
+        : [
+            {
+              id: `k${i}`,
+              start: 0,
+              end: 0,
+              baseSide: 'original',
+              original: word,
+              replacement: `[[${word}]]`,
+              paragraph: 0,
+              category: 'grammar',
+              reason: 'The model said so.',
+              source: 'claude',
+              status: 'pending',
+              anchor: 'stale',
+              keptOut: 'markup'
+            }
+          ];
+    });
+    const hunks = built.hunks.map((h, i) => ({
+      ...h,
+      start: h.start + front.length,
+      end: h.end + front.length,
+      source: sources[i % sources.length] ?? 'diff'
+    }));
+    return { base: front + built.base, hunks: [...hunks, ...keptOut], keptOut };
+  }
+
+  /**
+   * The words a hunk on the page holds on its base side replaced by a new
+   * one ("y3"), or, for a hunk that holds none, the word either side of its
+   * place: the body then has them no more, and the frontmatter still may.
+   */
+  function strike(text: string, hunk: Hunk, fresh: string): string {
+    if (hunk.start < hunk.end) return text.slice(0, hunk.start) + fresh + text.slice(hunk.end);
+    const before = /\S+\s*$/.exec(text.slice(0, hunk.start));
+    const after = /^\s*\S+/.exec(text.slice(hunk.start));
+    const from = before ? hunk.start - before[0].length : hunk.start;
+    const to = after ? hunk.start + after[0].length : hunk.start;
+    return `${text.slice(0, from)}${fresh}a ${fresh}b${text.slice(to)}`;
+  }
+
+  it('a kept-out suggestion stays kept out and in place, and no hunk of any source is placed before the body, through rounds of edits', () => {
+    // Rounds in which words of a hunk on the page were left in the frontmatter and nowhere else.
+    let tempted = 0;
+    fc.assert(
+      fc.property(
+        piecesArb,
+        sourcesArb,
+        fc.array(fc.nat(), { minLength: 1, maxLength: 4 }),
+        fc.constantFrom(true, true, true, false),
+        fc.array(
+          fc.record({
+            strike: fc.option(fc.nat(), { nil: null }),
+            edits: fc.array(editArb(anyWord, ALL_OPS), { maxLength: 4 })
+          }),
+          { minLength: 1, maxLength: 3 }
+        ),
+        (pieces, sources, kept, withFront, rounds) => {
+          const chapter = frontedChapter(pieces, sources, kept, withFront);
+          let review = reviewOf(chapter.base, chapter.hunks);
+          let text = chapter.base;
+          for (const [round, change] of rounds.entries()) {
+            // Another editor changes the body, the words of one hunk among them; the frontmatter stays as it was.
+            const onPage = review.hunks.filter((h) => h.anchor !== 'stale');
+            const target = change.strike === null ? undefined : onPage[change.strike % onPage.length];
+            if (target) text = strike(text, target, `y${round}`);
+            const body = bodyStart(text);
+            text = text.slice(0, body) + applyEdits(text.slice(body), change.edits).text;
+            const words = onPage
+              .map((h) => (h.baseSide === 'original' ? h.original : h.replacement))
+              .filter((w) => w.length > 0);
+            if (words.some((w) => text.slice(0, body).includes(w) && !text.includes(w, body))) tempted += 1;
+
+            const { review: next, stats } = rebaseReview(review, nextBase(text));
+            for (const h of next.hunks) {
+              if (h.anchor !== 'stale')
+                expect(h.start, JSON.stringify({ text, h })).toBeGreaterThanOrEqual(body);
+            }
+            for (const was of chapter.keptOut) expect(next.hunks.find((h) => h.id === was.id)).toEqual(was);
+            // What the cards count: those the rebase took off the page, and those it kept out.
+            const before = new Map(review.hunks.map((h) => [h.id, h]));
+            const off = next.hunks.filter((h) => h.anchor === 'stale');
+            const newly = off.filter(
+              (h) => h.keptOut !== undefined && before.get(h.id)?.keptOut === undefined
+            );
+            expect(stats.stale).toBe(off.length);
+            expect(stats.keptOut).toBe(newly.length);
+            expect(stats.newlyStale).toBe(
+              off.filter((h) => h.keptOut === undefined && before.get(h.id)?.anchor !== 'stale').length
+            );
+            // A rebased review loads as it is: the guard has run on it.
+            expect(guardLoadedReview(next)).toBe(next);
+            review = next;
+          }
+        }
+      ),
+      { numRuns: 500 }
+    );
+    expect(tempted).toBeGreaterThan(100);
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /* files.7: the guard on model suggestions                             */
 /* ------------------------------------------------------------------ */
 
@@ -1235,5 +1367,120 @@ describe('the guard on model suggestions (files.7)', () => {
     );
     expect(onPage).toBeGreaterThan(300);
     expect(keptOut).toBeGreaterThan(300);
+  });
+
+  /* Another editor's words, syntax among them: a link's brackets, a tag, a
+     heading's #, a code span's backtick, a comment's %%, a rule, a quote. */
+  const typedArb = fc.option(
+    fc.constantFrom(
+      'the',
+      'Mara',
+      '#',
+      '#late',
+      '[[',
+      ']]',
+      '`',
+      '%%',
+      '---',
+      '>',
+      'https://example.com',
+      ','
+    ),
+    { nil: null }
+  );
+  /* What another editor puts round a suggestion's words: syntax, or not
+     (emphasis and brackets are prose here); and, for `join`, the text between
+     it and the hunk before it taken out, so the two touch. */
+  const WRAPS: ReadonlyArray<readonly [string, string]> = [
+    ['[[', ']]'],
+    ['`', '`'],
+    ['%%', '%%'],
+    ['#', ''],
+    ['', '#x'],
+    ['[', '](https://example.com)'],
+    ['*', '*'],
+    ['(', ')']
+  ];
+  const wrapArb = fc.record({
+    hunk: fc.nat(),
+    wrap: fc.oneof(fc.constantFrom(...WRAPS), fc.constant('join' as const))
+  });
+
+  /** `text` with each wrap made round the hunk it picks among those on the page, last place first. */
+  function wrapped(
+    text: string,
+    hunks: readonly Hunk[],
+    wraps: ReadonlyArray<typeof wrapArb extends fc.Arbitrary<infer T> ? T : never>
+  ): string {
+    const page = hunks.filter((h) => h.anchor !== 'stale').sort((a, b) => a.start - b.start || a.end - b.end);
+    const cuts: Array<{ from: number; to: number; insert: string }> = [];
+    for (const { hunk, wrap } of wraps) {
+      const i = hunk % Math.max(1, page.length);
+      const h = page[i];
+      if (!h) continue;
+      if (wrap === 'join') {
+        const previous = page[i - 1];
+        if (previous && previous.end < h.start) cuts.push({ from: previous.end, to: h.start, insert: '' });
+        continue;
+      }
+      cuts.push({ from: h.end, to: h.end, insert: wrap[1] }, { from: h.start, to: h.start, insert: wrap[0] });
+    }
+    let out = text;
+    let last = Infinity;
+    for (const cut of cuts.sort((a, b) => b.from - a.from || b.to - a.to)) {
+      if (cut.to > last) continue;
+      out = out.slice(0, cut.from) + cut.insert + out.slice(cut.to);
+      last = cut.from;
+    }
+    return out;
+  }
+
+  it('so does each one left on the page after a change on disk, and the review the rebase gives loads as it is (files.20)', () => {
+    let onPage = 0;
+    let keptOut = 0;
+    fc.assert(
+      fc.property(
+        chapterArb,
+        fc.array(pickArb, { minLength: 1, maxLength: 12 }),
+        fc.array(wrapArb, { maxLength: 3 }),
+        fc.array(editArb(typedArb, ALL_OPS), { maxLength: 4 }),
+        (text, picks, wraps, edits) => {
+          const review = createAiReview({
+            sourcePath: 'C:/vault/Chapter.md',
+            base: { text, hash: 'h', eol: 'lf', bom: false, trailingNewline: true },
+            changes: changesFor(text, picks),
+            comments: [],
+            generator: { kind: 'claude', provider: 'claude' }
+          });
+          const later = applyEdits(wrapped(text, review.hunks, wraps), edits).text;
+          const { review: moved, stats } = rebaseReview(review, nextBase(later));
+          keptOut += stats.keptOut;
+          // What the guard screens: each one left on the page keeps the syntax, and touches no hunk before it.
+          const signature = syntaxSignature(later);
+          const front = bodyStart(later);
+          const count = splitParagraphs(later).length;
+          const page = moved.hunks
+            .filter((h) => h.anchor !== 'stale')
+            .sort((a, b) => a.start - b.start || a.end - b.end);
+          page.forEach((hunk, i) => {
+            if (!isGuarded(hunk)) return;
+            const after = composeText(later, [{ ...hunk, status: 'accepted' }]);
+            expect(syntaxSignature(after), JSON.stringify({ later, hunk })).toBe(signature);
+            expect(after.slice(0, front)).toBe(later.slice(0, front));
+            expect(splitParagraphs(after).length).toBe(count);
+            expect(hunk.start).not.toBe(page[i - 1]?.end);
+            onPage += 1;
+          });
+          for (const hunk of moved.hunks) {
+            if (hunk.keptOut !== undefined)
+              expect([hunk.anchor, hunk.start, hunk.end]).toEqual(['stale', 0, 0]);
+          }
+          expect(guardLoadedReview(moved)).toBe(moved);
+        }
+      ),
+      { numRuns: 1000 }
+    );
+    expect(onPage).toBeGreaterThan(1000);
+    expect(keptOut).toBeGreaterThan(100);
   });
 });

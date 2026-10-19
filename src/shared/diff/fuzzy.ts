@@ -52,11 +52,11 @@ export function fuzzyFind(
   return best;
 }
 
-/** Every start offset at which `needle` occurs in `haystack`. */
-export function occurrences(haystack: string, needle: string): number[] {
+/** Every start offset at which `needle` occurs in `haystack`, from `start` on. */
+export function occurrences(haystack: string, needle: string, start = 0): number[] {
   if (needle.length === 0) return [];
   const out: number[] = [];
-  let from = 0;
+  let from = start;
   for (;;) {
     const at = haystack.indexOf(needle, from);
     if (at < 0) break;
@@ -96,10 +96,15 @@ export function insideWord(haystack: string, at: number): boolean {
 
 /**
  * Occurrences that respect word boundaries, falling back to every occurrence
- * when the needle only ever appears mid-word.
+ * when the needle only ever appears mid-word. With `start`, only those that
+ * start there or later count, as a rebase reads only a chapter's body.
  */
-export function cleanOccurrences(haystack: string, needle: string): { offsets: number[]; clean: boolean } {
-  const all = occurrences(haystack, needle);
+export function cleanOccurrences(
+  haystack: string,
+  needle: string,
+  start = 0
+): { offsets: number[]; clean: boolean } {
+  const all = occurrences(haystack, needle, start);
   const clean = all.filter((at) => isCleanMatch(haystack, at, needle));
   return clean.length > 0 ? { offsets: clean, clean: true } : { offsets: all, clean: false };
 }
