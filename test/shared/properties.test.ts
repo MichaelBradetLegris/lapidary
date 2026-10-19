@@ -6,10 +6,13 @@ import {
   findOverlaps,
   unsavedDecisionCount
 } from '../../src/shared/diff/compose';
+import { anchorChanges, type ChangeInput } from '../../src/shared/diff/anchor';
 import { insideWord } from '../../src/shared/diff/fuzzy';
 import { rebaseReview } from '../../src/shared/diff/rebase';
 import { editSuggestion } from '../../src/shared/edit';
-import { createReview } from '../../src/shared/review';
+import { createAiReview, createReview, guardLoadedReview } from '../../src/shared/review';
+import { bodyStart, syntaxSignature } from '../../src/shared/text/obsidian';
+import { bodyParagraphs, splitParagraphs } from '../../src/shared/text/paragraphs';
 import type { Hunk, HunkSource, HunkStatus, Review, ReviewBase } from '../../src/shared/types';
 
 interface PieceSpec {
@@ -927,5 +930,233 @@ describe('deletions and insertions whose words stay (apply.23 review)', () => {
       ),
       { numRuns: 500 }
     );
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* files.7: the guard on model suggestions                             */
+/* ------------------------------------------------------------------ */
+
+describe('the guard on model suggestions (files.7)', () => {
+  /* Chapters of prose lines and Obsidian syntax, built as obsidian.test.ts
+     builds them, with frontmatter or without. */
+  const WORDS = ['rain', 'night', 'river', 'Mara', 'lamp', 'stone', 'quiet', 'door'];
+  const MARKS = [
+    '[[Chapter 2]]',
+    '[[Chapter 2|the flood chapter]]',
+    '![[map.png]]',
+    '[the mill](https://example.com/mill)',
+    '![a map](map.png)',
+    '[^1]',
+    '^[a note on the river]',
+    '#draft',
+    '(#draft)',
+    '\\#draft',
+    '`code`',
+    '%%a private note%%',
+    '<!-- a note -->',
+    '$$x^2$$',
+    '<span class="aside">',
+    '</span>',
+    'https://example.com/a',
+    '#1984',
+    'Room #4',
+    '$5 and $10',
+    '*em*',
+    '==hi==',
+    '<Where are you?>',
+    '-',
+    '--',
+    '%',
+    '|'
+  ];
+  const OPENINGS = ['', '', '', '> ', '## ', '> [!note] ', '[^2]: ', '- ', '- - ', '1. ', '\t', '    '];
+  const ENDINGS = ['', '', ' ^mill-1'];
+  const BLOCKS = [
+    '---',
+    '---\nThree days later.\n---',
+    '* * *',
+    '```\nlet x = 1;\n```',
+    '~~~\ncode\n~~~',
+    '%%\nnote\n\nmore\n%%',
+    '$$\nx\n$$'
+  ];
+  const proseLine = fc
+    .tuple(
+      fc.constantFrom(...OPENINGS),
+      fc.array(
+        fc.oneof(
+          { weight: 2, arbitrary: fc.constantFrom(...WORDS) },
+          { weight: 1, arbitrary: fc.constantFrom(...MARKS) }
+        ),
+        { minLength: 1, maxLength: 8 }
+      ),
+      fc.constantFrom(...ENDINGS)
+    )
+    .map(([opening, tokens, ending]) => `${opening}${tokens.join(' ')}${ending}`);
+  const line = fc.oneof(
+    { weight: 4, arbitrary: proseLine },
+    { weight: 1, arbitrary: fc.constantFrom(...BLOCKS) }
+  );
+  const chapterArb = fc
+    .tuple(fc.boolean(), fc.array(fc.tuple(line, fc.boolean()), { minLength: 1, maxLength: 12 }))
+    .map(
+      ([front, lines]) =>
+        (front ? '---\ntitle: The Mill\n---\n' : '') +
+        lines.map(([text, blank], k) => (k === 0 ? '' : blank ? '\n\n' : '\n') + text).join('')
+    );
+
+  /* A model's change: a stretch of one paragraph with part of it replaced by
+     a word, punctuation or nothing, as a copyedit would, or by something
+     that is syntax or makes it, with or without a markup character. */
+  const PROSE_TOKENS = [
+    '',
+    'rain',
+    'Mara',
+    'the ',
+    ' ',
+    ',',
+    '.',
+    "'",
+    'x',
+    '1',
+    ':',
+    '(',
+    ')',
+    '!',
+    '-',
+    '*',
+    '_'
+  ];
+  const SYNTAX_TOKENS = [
+    '--',
+    '---',
+    '=',
+    '\\',
+    '/',
+    'http',
+    's://example.com',
+    'https://example.com',
+    '    ',
+    '\t',
+    '#',
+    '[',
+    ']',
+    '[[',
+    ']]',
+    '%',
+    '%%',
+    '$',
+    '^',
+    '<',
+    '>',
+    '|',
+    '~',
+    '`',
+    '\n',
+    '\n\n',
+    '> ',
+    '# '
+  ];
+  const pickArb = fc.record({
+    paragraph: fc.nat(),
+    from: fc.nat(),
+    length: fc.nat(),
+    at: fc.nat(),
+    cut: fc.nat(),
+    token: fc.oneof(
+      { weight: 3, arbitrary: fc.constantFrom(...PROSE_TOKENS) },
+      { weight: 2, arbitrary: fc.constantFrom(...SYNTAX_TOKENS) }
+    )
+  });
+  type Pick = typeof pickArb extends fc.Arbitrary<infer T> ? T : never;
+
+  /** The changes a model might send for `text`, made from the picks. */
+  function changesFor(text: string, picks: readonly Pick[]): ChangeInput[] {
+    const body = bodyParagraphs(splitParagraphs(text));
+    return picks.flatMap((pick) => {
+      const paragraph = body[pick.paragraph % body.length];
+      if (!paragraph) return [];
+      const from = pick.from % paragraph.text.length;
+      const before = paragraph.text.slice(from, from + 1 + (pick.length % 16));
+      const at = pick.at % (before.length + 1);
+      const cut = at + (pick.cut % (before.length - at + 1));
+      const after = before.slice(0, at) + pick.token + before.slice(cut);
+      return after === before
+        ? []
+        : [{ paragraph: paragraph.index, before, after, category: 'grammar' as const }];
+    });
+  }
+
+  /**
+   * Every model hunk left on the page, applied alone, keeps the chapter's
+   * syntax, its frontmatter and its paragraph count; every one kept out is
+   * at offset 0; and no two left on the page touch. Gives the counts of both.
+   */
+  function keepsTheSyntax(text: string, hunks: readonly Hunk[]): { onPage: number; keptOut: number } {
+    const signature = syntaxSignature(text);
+    const front = bodyStart(text);
+    const count = splitParagraphs(text).length;
+    let onPage = 0;
+    let keptOut = 0;
+    for (const hunk of hunks) {
+      if (hunk.source !== 'claude') continue;
+      if (hunk.anchor === 'stale') {
+        if (hunk.keptOut !== undefined) {
+          expect([hunk.start, hunk.end]).toEqual([0, 0]);
+          keptOut += 1;
+        }
+        continue;
+      }
+      const after = composeText(text, [{ ...hunk, status: 'accepted' }]);
+      expect(syntaxSignature(after), JSON.stringify({ text, hunk })).toBe(signature);
+      expect(bodyStart(after)).toBe(front);
+      expect(after.slice(0, front)).toBe(text.slice(0, front));
+      expect(splitParagraphs(after).length).toBe(count);
+      onPage += 1;
+    }
+    const page = hunks.filter((h) => h.anchor !== 'stale').sort((a, b) => a.start - b.start || a.end - b.end);
+    for (let i = 1; i < page.length; i += 1) expect(page[i]?.start).not.toBe(page[i - 1]?.end);
+    return { onPage, keptOut };
+  }
+
+  it('each model suggestion left on the page, applied alone, keeps the syntax, the frontmatter and the paragraph count', () => {
+    let onPage = 0;
+    let keptOut = 0;
+    fc.assert(
+      fc.property(chapterArb, fc.array(pickArb, { minLength: 1, maxLength: 12 }), (text, picks) => {
+        const review = createAiReview({
+          sourcePath: 'C:/vault/Chapter.md',
+          base: { text, hash: 'h', eol: 'lf', bom: false, trailingNewline: true },
+          changes: changesFor(text, picks),
+          comments: [],
+          generator: { kind: 'claude', provider: 'claude' }
+        });
+        const counts = keepsTheSyntax(text, review.hunks);
+        onPage += counts.onPage;
+        keptOut += counts.keptOut;
+        // Loaded again, a review the guard made is the same review.
+        expect(guardLoadedReview(review)).toBe(review);
+      }),
+      { numRuns: 1000 }
+    );
+    expect(onPage).toBeGreaterThan(1000);
+    expect(keptOut).toBeGreaterThan(1000);
+  });
+
+  it('so does each one left on the page of a review made before the guard, once it is loaded', () => {
+    let onPage = 0;
+    fc.assert(
+      fc.property(chapterArb, fc.array(pickArb, { minLength: 1, maxLength: 12 }), (text, picks) => {
+        const hunks = anchorChanges(text, splitParagraphs(text), changesFor(text, picks), {
+          source: 'claude'
+        });
+        const loaded = guardLoadedReview(reviewOf(text, hunks));
+        onPage += keepsTheSyntax(text, loaded.hunks).onPage;
+        expect(guardLoadedReview(loaded)).toBe(loaded);
+      }),
+      { numRuns: 500 }
+    );
+    expect(onPage).toBeGreaterThan(500);
   });
 });

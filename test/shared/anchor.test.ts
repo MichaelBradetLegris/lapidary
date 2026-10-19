@@ -95,6 +95,48 @@ describe('anchorChanges', () => {
     expect(stale[0]?.reason).toContain('Overlapped');
   });
 
+  it('never takes a fuzzy match that starts before the body, at the line break after the frontmatter (files.7)', () => {
+    const text = '---\ntitle: x\n---\nThe frist line of the chapter.';
+    const change = {
+      paragraph: 0,
+      before: '\nThe firts line of the chapter.',
+      after: '\nThe first line of the chapter.'
+    };
+    const [h] = anchorChanges(text, splitParagraphs(text), [change]);
+    expect(h?.anchor).toBe('stale');
+    // The same quote one line further down, past the body's start, is found.
+    const later = '---\ntitle: x\n---\nA line.\nThe frist line of the chapter.';
+    const [found] = anchorChanges(later, splitParagraphs(later), [change]);
+    expect(found).toMatchObject({ anchor: 'fuzzy', original: 'frist', replacement: 'first' });
+  });
+
+  it('screens the located hunks before overlaps are resolved, and only those', () => {
+    const changes = [
+      { paragraph: 0, before: 'had began to climb', after: 'had begun to scale' },
+      { paragraph: 0, before: 'to climb the steps', after: 'to scale the steps' },
+      { paragraph: 0, before: 'words that are nowhere in it', after: 'x' }
+    ];
+    let seen: Hunk[] = [];
+    const hunks = anchorChanges(TEXT, paragraphs, changes, {
+      screen: (located) => {
+        seen = located;
+        return located.map((h, i) => (i === 0 ? { ...h, anchor: 'stale' as const, start: 0, end: 0 } : h));
+      }
+    });
+    // Both overlapping hunks reach the screen still on the page; the one never found does not.
+    expect(seen.map((h) => [h.original, h.anchor])).toEqual([
+      ['began to climb', 'exact'],
+      ['climb', 'exact']
+    ]);
+    // The first, screened out, no longer pushes the second off the page.
+    expect(hunks.map((h) => [h.original, h.anchor])).toEqual([
+      ['began to climb', 'stale'],
+      ['climb', 'exact'],
+      ['words that are nowhere in it', 'stale']
+    ]);
+    expect(hunks[1]?.reason).toBeUndefined();
+  });
+
   it('produces hunks that compose cleanly', () => {
     const hunks = anchor([
       { paragraph: 0, before: 'had began', after: 'had begun' },

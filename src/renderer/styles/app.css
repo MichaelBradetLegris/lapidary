@@ -2602,6 +2602,12 @@ input[type='text'] {
   color: var(--ink-faint);
 }
 
+/* Why a suggestion was kept out of the text (files.7): the app's own words,
+   in the text colour, after the model's reason in its softer one. */
+.stale__note {
+  color: var(--ink);
+}
+
 /* ---------- margin notes (item 7) ---------- */
 
 .gutter {

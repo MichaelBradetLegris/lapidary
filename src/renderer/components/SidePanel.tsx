@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { keptOutNote } from '../../shared/diff/protect';
 import { isAuthored } from '../../shared/edit';
 import type { ReviewSummary } from '../../shared/ipc';
 import { paragraphNumber } from '../../shared/prompt/chapter';
@@ -411,6 +412,8 @@ export function SidePanel({
                         <dd className="pair__suggested">{sideText(hunk.replacement)}</dd>
                       </dl>
                       {hunk.reason ? <p className="detail__reason">{hunk.reason}</p> : null}
+                      {/* Why the guard kept it out of the text (files.7, 11.3 k). */}
+                      {hunk.keptOut ? <p className="stale__note">{keptOutNote(hunk.keptOut)}</p> : null}
                       <span className="stale__where">
                         Paragraph {paragraphNumber(hunk.paragraph)} in the original review
                       </span>

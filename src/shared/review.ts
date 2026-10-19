@@ -1,4 +1,5 @@
 import { anchorChanges, type ChangeInput } from './diff/anchor';
+import { guardTouching, screenModelHunks } from './diff/protect';
 import { diffToHunks } from './diff/wordDiff';
 import { nextId, slugify } from './ids';
 import { normalizeText } from './text/eol';
@@ -104,7 +105,12 @@ export function createReview(args: CreateReviewArgs): Review {
   };
 }
 
-/** A review built from a model's change list, anchored into the chapter. */
+/**
+ * A review built from a model's change list, anchored into the chapter. Each
+ * suggestion is screened before overlaps are resolved, and the touching rule
+ * runs after, so one that would change Obsidian syntax is kept out of the
+ * text and listed under Unanchored (`files.7`, PLAN 11.3 k).
+ */
 export function createAiReview(args: {
   sourcePath: string;
   base: ReviewBase;
@@ -114,11 +120,16 @@ export function createAiReview(args: {
   raw?: unknown;
   now?: string;
 }): Review {
-  const paragraphs = splitParagraphs(args.base.text);
+  const text = args.base.text;
+  const paragraphs = splitParagraphs(text);
   // `source: 'claude'` is the hunk's provenance marker for "a model wrote this",
   // and everything downstream keys off it. Renaming it would invalidate every
   // review on disk for no gain, so both providers keep using it.
-  const hunks = anchorChanges(args.base.text, paragraphs, args.changes, { source: 'claude' });
+  const anchored = anchorChanges(text, paragraphs, args.changes, {
+    source: 'claude',
+    screen: (located) => screenModelHunks(text, located)
+  });
+  const hunks = guardTouching(text, anchored);
   return createReview({
     sourcePath: args.sourcePath,
     base: args.base,
@@ -197,9 +208,24 @@ export function withGeneratorProvider(review: Review): Review {
   return { ...review, generator: { ...generator, provider } };
 }
 
+/**
+ * The guard on a review loaded from disk (`files.7`): its model suggestions
+ * still pending are screened as a new review's are, then the touching rule
+ * runs, so a review saved before the guard existed opens with a suggestion
+ * that would change Obsidian syntax under Unanchored, kept out of the text.
+ * What the author decided, wrote or rewrote is left as it is, and so is a
+ * suggestion kept out already. The review comes back untouched when nothing
+ * is kept out, so loading it again changes nothing.
+ */
+export function guardLoadedReview(review: Review): Review {
+  const text = review.base.text;
+  const hunks = guardTouching(text, screenModelHunks(text, review.hunks));
+  return hunks.every((hunk, i) => hunk === review.hunks[i]) ? review : { ...review, hunks };
+}
+
 /** Every load-time upgrade, in order. What `reviews.ts` runs on each file it reads. */
 export function upgradeLoadedReview(review: Review): Review {
-  return repairCommentAnchors(withGeneratorProvider(migrateReview(review)));
+  return guardLoadedReview(repairCommentAnchors(withGeneratorProvider(migrateReview(review))));
 }
 
 /* ------------------------------------------------------------------ */

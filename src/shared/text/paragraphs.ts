@@ -77,6 +77,18 @@ export function splitParagraphs(text: string): Paragraph[] {
   return out;
 }
 
+/**
+ * How many paragraphs `text` holds when it is read as part of a chapter's
+ * body: split as `splitParagraphs` splits, but with no frontmatter looked
+ * for, so a `---` line at its start is just a line. The guard counts one
+ * paragraph so, before and after a suggestion (`files.7`).
+ */
+export function countParagraphs(text: string): number {
+  let count = 0;
+  for (const piece of text.split(SEPARATOR)) if (piece.trim().length > 0) count += 1;
+  return count;
+}
+
 /** The numbered paragraphs, i.e. everything Claude is allowed to edit. */
 export function bodyParagraphs(paragraphs: readonly Paragraph[]): Paragraph[] {
   return paragraphs.filter((p) => !p.isFrontmatter);

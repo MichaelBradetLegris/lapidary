@@ -3,6 +3,7 @@
  * This module must not import Node or DOM APIs (CLAUDE.md rule 4).
  */
 
+import type { SyntaxKind } from './text/obsidian';
 import type { Theme } from './ui/theme';
 
 export const CHANGE_CATEGORIES = [
@@ -43,6 +44,16 @@ export type AnchorQuality = 'exact' | 'fuzzy' | 'ambiguous' | 'stale';
 export type HunkSource = 'claude' | 'diff' | 'manual';
 export type BaseSide = 'original' | 'replacement';
 
+/**
+ * Why the guard kept a model's suggestion out of the text (`files.7`, PLAN
+ * 11.3 k): the kind of Obsidian syntax it would change; `paragraph-break`
+ * for one that crosses a blank line, or would add or remove a paragraph; `markup`
+ * for one whose words hold a character of `MARKUP_CHARS`; `combined` for one
+ * that starts where the suggestion before it on the line ends, so the two
+ * could make syntax together. `keptOutNote` words each for the side panel.
+ */
+export type KeptOutReason = SyntaxKind | 'paragraph-break' | 'markup' | 'combined';
+
 export interface Hunk {
   id: string;
   /** char offset into review.base.text (LF-normalized, BOM stripped) */
@@ -75,6 +86,13 @@ export interface Hunk {
    * edit that replaced it.
    */
   supersededBy?: string;
+  /**
+   * Set when the guard kept this model suggestion out of the text, because it
+   * would change Obsidian syntax (`files.7`, PLAN 11.3 k). Such a hunk is
+   * `stale` at offset 0 and listed under Unanchored with `keptOutNote`; its
+   * `reason` stays the model's own. Absent on every other hunk.
+   */
+  keptOut?: KeptOutReason;
 }
 
 export interface ReviewComment {

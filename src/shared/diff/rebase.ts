@@ -65,6 +65,10 @@ export function rebaseReview(
 
   let adopted = 0;
   const moved: Hunk[] = review.hunks.map((hunk) => {
+    /* A suggestion the guard kept out of the text stays out (files.7, 11.3 k):
+       found again, it would be back on the page, the syntax it would change
+       and all. */
+    if (hunk.keptOut !== undefined) return hunk;
     /* A suggestion the author's own edit swallowed stays off the page. Its words
        often still exist inside the edit that replaced them, so re-anchoring it
        would put two hunks over the same span and undo a decision the author
