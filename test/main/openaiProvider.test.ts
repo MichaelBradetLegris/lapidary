@@ -17,7 +17,7 @@ import type { ReviewRequest } from '../../src/shared/ipc';
 import { fromPromptNumbering } from '../../src/shared/prompt/chapter';
 import { createAiReview, toChangeCategory } from '../../src/shared/review';
 import { normalizeText } from '../../src/shared/text/eol';
-import { startMockOpenAi, type MockOpenAi } from '../helpers/mockOpenAi';
+import { OBSIDIAN_REVIEW, scenarioForKey, startMockOpenAi, type MockOpenAi } from '../helpers/mockOpenAi';
 
 /* The OpenAI provider driven over real HTTP against the local mock in
    test/helpers/mockOpenAi.ts: model listing, a streamed review, the error
@@ -32,6 +32,7 @@ const SAMPLE = path.join(
   'manuscript',
   'Chapter 01 - The Flood.md'
 );
+const OBSIDIAN_SAMPLE = path.join(path.dirname(SAMPLE), 'Chapter 03 - Obsidian.md');
 
 let mock: MockOpenAi;
 let chapter: string;
@@ -189,6 +190,30 @@ describe('OpenAI provider against the local mock', () => {
     expect(review.hunks.map((h) => h.replacement)).toEqual(['begun', 'have', '', 'lose', "It's", 'came']);
     expect(review.comments.map((c) => c.paragraph)).toEqual([5, 6, null]);
     expect(review.generator.provider).toBe('openai');
+  });
+
+  it('answers a key holding "obsidian" with the review of the Obsidian sample, which the guard sorts (files.9)', async () => {
+    expect(scenarioForKey('Bearer sk-test-obsidian')).toBe('obsidian');
+    const text = normalizeText(await fs.readFile(OBSIDIAN_SAMPLE, 'utf8')).text;
+    const sourcePath = 'C:/vault/Chapter 03 - Obsidian.md';
+    const before = mock.requests.length;
+    const result = await provider('sk-test-obsidian').review(request({ text, sourcePath }), hooks());
+    const sent = mock.requests.slice(before).find((r) => r.path === '/v1/responses');
+    expect(String((sent?.body as Record<string, unknown>)['input'])).toContain('paragraphs="21"');
+    expect(result.raw).toEqual(OBSIDIAN_REVIEW);
+
+    const output = fromPromptNumbering(result.output);
+    const review = createAiReview({
+      sourcePath,
+      base: { text, hash: 'h', eol: 'lf', bom: false, trailingNewline: true },
+      changes: output.changes.map((c) => ({ ...c, category: toChangeCategory(c.category) })),
+      comments: output.comments,
+      generator: { kind: 'openai', provider: 'openai', model: result.model ?? '' },
+      raw: result.raw
+    });
+    expect(review.hunks.filter((h) => h.anchor !== 'stale')).toHaveLength(13);
+    expect(review.hunks.filter((h) => h.keptOut !== undefined)).toHaveLength(10);
+    expect(review.hunks).toHaveLength(23);
   });
 
   it('resolves an empty model setting to the newest gpt-5', async () => {

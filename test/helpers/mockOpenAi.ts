@@ -11,7 +11,8 @@
  * `ratelimit` a 429, `servererror` a 500, `malformed` a reply that is not JSON,
  * `wrongshape` JSON of the wrong shape, `slow` a reply that trickles out over
  * several seconds (for Cancel), or an unstreamed one that comes after them (for
- * a connection test's time limit), and anything else the canned review.
+ * a connection test's time limit), `obsidian` the review of the Obsidian sample
+ * chapter (`OBSIDIAN_REVIEW`), and anything else the canned review of Chapter 01.
  *
  * Two ways to use it:
  *   vitest:  const mock = await startMockOpenAi(); ... mock.url ... await mock.close();
@@ -28,7 +29,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 
 export type Scenario =
-  'ok' | 'unauthorized' | 'ratelimit' | 'servererror' | 'malformed' | 'wrongshape' | 'slow';
+  'ok' | 'unauthorized' | 'ratelimit' | 'servererror' | 'malformed' | 'wrongshape' | 'slow' | 'obsidian';
 
 export interface RecordedRequest {
   method: string;
@@ -118,6 +119,205 @@ export const CANNED_REVIEW = {
   ]
 };
 
+/**
+ * The review of `samples/manuscript/Chapter 03 - Obsidian.md` (`files.9`), in
+ * the same strict shape and numbering as `CANNED_REVIEW`. It answers as a
+ * model that mostly keeps the prompt's Obsidian rule (PLAN 5.4) might: it
+ * skips the hidden paragraphs 14 to 17, and besides thirteen fixes to the
+ * prose, an alias, a link's text, a heading, a callout's title, footnote text
+ * and the words between HTML tags, which stay in the text, it offers ten that
+ * reach into syntax: a block ID, an embed, a comment, an internal link, a sum
+ * written with `$`, a web address, inline code, a footnote mark, an image and
+ * a tag. The guard keeps those out of the text and lists them under
+ * Unanchored with their notes (`files.7`, PLAN 11.3 k);
+ * `test/shared/obsidianSample.test.ts` says which is which.
+ */
+export const OBSIDIAN_REVIEW = {
+  changes: [
+    {
+      paragraph: 2,
+      before: "it was'nt black",
+      after: "it wasn't black",
+      category: 'punctuation',
+      reason: 'The apostrophe stands for the missing letter: "wasn\'t".'
+    },
+    {
+      paragraph: 2,
+      before: 'an old bottle. ^stone',
+      after: 'an old bottle.',
+      category: 'formatting',
+      reason: 'Stray characters after the last sentence.'
+    },
+    {
+      paragraph: 3,
+      before: 'the night of the flod',
+      after: 'the night of the flood',
+      category: 'spelling',
+      reason: 'Typo for "flood".'
+    },
+    {
+      paragraph: 4,
+      before: '![[Chapter 02 - After]]',
+      after: '![[Chapter 02 – After]]',
+      category: 'punctuation',
+      reason: 'A spaced dash between words is an en dash.'
+    },
+    {
+      paragraph: 5,
+      before: '*realy* foolish',
+      after: '*really* foolish',
+      category: 'spelling',
+      reason: 'Typo for "really".'
+    },
+    {
+      paragraph: 5,
+      before: 'It had laid in the mud',
+      after: 'It had lain in the mud',
+      category: 'grammar',
+      reason: '"Laid" needs an object; the stone "had lain" there.'
+    },
+    {
+      paragraph: 6,
+      before: 'chekc whether',
+      after: 'check whether',
+      category: 'typo',
+      reason: 'Typo for "check".'
+    },
+    {
+      paragraph: 8,
+      before: 'The leter',
+      after: 'The letter',
+      category: 'spelling',
+      reason: 'Typo for "letter".'
+    },
+    {
+      paragraph: 9,
+      before: '[[Millers Lane]]',
+      after: "[[Miller's Lane]]",
+      category: 'punctuation',
+      reason: "The lane is the miller's, so it takes an apostrophe."
+    },
+    {
+      paragraph: 9,
+      before: 'had never wrote a letter',
+      after: 'had never written a letter',
+      category: 'tense',
+      reason: 'The past perfect needs the participle "written".'
+    },
+    {
+      paragraph: 10,
+      before: '<u>wrok</u>',
+      after: '<u>work</u>',
+      category: 'typo',
+      reason: 'Typo for "work".'
+    },
+    {
+      paragraph: 10,
+      before: 'leaves me 3 dollars',
+      after: 'leaves me $3',
+      category: 'consistency',
+      reason: 'The letter writes the other sums as "$5" and "$2".'
+    },
+    {
+      paragraph: 10,
+      before: 'alot of evenings',
+      after: 'a lot of evenings',
+      category: 'spelling',
+      reason: '"A lot" is two words.'
+    },
+    {
+      paragraph: 12,
+      before: 'route agianst the',
+      after: 'route against the',
+      category: 'spelling',
+      reason: 'Typo for "against".'
+    },
+    {
+      paragraph: 12,
+      before: '[teh tithe map]',
+      after: '[the tithe map]',
+      category: 'typo',
+      reason: 'Typo for "the".'
+    },
+    {
+      paragraph: 12,
+      before: 'parish/regsiters',
+      after: 'parish/registers',
+      category: 'spelling',
+      reason: 'Typo for "registers".'
+    },
+    {
+      paragraph: 12,
+      before: '`recieved`',
+      after: '`received`',
+      category: 'spelling',
+      reason: '"Received" is spelt with "ei".'
+    },
+    {
+      paragraph: 13,
+      before: 'wheel[^1].',
+      after: 'wheel.[^1]',
+      category: 'punctuation',
+      reason: 'A footnote mark goes after the full stop.'
+    },
+    {
+      paragraph: 13,
+      before: 'copies was lost',
+      after: 'copies were lost',
+      category: 'agreement',
+      reason: '"Copies" is plural.'
+    },
+    {
+      paragraph: 18,
+      before: 'a skecth of the stone',
+      after: 'a sketch of the stone',
+      category: 'spelling',
+      reason: 'Typo for "sketch".'
+    },
+    {
+      paragraph: 19,
+      before: 'where she fond it',
+      after: 'where she found it',
+      category: 'typo',
+      reason: 'Typo for "found".'
+    },
+    {
+      paragraph: 20,
+      before: '#continuty',
+      after: '#continuity',
+      category: 'spelling',
+      reason: 'Typo for "continuity".'
+    },
+    {
+      paragraph: 21,
+      before: '1840, wich is',
+      after: '1840, which is',
+      category: 'spelling',
+      reason: 'Typo for "which".'
+    }
+  ],
+  comments: [
+    {
+      paragraph: 2,
+      quote: 'the deep green of an old bottle',
+      category: 'style',
+      text: 'A good image, and it comes back when the light goes through the stone on the sill.'
+    },
+    {
+      paragraph: 10,
+      quote: 'I think of the field.',
+      category: 'style',
+      text: 'The plainest line in the letter carries the most; consider leaving the letter as rough as it is.'
+    },
+    {
+      paragraph: null,
+      quote: null,
+      category: 'plot',
+      text: 'The stone and the price in the ledger are set up well. The chapter leaves open who wrote that price, which seems intended.'
+    }
+  ]
+};
+
 const MODELS = [
   { id: 'gpt-5.5', created: 1_780_000_000, object: 'model', owned_by: 'openai' },
   { id: 'gpt-5-mini', created: 1_755_000_000, object: 'model', owned_by: 'openai' },
@@ -143,6 +343,7 @@ export function scenarioForKey(authorization: string): Scenario {
   if (key.includes('malformed')) return 'malformed';
   if (key.includes('wrongshape')) return 'wrongshape';
   if (key.includes('slow')) return 'slow';
+  if (key.includes('obsidian')) return 'obsidian';
   return 'ok';
 }
 
@@ -323,7 +524,7 @@ export async function startMockOpenAi(options: { port?: number; log?: boolean } 
             ? '{"changes": [{"paragraph": 0, "before": "had began", "after": '
             : scenario === 'wrongshape'
               ? JSON.stringify({ edits: [{ where: 0, what: 'had began' }] })
-              : JSON.stringify(CANNED_REVIEW);
+              : JSON.stringify(scenario === 'obsidian' ? OBSIDIAN_REVIEW : CANNED_REVIEW);
 
         if (request['stream'] === true) {
           await streamResponse(res, model, text, scenario === 'slow' ? 600 : 15);

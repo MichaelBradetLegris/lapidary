@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="160" viewBox="0 0 240 160">
+  <title>A sketch of the stone</title>
+  <path d="M30 92 C34 50 92 22 146 30 C196 38 222 70 210 104 C198 136 140 146 88 138 C48 132 27 120 30 92 Z" fill="#16241e" stroke="#0b1310" stroke-width="3"/>
+  <path d="M70 70 C92 54 124 46 150 52" fill="none" stroke="#3d6b55" stroke-width="6" stroke-linecap="round" opacity="0.7"/>
+</svg>
