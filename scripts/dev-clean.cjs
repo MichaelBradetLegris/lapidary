@@ -21,6 +21,8 @@
  *   --no-claude-code       behave as if Claude Code were not installed (development builds only)
  *   --quiet                a quiet test window: shown without taking the foreground, and kept
  *                          rendering while covered (development builds only; PLAN dev.1)
+ *   --shell-stub           open nothing outside the app: a link, a file or a folder the app would
+ *                          hand the system is printed instead (development builds only; setup.10b)
  *   --exe <path>           run a packaged build instead of `npm run dev`
  */
 const { spawn } = require('node:child_process');
@@ -38,13 +40,14 @@ const FLAGS = new Set([
   '--claude-config-empty',
   '--api-key-dummy',
   '--no-claude-code',
-  '--quiet'
+  '--quiet',
+  '--shell-stub'
 ]);
 
 function usage(problem) {
   if (problem) console.error(problem);
   console.error(
-    'Usage: npm run dev:clean -- [--user-data <dir> | --user-data-fresh] [--claude-config-empty | --claude-config <dir>] [--api-key-dummy] [--no-claude-code] [--quiet] [--exe <path>]'
+    'Usage: npm run dev:clean -- [--user-data <dir> | --user-data-fresh] [--claude-config-empty | --claude-config <dir>] [--api-key-dummy] [--no-claude-code] [--quiet] [--shell-stub] [--exe <path>]'
   );
   process.exit(problem ? 1 : 0);
 }
@@ -109,10 +112,14 @@ if (options['--quiet']) {
   env.MANUSCRIPT_REVIEW_DEV_QUIET_WINDOW = '1';
   console.log('Quiet window: shown without taking the foreground, and kept rendering while covered.');
 }
+if (options['--shell-stub']) {
+  env.MANUSCRIPT_REVIEW_DEV_SHELL_STUB = '1';
+  console.log('Shell stub: links, files and folders are printed here, never opened.');
+}
 
 let child;
 if (options['--exe']) {
-  for (const flag of ['--no-claude-code', '--quiet']) {
+  for (const flag of ['--no-claude-code', '--quiet', '--shell-stub']) {
     if (options[flag]) console.log(`Note: a packaged build ignores ${flag}, like every development switch.`);
   }
   child = spawn(

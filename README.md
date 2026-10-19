@@ -87,7 +87,7 @@ Alternatively, set `OPENAI_API_KEY` as an environment variable, the same way as 
 
 ## The guidelines file
 
-`GUIDELINES.md` in your manuscript folder is sent with every review, after the app's own instructions. It is created from a template the first time you start a review or open it from Settings, and **Settings > Open guidelines file** opens it. Fill in your style sheet: spelling variant, Oxford comma, character names, invented words, anything the reviewer must not "fix". Both providers read the same file.
+`GUIDELINES.md` in your manuscript folder is sent with every review, after the app's own instructions. It is created from a template the first time you start a review or open it. **Settings > Open guidelines file**, or **Open** in Review with AI, opens it in your computer's app for .md files, and **Open in Obsidian** beside either opens it in Obsidian. Review with AI also says when your style sheet is still empty. Fill in your style sheet: spelling variant, Oxford comma, character names, invented words, anything the reviewer must not "fix". Both providers read the same file.
 
 ## Reviewing a chapter
 

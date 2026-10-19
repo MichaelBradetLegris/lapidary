@@ -1,15 +1,16 @@
-import { app, BrowserWindow, Menu, shell } from 'electron';
+import { app, BrowserWindow, Menu } from 'electron';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { APP_DATA_DIR, APP_ID, APP_NAME } from '../shared/branding';
 import { readDevSwitches, setDevSwitches } from './devSwitches';
 import { backgroundThrottling, bringForward, chromiumSwitches, showWindow } from './foreground';
-import { closeGuard, installIpcBridge, registerCoreHandlers, stopWatching } from './ipc';
+import { closeGuard, installIpcBridge, registerCoreHandlers, stopWatching, systemShell } from './ipc';
 import { flushLog, initLog, log } from './log';
 import { navigationAction } from './navigation';
 import { abortAll } from './providers/controllers';
 import { loadSettings } from './settings';
+import { SHELL_STUB_PREFIX } from './shellApi';
 import { applyTheme, currentWindowBackground, installTheme } from './theme';
 import { installZoom } from './zoom';
 
@@ -146,7 +147,7 @@ function createWindow(): BrowserWindow {
   }
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) void shell.openExternal(url);
+    if (/^https?:\/\//.test(url)) void systemShell().openExternal(url);
     return { action: 'deny' };
   });
 
@@ -157,7 +158,7 @@ function createWindow(): BrowserWindow {
     const action = navigationAction(details.url, win.webContents.getURL());
     if (action === 'allow') return;
     details.preventDefault();
-    if (action === 'external') void shell.openExternal(details.url);
+    if (action === 'external') void systemShell().openExternal(details.url);
   });
   win.webContents.on('will-attach-webview', (event) => event.preventDefault());
 
@@ -197,6 +198,8 @@ function start(): void {
     isolatedUserData: switches.userDataDir !== null
   });
   if (switches.ignored.length > 0) log('warn', 'devswitch.ignored', { names: switches.ignored.join(',') });
+  // Said by main itself, so a test run knows the switch took before it presses anything (setup.10b).
+  if (switches.shellStub) console.log(`${SHELL_STUB_PREFIX} on: nothing is opened outside the app`);
 
   // Pinned shortcuts and the running window share one taskbar button only when
   // both carry the installer's identity, which is APP_ID.

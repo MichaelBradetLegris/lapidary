@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { openAiKeyLine } from '../../shared/ai/openai';
-import type { EffectivePaths, ModelInfo, OpenAiKeyStatus, RuntimeStatus } from '../../shared/ipc';
+import type {
+  EffectivePaths,
+  ModelInfo,
+  OpenAiKeyStatus,
+  OpenGuidelinesVia,
+  RuntimeStatus
+} from '../../shared/ipc';
 import { EFFORT_LEVELS, type EffortLevel, type Settings } from '../../shared/types';
 import { BACKUPS_NOTE } from '../../shared/ui/backups';
 import { SETTINGS_BUTTON_SELECTOR } from '../../shared/ui/dialog';
+import { openedGuidelinesNote } from '../../shared/ui/guidelines';
 import { normalizeTheme, THEME_LABELS, THEMES } from '../../shared/ui/theme';
 import { call, errorMessage } from '../state/client';
 import { useDialogEscape, useDialogFocus } from '../state/dialog';
 import { modelOptions } from '../state/models';
+import { GuidelinesButtons } from './Guidelines';
 
 interface Props {
   settings: Settings;
@@ -116,11 +124,11 @@ export function SettingsDialog({
       .catch((err: unknown) => setError(errorMessage(err)));
   };
 
-  const openGuidelines = (): void => {
+  const openGuidelines = (via: OpenGuidelinesVia): void => {
     setError(null);
-    call('guidelines:open', { via: 'default' })
+    call('guidelines:open', { via })
       .then((result) => {
-        setNote(result.created ? `Created ${result.path} from the template.` : `Opened ${result.path}.`);
+        setNote(openedGuidelinesNote(result, via));
         refreshPaths();
       })
       .catch((err: unknown) => setError(errorMessage(err)));
@@ -187,20 +195,31 @@ export function SettingsDialog({
         </div>
         <p className="modal__note">{BACKUPS_NOTE}</p>
 
+        {/* Two rows, so the path keeps its room: Change and Show in folder
+            beside it, and under them the two ways to open the file, Open in
+            Obsidian and the system's app (setup.10b). */}
         <div className="modal__row">
           <span>Guidelines file</span>
-          <span className="modal__path">{paths?.guidelinesPath ?? 'choose a manuscript folder first'}</span>
+          <span className="modal__path" title={paths?.guidelinesPath ?? undefined}>
+            {paths?.guidelinesPath ?? 'choose a manuscript folder first'}
+          </span>
           <span className="modal__buttons">
             <button type="button" onClick={pickGuidelines}>
               Change
-            </button>
-            <button type="button" disabled={!paths?.guidelinesPath} onClick={openGuidelines}>
-              Open guidelines file
             </button>
             <button type="button" disabled={!paths?.guidelinesPath} onClick={() => reveal('guidelines')}>
               Show in folder
             </button>
           </span>
+        </div>
+        <div className="modal__row">
+          <span />
+          <span />
+          <GuidelinesButtons
+            path={paths?.guidelinesPath ?? null}
+            openLabel="Open guidelines file"
+            onOpen={openGuidelines}
+          />
         </div>
 
         <div className="modal__row">

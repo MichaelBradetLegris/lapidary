@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { openAiKeyLine, toOpenAiEffort } from '../../shared/ai/openai';
 import type {
   EffectivePaths,
+  GuidelinesStatus,
   ModelInfo,
   OpenAiKeyStatus,
+  OpenGuidelinesVia,
   ReviewSummary,
   RuntimeStatus
 } from '../../shared/ipc';
@@ -28,6 +30,7 @@ import {
 import { call, errorMessage } from '../state/client';
 import { modelOptions, selectedModel } from '../state/models';
 import { useDialogEscape, useDialogFocus } from '../state/dialog';
+import { GuidelinesRow } from './Guidelines';
 import { UpdateNote } from './UpdateNote';
 
 interface Props {
@@ -100,6 +103,7 @@ export function ReviewDialog({
   onClose
 }: Props): React.JSX.Element {
   const [paths, setPaths] = useState<EffectivePaths | null>(null);
+  const [guidelines, setGuidelines] = useState<GuidelinesStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   /* What a save that did not reach the chapter file said. Its cards sit under
      this dialog's backdrop, so the dialog says it instead (apply.20 review). */
@@ -157,9 +161,27 @@ export function ReviewDialog({
       .catch((err: unknown) => setError(errorMessage(err)));
   };
 
-  const openGuidelines = (): void => {
+  /* Whether the style sheet is still empty (setup.10b): read as the dialog
+     opens, after an open, which may create the file, and whenever the window
+     gets the focus back, as when the author returns from filling it in. A
+     status that cannot be read shows no note; starting the review says what
+     is wrong with the file. */
+  const readGuidelines = useCallback((): void => {
+    call('guidelines:status', undefined).then(setGuidelines, () => setGuidelines(null));
+  }, []);
+
+  useEffect(() => {
+    readGuidelines();
+    window.addEventListener('focus', readGuidelines);
+    return () => window.removeEventListener('focus', readGuidelines);
+  }, [readGuidelines]);
+
+  const openGuidelines = (via: OpenGuidelinesVia): void => {
     setError(null);
-    call('guidelines:open', { via: 'default' }).catch((err: unknown) => setError(errorMessage(err)));
+    call('guidelines:open', { via }).then(
+      () => readGuidelines(),
+      (err: unknown) => setError(errorMessage(err))
+    );
   };
 
   const modelPlaceholder =
@@ -277,15 +299,7 @@ export function ReviewDialog({
           </p>
         ) : null}
 
-        <div className="modal__row">
-          <span>Guidelines</span>
-          <span className="modal__path">{paths?.guidelinesPath ?? 'choose a manuscript folder first'}</span>
-          <span className="modal__buttons">
-            <button type="button" disabled={!paths?.guidelinesPath} onClick={openGuidelines}>
-              Open
-            </button>
-          </span>
-        </div>
+        <GuidelinesRow path={paths?.guidelinesPath ?? null} status={guidelines} onOpen={openGuidelines} />
 
         <p className="modal__note">
           {previous && previousCounts

@@ -47,7 +47,8 @@ import {
   guidelinesStatus
 } from './guidelines';
 import { log } from './log';
-import { openGuidelinesFile } from './openGuidelines';
+import { assertCanOpen, openGuidelinesFile } from './openGuidelines';
+import { pickShell, type ShellApi } from './shellApi';
 import {
   isDefaultReviewsFolder,
   listReviews,
@@ -314,6 +315,14 @@ function guidelinesTemplate(): string {
     : path.join(app.getAppPath(), 'resources', GUIDELINES_TEMPLATE);
 }
 
+/**
+ * Electron's shell, or under `dev:clean --shell-stub` one that opens nothing
+ * and writes what it would have opened to the terminal (shellApi.ts, setup.10b).
+ */
+export function systemShell(): ShellApi {
+  return pickShell(shell, getDevSwitches().shellStub, (line) => console.log(line));
+}
+
 /** What Save may still write after Settings changes folder (files.2). */
 const openedChapters = new OpenedChapters();
 
@@ -380,14 +389,19 @@ function registerFileHandlers(): void {
   handle('guidelines:ensure', async () => ensureGuidelines(await loadSettings(), guidelinesTemplate()));
 
   handle('guidelines:open', async ({ via }) => {
-    const info = await ensureGuidelinesFile(await loadSettings(), guidelinesTemplate());
-    await openGuidelinesFile(info.path, via, shell);
+    const settings = await loadSettings();
+    // A file that cannot be opened this way is refused before anything is created (setup.10b).
+    const target = guidelinesPathFor(settings);
+    if (target) assertCanOpen(target, via);
+    const info = await ensureGuidelinesFile(settings, guidelinesTemplate());
+    await openGuidelinesFile(info.path, via, systemShell());
     return info;
   });
 
   handle('guidelines:status', async () => guidelinesStatus(await loadSettings()));
 
   handle('shell:reveal', async ({ target, sourcePath, name }) => {
+    const system = systemShell();
     /* Show backups for a chapter (apply.11): its own backup folder, which main
        works out from the path and refuses outside the backups root, opened
        with the newest backup selected. The folder follows the chapter's path,
@@ -402,11 +416,11 @@ function registerFileHandlers(): void {
       );
       if (!shown) throw fail('not-found', noBackupsYet(chapterName(sourcePath)));
       if (shown.newest) {
-        shell.showItemInFolder(shown.newest);
+        system.showItemInFolder(shown.newest);
         return { path: shown.newest };
       }
-      const problem = await shell.openPath(shown.folder);
-      if (problem) shell.showItemInFolder(shown.folder);
+      const problem = await system.openPath(shown.folder);
+      if (problem) system.showItemInFolder(shown.folder);
       return { path: shown.folder };
     }
     /* A set-aside card's Show the text opens its own file (apply.16), in the
@@ -415,8 +429,8 @@ function registerFileHandlers(): void {
     if (target === 'drafts' && name !== undefined) {
       const text = await setAsideFile(draftsRootFor(app.getPath('userData')), name);
       if (!text) throw fail('not-found', 'That set-aside text is no longer in the drafts folder.');
-      const problem = await shell.openPath(text);
-      if (problem) shell.showItemInFolder(text);
+      const problem = await system.openPath(text);
+      if (problem) system.showItemInFolder(text);
       return { path: text };
     }
     let file: string | null;
@@ -429,7 +443,7 @@ function registerFileHandlers(): void {
       else file = (await ensureGuidelinesFile(settings, guidelinesTemplate())).path;
     }
     if (!file) throw fail('not-configured', `There is no ${target} folder to show yet.`);
-    shell.showItemInFolder(file);
+    system.showItemInFolder(file);
     return { path: file };
   });
 }

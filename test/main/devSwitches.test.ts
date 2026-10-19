@@ -26,6 +26,7 @@ const EVERY_SWITCH = {
   MANUSCRIPT_REVIEW_DEV_NO_CLAUDE_CODE: '1',
   MANUSCRIPT_REVIEW_DEV_FAKE_UPDATE: '1.0.1',
   MANUSCRIPT_REVIEW_DEV_QUIET_WINDOW: '1',
+  MANUSCRIPT_REVIEW_DEV_SHELL_STUB: '1',
   MREV_VERBOSE: '1'
 };
 
@@ -38,6 +39,7 @@ describe('readDevSwitches in a development build', () => {
       noClaudeCode: true,
       fakeUpdate: '1.0.1',
       quietWindow: true,
+      shellStub: true,
       verbose: true,
       ignored: []
     });
@@ -58,12 +60,17 @@ describe('readDevSwitches in a development build', () => {
   it('reads "0", "false", "no" and "off" as off, and blank values as unset', () => {
     for (const off of ['0', 'false', 'No', 'OFF', '', '   ']) {
       const s = readDevSwitches({
-        env: { MREV_VERBOSE: off, MANUSCRIPT_REVIEW_DEV_QUIET_WINDOW: off },
+        env: {
+          MREV_VERBOSE: off,
+          MANUSCRIPT_REVIEW_DEV_QUIET_WINDOW: off,
+          MANUSCRIPT_REVIEW_DEV_SHELL_STUB: off
+        },
         packaged: false,
         isolatedUserData: null
       });
       expect(s.verbose).toBe(false);
       expect(s.quietWindow).toBe(false);
+      expect(s.shellStub).toBe(false);
     }
     const blank = readDevSwitches({
       env: { MANUSCRIPT_REVIEW_USER_DATA: '  ', MANUSCRIPT_REVIEW_DEV_FAKE_UPDATE: '' },
