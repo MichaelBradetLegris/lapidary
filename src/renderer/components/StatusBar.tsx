@@ -24,9 +24,9 @@ interface Props {
 
 /**
  * What the three states look like in the pane, since the swap can confuse
- * (item 6), and what the unsaved dot means, in the toolbar (apply.4) and the
- * chapter list (apply.5). The small-change marks of PLAN 11.7 join the list
- * when they land (`small.10`).
+ * (item 6), how a small change is drawn and found (PLAN 11.7, `small.10`), and
+ * what the unsaved dot means, in the toolbar (apply.4) and the chapter list
+ * (apply.5).
  */
 function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -70,6 +70,26 @@ function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
         <li>
           <span className="legend__swatch legend__swatch--dismissed" /> <b>Dismissed.</b> The line is your
           original under a thin dotted grey line. The suggestion stays above it, faded.
+        </li>
+        <li>
+          <span className="legend__swatch legend__swatch--capsule" /> <b>Small changes.</b> A change to a
+          comma, a space or a one-letter word has a small box under it in the line, tinted while it is
+          pending, so it is easy to see and to click. Once decided, only its grey or dotted line stays.
+        </li>
+        <li>
+          <span className="legend__swatch legend__swatch--key" /> <b>Small text above.</b> A comma or a letter
+          above the line is drawn larger, and is not struck through when replaced: &quot;was&quot; says so. A
+          space or a break is boxed and named, as in SPACE.
+        </li>
+        <li>
+          <span className="legend__swatch legend__swatch--bar" /> <b>Margin bars.</b> A bar beside a line
+          marks a small change on it that is still pending. Click the bar to select the change, then press a,
+          d, u or e.
+        </li>
+        <li>
+          <span className="legend__swatch legend__swatch--focus" /> <b>Shift+J and Shift+K</b> go to the next
+          and previous pending suggestion, starting from what is on screen. The arrowhead in the margin marks
+          the focused suggestion.
         </li>
         <li>
           <span className="legend__swatch legend__swatch--unsaved" /> <b>Not saved to chapter.</b> The dot

@@ -2896,6 +2896,42 @@ input[type='text'] {
   border-top: 1px dotted var(--border-strong);
 }
 
+/* The small-change marks (11.7, small.10), each drawn as on the page and
+   centred in the swatch's 16 px, so the text lines up: the capsule, the keycap
+   of a named space, the margin bar and the focus arrowhead. */
+.legend__swatch--capsule {
+  width: 10px;
+  height: 11px;
+  margin: 0 3px;
+  border-radius: 2px 2px 0 0;
+  background: color-mix(in srgb, var(--cat-punctuation) var(--tint-small), transparent);
+  border-bottom: 2px solid var(--cat-punctuation);
+}
+
+.legend__swatch--key {
+  height: 11px;
+  border: 1px solid color-mix(in srgb, var(--ink-faint) 60%, transparent);
+  border-radius: 3px;
+}
+
+.legend__swatch--bar {
+  width: 0;
+  height: 12px;
+  margin: 0 7px 0 6px;
+  border-left: 3px solid var(--cat-punctuation);
+  border-radius: 0;
+}
+
+.legend__swatch--focus {
+  width: 0;
+  height: 0;
+  margin: 0 5px;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 6px solid var(--ink);
+  border-radius: 0;
+}
+
 /* The unsaved dot itself, centred in the swatch's 16 px so the text lines up. */
 .legend__swatch--unsaved {
   width: 8px;
