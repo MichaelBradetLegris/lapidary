@@ -1,8 +1,12 @@
 import type { ChildProcess, spawn as nodeSpawn } from 'node:child_process';
 import type { SdkModel } from '../../shared/ai/claudeModels';
 import { classifyClaudeFailure, type ClaudeAccount } from '../../shared/ai/claudeStatus';
-import type { RateLimitInfo } from '../../shared/ipc';
-import { parseReviewOutput } from '../../shared/prompt/schema';
+import type { RateLimitInfo, ReviewRequest } from '../../shared/ipc';
+import { renderChapter } from '../../shared/prompt/chapter';
+import { parseReviewOutput, reviewOutputJsonSchema } from '../../shared/prompt/schema';
+import { buildSystemPrompt } from '../../shared/prompt/system';
+import { chapterName } from '../../shared/review';
+import { chapterStats } from '../../shared/text/stats';
 import type { EffortLevel } from '../../shared/types';
 import { fail } from '../errors';
 import { claudeArgs } from './claudeOptions';
@@ -321,6 +325,23 @@ export interface CliReviewInput {
   effort: EffortLevel;
   /** the chapter's words (`chapterStats`), for the message when the reply runs out of room (files.10) */
   words?: number;
+}
+
+/**
+ * What a review sends Claude Code, from the request Review with AI made. It
+ * lives here rather than in claude.ts, which imports electron, so that a test
+ * can run it (files.10 review). `words` is the count the dialog showed, with
+ * the frontmatter left out, for the message when the reply runs out of room.
+ */
+export function cliReviewInput(request: ReviewRequest): CliReviewInput {
+  return {
+    systemPrompt: buildSystemPrompt(request.guidelines),
+    jsonSchema: reviewOutputJsonSchema,
+    prompt: renderChapter(request.text, chapterName(request.sourcePath) || 'chapter'),
+    model: request.model,
+    effort: request.effort,
+    words: chapterStats(request.text).words
+  };
 }
 
 interface Context extends ResultContext {

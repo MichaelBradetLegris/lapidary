@@ -3,11 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { claudeModelOptions } from '../../shared/ai/claudeModels';
 import type { ModelInfo, ReviewRequest, RuntimeStatus } from '../../shared/ipc';
-import { renderChapter } from '../../shared/prompt/chapter';
-import { reviewOutputJsonSchema } from '../../shared/prompt/schema';
-import { buildSystemPrompt } from '../../shared/prompt/system';
-import { chapterName } from '../../shared/review';
-import { chapterStats } from '../../shared/text/stats';
 import { getDevSwitches } from '../devSwitches';
 import { log } from '../log';
 import { fail } from '../errors';
@@ -20,7 +15,7 @@ import {
   type LocateDeps,
   type RunOptions
 } from './claudeBinary';
-import { cliInitialize, runCliReview, runCliTest, type CliDeps } from './claudeCli';
+import { cliInitialize, cliReviewInput, runCliReview, runCliTest, type CliDeps } from './claudeCli';
 import { createHandshake } from './claudeHandshake';
 import { createClaudeRuntimeCheck } from './claudeRuntime';
 import { buildClaudeEnv } from './claudeOptions';
@@ -157,19 +152,8 @@ export async function reviewChapter(request: ReviewRequest, hooks: ProviderHooks
   if (!executableCache) {
     throw fail('claude-missing-binary', 'Claude Code is not installed. Open Setup to install it.');
   }
-  return runCliReview(
-    cliDeps(executableCache),
-    {
-      systemPrompt: buildSystemPrompt(request.guidelines),
-      jsonSchema: reviewOutputJsonSchema,
-      prompt: renderChapter(request.text, chapterName(request.sourcePath) || 'chapter'),
-      model: request.model,
-      effort: request.effort,
-      // The count Review with AI showed, for the message when the reply runs out of room (files.10).
-      words: chapterStats(request.text).words
-    },
-    hooks
-  );
+  // The prompt, model, effort and the chapter's words, built in claudeCli.ts, where a test runs it (files.10).
+  return runCliReview(cliDeps(executableCache), cliReviewInput(request), hooks);
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,10 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { AppFailure } from '../../src/main/errors';
 import {
   cliInitialize,
+  cliReviewInput,
   runCliReview,
   type CliDeps,
   type CliReviewInput
@@ -13,7 +15,12 @@ import { BASE_CLAUDE_ARGS } from '../../src/main/providers/claudeOptions';
 import { abortAll, liveControllerCount, registerController } from '../../src/main/providers/controllers';
 import type { ProgressPhase } from '../../src/main/providers/types';
 import { replyLimitMessage } from '../../src/shared/ai/replyLimit';
+import type { ReviewRequest } from '../../src/shared/ipc';
+import { renderChapter } from '../../src/shared/prompt/chapter';
 import { reviewOutputJsonSchema } from '../../src/shared/prompt/schema';
+import { buildSystemPrompt } from '../../src/shared/prompt/system';
+import { chapterStats, countWords } from '../../src/shared/text/stats';
+import { EFFORT_LEVELS, type EffortLevel } from '../../src/shared/types';
 
 /* cli.1: the app talks to the user's own Claude Code over stream-json. These
    tests run the real code against test/helpers/fakeClaude.ts, a Node script
@@ -327,6 +334,88 @@ describe('a review whose reply runs out of room (files.10)', () => {
       code: 'claude-invalid-output'
     });
     expect(await failure('no-output', LONG)).toMatchObject({ code: 'claude-invalid-output' });
+  });
+});
+
+/* files.10 review: the request Review with AI makes, as Claude Code is handed
+   it. claude.ts imports electron, so no test runs its reviewChapter; it hands
+   the request to cliReviewInput, which these tests run, and the last test
+   pins that it does. */
+describe('cliReviewInput (files.10)', () => {
+  // Ten words, as Review with AI counts them, before the body starts.
+  const FRONTMATTER = '---\ntitle: The Long Night\ntags: [draft, part two]\n---\n\n';
+  const GUIDELINES = '# Guidelines\n\nBritish spelling.';
+
+  function request(text: string, effort: EffortLevel = 'high'): ReviewRequest {
+    return {
+      requestId: 'r1',
+      provider: 'claude',
+      sourcePath: '/vault/Novel/Chapter 3.md',
+      text,
+      model: 'sonnet',
+      effort,
+      guidelines: GUIDELINES
+    };
+  }
+
+  /** A chapter of `paragraphs` ten-word paragraphs under the frontmatter. */
+  const chapter = (paragraphs: number): string =>
+    FRONTMATTER + Array(paragraphs).fill('The rain fell on the roof of the old house.').join('\n\n');
+
+  it("counts the chapter's words as the dialog does, without the frontmatter, and keeps the effort", () => {
+    const text = `${FRONTMATTER}It was teh night of the storm.\n\nShe waited by the door, listening.\n\nNobody came.`;
+    for (const effort of EFFORT_LEVELS) {
+      const input = cliReviewInput(request(text, effort));
+      expect(input.words).toBe(15);
+      expect(input.words).toBe(chapterStats(text).words);
+      expect(countWords(text)).toBe(25);
+      expect(input.effort).toBe(effort);
+    }
+    expect(cliReviewInput(request(chapter(1_200))).words).toBe(12_000);
+  });
+
+  it('sends the guidelines, the numbered chapter under its file name, the schema and the model', () => {
+    const text = `${FRONTMATTER}It was teh night of the storm.`;
+    const input = cliReviewInput(request(text));
+    expect(input.systemPrompt).toBe(buildSystemPrompt(GUIDELINES));
+    expect(input.systemPrompt).toContain('British spelling.');
+    expect(input.prompt).toBe(renderChapter(text, 'Chapter 3'));
+    expect(input.prompt).toContain('[1] It was teh night of the storm.');
+    expect(input.jsonSchema).toBe(reviewOutputJsonSchema);
+    expect(input.model).toBe('sonnet');
+  });
+
+  it('gives a reply that runs out of room the advice for its words and effort', async () => {
+    const run = async (text: string, effort: EffortLevel): Promise<string> => {
+      try {
+        await runCliReview(deps('output-limit'), cliReviewInput(request(text, effort)), hooks().hooks);
+      } catch (err) {
+        if (err instanceof AppFailure) return err.message;
+        throw err;
+      }
+      throw new Error('expected a failure');
+    };
+    expect(await run(chapter(1_200), 'medium')).toBe(
+      "Claude reached its output limit (32,000 tokens) before it had written every suggestion, so none came back. The model's thinking counts against the same limit, so a lower effort in Review with AI leaves more of it for the suggestions. At 12,000 words the chapter is long for one review: if a lower effort is not enough, split it into two files and review each."
+    );
+    // 11,990 words in the body: the frontmatter would take the file to 12,000.
+    expect(await run(chapter(1_199), 'low')).toBe(
+      'Claude reached its output limit (32,000 tokens) before it had written every suggestion, so none came back. Try again, or choose another model.'
+    );
+  });
+
+  it('is what reviewChapter in claude.ts sends', () => {
+    const source = readFileSync(path.join(path.dirname(FAKE), '../../src/main/providers/claude.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|\s)\/\/.*$/gm, '$1');
+    const review = source.slice(
+      source.indexOf('export async function reviewChapter('),
+      source.indexOf('export async function testClaude(')
+    );
+    expect(review).toContain(
+      'return runCliReview(cliDeps(executableCache), cliReviewInput(request), hooks);'
+    );
+    expect(review.match(/runCliReview\(/g)).toHaveLength(1);
   });
 });
 
