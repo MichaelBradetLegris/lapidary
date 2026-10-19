@@ -73,6 +73,23 @@ describe('ghostMaxWidths (ui.2)', () => {
     expect(ghostMaxWidths([row(100, 300), row(105, 10)], EDGE)[0]).toBe(GHOST_MIN_WIDTH);
   });
 
+  /* small.7 (PLAN 11.7): a small change's ghost holds a key, a box with the
+     comma or the name of the space, which a cut would make unreadable. */
+  it('never cuts a ghost short of its key, which takes the place of the minimum', () => {
+    const keyed = (left: number, ghost: number, keyEnd: number): GhostRow => ({
+      ...row(left, ghost),
+      keyEnd
+    });
+    expect(ghostMaxWidths([keyed(EDGE - 4, 80, 61.2)], EDGE)).toEqual([62]);
+    expect(ghostMaxWidths([keyed(EDGE - 4, 30, 14)], EDGE)).toEqual([14]);
+    expect(ghostMaxWidths([keyed(100, 300, 20), row(200, 10)], EDGE)[0]).toBe(
+      200 - GHOST_GAP - 100 - TRAILING
+    );
+    expect(ghostMaxWidths([keyed(100, 300, 40), row(160, 10)], EDGE)[0]).toBe(40);
+    expect(ghostMaxWidths([keyed(100, 300, 61.2), row(150, 10)], EDGE)[0]).toBe(62);
+    expect(ghostMaxWidths([keyed(100, 50, 61.2)], EDGE)).toEqual([null]);
+  });
+
   it('does not compare rows on different lines', () => {
     const widths = ghostMaxWidths([row(100, 300, 100), row(150, 100, 140)], EDGE);
     expect(widths).toEqual([null, null]);

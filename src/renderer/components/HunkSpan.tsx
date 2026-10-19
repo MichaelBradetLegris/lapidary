@@ -1,5 +1,5 @@
 import { useEffect, useRef, type MouseEvent } from 'react';
-import { hunkFaces } from '../../shared/render';
+import { ghostContent, hunkFaces } from '../../shared/render';
 import { isAuthored } from '../../shared/edit';
 import { isSmallLive, sideText } from '../../shared/ui/small';
 import { TOOLTIP_DELAY_MS } from '../../shared/ui/tooltip';
@@ -45,9 +45,9 @@ export function HunkSpan({
   onHover,
   onHoverEnd
 }: Props): React.JSX.Element {
-  const { live, ghost, role } = hunkFaces(hunk);
+  const { live } = hunkFaces(hunk);
+  const content = ghostContent(hunk);
   const isInsertion = hunk.original.length === 0;
-  const isDeletion = hunk.replacement.length === 0;
   const small = isSmallLive(hunk);
   const timer = useRef<number | null>(null);
 
@@ -116,17 +116,27 @@ export function HunkSpan({
       {/* The row above the line: the ghost, then the x trailing it. The row
           belongs to the suggestion for the pointer too, so the x stays shown
           all the way from the word up to it (round 4, item 2). */}
-      <span className="hunk__above">
-        <span className={`hunk__ghost hunk__ghost--${role}`} aria-hidden="true">
+      <span className={`hunk__above${content.key ? ' hunk__above--key' : ''}`}>
+        <span className={`hunk__ghost hunk__ghost--${content.role}`} aria-hidden="true">
           {/* An SVG arrow, not a glyph: this file must survive an encoding round trip. */}
           {/* An accepted insertion has no original to show. It used to read
               "was keep", which says the opposite of what happened; it now
               reads "added" (Phase 5d, where the author's own edits make
-              inserted words common). */}
-          <span className="hunk__role">
-            {role === 'original' ? ghost.length === 0 ? 'added' : 'was' : <IconArrow />}
-          </span>
-          {isDeletion && hunk.status !== 'accepted' ? <span className="hunk__tag">delete</span> : ghost}
+              inserted words common). ghostContent chooses (11.7, small.4). */}
+          <span className="hunk__role">{content.label === 'arrow' ? <IconArrow /> : content.label}</span>
+          {content.tag ? <span className="hunk__tag">{content.tag}</span> : null}
+          {/* A small ghost sits in a box, a space or a break by its name in
+              small caps, so a comma or a hyphen is plain at a glance and a
+              space is not an arrow pointing at nothing (11.7, small.7). The
+              box is an inline-block, so a replaced original's line-through
+              does not reach it; its "was" says it was replaced. */}
+          {content.key ? (
+            <span className={`hunk__key${content.key.name ? ' hunk__key--name' : ''}`}>
+              {content.key.text}
+            </span>
+          ) : (
+            content.text
+          )}
         </span>
         {/* Out of the tab order: the x is invisible until hovered, and the
             keyboard dismisses with d. */}

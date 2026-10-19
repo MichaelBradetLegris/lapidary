@@ -991,6 +991,42 @@ input[type='text'] {
   opacity: 0.8;
 }
 
+/* The key (11.7, small.7): a small ghost drawn bigger, the glyph at 1.25 times
+   the ghost's size, so a comma or a hyphen is plain at a glance. An
+   inline-block, so a replaced original's line-through does not reach it; its
+   "was" says it was replaced. Whitespace, which cannot be shown, is named in
+   small caps in a keycap: a 1 px rounded border in the ghost's own colour at
+   60% and no fill (light word-choice is exactly 4.5:1 on the page, so a tint
+   behind it would fail). Punctuation has no border: with one, the rows piled
+   up on a dialogue line with six small changes, "ADDED [,]" running 11.6 px
+   over the next "-> [I]". The row above the line reaches down less far with a
+   key in it, so the taller row stays inside the gap between the lines. */
+.hunk__key {
+  display: inline-block;
+  margin-left: 0.12em;
+  font-size: 1.25em;
+  line-height: 1;
+}
+
+.hunk__tag + .hunk__key {
+  margin-left: 0.3em;
+}
+
+.hunk__key--name {
+  margin-left: 0.2em;
+  padding: 0.12em 0.3em;
+  border: 1px solid color-mix(in srgb, currentColor 60%, transparent);
+  border-radius: 3px;
+  font-family: var(--font-ui);
+  font-size: 0.86em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hunk__above--key {
+  padding-bottom: 0.12em;
+}
+
 /* The caret of an insertion, 2 px by about 15 px. Inline, not inline-block, so
    it stays on the line of the word before it: an inline-block caret broke
    away onto the next line at some window widths (11.7, small.1). Its height

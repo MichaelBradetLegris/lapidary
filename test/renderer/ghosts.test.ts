@@ -57,6 +57,17 @@ describe('clipGhosts keeps every ghost inside the pane (ui.2)', () => {
     expect(NOTES).toContain('<div className="gutter" ref={gutterRef}>');
   });
 
+  it("measures the right edge of a ghost's key, so the key of a small change is never cut (small.7)", () => {
+    expect(GHOSTS).toContain("const key = ghost.querySelector<HTMLElement>('.hunk__key');");
+    expect(GHOSTS).toContain(
+      'const keyEnd = key ? key.getBoundingClientRect().right - ghostRect.left : undefined;'
+    );
+    expect(GHOSTS).toMatch(/\.\.\.\(keyEnd === undefined \? \{\} : \{ keyEnd \}\)/);
+    expect(read('renderer/components/HunkSpan.tsx')).toContain(
+      "hunk__key${content.key.name ? ' hunk__key--name' : ''}"
+    );
+  });
+
   it('measures a lone ghost too, which has no neighbour but can still run past the edge', () => {
     // It used to return when there were fewer than two rows.
     expect(GHOSTS).toContain('if (rows.length === 0) return;');

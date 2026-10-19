@@ -182,6 +182,53 @@ describe('the text a suggestion puts in the line (small.2)', () => {
     expect(textWithout(span, 'hunk__above')).toBe('began');
   });
 
+  /* small.6 and small.7: the classes app.css draws the capsule and the key from. */
+  it('marks a small live face for its capsule, and the sides a neighbour touches', () => {
+    const comma = hunk(SHAPES[0]!, 'pending');
+    expect(classes(render(comma))).toContain('hunk--small');
+    expect(classes(render(hunk(SHAPES[8]!, 'pending')))).not.toContain('hunk--small');
+    expect(classes(render(hunk(SHAPES[6]!, 'pending')))).not.toContain('hunk--small');
+    const html = renderToStaticMarkup(
+      createElement(HunkSpan, {
+        hunk: comma,
+        focused: false,
+        hovered: false,
+        flushBefore: true,
+        flushAfter: false,
+        onToggleAccept: () => undefined,
+        onToggleDismiss: () => undefined,
+        onHover: () => undefined,
+        onHoverEnd: () => undefined
+      })
+    );
+    const span = parse(html).children[0] as Element;
+    expect(classes(span)).toEqual(expect.arrayContaining(['hunk--small', 'hunk--flush-before']));
+    expect(classes(span)).not.toContain('hunk--flush-after');
+  });
+
+  it('draws a small ghost as a key, a space by its name, and the row above with room for it', () => {
+    const keyOf = (shape: number, status: HunkStatus): { text: string; classes: string[]; row: string[] } => {
+      const span = render(hunk(SHAPES[shape]!, status));
+      const key = find(span, 'hunk__key')[0];
+      return {
+        text: key ? textWithout(key, 'nothing') : '',
+        classes: key ? classes(key) : [],
+        row: classes(find(span, 'hunk__above')[0]!)
+      };
+    };
+    expect(keyOf(0, 'pending')).toEqual({
+      text: ',',
+      classes: ['hunk__key'],
+      row: ['hunk__above', 'hunk__above--key']
+    });
+    expect(keyOf(4, 'pending')).toMatchObject({ text: 'space', classes: ['hunk__key', 'hunk__key--name'] });
+    expect(keyOf(4, 'accepted')).toMatchObject({ text: '-', classes: ['hunk__key'] });
+    expect(keyOf(2, 'pending')).toMatchObject({ text: 'space', classes: ['hunk__key', 'hunk__key--name'] });
+    expect(keyOf(8, 'pending')).toEqual({ text: '', classes: [], row: ['hunk__above'] });
+    const deletion = find(render(hunk(SHAPES[2]!, 'pending')), 'hunk__ghost')[0]!;
+    expect(textWithout(deletion, 'nothing')).toBe('deletespace');
+  });
+
   it('reads markup it is given, so the checks above can fail', () => {
     const el = parse(
       '<span class="hunk"><span class="hunk__above">ghost</span><b>live &amp; &#x27;well&#x27;</b></span>'

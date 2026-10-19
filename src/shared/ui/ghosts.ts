@@ -16,7 +16,11 @@
 /** Breathing room between one ghost and the next, or the margin column. */
 export const GHOST_GAP = 10;
 
-/** Below this a clipped ghost says nothing at all, so none is cut narrower. */
+/**
+ * Below this a clipped ghost says nothing at all, so none is cut narrower. A
+ * ghost with a key (the keycap of a small change, 11.7) is never cut short of
+ * the key's right edge instead.
+ */
 export const GHOST_MIN_WIDTH = 22;
 
 /** Two rows are on the same line when their tops agree to within this many pixels. */
@@ -35,6 +39,8 @@ export interface GhostRow {
   right: number;
   /** What follows the ghost in its row (the gap and the x), which keeps its room. */
   trailing: number;
+  /** The right edge of the ghost's key, from the ghost's left edge, when it has one. */
+  keyEnd?: number;
 }
 
 /** What bounds the rows on the right, as laid out. */
@@ -62,7 +68,8 @@ export function ghostEdge({ paneRight, marginLeft }: GhostBounds): number {
  * The max width for each row's ghost, in the order given, or null where the row
  * fits as it is. A row stops `GHOST_GAP` short of the next ghost on its line,
  * and at `edge`, the furthest it may reach (`ghostEdge`). Its ghost gets what is
- * left after the trailing x, rounded down, but never less than `GHOST_MIN_WIDTH`.
+ * left after the trailing x, rounded down, but never less than `GHOST_MIN_WIDTH`,
+ * or, for a ghost with a key, never so little that the key is cut (small.7).
  */
 export function ghostMaxWidths(rows: readonly GhostRow[], edge: number): (number | null)[] {
   const result: (number | null)[] = rows.map(() => null);
@@ -85,7 +92,8 @@ export function ghostMaxWidths(rows: readonly GhostRow[], edge: number): (number
       const limit = next ? Math.min(edge, next.row.left - GHOST_GAP) : edge;
       if (current.row.right <= limit) return;
       const available = limit - current.row.left - current.row.trailing;
-      result[current.index] = Math.max(GHOST_MIN_WIDTH, Math.floor(available));
+      const least = current.row.keyEnd === undefined ? GHOST_MIN_WIDTH : Math.ceil(current.row.keyEnd);
+      result[current.index] = Math.max(least, Math.floor(available));
     });
   }
   return result;

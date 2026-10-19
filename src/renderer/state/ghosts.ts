@@ -32,14 +32,24 @@ export function clipGhosts(prose: HTMLElement | null): void {
   if (rows.length === 0) return;
 
   // Every measurement first, in one layout, then every change.
-  const measured: { row: HTMLElement; ghost: HTMLElement; rect: DOMRect; trailing: number }[] = [];
+  const measured: {
+    row: HTMLElement;
+    ghost: HTMLElement;
+    rect: DOMRect;
+    trailing: number;
+    keyEnd: number | undefined;
+  }[] = [];
   for (const { row, ghost } of rows) {
     if (!ghost) continue;
     const rect = row.getBoundingClientRect();
     if (rect.width === 0) continue;
     // The row also holds the x after the ghost, which always keeps its room
-    // (round 4, item 2), so the ghost gets what is left after it.
-    measured.push({ row, ghost, rect, trailing: rect.width - ghost.getBoundingClientRect().width });
+    // (round 4, item 2), so the ghost gets what is left after it. A ghost's
+    // key, the box of a small change, is never cut (11.7, small.7).
+    const ghostRect = ghost.getBoundingClientRect();
+    const key = ghost.querySelector<HTMLElement>('.hunk__key');
+    const keyEnd = key ? key.getBoundingClientRect().right - ghostRect.left : undefined;
+    measured.push({ row, ghost, rect, trailing: rect.width - ghostRect.width, keyEnd });
   }
   // The pane clips at its padding box (`overflow-x: clip`), so a row may reach
   // into its side padding but not past it, nor into the margin column's notes.
@@ -52,7 +62,13 @@ export function clipGhosts(prose: HTMLElement | null): void {
   });
 
   const widths = ghostMaxWidths(
-    measured.map(({ rect, trailing }) => ({ top: rect.top, left: rect.left, right: rect.right, trailing })),
+    measured.map(({ rect, trailing, keyEnd }) => ({
+      top: rect.top,
+      left: rect.left,
+      right: rect.right,
+      trailing,
+      ...(keyEnd === undefined ? {} : { keyEnd })
+    })),
     edge
   );
   measured.forEach(({ row, ghost }, i) => {
