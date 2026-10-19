@@ -2327,6 +2327,43 @@ input[type='text'] {
   text-decoration: line-through;
 }
 
+/* A small change's row (11.7, small.5): a few words of its line either side,
+   and the change between them in a chip drawn like the keycap above the line,
+   a 1 px border at 60% and no fill. The chip is inline, so where the row is
+   short of room its ellipsis cuts into the chip rather than dropping it
+   whole; the row's text box reaches 2 px above and below its line, taken
+   back by its margins, so the clip it needs for the ellipsis keeps the chip's
+   top and bottom border. Its border carries the category colour while the
+   change is pending, as the keycap does. */
+.row__text--context {
+  padding: 2px 0;
+  margin: -2px 0;
+}
+
+.row__chip {
+  margin: 0 2px;
+  padding: 0 3px;
+  border: 1px solid color-mix(in srgb, currentColor 60%, transparent);
+  border-radius: 3px;
+  white-space: pre;
+}
+
+.row--pending .row__chip {
+  border-color: color-mix(in srgb, var(--cat) 60%, transparent);
+}
+
+.row__chip svg {
+  margin: 0 2px;
+  vertical-align: -0.05em;
+}
+
+.row__tag {
+  font-family: var(--font-ui);
+  font-size: 0.75em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .row__act {
   flex: 0 0 auto;
   border: none;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, type MouseEvent } from 'react';
 import { hunkFaces } from '../../shared/render';
 import { isAuthored } from '../../shared/edit';
+import { sideText } from '../../shared/ui/small';
 import { TOOLTIP_DELAY_MS } from '../../shared/ui/tooltip';
 import type { Hunk } from '../../shared/types';
 import { IconArrow, IconUndo, IconX } from './icons';
@@ -80,10 +81,11 @@ export function HunkSpan({
 
   /* "Insertion" lives in the label, not in a visually hidden word in the line:
      hidden text is still text, so it came along whenever the author copied a
-     paragraph, and the find bar matched it. */
-  const label = `${hunk.category ?? 'change'}${isInsertion ? ' insertion' : ''}: original ${
-    hunk.original || '(nothing)'
-  }, suggested ${hunk.replacement || '(nothing)'}`;
+     paragraph, and the find bar matched it. Each side is spoken as the list
+     writes it, a space or a comma by its name (11.7, small.5). */
+  const label = `${hunk.category ?? 'change'}${isInsertion ? ' insertion' : ''}: original ${sideText(
+    hunk.original
+  )}, suggested ${sideText(hunk.replacement)}`;
 
   return (
     <span

@@ -229,7 +229,7 @@ describe('changeInContext', () => {
   it('puts a few words of the line on either side of the change', () => {
     const at = BASE.indexOf(' who');
     expect(changeInContext(BASE, { start: at, end: at, original: '', replacement: ',' })).toEqual({
-      before: '\u2026up with Mira',
+      before: '\u2026with Mira',
       original: null,
       replacement: ', (comma)',
       after: ' who had\u2026'
@@ -240,7 +240,7 @@ describe('changeInContext', () => {
     const base = 'They called it a double-standard, and said so.';
     const at = base.indexOf('-');
     expect(changeInContext(base, { start: at, end: at + 1, original: '-', replacement: ' ' })).toEqual({
-      before: '\u2026it a double',
+      before: '\u2026a double',
       original: '- (hyphen)',
       replacement: '(space)',
       after: 'standard, and\u2026'
@@ -254,11 +254,11 @@ describe('changeInContext', () => {
     );
     const end = BASE.indexOf('stopped.') + 'stopped'.length;
     const tail = changeInContext(BASE, { start: end, end: end + 1, original: '.', replacement: '!' });
-    expect(tail).toMatchObject({ before: '\u2026rain had stopped', after: '' });
+    expect(tail).toMatchObject({ before: '\u2026had stopped', after: '' });
     const join = BASE.indexOf('\n\nNext');
     expect(changeInContext(BASE, { start: join, end: join + 2, original: '\n\n', replacement: ' ' })).toEqual(
       {
-        before: '\u2026rain had stopped.',
+        before: '\u2026had stopped.',
         original: '(paragraph break)',
         replacement: '(space)',
         after: 'Next.'
@@ -270,8 +270,8 @@ describe('changeInContext', () => {
     const base = 'Then Supercalifragilisticexpialidocious and more words after it';
     const at = base.indexOf(' and');
     const result = changeInContext(base, { start: at + 1, end: at + 1, original: '', replacement: ',' });
-    expect(result.before).toBe('\u2026icexpialidocious ');
-    expect(result.before.length).toBeLessThanOrEqual(18);
+    expect(result.before).toBe('\u2026pialidocious ');
+    expect(result.before.length).toBeLessThanOrEqual(14);
     expect(result.after).toBe('and more\u2026');
   });
 

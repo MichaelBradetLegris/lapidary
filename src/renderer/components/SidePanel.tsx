@@ -10,6 +10,7 @@ import {
   pickerHoldsKey,
   reviewPicker
 } from '../../shared/ui/history';
+import { changeInContext, isSmallChange, sideText, type ChangeInContext } from '../../shared/ui/small';
 import { groupSuggestions, summaryLine } from '../../shared/ui/suggestions';
 import { SHOW_BACKUPS, SHOW_BACKUPS_TITLE } from '../../shared/ui/backups';
 import { PROVIDER_NAMES, type Hunk, type Review, type ReviewComment } from '../../shared/types';
@@ -17,7 +18,7 @@ import { editFromComment, editHunk } from '../state/edit';
 import { followFocus, scrollToElement } from '../state/scroll';
 import { SPLIT_LIST_ID, useSplit } from '../state/splitHandle';
 import { inDraft, isLocked, useApp } from '../state/store';
-import { IconCheck, IconPencil, IconUndo, IconWarning, IconX } from './icons';
+import { IconArrow, IconCheck, IconPencil, IconUndo, IconWarning, IconX } from './icons';
 
 interface Props {
   review: Review;
@@ -34,6 +35,30 @@ const STATUS_MARK: Record<Hunk['status'], string> = {
   accepted: 'accepted',
   dismissed: 'dismissed'
 };
+
+/**
+ * A small change's row: a few words of its line on either side, and the
+ * change between them in a chip like the keycap above the line, each side
+ * named as the tooltip names it (11.7, small.5): "...up with Mira [-> , (comma)]
+ * who had...". The words are what finds a comma in a list of commas.
+ */
+function ContextText({ context }: { context: ChangeInContext }): React.JSX.Element {
+  return (
+    <span className="row__text row__text--context">
+      {context.before}
+      <span className="row__chip">
+        {context.original !== null ? <span className="row__old">{context.original}</span> : null}
+        <IconArrow size={9} />
+        {context.replacement !== null ? (
+          <span className="row__new">{context.replacement}</span>
+        ) : (
+          <span className="row__tag">delete</span>
+        )}
+      </span>
+      {context.after}
+    </span>
+  );
+}
 
 export function SidePanel({
   review,
@@ -201,9 +226,9 @@ export function SidePanel({
                 </div>
                 <dl className="pair">
                   <dt>Original:</dt>
-                  <dd className="pair__original">{focused.original || '(nothing)'}</dd>
+                  <dd className="pair__original">{sideText(focused.original)}</dd>
                   <dt>Suggested:</dt>
-                  <dd className="pair__suggested">{focused.replacement || '(nothing)'}</dd>
+                  <dd className="pair__suggested">{sideText(focused.replacement)}</dd>
                 </dl>
                 {focused.reason ? <p className="detail__reason">{focused.reason}</p> : null}
               </>
@@ -224,6 +249,7 @@ export function SidePanel({
                  frozen until the author is done with it: the editor started
                  from the page as it was, and must commit against the same. */
                   const editing = inDraft(drafts, hunk.paragraph);
+                  const context = isSmallChange(hunk) ? changeInContext(review.base.text, hunk) : null;
                   return (
                     <li key={hunk.id}>
                       <div
@@ -242,6 +268,13 @@ export function SidePanel({
                           className="row__main"
                           onClick={() => focusHunk(hunk.id, { scroll: true })}
                           title={hunk.reason ?? ''}
+                          aria-label={
+                            context
+                              ? [isAuthored(hunk) ? 'you' : '', summaryLine(hunk), STATUS_MARK[hunk.status]]
+                                  .filter(Boolean)
+                                  .join(', ')
+                              : undefined
+                          }
                         >
                           {/* Words the author wrote are marked "you" rather than given
                         a category colour they never chose (item 3). */}
@@ -252,7 +285,11 @@ export function SidePanel({
                           ) : (
                             <span className="row__dot" aria-hidden="true" />
                           )}
-                          <span className="row__text">{summaryLine(hunk)}</span>
+                          {context ? (
+                            <ContextText context={context} />
+                          ) : (
+                            <span className="row__text">{summaryLine(hunk)}</span>
+                          )}
                           {STATUS_MARK[hunk.status] ? (
                             <span className="row__status">{STATUS_MARK[hunk.status]}</span>
                           ) : null}
@@ -367,9 +404,9 @@ export function SidePanel({
                     <li key={hunk.id} className={`stale__item cat-${hunk.category ?? 'other'}`}>
                       <dl className="pair">
                         <dt>Original:</dt>
-                        <dd className="pair__original">{hunk.original || '(nothing)'}</dd>
+                        <dd className="pair__original">{sideText(hunk.original)}</dd>
                         <dt>Suggested:</dt>
-                        <dd className="pair__suggested">{hunk.replacement || '(nothing)'}</dd>
+                        <dd className="pair__suggested">{sideText(hunk.replacement)}</dd>
                       </dl>
                       {hunk.reason ? <p className="detail__reason">{hunk.reason}</p> : null}
                       <span className="stale__where">

@@ -208,13 +208,13 @@ export function sideText(text: string): string {
 
 /** A change in a list row, with a few words of the line on either side. */
 export interface ChangeInContext {
-  /** the words before the change, from the start of its line, with "\u2026" in front when cut */
+  /** the words before the change, from the start of its line, with an ellipsis in front when cut */
   before: string;
   /** what the change takes out, as `sideText` writes it; null when it takes nothing out */
   original: string | null;
   /** what it puts in, as `sideText` writes it; null for a deletion */
   replacement: string | null;
-  /** the words after it, to the end of its line, with "\u2026" after them when cut */
+  /** the words after it, to the end of its line, with an ellipsis after them when cut */
   after: string;
 }
 
@@ -256,14 +256,15 @@ function wordsAfter(text: string, words: number, maxChars: number): string {
 
 /**
  * A few words on either side of a change, from the review's base text, for
- * the list row of a small change: "\u2026up with Mira [-> , (comma)] who had\u2026".
+ * the list row of a small change: "...with Mira [-> , (comma)] who had...", two
+ * words a side and at most 14 characters, as the row is narrow.
  * The context is the base outside the change's span, so it reads right
  * whichever side the base holds, and it never crosses a line break.
  */
 export function changeInContext(
   base: string,
   hunk: Pick<Hunk, 'start' | 'end' | 'original' | 'replacement'>,
-  { before = 3, after = 2, maxChars = 18 }: { before?: number; after?: number; maxChars?: number } = {}
+  { before = 2, after = 2, maxChars = 14 }: { before?: number; after?: number; maxChars?: number } = {}
 ): ChangeInContext {
   const lineStart = base.lastIndexOf('\n', hunk.start - 1) + 1;
   const nextBreak = base.indexOf('\n', hunk.end);

@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from 'react';
+import { sideText } from '../../shared/ui/small';
 import { placeTooltip } from '../../shared/ui/tooltip';
 import { editHunk } from '../state/edit';
 import { hoverHold, hoverOff } from '../state/hover';
@@ -76,9 +77,9 @@ export function HunkTooltip(): React.JSX.Element | null {
       {hunk.reason ? <p className="tip__reason">{hunk.reason}</p> : null}
       <dl className="pair">
         <dt>Original:</dt>
-        <dd className="pair__original">{hunk.original || '(nothing)'}</dd>
+        <dd className="pair__original">{sideText(hunk.original)}</dd>
         <dt>Suggested:</dt>
-        <dd className="pair__suggested">{hunk.replacement || '(nothing)'}</dd>
+        <dd className="pair__suggested">{sideText(hunk.replacement)}</dd>
       </dl>
     </div>
   );

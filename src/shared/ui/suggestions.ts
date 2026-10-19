@@ -4,6 +4,7 @@
  */
 
 import type { ChangeCategory, Hunk } from '../types';
+import { sideText } from './small';
 
 export interface SuggestionGroups {
   /** every anchored hunk the filter chips leave visible, in document order */
@@ -47,11 +48,19 @@ function clip(text: string, max: number): string {
   return flat.length <= max ? flat : `${flat.slice(0, Math.max(1, max - 1))}…`;
 }
 
+/** One side, as `sideText` names it, else flattened and clipped. */
+function side(text: string, max: number): string {
+  const named = sideText(text);
+  return named === text ? clip(text, max) : named;
+}
+
 /**
  * "began → begun" for a row in the list. Both sides are clipped separately so
- * the suggested text never disappears behind a long original.
+ * the suggested text never disappears behind a long original. A side that
+ * cannot be seen, or small punctuation, is named: "- (hyphen) → (space)"
+ * (11.7, small.5), and "(nothing)" is kept for the empty string.
  */
 export function summaryLine(hunk: Hunk, max = 64): string {
   const half = Math.max(6, Math.floor((max - 3) / 2));
-  return `${clip(hunk.original, half)} → ${clip(hunk.replacement, half)}`;
+  return `${side(hunk.original, half)} → ${side(hunk.replacement, half)}`;
 }
