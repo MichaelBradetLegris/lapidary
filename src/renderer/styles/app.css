@@ -910,7 +910,9 @@ input[type='text'] {
    3 px by 0.9em in the category colour, marks a line with a pending small
    change and is a button: a click selects the change without scrolling, and
    hovering shows its card. An ink arrowhead marks the line where the focused
-   suggestion starts. Both are drawn with borders, which forced colours keep. */
+   suggestion starts; it is the same button, so a bar that turns into it under
+   the pointer keeps its element (ReviewPane's MarkButton), and it takes no
+   pointer. Both are drawn with borders, which forced colours keep. */
 .mark {
   position: absolute;
   top: calc(anchor(top) - 0.53em);
@@ -1278,9 +1280,13 @@ input[type='text'] {
   background-color: color-mix(in srgb, var(--ink-faint) var(--tint-decided-hover), transparent);
 }
 
-/* Focused, the capsule and the ghost text take the focus yellow, not the
-   whole span: on a small change the span is a few pixels wide. In the active
-   comment's paragraph the capsule keeps theme.8's hairline. */
+/* Focused, the capsule takes the focus yellow, not the whole span: on a small
+   change the span is a few pixels wide. In the active comment's paragraph the
+   capsule keeps theme.8's hairline. The ghost above is not filled, as a
+   word-sized change's is not: category text on the dark focus yellow came to
+   4.03 to 4.28:1 for spelling, homophone, punctuation and other, under the
+   4.5 a category as text needs (11.3 e, small review). The arrowhead in the
+   margin marks the line. */
 .hunk--small.hunk--focused,
 .para--active .hunk--small.hunk--focused {
   background: none;
@@ -1293,12 +1299,6 @@ input[type='text'] {
 
 .para--active .hunk--small.hunk--focused .hunk__live::after {
   box-shadow: 0 0 0 1px var(--active-ring);
-}
-
-.hunk--small.hunk--focused .hunk__ghost {
-  background: var(--focus-bg);
-  box-shadow: 0 0 0 2px var(--focus-bg);
-  border-radius: 2px;
 }
 
 .cat-spelling,

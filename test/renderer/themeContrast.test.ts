@@ -218,6 +218,26 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
     });
   }
 
+  /* Ghost text, in a category colour or --ink-faint, sits on whatever its line
+     sits on: the page or an active or flashing paragraph, the pairs above.
+     Nothing fills behind it. small.6 filled a focused small change's ghost
+     with --focus-bg, where spelling, homophone, punctuation and other came to
+     4.14, 4.18, 4.28 and 4.03:1 in dark, under the 4.5 of a category as text
+     (small review); the capsule and the arrowhead mark the focus instead. */
+  it('fills nothing behind the ghost row, so its text meets only the backgrounds checked above', () => {
+    const css = APP_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    const filled = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((m) => /\.hunk__(above|ghost|role|tag|key)\b/.test(m[1] ?? ''))
+      .filter((m) =>
+        (m[2] ?? '').split(';').some((decl) => {
+          const [name = '', value = ''] = decl.split(':').map((s) => s.trim());
+          return /^background(-color|-image)?$/.test(name) && !/^(none|transparent)$/.test(value);
+        })
+      )
+      .map((m) => (m[1] ?? '').trim());
+    expect(filled).toEqual([]);
+  });
+
   it('fails a pair that is too faint, so the checks above can fail', () => {
     const grey = parseColour('#999999');
     const white = parseColour('#ffffff');

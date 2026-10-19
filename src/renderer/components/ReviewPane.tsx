@@ -16,7 +16,7 @@ import type { Review, ReviewComment } from '../../shared/types';
 import { editParagraph } from '../state/edit';
 import { useFindHighlight } from '../state/find';
 import { clipGhosts } from '../state/ghosts';
-import { hoverOff, hoverOn, hoverSoon } from '../state/hover';
+import { hoverOff, hoverOn, markHover } from '../state/hover';
 import { proseInRange } from '../state/prose';
 import { scrollToElement } from '../state/scroll';
 import { isLocked, useApp, type ParagraphDraft } from '../state/store';
@@ -59,6 +59,48 @@ function copyProse(event: ClipboardEvent<HTMLDivElement>): void {
   if (text === null) return;
   event.clipboardData.setData('text/plain', text);
   event.preventDefault();
+}
+
+/**
+ * One margin mark (11.7, small.8). A bar is a target 11 by 39 CSS px outside
+ * the prose: a click selects its change without scrolling and leaves the
+ * keyboard where it was, so a, d, u and e act on it, and hovering shows its
+ * card under the change. The arrowhead takes no pointer (app.css).
+ *
+ * Both are the same button under the same key, so a bar that becomes the
+ * arrowhead under the pointer, by a click or by any other way to the focus,
+ * keeps its element, and its leave still runs when the pointer moves off. The
+ * arrowhead was a span, which replaced the button; React fires no leave for an
+ * element that has gone, and the card stayed open over the prose (small
+ * review). A mark that goes away while the pointer is on it closes its card
+ * itself (`markHover`).
+ */
+function MarkButton({
+  mark,
+  anchor,
+  onSelect
+}: {
+  mark: MarginMark;
+  anchor: string;
+  onSelect: (id: string) => void;
+}): React.JSX.Element {
+  const id = mark.hunk.id;
+  const hover = useMemo(() => markHover(id), [id]);
+  useEffect(() => hover.gone, [hover]);
+  const bar = mark.kind === 'bar';
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      aria-hidden="true"
+      className={bar ? `mark mark--bar cat-${mark.hunk.category ?? 'other'}` : 'mark mark--focus'}
+      style={{ positionAnchor: anchor }}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={bar ? () => onSelect(id) : undefined}
+      onMouseEnter={bar ? hover.enter : undefined}
+      onMouseLeave={hover.leave}
+    />
+  );
 }
 
 export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Element {
@@ -302,33 +344,14 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
                       />
                     )
                   )}
-                  {marks.map((mark) =>
-                    mark.kind === 'focus' ? (
-                      <span
-                        key={`mark-${mark.hunk.id}`}
-                        className="mark mark--focus"
-                        aria-hidden="true"
-                        style={{ positionAnchor: markAnchorName(block.key, mark.index) }}
-                      />
-                    ) : (
-                      /* A target 11 by 39 CSS px outside the prose. A click
-                         selects the change without scrolling, and leaves the
-                         keyboard where it was, so a, d, u and e act on it;
-                         hovering shows its card under the change. */
-                      <button
-                        key={`mark-${mark.hunk.id}`}
-                        type="button"
-                        tabIndex={-1}
-                        aria-hidden="true"
-                        className={`mark mark--bar cat-${mark.hunk.category ?? 'other'}`}
-                        style={{ positionAnchor: markAnchorName(block.key, mark.index) }}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => focusHunk(mark.hunk.id)}
-                        onMouseEnter={() => hoverSoon(mark.hunk.id)}
-                        onMouseLeave={hoverOff}
-                      />
-                    )
-                  )}
+                  {marks.map((mark) => (
+                    <MarkButton
+                      key={`mark-${mark.hunk.id}`}
+                      mark={mark}
+                      anchor={markAnchorName(block.key, mark.index)}
+                      onSelect={focusHunk}
+                    />
+                  ))}
                 </p>
               );
             })}

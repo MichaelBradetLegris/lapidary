@@ -55,9 +55,12 @@ const REVIEW: Review = {
 
 type AppState = ReturnType<typeof useApp.getState>;
 let restore: Partial<AppState> = {};
+/** Patches the store's initial state; each key is put back as it was before the test's first patch. */
 function storeWith(patch: Partial<AppState>): void {
   const initial = useApp.getInitialState();
-  restore = Object.fromEntries(Object.keys(patch).map((k) => [k, initial[k as keyof AppState]]));
+  for (const k of Object.keys(patch)) {
+    if (!(k in restore)) restore = { ...restore, [k]: initial[k as keyof AppState] };
+  }
   Object.assign(initial, patch);
 }
 afterEach(() => {
@@ -108,5 +111,24 @@ describe('margin marks in the review pane (small.8)', () => {
     for (const m of html.matchAll(/<(button|span) [^>]*class="mark [^"]*"[^>]*>([\s\S]*?)<\/\1>/g)) {
       expect(m[2]).toBe('');
     }
+  });
+
+  /* The small review: a bar under the pointer that became the arrowhead, on a
+     click or by any other way to the focus, was a button replaced by a span.
+     React fires no leave for an element that has gone, so the card the bar
+     had opened stayed over the prose. One element for both keeps the node,
+     and its leave runs when the pointer moves off. */
+  it('draws a bar and the arrowhead as the same element, so a bar that becomes the arrowhead keeps its node', () => {
+    const tagOf = (html: string, anchor: string): string | undefined =>
+      [...html.matchAll(/<(\w+) [^>]*class="mark [^"]*"[^>]*style="position-anchor:([^"]+)"/g)].find(
+        (m) => m[2] === anchor
+      )?.[1];
+    const resting = render();
+    storeWith({ focusedHunkId: 'comma' });
+    const focused = render();
+    const anchor = marks(resting).find((m) => m.para === '1')?.anchor ?? '';
+    expect(marks(focused).find((m) => m.para === '1')).toEqual({ kind: 'focus', para: '1', anchor });
+    expect(tagOf(resting, anchor)).toBe('button');
+    expect(tagOf(focused, anchor)).toBe('button');
   });
 });
