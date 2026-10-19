@@ -67,7 +67,10 @@ describe('where main hands things to the system', () => {
     for (const text of [ipc, index]) {
       expect(text).not.toMatch(/\bshell\.(openExternal|openPath|showItemInFolder)\(/);
     }
-    expect(ipc).toContain('await openGuidelinesFile(info.path, via, systemShell());');
+    // guidelines:open is openGuidelines, tested in guidelines.test.ts, with the real shell or the stub.
+    expect(ipc).toMatch(
+      /handle\('guidelines:open', async \(\{ via \}\) =>\s*openGuidelines\(await loadSettings\(\), via, guidelinesTemplate\(\), systemShell\(\)\)\s*\);/
+    );
     expect(ipc).toContain('const system = systemShell();');
     expect(index.match(/void systemShell\(\)\.openExternal\(/g)).toHaveLength(2);
     expect(index).not.toMatch(/import \{[^}]*\bshell\b[^}]*\} from 'electron'/);

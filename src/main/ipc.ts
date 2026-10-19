@@ -47,7 +47,7 @@ import {
   guidelinesStatus
 } from './guidelines';
 import { log } from './log';
-import { assertCanOpen, openGuidelinesFile } from './openGuidelines';
+import { openGuidelines } from './openGuidelines';
 import { pickShell, type ShellApi } from './shellApi';
 import {
   isDefaultReviewsFolder,
@@ -388,15 +388,10 @@ function registerFileHandlers(): void {
 
   handle('guidelines:ensure', async () => ensureGuidelines(await loadSettings(), guidelinesTemplate()));
 
-  handle('guidelines:open', async ({ via }) => {
-    const settings = await loadSettings();
-    // A file that cannot be opened this way is refused before anything is created (setup.10b).
-    const target = guidelinesPathFor(settings);
-    if (target) assertCanOpen(target, via);
-    const info = await ensureGuidelinesFile(settings, guidelinesTemplate());
-    await openGuidelinesFile(info.path, via, systemShell());
-    return info;
-  });
+  // openGuidelines refuses a file that cannot be opened this way before anything is created (setup.10b).
+  handle('guidelines:open', async ({ via }) =>
+    openGuidelines(await loadSettings(), via, guidelinesTemplate(), systemShell())
+  );
 
   handle('guidelines:status', async () => guidelinesStatus(await loadSettings()));
 

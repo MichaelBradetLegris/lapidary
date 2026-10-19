@@ -4,7 +4,12 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppFailure, explainReadError, explainWriteError, toAppError } from '../../src/main/errors';
 import { ensureGuidelines, ensureGuidelinesFile, guidelinesStatus } from '../../src/main/guidelines';
-import { assertCanOpen, openGuidelinesFile, openInObsidian } from '../../src/main/openGuidelines';
+import {
+  assertCanOpen,
+  openGuidelines,
+  openGuidelinesFile,
+  openInObsidian
+} from '../../src/main/openGuidelines';
 import type { ShellApi } from '../../src/main/shellApi';
 import { obsidianOpenUrl } from '../../src/shared/obsidian';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
@@ -241,7 +246,7 @@ describe('opening the guidelines file', () => {
     expect(calls).toEqual(['open C:\\Vault\\GUIDELINES.txt']);
   });
 
-  it('checks a file before guidelines:open creates it: .md or .txt, and .md for Obsidian', () => {
+  it('assertCanOpen takes a .md or .txt file, and only a .md one for Obsidian', () => {
     expect(() => assertCanOpen('C:\\Vault\\GUIDELINES.md', 'obsidian')).not.toThrow();
     expect(() => assertCanOpen('C:\\Vault\\GUIDELINES.txt', 'default')).not.toThrow();
     expect(() => assertCanOpen('C:\\Vault\\GUIDELINES.txt', 'obsidian')).toThrow(
@@ -294,5 +299,68 @@ describe('opening the guidelines file', () => {
       code: 'invalid-input'
     });
     expect(calls).toEqual([]);
+  });
+
+  /* setup.10b review: guidelines:open is openGuidelines with the settings, the
+     template and systemShell(), so these pin its order on disk: refuse, then
+     create from the template, then open. */
+  describe('guidelines:open', () => {
+    it('refuses a missing .txt guidelines file for Obsidian before it creates anything', async () => {
+      const txt = path.join(root, 'Novel', 'GUIDELINES.txt');
+      const { calls, shell } = fakeShell();
+      await expect(
+        openGuidelines(settings({ guidelinesPath: txt }), 'obsidian', template, shell)
+      ).rejects.toMatchObject({
+        code: 'invalid-input',
+        message:
+          'Obsidian opens .md files, and GUIDELINES.txt is not one. Use Open to open it in another app.'
+      });
+      await expect(fs.access(txt)).rejects.toThrow();
+      await expect(fs.access(path.dirname(txt))).rejects.toThrow();
+      expect(calls).toEqual([]);
+    });
+
+    it('creates the same missing .txt file from the template for Open, and opens it', async () => {
+      const txt = path.join(root, 'Novel', 'GUIDELINES.txt');
+      const { calls, shell } = fakeShell();
+      expect(await openGuidelines(settings({ guidelinesPath: txt }), 'default', template, shell)).toEqual({
+        path: txt,
+        created: true
+      });
+      expect(await fs.readFile(txt, 'utf8')).toBe(await fs.readFile(template, 'utf8'));
+      expect(calls).toEqual([`open ${txt}`]);
+    });
+
+    it('creates GUIDELINES.md for Obsidian and hands the shell its link, and leaves an existing one as it is', async () => {
+      const md = path.join(root, 'Novel', 'GUIDELINES.md');
+      const { calls, shell } = fakeShell();
+      expect(await openGuidelines(settings(), 'obsidian', template, shell)).toEqual({
+        path: md,
+        created: true
+      });
+      expect(calls).toEqual([`external ${obsidianOpenUrl(md)}`]);
+      await fs.writeFile(md, 'My own rules.\n');
+      expect(await openGuidelines(settings(), 'obsidian', template, shell)).toEqual({
+        path: md,
+        created: false
+      });
+      expect(await fs.readFile(md, 'utf8')).toBe('My own rules.\n');
+      expect(calls).toEqual([`external ${obsidianOpenUrl(md)}`, `external ${obsidianOpenUrl(md)}`]);
+    });
+
+    it('makes and opens nothing for a file that is not .md or .txt, or with no manuscript folder', async () => {
+      const docx = path.join(root, 'Novel', 'rules.docx');
+      const { calls, shell } = fakeShell();
+      for (const via of ['obsidian', 'default'] as const) {
+        await expect(
+          openGuidelines(settings({ guidelinesPath: docx }), via, template, shell)
+        ).rejects.toMatchObject({ code: 'invalid-input' });
+        await expect(
+          openGuidelines(settings({ manuscriptFolder: null }), via, template, shell)
+        ).rejects.toMatchObject({ code: 'not-configured' });
+      }
+      await expect(fs.access(path.dirname(docx))).rejects.toThrow();
+      expect(calls).toEqual([]);
+    });
   });
 });

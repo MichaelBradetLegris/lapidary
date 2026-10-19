@@ -1,8 +1,9 @@
 import path from 'node:path';
 import type { OpenGuidelinesVia } from '../shared/ipc';
 import { isObsidianOpenUrl, obsidianOpenUrl, obsidianOpensFile } from '../shared/obsidian';
+import type { Settings } from '../shared/types';
 import { fail } from './errors';
-import { assertGuidelinesFile } from './guidelines';
+import { assertGuidelinesFile, ensureGuidelinesFile, guidelinesPathFor } from './guidelines';
 import type { ShellApi } from './shellApi';
 
 /**
@@ -72,4 +73,25 @@ export async function openGuidelinesFile(
     `No app is set to open ${ext} files on this computer, so ${path.basename(file)} is shown in its folder instead. Open it with Obsidian or any text editor.`,
     problem
   );
+}
+
+/**
+ * What `guidelines:open` does, without Electron: ipc.ts passes the settings,
+ * the shipped template's path and `systemShell()`. A file that cannot be
+ * opened this way (not `.md` or `.txt`, or a `.txt` one for Obsidian) is
+ * refused before `ensureGuidelinesFile` could create it from the template, so
+ * a refused open makes nothing; otherwise the file is created when it is
+ * missing and then opened (setup.10b).
+ */
+export async function openGuidelines(
+  settings: Settings,
+  via: OpenGuidelinesVia,
+  template: string,
+  shellApi: ShellApi
+): Promise<{ path: string; created: boolean }> {
+  const target = guidelinesPathFor(settings);
+  if (target) assertCanOpen(target, via);
+  const info = await ensureGuidelinesFile(settings, template);
+  await openGuidelinesFile(info.path, via, shellApi);
+  return info;
 }
