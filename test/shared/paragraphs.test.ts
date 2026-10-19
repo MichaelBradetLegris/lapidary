@@ -1,6 +1,9 @@
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { bodyStart } from '../../src/shared/text/obsidian';
 import {
   bodyParagraphs,
+  countParagraphs,
   findParagraph,
   frontmatterRange,
   paragraphIndexAt,
@@ -55,6 +58,65 @@ describe('splitParagraphs', () => {
     const paragraphs = splitParagraphs(text);
     expect(paragraphs).toHaveLength(1);
     expect(text.slice(paragraphs[0]!.start, paragraphs[0]!.end)).toBe('hello');
+  });
+
+  it('starts the first paragraph at the start of the body, where it follows the closing --- at once (files.22)', () => {
+    // The usual layout in Obsidian. The line break after the closing --- is the frontmatter's, not the paragraph's.
+    const text = '---\ntitle: x\n---\nFirst words.\n\nSecond.';
+    const [front, first, second] = splitParagraphs(text);
+    expect(front).toMatchObject({ isFrontmatter: true, start: 0, end: '---\ntitle: x\n---'.length });
+    expect(first).toMatchObject({ index: 0, start: bodyStart(text), text: 'First words.' });
+    expect(second).toMatchObject({ index: 1, text: 'Second.' });
+    // With a blank line between, as before: the paragraph starts after it.
+    const spaced = '---\ntitle: x\n---\n\nFirst words.';
+    expect(bodyParagraphs(splitParagraphs(spaced))[0]).toMatchObject({
+      start: bodyStart(spaced) + 1,
+      text: 'First words.'
+    });
+    // A first line of the body that is a horizontal rule is the paragraph's own.
+    const rule = '---\ntitle: x\n---\n---\nThree days later.';
+    expect(bodyParagraphs(splitParagraphs(rule))[0]?.text).toBe('---\nThree days later.');
+  });
+
+  it('starts or ends no paragraph with a line break, at either end of a text with one blank line there', () => {
+    expect(splitParagraphs('\nFirst.\n\nLast.\n').map((p) => [p.start, p.text])).toEqual([
+      [1, 'First.'],
+      [9, 'Last.']
+    ]);
+    // A blank line holding spaces is a blank line; spaces before the first words are indentation.
+    expect(splitParagraphs(' \t\n  First.\n  ').map((p) => [p.start, p.text])).toEqual([[3, '  First.']]);
+    expect(splitParagraphs('Last.  ').map((p) => p.text)).toEqual(['Last.  ']);
+  });
+
+  it('cuts as many paragraphs as the separator does, none starting or ending with a line break, whatever the layout', () => {
+    const line = fc.constantFrom('', ' ', '\t', 'words', '  indented', '---', 'a b');
+    // No head, a text that starts with a line break, or frontmatter, its closing line bare or with spaces.
+    const front = fc.constantFrom(null, '', '---\ntitle: x\n---', '---\ntitle: x\n---  ');
+    fc.assert(
+      fc.property(front, fc.array(line, { maxLength: 12 }), (head, lines) => {
+        const text = head === null ? lines.join('\n') : [head, ...lines].join('\n');
+        const paragraphs = splitParagraphs(text);
+        const body = bodyParagraphs(paragraphs);
+        const at = bodyStart(text);
+        // Indices are the paragraphs counted as the separator cuts them, so no number moves.
+        expect(body.map((p) => p.index)).toEqual(body.map((_, i) => i));
+        expect(body).toHaveLength(countParagraphs(text.slice(at)));
+        for (const p of body) {
+          expect(text.slice(p.start, p.end)).toBe(p.text);
+          expect(p.start).toBeGreaterThanOrEqual(at);
+          expect(p.text).not.toMatch(/^[ \t]*\n|\n[ \t]*$/);
+          expect(p.text.trim().length).toBeGreaterThan(0);
+        }
+        // Nothing but blank lines lies between the paragraphs, or before the first and after the last.
+        let cursor = at;
+        for (const p of body) {
+          expect(text.slice(cursor, p.start)).toMatch(/^\s*$/);
+          cursor = p.end;
+        }
+        expect(text.slice(cursor)).toMatch(/^\s*$/);
+      }),
+      { numRuns: 1000 }
+    );
   });
 
   it('does not see frontmatter that starts later in the file', () => {

@@ -28,10 +28,27 @@ export function frontmatterRange(text: string): { start: number; end: number } |
   return { start: 0, end: match[0].length };
 }
 
+/** Blank lines at the start of a span: lines of nothing but spaces and tabs, each with its line break. */
+const LEADING_BLANK_LINES = /^(?:[ \t]*\n)+/;
+
+/** Blank lines at the end of a span, each with the line break before it. */
+const TRAILING_BLANK_LINES = /(?:\n[ \t]*)+$/;
+
 /**
  * Split text into paragraphs with exact offsets. Whitespace-only spans between
  * separators are dropped; every returned paragraph has at least one non-blank
  * character and `text === source.slice(start, end)`.
+ *
+ * No paragraph starts or ends with a line break (`files.22`, C.76). A
+ * separator is two line breaks or more, so a single one at either end of the
+ * body would otherwise be read as part of the paragraph beside it: the line
+ * break after the frontmatter's closing `---`, where the body starts on the
+ * next line, as Obsidian usually lays a note out; a text that starts with one
+ * blank line; a text that ends with one, past the final newline `normalizeText`
+ * keeps apart. Those blank lines belong to no paragraph, so the first body
+ * paragraph starts at `bodyStart` or later, and the paragraph box, the prompt
+ * and the full-text diff never see them. Spaces at the start of a paragraph's
+ * first line stay: they may be indentation.
  */
 export function splitParagraphs(text: string): Paragraph[] {
   const out: Paragraph[] = [];
@@ -64,11 +81,13 @@ export function splitParagraphs(text: string): Paragraph[] {
   for (const span of spans) {
     const raw = rest.slice(span.start, span.end);
     if (raw.trim().length === 0) continue;
+    const lead = LEADING_BLANK_LINES.exec(raw)?.[0].length ?? 0;
+    const trail = TRAILING_BLANK_LINES.exec(raw)?.[0].length ?? 0;
     out.push({
       index,
-      start: cursor + span.start,
-      end: cursor + span.end,
-      text: raw,
+      start: cursor + span.start + lead,
+      end: cursor + span.end - trail,
+      text: raw.slice(lead, raw.length - trail),
       isFrontmatter: false
     });
     index += 1;

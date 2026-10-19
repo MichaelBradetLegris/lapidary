@@ -110,7 +110,8 @@ export function hasMarkupChar(text: string): boolean {
  * closing `---` line, or the end of the text when nothing follows it, and 0
  * when there is no frontmatter. Everything before it is frontmatter, the
  * first span `syntaxSpans` gives. It reads the frontmatter as
- * `splitParagraphs` does (`frontmatterRange`), so the two agree.
+ * `splitParagraphs` does (`frontmatterRange`), so the two agree, and no
+ * paragraph starts before it (`files.22`).
  */
 export function bodyStart(text: string): number {
   const range = frontmatterRange(text);

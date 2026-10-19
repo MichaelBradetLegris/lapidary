@@ -10,10 +10,19 @@ import { anchorChanges, type ChangeInput } from '../../src/shared/diff/anchor';
 import { insideWord } from '../../src/shared/diff/fuzzy';
 import { isGuarded, screenModelHunks } from '../../src/shared/diff/protect';
 import { rebaseReview } from '../../src/shared/diff/rebase';
-import { editSuggestion } from '../../src/shared/edit';
+import { diffToHunks } from '../../src/shared/diff/wordDiff';
+import {
+  applyBlockEdit,
+  blockSpanFor,
+  editSuggestion,
+  liveTextIn,
+  normalizeDraft,
+  planBlockEdit
+} from '../../src/shared/edit';
+import { buildRenderBlocks } from '../../src/shared/render';
 import { createAiReview, createReview, guardLoadedReview } from '../../src/shared/review';
 import { bodyStart, syntaxSignature } from '../../src/shared/text/obsidian';
-import { bodyParagraphs, splitParagraphs } from '../../src/shared/text/paragraphs';
+import { bodyParagraphs, frontmatterRange, splitParagraphs } from '../../src/shared/text/paragraphs';
 import type { Hunk, HunkSource, HunkStatus, Review, ReviewBase } from '../../src/shared/types';
 
 interface PieceSpec {
@@ -1516,5 +1525,202 @@ describe('the guard on model suggestions (files.7)', () => {
     );
     expect(onPage).toBeGreaterThan(1000);
     expect(keptOut).toBeGreaterThan(100);
+  });
+});
+
+describe('no hunk before the body (files.22)', () => {
+  /**
+   * The layouts a chapter's start takes: no frontmatter; a text that starts
+   * with a blank line; a frontmatter with the body on the line after its
+   * closing `---`, as Obsidian writes it; one with a blank line between, or
+   * two, one of them holding a space; and one whose closing line carries
+   * spaces.
+   */
+  const FRONTS = [
+    '',
+    '\n',
+    '---\ntitle: x\n---\n',
+    '---\ntitle: x\n---\n\n',
+    '---\ntitle: x\n---\n \n\n',
+    '---\ntitle: x\ntags: [a]\n---  \n'
+  ];
+  /** How the text ends: at the last words, or with a blank line or two, one holding a space. */
+  const TAILS = ['', '\n', '\n \n'];
+
+  /** The body paragraphs' words, as the page and the prompt read them. */
+  const bodyOf = (text: string): string[] => bodyParagraphs(splitParagraphs(text)).map((p) => p.text);
+
+  /** Every hunk on the page is drawn in a block of the body, never left out or in the frontmatter's. */
+  function drawn(text: string, hunks: readonly Hunk[]): boolean {
+    const ids = new Set(
+      buildRenderBlocks(text, splitParagraphs(text), hunks)
+        .filter((block) => !block.isFrontmatter)
+        .flatMap((block) => block.segments.flatMap((s) => (s.kind === 'hunk' ? [s.hunk.id] : [])))
+    );
+    return hunks.every((h) => h.anchor === 'stale' || ids.has(h.id));
+  }
+
+  /** The text before the body, and the frontmatter as Obsidian reads it, are as they were. */
+  function frontKept(before: string, after: string): void {
+    const at = bodyStart(before);
+    expect(after.slice(0, at)).toBe(before.slice(0, at));
+    expect(frontmatterRange(after)).toEqual(frontmatterRange(before));
+  }
+
+  type Typing = 'nothing' | 'words' | 'top' | 'end' | 'breaks' | 'empty';
+
+  it('the paragraph box makes no hunk before the body, and Done with nothing typed makes none at all', () => {
+    const counts: Record<Typing, number> = { nothing: 0, words: 0, top: 0, end: 0, breaks: 0, empty: 0 };
+    let first = 0;
+    fc.assert(
+      fc.property(
+        fc.record({
+          front: fc.constantFrom(...FRONTS),
+          tail: fc.constantFrom(...TAILS),
+          specs: fc.array(specArb, { minLength: 1, maxLength: 6 }),
+          saved: fc.boolean(),
+          which: fc.nat(),
+          typing: fc.constantFrom<Typing>('nothing', 'words', 'top', 'end', 'breaks', 'empty'),
+          words: fc.array(fc.nat({ max: 20 }), { minLength: 1, maxLength: 3 })
+        }),
+        ({ front, tail, specs, saved, which, typing, words }) => {
+          const built = buildCase(specs);
+          const shifted = built.hunks.map((h) => ({
+            ...h,
+            start: h.start + front.length,
+            end: h.end + front.length
+          }));
+          const made = { text: `${front}${built.base}${tail}`, hunks: shifted };
+          const { text: base, hunks } = saved ? commitDecisions(made.text, made.hunks) : made;
+          const paragraphs = splitParagraphs(base);
+          const body = bodyParagraphs(paragraphs);
+          const target = body[which % body.length];
+          if (!target) throw new Error('a chapter with no body paragraph');
+          if (target.index === 0) first += 1;
+          const span = blockSpanFor(base, paragraphs, hunks, target.index);
+          if (!span) throw new Error('no block for a body paragraph');
+          const live = liveTextIn(base, hunks, span);
+          expect(live).not.toMatch(/^\n|\n$/);
+
+          const pieces = live.split(' ');
+          for (const k of words) pieces[k % pieces.length] = `new${k}`;
+          const typed = {
+            nothing: live,
+            words: pieces.join(' '),
+            top: `Added words here.\n\n${live}`,
+            end: `${live}\n\nAdded words here.`,
+            breaks: `\n\n${live}\n`,
+            empty: ''
+          }[typing];
+          counts[typing] += 1;
+
+          const plan = planBlockEdit({ base, paragraphs, hunks, span, text: typed });
+          if (normalizeDraft(typed) === live) {
+            expect(plan).toEqual({ kind: 'noop' });
+            return;
+          }
+          if (plan.kind !== 'edit') throw new Error('expected an edit');
+          const at = bodyStart(base);
+          for (const added of plan.added) {
+            expect(added.start, JSON.stringify({ base, typed })).toBeGreaterThanOrEqual(at);
+            expect(base.slice(added.start, added.end)).toBe(added.original);
+          }
+          const next = applyBlockEdit(hunks, plan);
+          const composed = composeText(base, next);
+          frontKept(base, composed);
+          // Nothing before the box changes either, but for the blank line an emptied last paragraph takes
+          // with it, and what is typed at its top goes in there.
+          if (typing !== 'empty') {
+            const prefix = composeText(
+              base.slice(0, span.start),
+              hunks.filter((h) => h.start < span.start)
+            );
+            expect(composed.startsWith(prefix)).toBe(true);
+            if (typing === 'top') expect(composed.slice(prefix.length)).toMatch(/^Added words here\.\n\n/);
+          }
+          expect(drawn(base, next)).toBe(true);
+        }
+      ),
+      { numRuns: 1000 }
+    );
+    for (const typing of Object.keys(counts) as Typing[]) expect(counts[typing], typing).toBeGreaterThan(100);
+    expect(first).toBeGreaterThan(300);
+  });
+
+  const WORDS = ['rain', 'mill', 'Mara', 'river', 'the', 'fell'];
+  const paragraphArb = fc
+    .array(fc.constantFrom(...WORDS), { minLength: 1, maxLength: 5 })
+    .map((words) => `${words.join(' ')}.`);
+  type Fate = 'keep' | 'change' | 'drop';
+
+  it('the full-text diff makes no hunk before the body, and puts a paragraph added at the top before the first one', () => {
+    let atTop = 0;
+    let layoutOnly = 0;
+    let empty = 0;
+    fc.assert(
+      fc.property(
+        fc.record({
+          front: fc.constantFrom(...FRONTS),
+          frontC: fc.constantFrom(...FRONTS),
+          tail: fc.constantFrom(...TAILS),
+          tailC: fc.constantFrom(...TAILS),
+          /** the final newline normalizeText keeps apart, taken off the original text */
+          strip: fc.boolean(),
+          separator: fc.constantFrom('\n\n', '\n\n\n', '\n \n'),
+          paragraphs: fc.array(paragraphArb, { maxLength: 5 }),
+          fates: fc.array(fc.constantFrom<Fate>('keep', 'keep', 'change', 'drop'), {
+            minLength: 5,
+            maxLength: 5
+          }),
+          inserts: fc.array(fc.record({ at: fc.nat({ max: 6 }), text: paragraphArb }), { maxLength: 3 }),
+          decisions: fc.array(fc.constantFrom<HunkStatus>('pending', 'accepted', 'dismissed'), {
+            maxLength: 12
+          })
+        }),
+        ({ front, frontC, tail, tailC, strip, separator, paragraphs, fates, inserts, decisions }) => {
+          let original = `${front}${paragraphs.join(separator)}${tail}`;
+          if (strip) original = original.replace(/\n$/, '');
+          const kept = paragraphs.flatMap((p, i): string[] => {
+            const fate = fates[i] ?? 'keep';
+            if (fate === 'drop') return [];
+            return [fate === 'change' ? `Then ${p}` : p];
+          });
+          for (const insert of inserts)
+            kept.splice(Math.min(insert.at, kept.length), 0, `New ${insert.text}`);
+          if (inserts.some((insert) => insert.at === 0)) atTop += 1;
+          const corrected = `${frontC}${kept.join('\n\n')}${tailC}`;
+          if (bodyOf(original).length === 0) empty += 1;
+
+          const hunks = diffToHunks(original, corrected);
+          const at = bodyStart(original);
+          for (const hunk of hunks) {
+            expect(hunk.start, JSON.stringify({ original, corrected })).toBeGreaterThanOrEqual(at);
+            expect(original.slice(hunk.start, hunk.end)).toBe(hunk.original);
+          }
+          if (bodyOf(original).length > 0) expect(drawn(original, hunks)).toBe(true);
+          if (JSON.stringify(bodyOf(original)) === JSON.stringify(bodyOf(corrected))) {
+            expect(hunks).toEqual([]);
+            if (original !== corrected) layoutOnly += 1;
+          }
+
+          // Accepted, every hunk gives the corrected body; decided anyhow, the frontmatter stays as it is.
+          const all = composeText(
+            original,
+            hunks.map((h) => ({ ...h, status: 'accepted' as const }))
+          );
+          expect(bodyOf(all)).toEqual(bodyOf(corrected));
+          frontKept(original, all);
+          const some = composeText(
+            original,
+            hunks.map((h, i) => ({ ...h, status: decisions[i] ?? h.status }))
+          );
+          frontKept(original, some);
+        }
+      ),
+      { numRuns: 1000 }
+    );
+    expect(atTop).toBeGreaterThan(100);
+    expect(layoutOnly).toBeGreaterThan(20);
+    expect(empty).toBeGreaterThan(50);
   });
 });

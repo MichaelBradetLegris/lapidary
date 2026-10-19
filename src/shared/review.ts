@@ -1,8 +1,9 @@
 import { anchorChanges, type ChangeInput } from './diff/anchor';
-import { guardTouching, screenModelHunks, touchingRule } from './diff/protect';
+import { guardTouching, isGuarded, screenModelHunks, touchingRule } from './diff/protect';
 import { diffToHunks } from './diff/wordDiff';
 import { nextId, slugify } from './ids';
 import { normalizeText } from './text/eol';
+import { bodyStart } from './text/obsidian';
 import { findParagraph, paragraphIndexAt, splitParagraphs, type Paragraph } from './text/paragraphs';
 import {
   CHANGE_CATEGORIES,
@@ -226,9 +227,38 @@ export function guardLoadedReview(review: Review): Review {
   return hunks.every((hunk, i) => hunk === review.hunks[i]) ? review : { ...review, hunks };
 }
 
+/**
+ * A review loaded from disk keeps no hunk on the page before the body
+ * (`bodyStart`), in the frontmatter or at the line break that closes it
+ * (`files.22`, C.76). Until `files.22`, where the body starts on the line after
+ * the closing `---`, the paragraph box and the full-text diff made such hunks:
+ * the deletion of that line break, often joined to a change of the first
+ * words, and a paragraph added at the top. Since `files.22` the first
+ * paragraph starts at `bodyStart`, so the page no longer draws them, and Save
+ * would still write them, putting the body on the closing line, where Obsidian
+ * no longer reads the frontmatter. Each is taken off the page as a rebase takes
+ * one (4.5, `files.20`): unanchored, its words and decision kept, listed under
+ * Unanchored. A model suggestion the guard screens is left to it, which keeps
+ * it out with the reason `frontmatter`. The review comes back untouched when
+ * nothing moved, and nothing the app makes since `files.22` has such a hunk.
+ */
+export function unanchorBeforeBody(review: Review): Review {
+  const body = bodyStart(review.base.text);
+  if (body === 0) return review;
+  let moved = false;
+  const hunks = review.hunks.map((hunk) => {
+    if (hunk.anchor === 'stale' || hunk.start >= body || isGuarded(hunk)) return hunk;
+    moved = true;
+    return { ...hunk, anchor: 'stale' as const, start: 0, end: 0 };
+  });
+  return moved ? { ...review, hunks } : review;
+}
+
 /** Every load-time upgrade, in order. What `reviews.ts` runs on each file it reads. */
 export function upgradeLoadedReview(review: Review): Review {
-  return guardLoadedReview(repairCommentAnchors(withGeneratorProvider(migrateReview(review))));
+  return guardLoadedReview(
+    unanchorBeforeBody(repairCommentAnchors(withGeneratorProvider(migrateReview(review))))
+  );
 }
 
 /* ------------------------------------------------------------------ */

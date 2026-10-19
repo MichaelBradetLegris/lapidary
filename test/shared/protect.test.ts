@@ -8,6 +8,7 @@ import {
   screenModelHunks,
   touchingRule
 } from '../../src/shared/diff/protect';
+import { composeReview } from '../../src/shared/diff/compose';
 import { rebaseReview } from '../../src/shared/diff/rebase';
 import { createAiReview, guardLoadedReview, upgradeLoadedReview } from '../../src/shared/review';
 import { MARKUP_CHARS, SYNTAX_KINDS, SYNTAX_LABELS, type SyntaxKind } from '../../src/shared/text/obsidian';
@@ -198,6 +199,37 @@ describe('screenModelHunks: the frontmatter and paragraph rules', () => {
     const lines = 'Line one\nline two\nline three';
     expect(verdict(lines, suggest(lines, '¦line two', 'line two', ''))).toBe('paragraph-break');
     expect(verdict(lines, suggest(lines, '¦line two', 'line two', 'the second'))).toBeNull();
+  });
+
+  it('reads the first paragraph from the start of the body, where it follows the closing --- at once (files.22)', () => {
+    // The paragraph the guard reads starts at bodyStart, not at the line break before it.
+    const first = splitParagraphs(TEXT).find((p) => p.index === 0);
+    expect(first).toMatchObject({ start: closing + 1, text: 'The body starts here.' });
+    expect(verdict(TEXT, suggest(TEXT, '¦The body', 'The', 'Their'))).toBeNull();
+    expect(verdict(TEXT, suggest(TEXT, '¦The body', 'The body starts', 'The body begins'))).toBeNull();
+    // An insertion at the start of the body stays; one at the line break before it is kept out, as before.
+    expect(verdict(TEXT, suggest(TEXT, '¦The body', '', 'Now '))).toBeNull();
+    // A body whose first line is a horizontal rule: read alone, it is one, and the words under it are prose.
+    const rule = '---\ntitle: x\n---\n---\nThree days later.\n---\n\nSun.';
+    expect(verdict(rule, suggest(rule, 'Three ¦days', 'days', 'weeks'))).toBeNull();
+    expect(verdict(rule, suggest(rule, '---\n¦Three', '', 'And '))).toBeNull();
+    expect(verdict(rule, suggest(rule, 'x\n---\n¦---\nThree', '---', '***'))).toBe('thematic-break');
+    // Through createAiReview, a model's change to the first words anchors exactly at the start of the body.
+    const review = createAiReview({
+      sourcePath: 'C:/vault/Chapter 01.md',
+      base: base(TEXT),
+      changes: [{ paragraph: 0, before: 'The body starts', after: 'The body begins', category: 'grammar' }],
+      comments: [],
+      generator: { kind: 'claude', provider: 'claude' }
+    });
+    expect(review.hunks).toEqual([
+      expect.objectContaining({
+        anchor: 'exact',
+        start: closing + 10,
+        original: 'starts',
+        replacement: 'begins'
+      })
+    ]);
   });
 
   it('reads a paragraph alone as part of the body: its --- lines are horizontal rules, not frontmatter (C.72)', () => {
@@ -682,6 +714,67 @@ describe('a review made or loaded', () => {
     expect(r.hunks[0]?.keptOut).toBe('markup');
     const { review: moved } = rebaseReview(r, base('It cost ten per cent more today.'));
     expect(moved.hunks[0]).toBe(r.hunks[0]);
+  });
+});
+
+describe('a review saved with a hunk before the body, loaded (files.22)', () => {
+  // Where the body follows the closing --- at once, as the paragraph box and the full-text diff made them before files.22.
+  const TEXT = '---\ntitle: x\n---\nFirst words here.\n\nSecond paragraph.';
+  const brk = TEXT.indexOf('\nFirst');
+  const body = brk + 1;
+  const own = (over: Partial<Hunk>): Hunk => ({
+    id: `m${(seq += 1)}`,
+    start: brk,
+    end: brk + 1,
+    baseSide: 'original',
+    original: '\n',
+    replacement: '',
+    paragraph: 0,
+    category: 'other',
+    reason: 'Edited by author',
+    source: 'manual',
+    status: 'accepted',
+    anchor: 'exact',
+    ...over
+  });
+
+  it('takes each off the page, words and decision kept, so Save writes the frontmatter as it is', () => {
+    const lineBreak = own({});
+    const joined = own({ end: body + 5, original: '\nFirst', replacement: 'Frist' });
+    // A manual review's paragraph added at the top, accepted.
+    const top = own({
+      end: brk,
+      original: '',
+      replacement: '\n\nA new opening.',
+      source: 'diff',
+      reason: undefined
+    });
+    const later = own({ start: body + 6, end: body + 11, original: 'words', replacement: 'lines' });
+    for (const before of [lineBreak, joined, top]) {
+      const saved = review(TEXT, [before, later]);
+      expect(composeReview(saved)).not.toBe(TEXT.replace('words', 'lines'));
+      const loaded = upgradeLoadedReview(saved);
+      expect(loaded.hunks[0]).toEqual({ ...before, anchor: 'stale', start: 0, end: 0 });
+      expect(loaded.hunks[1]).toBe(later);
+      expect(composeReview(loaded)).toBe(TEXT.replace('words', 'lines'));
+      expect(upgradeLoadedReview(loaded)).toBe(loaded);
+    }
+  });
+
+  it('leaves a model s suggestion there to the guard, which keeps it out as frontmatter', () => {
+    const pending = suggest(TEXT, 'title: ¦x', 'x', 'y');
+    const loaded = upgradeLoadedReview(review(TEXT, [pending]));
+    expect(loaded.hunks[0]).toMatchObject({ anchor: 'stale', keptOut: 'frontmatter' });
+  });
+
+  it('leaves a hunk at the start of the body, and a review with none before it, as they are', () => {
+    const top = own({ start: body, end: body, original: '', replacement: 'A new opening.\n\n' });
+    const clean = review(TEXT, [top]);
+    expect(upgradeLoadedReview(clean)).toBe(clean);
+    const plain = review('First words.', [
+      own({ start: 0, end: 5, original: 'First', replacement: 'Frist' })
+    ]);
+    expect(upgradeLoadedReview(plain)).toBe(plain);
   });
 });
 

@@ -42,6 +42,18 @@ describe('renderChapter', () => {
     );
   });
 
+  it('sends the first paragraph without the line break before it, where the body follows the closing --- at once (files.22)', () => {
+    const next = CHAPTER.replace('---\n\n', '---\n');
+    expect(next).toBe(
+      '---\ntitle: Chapter 12\n---\nIt was the third night of rain.\n\n"You should of told me," Mara said.'
+    );
+    expect(renderChapter(next, 'Chapter 12.md')).toBe(renderChapter(CHAPTER, 'Chapter 12.md'));
+    // A text that starts or ends with one blank line is sent without it too.
+    expect(renderChapter('\nFirst.\n\nLast.\n', 'x.md')).toBe(
+      '<chapter file="x.md" paragraphs="2">\n[1] First.\n\n[2] Last.\n</chapter>'
+    );
+  });
+
   it('leaves Markdown exactly as written', () => {
     const rendered = renderChapter('A *word* and a **bold** one.\n\n# Heading', 'x.md');
     expect(rendered).toContain('[1] A *word* and a **bold** one.');
@@ -239,9 +251,9 @@ describe('renderChapter hides notes and code (files.8)', () => {
           });
           const rendered = renderChapter(text, 'x.md');
           const lines = expected.map((line, k) => `[${k + 1}] ${line}`);
-          // Where the body starts on the line after the frontmatter, the first paragraph starts at that line
-          // break (files.22), and sent as written it shows it, so it is compared without it.
-          expect(rendered.replace('] \n', '] ')).toBe(
+          // Where the body starts on the line after the frontmatter, the first paragraph is sent without that
+          // line break too (files.22).
+          expect(rendered).toBe(
             `<chapter file="x.md" paragraphs="${expected.length}">\n${lines.join('\n\n')}\n</chapter>`
           );
           expect(rendered).not.toContain('SECRET');

@@ -495,6 +495,30 @@ describe('editing a paragraph in place (Phase 5d)', () => {
     expect(useApp.getState().review!.hunks).toHaveLength(1);
   });
 
+  it('where the body follows the frontmatter at once, the first paragraph closes with nothing done, and a word typed leaves the frontmatter as it was (files.22)', () => {
+    const front = '---\ntitle: One\ntags: [draft]\n---\n';
+    const text = `${front}${CHAPTER}`;
+    useApp.getState().setReview(
+      createReview({
+        sourcePath: 'C:/vault/Chapter 01.md',
+        base: { text, hash: 'h', eol: 'lf', bom: false, trailingNewline: true },
+        hunks: [],
+        generator: { kind: 'manual' }
+      })
+    );
+    expect(useApp.getState().openDraft(0)).toBe(true);
+    expect(useApp.getState().drafts[0]?.initial).toBe('Tilting his head aside, the man watched.');
+    expect(useApp.getState().commitDraft(0)).toEqual({ status: 'noop' });
+    expect(useApp.getState().review!.hunks).toEqual([]);
+
+    useApp.getState().openDraft(0);
+    useApp.getState().setDraftText(0, 'Tilting his head aside, the boy watched.');
+    expect(useApp.getState().commitDraft(0)).toMatchObject({ status: 'applied', added: 1 });
+    expect(composeText(text, useApp.getState().review!.hunks)).toBe(
+      `${front}${CHAPTER.replace('man', 'boy')}`
+    );
+  });
+
   it('refuses to commit over an outside change, and keeps the author s text', () => {
     useApp.getState().openDraft(1);
     useApp.getState().setDraftText(1, 'She said something.');
