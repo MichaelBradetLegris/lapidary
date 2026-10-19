@@ -101,7 +101,7 @@ export function SetupScreen({
   const others = view === 'not-installed' ? otherInstalls(os) : [];
   // The steps of an outdated view already update it, and a missing one has no version.
   const advice = view === 'outdated' || view === 'not-installed' ? null : updateAdvice(runtime, os, host);
-  const trouble = setupTroubleshooting(view, os);
+  const trouble = setupTroubleshooting(view, runtime, os, host);
 
   // The whole width scrolls, so the wheel works over the margins and the
   // scrollbar sits at the window's edge; the page inside is a centred column.

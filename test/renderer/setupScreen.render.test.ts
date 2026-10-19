@@ -5,7 +5,8 @@ import { ReviewDialog } from '../../src/renderer/components/ReviewDialog';
 import { SetupScreen } from '../../src/renderer/components/SetupScreen';
 import { StatusBar } from '../../src/renderer/components/StatusBar';
 import { heldButton } from '../../src/renderer/state/heldButton';
-import type { RuntimeStatus } from '../../src/shared/ipc';
+import { PRO_PLAN_NOTE, PRO_PLAN_NOTE_OPUS_ONLY, claudeModelOptions } from '../../src/shared/ai/claudeModels';
+import type { ModelInfo, RuntimeStatus } from '../../src/shared/ipc';
 import { DEFAULT_SETTINGS, type Review } from '../../src/shared/types';
 import {
   CONNECTION_TEST_NOTES,
@@ -452,13 +453,14 @@ describe('the review dialog with Claude not quite ready (setup.7)', () => {
   const dialog = (
     runtime: RuntimeStatus,
     last: LastFailure | null,
-    provider: 'claude' | 'openai' = 'claude'
+    provider: 'claude' | 'openai' = 'claude',
+    extra: { models?: ModelInfo[]; model?: string } = {}
   ) =>
     renderToStaticMarkup(
       createElement(ReviewDialog, {
         review,
-        settings: { ...DEFAULT_SETTINGS, provider },
-        models: {},
+        settings: { ...DEFAULT_SETTINGS, provider, ...(extra.model ? { model: extra.model } : {}) },
+        models: extra.models ? { claude: extra.models } : {},
         modelsLoading: {},
         runtimes: { claude: runtime },
         keyStatus: null,
@@ -516,5 +518,75 @@ describe('the review dialog with Claude not quite ready (setup.7)', () => {
     expect(dialog(claude({ state: 'error' }), null, 'openai')).not.toMatch(
       /claude-setup-warning|claude-update-note/
     );
+  });
+
+  /* setup.17 (c): on Claude Code 2.1.266 to 2.1.279 a Pro plan's Default is
+     Sonnet 5 (C.69), and the model list's Default entry says so. */
+  it('leaves Default out of the Pro note where the model list says Default is not an Opus model', () => {
+    const pro = claude({ credential: 'subscription', subscriptionType: 'Claude Pro', cliVersion: '2.1.270' });
+    const list = (defaultDescription: string): ModelInfo[] =>
+      claudeModelOptions([
+        { value: 'default', description: defaultDescription },
+        { value: 'opus', description: 'Opus 5 · Most capable' },
+        { value: 'sonnet', description: 'Sonnet 5 · Everyday tasks' }
+      ]);
+    const note = (html: string): string | null =>
+      /<p class="modal__note" data-testid="pro-plan-note">([^<]*)<\/p>/.exec(decode(html))?.[1] ?? null;
+    const sonnetDefault = list('Sonnet 5 · Best for everyday tasks');
+    expect(note(dialog(pro, null, 'claude', { models: sonnetDefault }))).toBeNull();
+    expect(note(dialog(pro, null, 'claude', { models: sonnetDefault, model: 'opus' }))).toBe(
+      PRO_PLAN_NOTE_OPUS_ONLY
+    );
+    expect(note(dialog(pro, null, 'claude', { models: list('Opus 5.5 · Most capable') }))).toBe(
+      PRO_PLAN_NOTE
+    );
+    // Before the list has come, Default is taken for Opus 5.5, as from 2.1.280.
+    expect(note(dialog(pro, null))).toBe(PRO_PLAN_NOTE);
+  });
+});
+
+describe("Setup's terminal questions, per view and tab (setup.17)", () => {
+  /** Each question with its answer, in order. */
+  const questions = (html: string): string[] =>
+    [
+      ...html.matchAll(
+        /<details class="setup__trouble"><summary>([\s\S]*?)<\/summary><p>([\s\S]*?)<\/p><\/details>/g
+      )
+    ].map((m) => `${decode(m[1] ?? '')}: ${decode(m[2] ?? '')}`);
+  const signedOut = claude({ state: 'not-signed-in', authMethod: 'none' });
+  const missing: RuntimeStatus = { provider: 'claude', state: 'missing-binary' };
+
+  it("leads with the full-path form shown under the command on this machine's tab", () => {
+    const html = render(signedOut, null, { os: 'windows', host: 'windows' });
+    expect(commands(html)).toEqual(['claude auth login', `& '${PATH}' auth login`]);
+    const list = questions(html);
+    expect(list[0]).toMatch(
+      /^The terminal says it does not recognise claude: Use the full-path form of the command, shown under it:/
+    );
+    expect(list[1]).toMatch(
+      /^The terminal starts Claude Desktop instead of Claude Code: An older Claude Desktop can put a Claude\.exe in %LOCALAPPDATA%\\Microsoft\\WindowsApps, .* Use the full-path form of the command, shown under it, which names Claude Code itself\.$/
+    );
+  });
+
+  it("never points at a full-path form on another system's tab, and names the installer's folder there", () => {
+    for (const os of ['mac', 'linux'] as const) {
+      const html = render(signedOut, null, { os, host: 'windows' });
+      const page = questions(html).join(' ');
+      expect(page).not.toContain('shown under it');
+      expect(page).toContain('as in ~/.local/bin/claude auth login,');
+      expect(page).not.toContain('Claude Desktop');
+    }
+  });
+
+  it('says in the not-installed view that the install line needs no PATH, and when a new terminal helps', () => {
+    const windows = questions(render(missing, null, { os: 'windows' })).join(' ');
+    expect(windows).not.toContain('shown under it');
+    expect(windows).toContain(
+      'After a WinGet install, a terminal that was already open may not see the folder'
+    );
+    expect(windows).toContain('The install line above is not affected');
+    const mac = questions(render(missing, null, { os: 'mac' })).join(' ');
+    expect(mac).toContain('After a Homebrew install');
+    expect(mac).not.toContain('Claude Desktop');
   });
 });

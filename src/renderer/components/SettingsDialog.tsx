@@ -11,6 +11,7 @@ import { EFFORT_LEVELS, type EffortLevel, type Settings } from '../../shared/typ
 import { BACKUPS_NOTE } from '../../shared/ui/backups';
 import { SETTINGS_BUTTON_SELECTOR } from '../../shared/ui/dialog';
 import { openedGuidelinesNote } from '../../shared/ui/guidelines';
+import { claudeAccountLine } from '../../shared/ui/setup';
 import { normalizeTheme, THEME_LABELS, THEMES } from '../../shared/ui/theme';
 import { SHOW_WELCOME_AGAIN, WELCOME_GUIDE_NOTE } from '../../shared/ui/welcome';
 import { call, errorMessage } from '../state/client';
@@ -274,14 +275,8 @@ export function SettingsDialog({
 
         <div className="modal__row">
           <span>Claude account</span>
-          <span className="modal__path">
-            {runtime
-              ? runtime.state === 'ready'
-                ? `${runtime.email ?? 'signed in'}${runtime.subscriptionType ? ` (${runtime.subscriptionType})` : ''}${
-                    runtime.apiKeySource ? ` key from ${runtime.apiKeySource}` : ''
-                  }`
-                : (runtime.message ?? runtime.state)
-              : 'not checked'}
+          <span className="modal__path" data-testid="claude-account-line">
+            {claudeAccountLine(runtime)}
           </span>
           <span className="modal__buttons">
             <button type="button" onClick={onOpenSetup}>

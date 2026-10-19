@@ -192,14 +192,49 @@ export const PRO_PRESELECT_HINT = 'pro-model-preselected';
 export const PRO_PLAN_NOTE =
   'On a Pro plan, Opus models (including Default) use your limits fastest. Sonnet is usually enough for copyediting.';
 
+/**
+ * The note where the model list says Default is not an Opus model: Claude
+ * Code 2.1.266 to 2.1.279 makes Sonnet 5 a Pro plan's Default (C.69), and
+ * `ANTHROPIC_DEFAULT_MODEL` can make it any model (setup.17).
+ */
+export const PRO_PLAN_NOTE_OPUS_ONLY =
+  'On a Pro plan, Opus models use your limits fastest. Sonnet is usually enough for copyediting.';
+
 /** Whether the model setting is Sonnet or Haiku, which the Pro note has nothing to say about. */
 function isLighterModel(model: string): boolean {
   return /sonnet|haiku/i.test(model);
 }
 
-/** The Pro note for the review dialog, or null when it does not apply. */
-export function proPlanNote(subscriptionType: string | undefined, model: string): string | null {
-  return isProPlan(subscriptionType) && !isLighterModel(model) ? PRO_PLAN_NOTE : null;
+/**
+ * Whether the model list's Default entry is an Opus model, read from its
+ * label, which `claudeModelLabel` gives from what Claude Code's `initialize`
+ * reply says Default is on this machine and account ("Default: Opus 5.5",
+ * round 5). Null when the list has not come yet, has no Default, or its
+ * label names no version.
+ */
+export function defaultIsOpus(models: readonly ModelInfo[]): boolean | null {
+  const label = models.find((m) => m.value === 'default')?.label ?? '';
+  const family = /^Default: ([A-Z][a-z]+) \d/.exec(label)?.[1];
+  if (!family || !FAMILIES.some((f) => f === family)) return null;
+  return family === 'Opus';
+}
+
+/**
+ * The Pro note for the review dialog, or null when it does not apply. Default
+ * counts among the Opus models unless the model list says it is not one
+ * (`defaultIsOpus` false): then the note says nothing of Default, and nothing
+ * at all while Default is chosen (setup.17). Before the list has come, Default
+ * is taken for Opus 5.5, as on every plan since Claude Code 2.1.280.
+ */
+export function proPlanNote(
+  subscriptionType: string | undefined,
+  model: string,
+  defaultOpus: boolean | null = null
+): string | null {
+  if (!isProPlan(subscriptionType) || isLighterModel(model)) return null;
+  if (defaultOpus !== false) return PRO_PLAN_NOTE;
+  const isDefault = model.trim() === '' || model.trim() === 'default';
+  return isDefault ? null : PRO_PLAN_NOTE_OPUS_ONLY;
 }
 
 /**

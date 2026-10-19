@@ -18,6 +18,8 @@
  *   --claude-config-empty  point Claude Code at a new, empty config folder: not signed in
  *   --claude-config <dir>  point Claude Code at this config folder
  *   --api-key-dummy        set ANTHROPIC_API_KEY to a dummy key: "API key in use"
+ *   --auth-token-dummy     set ANTHROPIC_AUTH_TOKEN to a dummy bearer token, as a gateway or
+ *                          proxy hands out (PLAN setup.17; Appendix A, Authentication)
  *   --no-claude-code       behave as if Claude Code were not installed (development builds only)
  *   --quiet                a quiet test window: shown without taking the foreground, and kept
  *                          rendering while covered (development builds only; PLAN dev.1)
@@ -39,6 +41,7 @@ const FLAGS = new Set([
   '--user-data-fresh',
   '--claude-config-empty',
   '--api-key-dummy',
+  '--auth-token-dummy',
   '--no-claude-code',
   '--quiet',
   '--shell-stub'
@@ -47,7 +50,7 @@ const FLAGS = new Set([
 function usage(problem) {
   if (problem) console.error(problem);
   console.error(
-    'Usage: npm run dev:clean -- [--user-data <dir> | --user-data-fresh] [--claude-config-empty | --claude-config <dir>] [--api-key-dummy] [--no-claude-code] [--quiet] [--shell-stub] [--exe <path>]'
+    'Usage: npm run dev:clean -- [--user-data <dir> | --user-data-fresh] [--claude-config-empty | --claude-config <dir>] [--api-key-dummy] [--auth-token-dummy] [--no-claude-code] [--quiet] [--shell-stub] [--exe <path>]'
   );
   process.exit(problem ? 1 : 0);
 }
@@ -103,6 +106,10 @@ if (options['--claude-config-empty']) {
 if (options['--api-key-dummy']) {
   env.ANTHROPIC_API_KEY = 'sk-ant-dummy-key-for-verification-only'; // check-public: allow
   console.log('ANTHROPIC_API_KEY: a dummy key');
+}
+if (options['--auth-token-dummy']) {
+  env.ANTHROPIC_AUTH_TOKEN = 'dummy-auth-token-for-verification-only';
+  console.log('ANTHROPIC_AUTH_TOKEN: a dummy token');
 }
 if (options['--no-claude-code']) {
   env.MANUSCRIPT_REVIEW_DEV_NO_CLAUDE_CODE = '1';

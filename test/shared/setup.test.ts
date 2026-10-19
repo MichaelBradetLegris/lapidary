@@ -5,26 +5,32 @@ import {
   signedInElsewhereMessage
 } from '../../src/shared/ai/claudeStatus';
 import type { RateLimitInfo, RuntimeStatus } from '../../src/shared/ipc';
+import { APP_NAME } from '../../src/shared/branding';
 import {
   CLAUDE_RUNTIME_CARD,
   CONNECTION_TEST_NOTES,
   COULD_NOT_CHECK_ADVICE,
+  DESKTOP_ALIAS_QUESTION,
   EXPIRED_INTRO,
   FOCUS_RECHECK_MS,
   NOT_INSTALLED_INTRO,
+  NOT_RECOGNISED_QUESTION,
   OTHER_USAGE_LIMIT_TEXT,
   SIGNED_IN_AGAIN,
   SIGNED_OUT_INTRO,
   USAGE_LIMIT_TEXT,
   advancedRows,
+  apiKeySourceOf,
   canTestConnection,
   canTryReviewAnyway,
   checkedAtText,
+  claudeAccountLine,
   failureSetupEvent,
   connectionTestLine,
   connectionTestNote,
   focusRecheckDue,
   installAndLoginCommand,
+  installerPathCommand,
   loginCommand,
   needsSetup,
   nextLastFailure,
@@ -722,7 +728,7 @@ describe('installs, troubleshooting and Advanced', () => {
 
   it("explains, on Windows only, why npm's claude.cmd reads as not installed", () => {
     const npm = (os: 'windows' | 'mac'): string | undefined =>
-      setupTroubleshooting('not-installed', os).find((item) => /npm/.test(item.question))?.answer;
+      setupTroubleshooting('not-installed', null, os, os).find((item) => /npm/.test(item.question))?.answer;
     expect(npm('windows')).toContain('claude.cmd');
     expect(npm('windows')).toContain('not installed');
     expect(npm('mac')).toBeUndefined();
@@ -730,10 +736,180 @@ describe('installs, troubleshooting and Advanced', () => {
 
   it('has troubleshooting for each view with something to do', () => {
     for (const view of VIEWS) {
-      expect(setupTroubleshooting(view, 'windows').length > 0, view).toBe(needsSetup(view));
+      expect(setupTroubleshooting(view, claude(), 'windows', 'windows').length > 0, view).toBe(
+        needsSetup(view)
+      );
+    }
+  });
+});
+
+describe('the terminal questions, per view and tab (setup.17)', () => {
+  const TERMINAL_VIEWS = ['not-installed', 'signed-out', 'expired', 'outdated'] as const;
+  const SYSTEMS = ['windows', 'mac', 'linux'] as const;
+  const HOME_MAC = '/Users/ann/.local/bin/claude'; // check-public: allow
+  const pathOn = (host: (typeof SYSTEMS)[number]): string => (host === 'windows' ? PATH : HOME_MAC);
+  const answer = (
+    view: SetupViewId,
+    os: (typeof SYSTEMS)[number],
+    host: (typeof SYSTEMS)[number],
+    question: string,
+    runtime: RuntimeStatus | null = claude({ executablePath: pathOn(host) })
+  ): string | undefined =>
+    setupTroubleshooting(view, runtime, os, host).find((item) => item.question === question)?.answer;
+
+  it('points at the full-path form exactly where the steps show one, and nowhere else', () => {
+    for (const view of TERMINAL_VIEWS) {
+      for (const os of SYSTEMS) {
+        for (const host of SYSTEMS) {
+          const runtime = claude({ executablePath: pathOn(host) });
+          const shown = setupSteps(view, runtime, os, host).some((step) => step.command?.fullPathCommand);
+          const items = setupTroubleshooting(view, runtime, os, host).filter((item) =>
+            [NOT_RECOGNISED_QUESTION, DESKTOP_ALIAS_QUESTION].includes(item.question)
+          );
+          expect(items.length, `${view} ${os} ${host}`).toBe(os === 'windows' ? 2 : 1);
+          for (const item of items) {
+            expect([view, os, host, item.answer.includes('shown under it')]).toEqual([view, os, host, shown]);
+          }
+        }
+      }
     }
   });
 
+  it('leads with the full-path form on this machine s tab, in the views that show it', () => {
+    for (const view of ['signed-out', 'expired', 'outdated'] as const) {
+      const text = answer(view, 'windows', 'windows', NOT_RECOGNISED_QUESTION) ?? '';
+      expect(text).toMatch(
+        /^Use the full-path form of the command, shown under it: it names the Claude Code/
+      );
+      expect(text).toContain("Opening a new terminal helps only once Claude Code's folder is on PATH");
+      expect(text).not.toMatch(/^Close the terminal/);
+    }
+    expect(answer('signed-out', 'mac', 'mac', NOT_RECOGNISED_QUESTION)).toMatch(/^Use the full-path form/);
+  });
+
+  it("names the installer's folder on another system's tab, with the view's command by its full path", () => {
+    const mac = answer('signed-out', 'mac', 'windows', NOT_RECOGNISED_QUESTION) ?? '';
+    expect(mac).toContain("Anthropic's installer puts Claude Code in ~/.local/bin");
+    expect(mac).toContain('as in ~/.local/bin/claude auth login,');
+    expect(mac).toContain('A copy installed with Homebrew is found by name');
+    expect(answer('outdated', 'linux', 'windows', NOT_RECOGNISED_QUESTION)).toContain(
+      'as in ~/.local/bin/claude update,'
+    );
+    expect(answer('outdated', 'linux', 'windows', NOT_RECOGNISED_QUESTION)).not.toMatch(/Homebrew|WinGet/);
+    const windows = answer('expired', 'windows', 'mac', NOT_RECOGNISED_QUESTION) ?? '';
+    expect(windows).toContain('%USERPROFILE%\\.local\\bin and does not add that folder to PATH');
+    expect(windows).toContain('as in & "$env:USERPROFILE\\.local\\bin\\claude.exe" auth login,');
+    expect(windows).toContain('A copy installed with WinGet is found by name');
+    // This machine's tab, with no path to show, says the same as another system's.
+    expect(
+      answer(
+        'signed-out',
+        'windows',
+        'windows',
+        NOT_RECOGNISED_QUESTION,
+        claude({ executablePath: undefined })
+      )
+    ).toBe(windows);
+  });
+
+  it('says in the not-installed view that the install line needs no PATH, and when to open a new terminal', () => {
+    for (const host of SYSTEMS) {
+      expect(answer('not-installed', 'windows', host, NOT_RECOGNISED_QUESTION, null)).toBe(
+        'The install line above does not need it: it signs in through the full path of the copy it installs. After a WinGet install, a terminal that was already open may not see the folder WinGet put Claude Code in, so open a new terminal, then run claude auth login.'
+      );
+    }
+    expect(answer('not-installed', 'mac', 'windows', NOT_RECOGNISED_QUESTION, null)).toContain(
+      'After a Homebrew install, a terminal that was already open may not see the folder Homebrew put Claude Code in'
+    );
+    expect(answer('not-installed', 'linux', 'linux', NOT_RECOGNISED_QUESTION, null)).toBe(
+      "The install line above does not need it: it signs in through the full path of the copy it installs, ~/.local/bin/claude. To run claude by name later, add ~/.local/bin to PATH, as the installer's output says, then open a new terminal."
+    );
+  });
+
+  it('answers a terminal whose claude starts Claude Desktop, on the Windows tab only', () => {
+    const intro =
+      "An older Claude Desktop can put a Claude.exe in %LOCALAPPDATA%\\Microsoft\\WindowsApps, and where that folder comes before Claude Code's on PATH, typing claude starts Claude Desktop.";
+    expect(answer('signed-out', 'windows', 'windows', DESKTOP_ALIAS_QUESTION)).toBe(
+      `${intro} Use the full-path form of the command, shown under it, which names Claude Code itself.`
+    );
+    expect(answer('outdated', 'windows', 'linux', DESKTOP_ALIAS_QUESTION)).toBe(
+      `${intro} Run Claude Code by its full path in place of claude, as in & "$env:USERPROFILE\\.local\\bin\\claude.exe" update for a copy from Anthropic's installer.`
+    );
+    expect(answer('not-installed', 'windows', 'windows', DESKTOP_ALIAS_QUESTION, null)).toContain(
+      'The install line above is not affected, as it signs in through the full path of the copy it installs.'
+    );
+    for (const os of ['mac', 'linux'] as const) {
+      for (const view of TERMINAL_VIEWS) {
+        expect(answer(view, os, os, DESKTOP_ALIAS_QUESTION), `${view} ${os}`).toBeUndefined();
+      }
+    }
+    for (const view of ['could-not-check', 'ready', 'api-key', 'usage-limit', 'checking'] as const) {
+      expect(answer(view, 'windows', 'windows', DESKTOP_ALIAS_QUESTION), view).toBeUndefined();
+    }
+  });
+
+  it('builds the install line from the same full path it names', () => {
+    expect(installAndLoginCommand('windows')).toBe(
+      `irm https://claude.ai/install.ps1 | iex; ${installerPathCommand('windows', 'auth login')}`
+    );
+    expect(installAndLoginCommand('linux')).toBe(
+      `curl -fsSL https://claude.ai/install.sh | bash && ${installerPathCommand('linux', 'auth login')}`
+    );
+  });
+});
+
+describe('Settings Claude account line (setup.17)', () => {
+  const plan = claude({
+    credential: 'subscription',
+    email: 'ann@example.com',
+    subscriptionType: 'Claude Max'
+  });
+
+  it('names the account and its plan, and no key for a plan s sign-in that reports none', () => {
+    expect(claudeAccountLine(plan)).toBe('ann@example.com (Claude Max)');
+    expect(claudeAccountLine({ ...plan, apiKeySource: 'none' })).toBe('ann@example.com (Claude Max)');
+    expect(apiKeySourceOf({ ...plan, apiKeySource: 'none' })).toBeNull();
+  });
+
+  it("names an API key's source, and the token", () => {
+    expect(claudeAccountLine(claude({ credential: 'api-key', apiKeySource: 'ANTHROPIC_API_KEY' }))).toBe(
+      'signed in, API key from ANTHROPIC_API_KEY'
+    );
+    expect(apiKeySourceOf(claude({ apiKeySource: 'ANTHROPIC_API_KEY' }))).toBe('ANTHROPIC_API_KEY');
+    // The token outranks a key set beside it (Appendix A, Authentication).
+    expect(claudeAccountLine(claude({ credential: 'auth-token', apiKeySource: 'ANTHROPIC_API_KEY' }))).toBe(
+      'signed in, token from ANTHROPIC_AUTH_TOKEN'
+    );
+  });
+
+  it("gives the check's own words when it is not ready, and says when nothing was checked", () => {
+    expect(claudeAccountLine(null)).toBe('not checked');
+    expect(claudeAccountLine(claude({ state: 'not-signed-in', message: NOT_SIGNED_IN_MESSAGE }))).toBe(
+      NOT_SIGNED_IN_MESSAGE
+    );
+    expect(claudeAccountLine(claude({ state: 'error' }))).toBe('error');
+  });
+});
+
+describe('a token in ANTHROPIC_AUTH_TOKEN (setup.17)', () => {
+  const token = claude({ credential: 'auth-token', authMethod: 'oauth_token' });
+
+  it('reads as ready with the token, billed to the account behind it, with how to use the sign-in instead', () => {
+    expect(setupView(token, null)).toBe('ready');
+    expect(runtimeLabel(token)).toBe('Claude ready (token)');
+    expect(setupStatus('ready', token).lines).toEqual([
+      'Claude Code 2.1.283 signs in with the token in ANTHROPIC_AUTH_TOKEN, such as a gateway or proxy hands out, so reviews are billed to the account behind that token, not through your Claude sign-in. Review with AI can use Claude.',
+      `To use your Claude sign-in instead, remove ANTHROPIC_AUTH_TOKEN from your environment and start ${APP_NAME} again.`
+    ]);
+    expect(connectionTestNote(token)).toBe(CONNECTION_TEST_NOTES['auth-token']);
+    expect(connectionTestNote(token)).not.toContain('your plan');
+    expect(
+      Object.fromEntries(advancedRows(token, 'windows').map((row) => [row.label, row.value]))['Signs in with']
+    ).toBe('a token from ANTHROPIC_AUTH_TOKEN, auth method oauth_token');
+  });
+});
+
+describe('Advanced and the status bar button', () => {
   it('lists the Claude Code path and version, and where it looks', () => {
     const checkedAt = new Date(2026, 9, 18, 14, 2, 11).toISOString();
     const rows = advancedRows(
@@ -794,6 +970,7 @@ describe('Test the connection (setup.8)', () => {
     expect(connectionTestNote(null)).toBe(unknown);
     expect(Object.keys(CONNECTION_TEST_NOTES).sort()).toEqual([
       'api-key',
+      'auth-token',
       'cloud',
       'subscription',
       'unknown'

@@ -1,11 +1,15 @@
+import { readdirSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  canRun,
   claudeAuthStatus,
   claudeCandidates,
   claudeVersion,
   discoverClaudeCode,
+  isWindowsAppsDir,
   locateClaudeCode,
   runClaudeCli,
   type ExecFn,
@@ -54,6 +58,26 @@ describe('claudeCandidates', () => {
     ]);
   });
 
+  /* setup.17 (b): an older Claude Desktop's Claude.exe alias in WindowsApps,
+     which a terminal runs for claude when that folder comes first on PATH. */
+  it('leaves the WindowsApps alias folder out on Windows, however PATH spells it', () => {
+    const apps = 'C:\\Users\\Ann\\AppData\\Local\\Microsoft\\WindowsApps'; // check-public: allow
+    const links = 'C:\\Users\\Ann\\AppData\\Local\\Microsoft\\WinGet\\Links'; // check-public: allow
+    const pathEnv = `${apps};C:\\Tools;${apps.toLowerCase()}\\;${links}`;
+    expect(claudeCandidates(machine('win32', [], pathEnv)).map((c) => c.path)).toEqual([
+      'C:\\Users\\Ann\\.local\\bin\\claude.exe', // check-public: allow
+      'C:\\Tools\\claude.exe',
+      `${links}\\claude.exe`
+    ]);
+    expect(isWindowsAppsDir(apps)).toBe(true);
+    expect(isWindowsAppsDir('C:\\Program Files\\WindowsApps')).toBe(false);
+    expect(isWindowsAppsDir('C:\\Tools\\WindowsApps2')).toBe(false);
+    // Only Windows has App Execution Aliases.
+    expect(claudeCandidates(machine('linux', [], '/opt/Microsoft/WindowsApps')).map((c) => c.path)).toContain(
+      '/opt/Microsoft/WindowsApps/claude'
+    );
+  });
+
   it('adds /usr/bin and /usr/local/bin on Linux, without repeating a PATH folder', () => {
     expect(
       claudeCandidates(machine('linux', [], '/usr/local/bin:/usr/bin')).map((c) => `${c.source} ${c.path}`)
@@ -94,6 +118,49 @@ describe('locateClaudeCode', () => {
     expect(await locateClaudeCode(machine('win32', ['C:\\npm\\claude.cmd'], 'C:\\npm'))).toBeNull();
     const installer = 'C:\\Users\\Ann\\.local\\bin\\claude.exe'; // check-public: allow
     expect(await locateClaudeCode(machine('win32', [installer], '', { noClaudeCode: true }))).toBeNull();
+  });
+});
+
+/* setup.17 (b): `canRun` must never take an App Execution Alias for a
+   program it may run, or an older Claude Desktop's Claude.exe would be found
+   and started with --version. `fs.stat` cannot follow an alias (EACCES), so
+   it says no; this pins that against a change in Node or Electron, on the
+   real aliases of the machine the tests run on, Node listing each as a
+   symbolic link. None is ever run. Skipped off Windows, and where the folder
+   holds no alias. */
+const WINDOWS_APPS =
+  process.platform === 'win32' && process.env['LOCALAPPDATA']
+    ? path.join(process.env['LOCALAPPDATA'], 'Microsoft', 'WindowsApps')
+    : null;
+
+function windowsAppsAliases(): string[] {
+  if (!WINDOWS_APPS) return [];
+  try {
+    return readdirSync(WINDOWS_APPS, { withFileTypes: true })
+      .filter((entry) => /\.exe$/i.test(entry.name) && entry.isSymbolicLink())
+      .map((entry) => path.join(WINDOWS_APPS, entry.name));
+  } catch {
+    return [];
+  }
+}
+
+const ALIASES = windowsAppsAliases();
+
+describe.skipIf(ALIASES.length === 0)('App Execution Aliases (Windows)', () => {
+  it('canRun says no to every alias in WindowsApps, which only a terminal runs', async () => {
+    const answers = await Promise.all(ALIASES.map(async (alias) => [alias, await canRun(alias)] as const));
+    expect(answers.filter(([, runs]) => runs)).toEqual([]);
+  });
+
+  it('the lookup passes over the folder that holds them, on this machine s own PATH', () => {
+    const folder = WINDOWS_APPS ?? '';
+    const list = claudeCandidates({
+      platform: 'win32',
+      home: os.homedir(),
+      pathEnv: `${folder};${process.env['PATH'] ?? ''}`,
+      pathApi: path.win32
+    });
+    expect(list.filter((c) => path.win32.dirname(c.path).toLowerCase() === folder.toLowerCase())).toEqual([]);
   });
 });
 

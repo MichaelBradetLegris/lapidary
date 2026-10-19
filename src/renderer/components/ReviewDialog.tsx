@@ -9,7 +9,7 @@ import type {
   ReviewSummary,
   RuntimeStatus
 } from '../../shared/ipc';
-import { proPlanNote } from '../../shared/ai/claudeModels';
+import { defaultIsOpus, proPlanNote } from '../../shared/ai/claudeModels';
 import { claudeUpdateAdvice } from '../../shared/ai/claudeStatus';
 import { reviewDialogWarning, type LastFailure } from '../../shared/ui/setup';
 import { chapterStats } from '../../shared/text/stats';
@@ -128,7 +128,7 @@ export function ReviewDialog({
     setNotSaved([]);
     onSaveThenStart(setNotSaved);
   };
-  const planNote = isOpenAi ? null : proPlanNote(runtime?.subscriptionType, current);
+  const planNote = isOpenAi ? null : proPlanNote(runtime?.subscriptionType, current, defaultIsOpus(list));
   const claudeWarning = isOpenAi ? null : reviewDialogWarning(runtime, claudeLastFailure);
   const updateAdvice = isOpenAi
     ? null

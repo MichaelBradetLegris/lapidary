@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   PRO_PLAN_NOTE,
+  PRO_PLAN_NOTE_OPUS_ONLY,
   PRO_PRESELECT_HINT,
+  claudeModelOptions,
+  defaultIsOpus,
   isProPlan,
   modelArgs,
   proPlanNote,
@@ -179,6 +182,38 @@ describe('Pro plans (setup.1)', () => {
     expect(proPlanNote('pro', 'haiku')).toBeNull();
     expect(proPlanNote('max', 'opus')).toBeNull();
   });
+
+  /* setup.17 (c): on Claude Code 2.1.266 to 2.1.279 a Pro plan's Default is
+     Sonnet 5 (C.69), and the model list says so in Default's label. */
+  it('reads from the model list whether Default is an Opus model', () => {
+    const list = (description: string | undefined) =>
+      claudeModelOptions([
+        { value: 'default', displayName: 'Default (recommended)', ...(description ? { description } : {}) },
+        { value: 'opus', description: 'Opus 5.5 · Most capable' }
+      ]);
+    expect(defaultIsOpus(list('Opus 5.5 · Best for everyday, complex tasks'))).toBe(true);
+    expect(defaultIsOpus(list('Sonnet 5 · Best for everyday tasks'))).toBe(false);
+    // No version to read, no Default, or no list yet: not known.
+    expect(defaultIsOpus(list(undefined))).toBeNull();
+    expect(defaultIsOpus(list('Use the default model'))).toBeNull();
+    expect(defaultIsOpus([{ value: 'opus', label: 'Opus 5.5' }])).toBeNull();
+    expect(defaultIsOpus([])).toBeNull();
+  });
+
+  it('leaves Default out of the Pro note where the model list says it is not an Opus model', () => {
+    expect(proPlanNote('pro', 'default', false)).toBeNull();
+    expect(proPlanNote('pro', '', false)).toBeNull();
+    expect(proPlanNote('pro', 'opus', false)).toBe(PRO_PLAN_NOTE_OPUS_ONLY);
+    expect(proPlanNote('pro', 'claude-opus-5', false)).toBe(PRO_PLAN_NOTE_OPUS_ONLY);
+    expect(PRO_PLAN_NOTE_OPUS_ONLY).not.toContain('Default');
+    // Opus, or not known yet: as before, since Default is Opus 5.5 from 2.1.280.
+    for (const known of [true, null]) {
+      expect(proPlanNote('pro', 'default', known)).toBe(PRO_PLAN_NOTE);
+      expect(proPlanNote('pro', 'opus', known)).toBe(PRO_PLAN_NOTE);
+    }
+    expect(proPlanNote('pro', 'sonnet', false)).toBeNull();
+    expect(proPlanNote('max', 'default', false)).toBeNull();
+  });
 });
 
 /* setup.2: reading `auth status`, classifying the sign-in, and wording failures. */
@@ -266,6 +301,32 @@ describe('classifyClaude', () => {
     ['nothing to go on', null, null, { state: 'error' }]
   ] as const)('%s', (_label, auth, account, expected) => {
     expect(classifyClaude({ auth, account })).toMatchObject(expected);
+  });
+
+  /* setup.17 (e): Claude Code 2.1.302 with ANTHROPIC_AUTH_TOKEN set, as
+     `auth status --json` and the initialize reply gave it on 2026-10-19, with
+     an empty config folder, over a Claude plan's sign-in, and beside an
+     ANTHROPIC_API_KEY. Not a Claude plan: the token outranks the sign-in. */
+  it('reads an ANTHROPIC_AUTH_TOKEN as the token, never as a Claude plan', () => {
+    const tokenAuth = { loggedIn: true, authMethod: 'oauth_token', apiProvider: 'firstParty' };
+    const tokenAccount = { tokenSource: 'ANTHROPIC_AUTH_TOKEN', apiProvider: 'firstParty' };
+    expect(classifyClaude({ auth: tokenAuth, account: tokenAccount })).toEqual({
+      state: 'ready',
+      credential: 'auth-token'
+    });
+    // Beside an API key, which it outranks; `auth status` names the key's source too.
+    expect(
+      classifyClaude({
+        auth: { ...tokenAuth, apiKeySource: 'ANTHROPIC_API_KEY' },
+        account: { ...tokenAccount, apiKeySource: 'ANTHROPIC_API_KEY' }
+      }).credential
+    ).toBe('auth-token');
+    // A cloud provider outranks the token.
+    expect(
+      classifyClaude({ auth: tokenAuth, account: { ...tokenAccount, apiProvider: 'bedrock' } }).credential
+    ).toBe('cloud');
+    // With no account to read, oauth_token reads as before.
+    expect(classifyClaude({ auth: tokenAuth, account: null }).credential).toBe('subscription');
   });
 
   it('explains a sign-in that lives in settings the app does not load', () => {

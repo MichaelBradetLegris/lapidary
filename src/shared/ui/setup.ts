@@ -7,6 +7,7 @@
  */
 
 import {
+  AUTH_TOKEN_VARIABLE,
   CLAUDE_UPDATE_COMMAND,
   MIN_CLAUDE_CODE,
   RECOMMENDED_CLAUDE_CODE,
@@ -144,6 +145,7 @@ export function runtimeLabel(
     case 'api-key':
       return 'Claude ready (API key)';
     default:
+      if (runtime.credential === 'auth-token') return 'Claude ready (token)';
       return `Claude ready${runtime.email ? ` ${runtime.email}` : ''}`;
   }
 }
@@ -183,11 +185,22 @@ export function updateCommand(executablePath: string | undefined, os: SetupOs): 
   };
 }
 
+/**
+ * Claude Code at the path Anthropic's installer puts it on `os`, run with
+ * `args` in that system's terminal: for a terminal that does not find
+ * `claude` by name, where no path of this machine can be shown.
+ */
+export function installerPathCommand(os: SetupOs, args: string): string {
+  return os === 'windows'
+    ? `& "$env:USERPROFILE\\.local\\bin\\claude.exe" ${args}`
+    : `~/.local/bin/claude ${args}`;
+}
+
 /** Anthropic's installer, then sign-in through the path it installs to, in one line. */
 export function installAndLoginCommand(os: SetupOs): string {
   return os === 'windows'
-    ? 'irm https://claude.ai/install.ps1 | iex; & "$env:USERPROFILE\\.local\\bin\\claude.exe" auth login'
-    : 'curl -fsSL https://claude.ai/install.sh | bash && ~/.local/bin/claude auth login';
+    ? `irm https://claude.ai/install.ps1 | iex; ${installerPathCommand(os, 'auth login')}`
+    : `curl -fsSL https://claude.ai/install.sh | bash && ${installerPathCommand(os, 'auth login')}`;
 }
 
 /**
@@ -458,17 +471,55 @@ function claudeCode(runtime: RuntimeStatus | null | undefined): string {
   return runtime?.cliVersion ? `Claude Code ${runtime.cliVersion}` : 'Claude Code';
 }
 
-function readyLine(runtime: RuntimeStatus | null | undefined): string {
+function readyLines(runtime: RuntimeStatus | null | undefined): string[] {
   if (runtime?.credential === 'cloud') {
-    return `${claudeCode(runtime)} is signed in through your cloud provider. Review with AI can use Claude.`;
+    return [
+      `${claudeCode(runtime)} is signed in through your cloud provider. Review with AI can use Claude.`
+    ];
+  }
+  if (runtime?.credential === 'auth-token') {
+    return [
+      `${claudeCode(runtime)} signs in with the token in ${AUTH_TOKEN_VARIABLE}, such as a gateway or proxy hands out, so reviews are billed to the account behind that token, not through your Claude sign-in. Review with AI can use Claude.`,
+      `To use your Claude sign-in instead, remove ${AUTH_TOKEN_VARIABLE} from your environment and start ${APP_NAME} again.`
+    ];
   }
   const who = runtime?.email ? ` as ${runtime.email}` : '';
   const plan = runtime?.subscriptionType ? ` (${runtime.subscriptionType})` : '';
-  return `${claudeCode(runtime)} is signed in${who}${plan}. Review with AI can use Claude.`;
+  return [`${claudeCode(runtime)} is signed in${who}${plan}. Review with AI can use Claude.`];
+}
+
+/**
+ * Where the API key Claude Code signs in with comes from, such as
+ * ANTHROPIC_API_KEY, or null when there is none: the check keeps the `none`
+ * that a Claude Code may give for a plan's sign-in, which names no key.
+ */
+export function apiKeySourceOf(runtime: RuntimeStatus | null | undefined): string | null {
+  const source = runtime?.apiKeySource;
+  return source && source !== 'none' ? source : null;
+}
+
+/**
+ * Settings' Claude account row (section 7): the account and its plan, and
+ * the API key's source or the token when Claude Code signs in with one; the
+ * check's own words when it is not ready; "not checked" before the first
+ * check. A plan's sign-in names no key (setup.17: it read "key from none").
+ */
+export function claudeAccountLine(runtime: RuntimeStatus | null | undefined): string {
+  if (!runtime) return 'not checked';
+  if (runtime.state !== 'ready') return runtime.message ?? runtime.state;
+  const plan = runtime.subscriptionType ? ` (${runtime.subscriptionType})` : '';
+  const source = apiKeySourceOf(runtime);
+  const how =
+    runtime.credential === 'auth-token'
+      ? `, token from ${AUTH_TOKEN_VARIABLE}`
+      : source
+        ? `, API key from ${source}`
+        : '';
+  return `${runtime.email ?? 'signed in'}${plan}${how}`;
 }
 
 function apiKeyLines(runtime: RuntimeStatus | null | undefined): string[] {
-  const source = runtime?.apiKeySource && runtime.apiKeySource !== 'none' ? runtime.apiKeySource : null;
+  const source = apiKeySourceOf(runtime);
   return [
     `${claudeCode(runtime)} signs in with an API key${source ? ` (${source})` : ''}, so reviews are billed by the token to the Anthropic Console account the key belongs to, not to a Claude plan.`,
     ...(source === 'ANTHROPIC_API_KEY'
@@ -550,7 +601,7 @@ export function setupStatus(
     case 'ready':
       return plan.length
         ? { tone: 'warn', title: 'Claude Code is signed in, on a plan that cannot run it', lines: plan }
-        : { tone: 'ok', title: 'Claude is ready', lines: [readyLine(runtime)] };
+        : { tone: 'ok', title: 'Claude is ready', lines: readyLines(runtime) };
   }
 }
 
@@ -653,11 +704,79 @@ export interface TroubleItem {
   answer: string;
 }
 
-const NOT_RECOGNISED: TroubleItem = {
-  question: 'The terminal says it does not recognise claude',
-  answer:
-    'Close the terminal and open a new one, so that it finds the folder Claude Code was installed to. Or use the full-path form of the command, shown under it.'
+export const NOT_RECOGNISED_QUESTION = 'The terminal says it does not recognise claude';
+
+/** Where Anthropic's installer puts Claude Code on each system, named as its pages name it. */
+const INSTALLER_FOLDER: Readonly<Record<SetupOs, string>> = {
+  windows: '%USERPROFILE%\\.local\\bin',
+  mac: '~/.local/bin',
+  linux: '~/.local/bin'
 };
+
+/** What the view's command runs after `claude`: the update, or the sign-in. */
+function viewArgs(view: SetupViewId): string {
+  return view === 'outdated' ? 'update' : 'auth login';
+}
+
+/**
+ * "The terminal does not recognise claude", answered for the view and the
+ * tab (setup.17). Anthropic's installer does not put its folder on PATH, so
+ * a new terminal helps only once someone has; WinGet and Homebrew do, for
+ * terminals opened after the install (troubleshoot-install, Appendix A).
+ * Where the steps show the full-path form, which names the Claude Code found
+ * on this machine, it comes first. The not-installed view's install line
+ * signs in through the full path already, so there the question is a
+ * terminal opened before a WinGet or Homebrew install. On another system's
+ * tab, which shows no path of this machine, it names the installer's folder
+ * on that system.
+ */
+function notRecognised(view: SetupViewId, os: SetupOs, fullPathShown: boolean): TroubleItem {
+  const manager = otherInstalls(os)[0]?.name;
+  if (view === 'not-installed') {
+    return {
+      question: NOT_RECOGNISED_QUESTION,
+      answer: manager
+        ? `The install line above does not need it: it signs in through the full path of the copy it installs. After a ${manager} install, a terminal that was already open may not see the folder ${manager} put Claude Code in, so open a new terminal, then run claude auth login.`
+        : `The install line above does not need it: it signs in through the full path of the copy it installs, ${INSTALLER_FOLDER[os]}/claude. To run claude by name later, add ${INSTALLER_FOLDER[os]} to PATH, as the installer's output says, then open a new terminal.`
+    };
+  }
+  if (fullPathShown) {
+    return {
+      question: NOT_RECOGNISED_QUESTION,
+      answer: `Use the full-path form of the command, shown under it: it names the Claude Code that ${APP_NAME} found, so the terminal does not have to find claude by name. Opening a new terminal helps only once Claude Code's folder is on PATH, which Anthropic's installer does not arrange.`
+    };
+  }
+  return {
+    question: NOT_RECOGNISED_QUESTION,
+    answer: `Anthropic's installer puts Claude Code in ${INSTALLER_FOLDER[os]} and does not add that folder to PATH. Run it by its full path in place of claude, as in ${installerPathCommand(os, viewArgs(view))}, or add the folder to PATH, as the installer's output says, and open a new terminal.${
+      manager
+        ? ` A copy installed with ${manager} is found by name in a terminal opened after the install.`
+        : ''
+    }`
+  };
+}
+
+export const DESKTOP_ALIAS_QUESTION = 'The terminal starts Claude Desktop instead of Claude Code';
+
+/**
+ * An older Claude Desktop's `Claude.exe` in the WindowsApps folder, which a
+ * terminal runs for `claude` when that folder comes first on PATH
+ * (troubleshoot-install; PLAN 5.6 item 1, setup.17). Windows only. The app's
+ * own lookup passes over the folder; the way round it in a terminal is the
+ * full path.
+ */
+function desktopAlias(view: SetupViewId, fullPathShown: boolean): TroubleItem {
+  const way =
+    view === 'not-installed'
+      ? 'The install line above is not affected, as it signs in through the full path of the copy it installs. Use it even after a WinGet install; the two copies can stay side by side.'
+      : fullPathShown
+        ? 'Use the full-path form of the command, shown under it, which names Claude Code itself.'
+        : `Run Claude Code by its full path in place of claude, as in ${installerPathCommand('windows', viewArgs(view))} for a copy from Anthropic's installer.`;
+  return {
+    question: DESKTOP_ALIAS_QUESTION,
+    answer: `An older Claude Desktop can put a Claude.exe in %LOCALAPPDATA%\\Microsoft\\WindowsApps, and where that folder comes before Claude Code's on PATH, typing claude starts Claude Desktop. ${way}`
+  };
+}
 
 const NO_BROWSER: TroubleItem = {
   question: 'No browser window opened',
@@ -697,16 +816,31 @@ function updateElsewhere(os: SetupOs): TroubleItem {
   return { question: 'claude update says it cannot update this copy', answer: how };
 }
 
-/** Questions people run into in this view, each with its answer. */
-export function setupTroubleshooting(view: SetupViewId, os: SetupOs): TroubleItem[] {
+/**
+ * Questions people run into in this view, each with its answer, on the
+ * system chosen in Setup's tabs. The terminal questions follow the steps:
+ * where they show the full-path form, on `host`'s own tab once the path is
+ * known (`pathForTab`), the answers point at it, and nowhere else (setup.17).
+ */
+export function setupTroubleshooting(
+  view: SetupViewId,
+  runtime: RuntimeStatus | null | undefined,
+  os: SetupOs,
+  host: SetupOs
+): TroubleItem[] {
+  const fullPathShown = pathForTab(runtime, os, host) !== undefined;
+  const terminal = [
+    notRecognised(view, os, fullPathShown),
+    ...(os === 'windows' ? [desktopAlias(view, fullPathShown)] : [])
+  ];
   switch (view) {
     case 'not-installed':
-      return [NOT_RECOGNISED, NO_BROWSER, PLANS, ...(os === 'windows' ? [NPM_ON_WINDOWS] : [])];
+      return [...terminal, NO_BROWSER, PLANS, ...(os === 'windows' ? [NPM_ON_WINDOWS] : [])];
     case 'signed-out':
     case 'expired':
-      return [NOT_RECOGNISED, NO_BROWSER, STILL_SIGNED_OUT, PLANS];
+      return [...terminal, NO_BROWSER, STILL_SIGNED_OUT, PLANS];
     case 'outdated':
-      return [NOT_RECOGNISED, updateElsewhere(os)];
+      return [...terminal, updateElsewhere(os)];
     case 'could-not-check':
       return [COULD_NOT_CHECK];
     default:
@@ -717,12 +851,13 @@ export function setupTroubleshooting(view: SetupViewId, os: SetupOs): TroubleIte
 const CREDENTIAL_WORDS: Readonly<Record<ClaudeCredential, string>> = {
   subscription: 'a Claude plan',
   'api-key': 'an API key',
-  cloud: 'a cloud provider'
+  cloud: 'a cloud provider',
+  'auth-token': `a token from ${AUTH_TOKEN_VARIABLE}`
 };
 
 const LOOKS_IN: Readonly<Record<SetupOs, string>> = {
   windows:
-    "%USERPROFILE%\\.local\\bin\\claude.exe, where Anthropic's installer puts it, then each folder on PATH. Only claude.exe counts, not npm's claude.cmd.",
+    "%USERPROFILE%\\.local\\bin\\claude.exe, where Anthropic's installer puts it, then each folder on PATH but WindowsApps, where an older Claude Desktop keeps a Claude.exe. Only claude.exe counts, not npm's claude.cmd.",
   mac: "~/.local/bin, where Anthropic's installer puts it, then each folder on PATH, then /opt/homebrew/bin and /usr/local/bin.",
   linux:
     "~/.local/bin, where Anthropic's installer puts it, then each folder on PATH, then /usr/bin and /usr/local/bin."
@@ -792,6 +927,7 @@ export const CONNECTION_TEST_NOTES: Readonly<Record<ClaudeCredential | 'unknown'
   'api-key': 'Sends one very small request to Claude, which is billed to your API key like any other.',
   cloud:
     'Sends one very small request to Claude, which is billed through your cloud provider like any other.',
+  'auth-token': `Sends one very small request to Claude, which is billed to the account behind your ${AUTH_TOKEN_VARIABLE} like any other.`,
   unknown: 'Sends one very small request to Claude, which counts against your plan or API key like any other.'
 };
 

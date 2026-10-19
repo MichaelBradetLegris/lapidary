@@ -174,8 +174,21 @@ export interface ClaudeAccount {
   apiProvider?: string;
 }
 
-/** What Claude Code signs in with: a Claude plan, an API key, or a cloud provider's credentials. */
-export type ClaudeCredential = 'subscription' | 'api-key' | 'cloud';
+/**
+ * What Claude Code signs in with: a Claude plan, an API key, a cloud
+ * provider's credentials, or the bearer token in `ANTHROPIC_AUTH_TOKEN`, which
+ * a gateway or proxy hands out (setup.17).
+ */
+export type ClaudeCredential = 'subscription' | 'api-key' | 'cloud' | 'auth-token';
+
+/**
+ * The variable Claude Code names as the `initialize` reply's `tokenSource`
+ * when it signs in with a bearer token from the environment. It outranks an
+ * API key and the Claude sign-in (Appendix A, Authentication): with it set,
+ * 2.1.302's `auth status` says `oauth_token` and its reply carries no email,
+ * even over a Claude plan's sign-in (setup.17).
+ */
+export const AUTH_TOKEN_VARIABLE = 'ANTHROPIC_AUTH_TOKEN';
 
 export interface ClaudeClassification {
   state: 'ready' | 'not-signed-in' | 'error';
@@ -225,7 +238,10 @@ function withPlan(result: ClaudeClassification, subscriptionType: string | undef
  * Is Claude Code ready, and with what? From `auth status` and the `initialize`
  * account, first match (PLAN 11.3 f). `auth status` is trusted only when it
  * says signed out: the review runs without the user's settings, so a sign-in
- * that lives there does not reach it, and the account answers for that.
+ * that lives there does not reach it, and the account answers for that. An
+ * `ANTHROPIC_AUTH_TOKEN` is read from the account's `tokenSource`, since
+ * `auth status` calls it `oauth_token`, which without an account reads as a
+ * Claude plan's token (setup.17).
  */
 export function classifyClaude(input: {
   auth: AuthStatus | null;
@@ -237,8 +253,11 @@ export function classifyClaude(input: {
     withPlan({ state: 'ready', ...(credential ? { credential } : {}) }, plan);
 
   if (auth?.loggedIn === false) return { state: 'not-signed-in', message: NOT_SIGNED_IN_MESSAGE };
+  const cloud = account?.apiProvider !== undefined && account.apiProvider !== 'firstParty';
+  // The token outranks an API key and a sign-in, and a cloud provider outranks it.
+  if (account?.tokenSource === AUTH_TOKEN_VARIABLE && !cloud) return ready('auth-token');
   if (account?.apiKeySource && account.apiKeySource !== 'none') return ready('api-key');
-  if (account?.apiProvider && account.apiProvider !== 'firstParty') return ready('cloud');
+  if (cloud) return ready('cloud');
   if (account?.email) return ready('subscription');
   if (account?.tokenSource === 'none') {
     return {
