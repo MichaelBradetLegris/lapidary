@@ -100,6 +100,16 @@ function isHidden(name: string): boolean {
   return name.startsWith('.');
 }
 
+/**
+ * A drawing of Obsidian's Excalidraw plugin, `Drawing 2026-10-19 12.00.00.excalidraw.md`:
+ * Markdown on the outside, but the drawing's data inside, which is not prose
+ * and must not be reviewed (files.11). It is left out of the chapter list
+ * only; the file itself is never touched.
+ */
+export function isExcalidrawDrawing(name: string): boolean {
+  return name.toLowerCase().endsWith('.excalidraw.md');
+}
+
 /** How a message names the manuscript folder: "the manuscript folder Novel". */
 export function manuscriptFolderName(folder: string): string {
   return `the manuscript folder ${path.basename(path.resolve(folder)) || path.resolve(folder)}`;
@@ -107,8 +117,10 @@ export function manuscriptFolderName(folder: string): string {
 
 /**
  * Every `.md` and `.txt` under `folder`, skipping dot-folders, the reviews
- * folder and any files named in `excludeFiles` (the guidelines file is not a
- * chapter). A subfolder that cannot be read is skipped; the manuscript folder
+ * folder, Excalidraw drawings (`*.excalidraw.md`, files.11) and any files
+ * named in `excludeFiles` (the guidelines file is not a chapter). A sync
+ * tool's conflict copy is listed like any other chapter; the list marks it
+ * (`conflictCopyLabel`). A subfolder that cannot be read is skipped; the manuscript folder
  * itself must be, or the list would say it holds no chapters, so a read the
  * system refuses there, or a folder that is not there, is explained as a read
  * (`readFailure`, apply.25).
@@ -140,6 +152,7 @@ export async function listChapters(
       }
       if (!entry.isFile()) continue;
       if (isHidden(entry.name) || !isChapterFile(entry.name)) continue;
+      if (isExcalidrawDrawing(entry.name)) continue;
       if (skipFiles.has(path.resolve(full).toLowerCase())) continue;
       const stat = await fs.stat(full).catch(() => null);
       if (!stat) continue;

@@ -60,6 +60,7 @@ import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
 import { dismissHint, flushHintWrites, type HintIo } from './state/hints';
 import { flushSplitWrites } from './state/split';
 import { beforeLeaving, type LeaveDeps } from './state/leave';
+import { noteMergeMarkers } from './state/mergeMarkers';
 import { useKeyboardBindings } from './state/keyboard';
 import { useProgressLabel } from './state/progress';
 import { reviewWithoutSaving, saveThenReview } from './state/reviewStart';
@@ -441,6 +442,9 @@ export function App(): React.JSX.Element {
             setReview(rebased, loaded.path);
             notify(rebaseCardTone(stats), rebaseCardText('opened', stats));
           }
+          // Merge markers in the chapter get a warning; a card left from
+          // another chapter goes (files.11).
+          noteMergeMarkers(null, base.text, file.name);
           if (adoptedFrom) {
             notify('info', `Reopened the review made when this chapter was at ${adoptedFrom}.`);
             refreshFiles();
@@ -481,6 +485,8 @@ export function App(): React.JSX.Element {
           }
           const content = await call('files:read', { path: sourcePath });
           const base = baseFrom(content);
+          // The chapter's text on screen until now, for the merge markers card.
+          const before = useApp.getState().review?.base.text ?? null;
           // An open that worked closes the card of one that did not.
           dismissNotificationsByKey(OPEN_CHAPTER_CARD);
           reloadRun.current = null;
@@ -492,6 +498,9 @@ export function App(): React.JSX.Element {
             setReview(rebased, loaded.path);
             notify('info', rebaseCardText('history', stats));
           }
+          // The chapter is the one on screen, read again: as at a reload, markers
+          // it has just gained get the warning and markers gone close it (files.11).
+          noteMergeMarkers(before, base.text, sourcePath);
           // The chapter opens with this review from now on, the last on
           // screen (apply.26). Main records it without touching the review;
           // a record that cannot be written leaves the chapter opening with
@@ -531,6 +540,7 @@ export function App(): React.JSX.Element {
         .then((content) => {
           const latest = useApp.getState().review;
           if (!latest) return;
+          const before = latest.base.text;
           const result = rebaseReview(latest, baseFrom(content));
           setReview(result.review, useApp.getState().reviewPath);
           // While the reload card is up, this reload adds to what it reported (PLAN 6.2).
@@ -543,6 +553,9 @@ export function App(): React.JSX.Element {
             'file-reload'
           );
           reloadRun.current = { card, run };
+          // Markers a pull or a sync has just put in get the warning, and
+          // the card goes once they are taken out (files.11).
+          noteMergeMarkers(before, content.text, event.path);
         })
         .catch(fail);
     });

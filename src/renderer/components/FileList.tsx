@@ -1,5 +1,6 @@
 import type { ChapterFile, ReviewSummary } from '../../shared/ipc';
 import type { Review } from '../../shared/types';
+import { CONFLICT_COPY_BADGE, conflictCopyLabel } from '../../shared/text/sync';
 import { READ_LIST_AGAIN, chapterListMarks, chapterListNotice } from '../../shared/ui/chapterList';
 import { IconFolder, IconPlus } from './icons';
 
@@ -28,7 +29,10 @@ function indexKey(value: string): string {
  * its changes yet gets the unsaved dot before its name, as the open chapter
  * does in the toolbar; the badge after it counts the suggestions still pending,
  * or ticks a chapter with none. Both come from `chapterListMarks` (apply.5).
- * With no rows, the list says why (`chapterListNotice`): no folder chosen, a
+ * A conflict copy that Obsidian Sync, Dropbox or Syncthing made gets a
+ * "conflict copy" badge, its tooltip naming the tool and the chapter it
+ * copies (`conflictCopyLabel`, files.11); it is listed and opens as any
+ * chapter does. With no rows, the list says why (`chapterListNotice`): no folder chosen, a
  * folder with no chapters, or a manuscript folder that could not be read,
  * with Try again (apply.25).
  */
@@ -95,6 +99,9 @@ export function FileList({
           {files.map((file) => {
             const open = file.path === activePath;
             const marks = chapterListMarks(byPath.get(indexKey(file.path)), open ? review : null);
+            // A sync tool's conflict copy is listed like any chapter, and
+            // marked, so the author can compare it with the chapter (files.11).
+            const conflict = conflictCopyLabel(file.name);
             return (
               <li key={file.path}>
                 <button
@@ -112,6 +119,11 @@ export function FileList({
                     />
                   ) : null}
                   <span className="filelist__name">{file.relativePath}</span>
+                  {conflict ? (
+                    <span className="badge badge--conflict" title={conflict}>
+                      {CONFLICT_COPY_BADGE}
+                    </span>
+                  ) : null}
                   {marks.pending === null ? null : marks.pending > 0 ? (
                     <span className="badge badge--pending" title="Pending suggestions">
                       {marks.pending}

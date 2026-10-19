@@ -5,6 +5,7 @@ import { unsavedDecisionCount } from '../../src/shared/diff/compose';
 import type { FileContent, SaveRequest, SaveResponse } from '../../src/shared/ipc';
 import { createReview } from '../../src/shared/review';
 import { DEFAULT_SETTINGS, type Review } from '../../src/shared/types';
+import { MERGE_MARKERS_CARD, mergeMarkersText } from '../../src/shared/text/sync';
 import { SHOW_BACKUPS_CARD, noBackupsYet } from '../../src/shared/ui/backups';
 import {
   CHAPTER_MATCHES_PAGE,
@@ -292,6 +293,50 @@ describe('Save to chapter (apply.3)', () => {
       true
     );
     expect(state().review!.base.hash).toBe('h4');
+  });
+
+  /* files.11: the rebase makes the watcher's reload of the same bytes a no-op,
+     so the save itself says the change brought merge markers. */
+  it('warns of merge markers the change on disk brought, and saves as before', async () => {
+    state().toggleAccepted('h1');
+    const marked = `${CHAPTER}\n\n<<<<<<< HEAD\nThen she left.\n=======\nThen she stayed.\n>>>>>>> origin/main`;
+    const disk: FileContent = {
+      path: SOURCE,
+      text: marked,
+      hash: 'h3',
+      eol: 'lf',
+      bom: false,
+      trailingNewline: true
+    };
+    const h = harness({ status: 'stale', disk }, { status: 'written', hash: 'h4' });
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('saved');
+    expect(h.requests[1]?.text).toBe(marked.replace('Tilting', 'As he tilted'));
+    expect(state().notifications.filter((n) => n.key === MERGE_MARKERS_CARD)).toEqual([
+      expect.objectContaining({ tone: 'warn', text: mergeMarkersText('Chapter 01.md') })
+    ]);
+  });
+
+  it('closes the merge markers card when the change on disk took them out', async () => {
+    state().setReview(
+      {
+        ...chapterReview(),
+        base: { ...chapterReview().base, text: `${CHAPTER}\n\n<<<<<<< HEAD\nx\n>>>>>>> b` }
+      },
+      REVIEW_PATH
+    );
+    state().notify('warn', mergeMarkersText(SOURCE), MERGE_MARKERS_CARD);
+    state().toggleAccepted('h1');
+    const disk: FileContent = {
+      path: SOURCE,
+      text: CHAPTER,
+      hash: 'h3',
+      eol: 'lf',
+      bom: false,
+      trailingNewline: true
+    };
+    const h = harness({ status: 'stale', disk }, { status: 'written', hash: 'h4' });
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('saved');
+    expect(state().notifications.filter((n) => n.key === MERGE_MARKERS_CARD)).toEqual([]);
   });
 
   it('counts on the rebase card the decisions that changed to match the file (apply.23)', async () => {

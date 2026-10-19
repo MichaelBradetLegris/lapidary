@@ -22,6 +22,7 @@
     "src/renderer/state/split.ts",
     "src/renderer/state/welcome.ts",
     "src/renderer/state/hover.ts",
+    "src/renderer/state/mergeMarkers.ts",
     "scripts/**/*.ts",
     "test/**/*.ts",
     "electron.vite.config.ts",

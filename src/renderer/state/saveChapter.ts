@@ -6,6 +6,7 @@ import type { Review, ReviewBase } from '../../shared/types';
 import { SHOW_BACKUPS_CARD } from '../../shared/ui/backups';
 import { rebaseCardText } from '../../shared/ui/rebase';
 import { CHAPTER_MATCHES_PAGE } from '../../shared/ui/save';
+import { noteMergeMarkers } from './mergeMarkers';
 import { changedParagraphCount, isLocked, savedReview, useApp } from './store';
 
 /*
@@ -206,10 +207,14 @@ async function runSave(options: SaveOptions, deps: SaveDeps): Promise<SaveOutcom
         );
         return 'failed';
       }
+      const before = working.base.text;
       const { review: rebased, stats } = rebaseReview(working, baseFrom(response.disk));
       app().setReview(rebased, app().reviewPath);
       working = rebased;
       app().notify('warn', rebaseCardText('saving', stats));
+      // Merge markers the change brought get their warning, as at a reload,
+      // whose own event this rebase makes it skip (files.11).
+      noteMergeMarkers(before, response.disk.text, rebased.sourcePath);
     }
     app().notify(
       'error',

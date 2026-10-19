@@ -91,6 +91,12 @@ const TEXT_PAIRS: Pair[] = [
     min: 4.5,
     why: 'the pending count in the file list'
   },
+  {
+    ink: '--badge-conflict-ink',
+    on: '--badge-conflict-bg',
+    min: 4.5,
+    why: 'the conflict copy badge in the file list (files.11)'
+  },
   { ink: '--warn', on: '--warn-bg-strong', min: 4.5, why: 'the unsaved-decisions box in the review dialog' },
   { ink: '--unsaved', on: '--panel', min: 4.5, why: 'the count not saved to the chapter, in the status bar' },
   { ink: '--danger', on: '--danger-bg', min: 4.5, why: 'the error card' },
@@ -181,7 +187,7 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
         expect(() => paint(scheme, pair.on)).not.toThrow();
       }
     }
-    expect([TEXT_PAIRS.length, FAINT_PAIRS.length]).toEqual([147, 61]);
+    expect([TEXT_PAIRS.length, FAINT_PAIRS.length]).toEqual([148, 61]);
   });
 
   it('paints a tint the way color-mix() does, so the tinted pairs mean something', () => {
