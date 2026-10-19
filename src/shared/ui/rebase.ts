@@ -4,9 +4,11 @@ import type { RebaseResult, RebaseStats } from '../diff/rebase';
  * The cards that report a rebase (PLAN 6.2 and 6.3): a chapter opened on a
  * review made before the file changed, an older review opened from History,
  * the chapter reloaded after it changed on disk, and Save to chapter finding
- * the file changed underneath it.
+ * the file changed underneath it: `saving` when it tries again, and
+ * `saving-stopped` when the change brought merge markers, which stop the save
+ * before anything is written (files.11, PLAN 6.3 step 2).
  */
-export type RebaseCard = 'opened' | 'history' | 'reloaded' | 'saving';
+export type RebaseCard = 'opened' | 'history' | 'reloaded' | 'saving' | 'saving-stopped';
 
 /** What a rebase card is worded from. */
 export type RebaseCardStats = Pick<RebaseStats, 'anchored' | 'newlyStale' | 'keptOut' | 'adopted'>;
@@ -57,6 +59,8 @@ export function rebaseCardText(card: RebaseCard, stats: RebaseCardStats): string
       return `Reloaded from disk. ${suggestions(stats.anchored)} re-anchored, ${stats.newlyStale} could not be found.${then}`;
     case 'saving':
       return `The chapter changed on disk before saving. Rebased: ${stats.anchored} re-anchored, ${stats.newlyStale} lost.${then} Retrying.`;
+    case 'saving-stopped':
+      return `The chapter changed on disk before saving. Rebased: ${stats.anchored} re-anchored, ${stats.newlyStale} lost.${then}`;
   }
 }
 

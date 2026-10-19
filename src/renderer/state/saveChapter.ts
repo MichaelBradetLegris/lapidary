@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { composeReview, unsavedDecisionCount } from '../../shared/diff/compose';
 import { rebaseReview } from '../../shared/diff/rebase';
 import type { FileContent, SaveRequest, SaveResponse } from '../../shared/ipc';
+import { mergeMarkersCard } from '../../shared/text/sync';
 import type { Review, ReviewBase } from '../../shared/types';
 import { SHOW_BACKUPS_CARD } from '../../shared/ui/backups';
 import { rebaseCardText } from '../../shared/ui/rebase';
@@ -28,8 +29,9 @@ import { changedParagraphCount, isLocked, savedReview, useApp } from './store';
  * - `cancelled`: the author answered Cancel to applying paragraph boxes first.
  * - `blocked`: something on screen prevents a save: no chapter is open, a
  *   review of it is running, or a paragraph box could not be applied.
- * - `failed`: the file could not be written, or kept changing on disk; a card
- *   says why.
+ * - `failed`: the file could not be written, or kept changing on disk, or
+ *   changed on disk with merge markers the page did not have, which stop the
+ *   save before anything is written (files.11); a card says why.
  */
 export type SaveOutcome = 'saved' | 'nothing-to-save' | 'cancelled' | 'blocked' | 'failed';
 
@@ -93,6 +95,16 @@ export const SAVED_CARD = 'Saved to the chapter file.';
 /** The card when this review was replaced on screen, during the write, by a copy that reads differently. */
 export const RELOADED_WHILE_SAVING =
   'Saved to the chapter file, but the review was reloaded while saving. Save again to bring the page up to date.';
+
+/**
+ * The card when the file changed on disk before saving and the change brought
+ * merge markers (files.11, PLAN 6.3 step 2). The save stops before anything is
+ * written, so the author sees the markers first and their card's "has not
+ * changed the file" stays true; the next Save goes ahead with them, as for a
+ * chapter that opened with markers.
+ */
+export const STOPPED_FOR_MERGE_MARKERS =
+  'Nothing was saved: the change on disk brought merge markers. They are on the page now.';
 
 async function runSave(options: SaveOptions, deps: SaveDeps): Promise<SaveOutcome> {
   const app = useApp.getState;
@@ -211,10 +223,18 @@ async function runSave(options: SaveOptions, deps: SaveDeps): Promise<SaveOutcom
       const { review: rebased, stats } = rebaseReview(working, baseFrom(response.disk));
       app().setReview(rebased, app().reviewPath);
       working = rebased;
-      app().notify('warn', rebaseCardText('saving', stats));
-      // Merge markers the change brought get their warning, as at a reload,
-      // whose own event this rebase makes it skip (files.11).
+      // Merge markers the change brought get their warning here, as at a
+      // reload, whose own event this rebase makes it skip, and stop the save
+      // before anything is written: the card says the file is unchanged and
+      // to resolve them before saving, and the author has not seen them yet.
+      // The next Save goes ahead with them (files.11 review, C.78).
+      const stop = mergeMarkersCard(before, response.disk.text) === 'show';
+      app().notify('warn', rebaseCardText(stop ? 'saving-stopped' : 'saving', stats));
       noteMergeMarkers(before, response.disk.text, rebased.sourcePath);
+      if (stop) {
+        app().notify('warn', STOPPED_FOR_MERGE_MARKERS, SAVE_CARD);
+        return 'failed';
+      }
     }
     app().notify(
       'error',

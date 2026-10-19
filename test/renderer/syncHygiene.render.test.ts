@@ -85,9 +85,11 @@ describe('the conflict copy badge (files.11)', () => {
       const label = conflictCopyLabel(file.name);
       if (label === null) {
         expect(row, file.name).not.toContain('badge--conflict');
+        expect(row, file.name).not.toContain('filelist__copy');
       } else {
+        // The badge on a line of its own under the name (the files.11 review).
         expect(row, file.name).toContain(
-          `<span class="badge badge--conflict" title="${label}">conflict copy</span>`
+          `<span class="filelist__copy"><span class="filelist__name">${file.relativePath}</span><span class="badge badge--conflict" title="${label}">conflict copy</span></span>`
         );
       }
     }
@@ -105,7 +107,7 @@ describe('the conflict copy badge (files.11)', () => {
     );
   });
 
-  it('puts the badge after the name and before the pending count', () => {
+  it('puts the badge under the name, and the pending count after both, as on any row', () => {
     const copy = FILES[1] as ChapterFile;
     const row = rows(render({ [copy.path]: summary(copy.path, 4) })).get(copy.relativePath) ?? '';
     const name = row.indexOf('filelist__name');
@@ -114,6 +116,8 @@ describe('the conflict copy badge (files.11)', () => {
     expect(name).toBeGreaterThan(-1);
     expect(badge).toBeGreaterThan(name);
     expect(pending).toBeGreaterThan(badge);
+    // The pending count stays outside the name's column, beside both lines.
+    expect(row).toMatch(/conflict copy<\/span><\/span><span class="badge badge--pending"/);
   });
 });
 

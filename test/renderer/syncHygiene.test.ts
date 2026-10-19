@@ -71,12 +71,27 @@ describe("App's calls (files.11)", () => {
 });
 
 describe('the conflict copy badge style (files.11)', () => {
-  it('has its own tokens, on one line that keeps its width', () => {
+  it('has its own tokens, on one line, cut rather than run past the row', () => {
     const rule = /\n\.badge--conflict \{([^}]*)\}/.exec(CSS)?.[1] ?? '';
     expect(rule).toContain('background: var(--badge-conflict-bg);');
     expect(rule).toContain('border-color: var(--badge-conflict-border);');
     expect(rule).toContain('color: var(--badge-conflict-ink);');
     expect(rule).toContain('white-space: nowrap;');
-    expect(rule).toContain('flex: none;');
+    expect(rule).toContain('align-self: flex-start;');
+    expect(rule).toContain('max-width: 100%;');
+    expect(rule).toContain('overflow: hidden;');
+    expect(rule).toContain('text-overflow: ellipsis;');
+  });
+
+  /* The files.11 review: beside the name, the badge kept its width and left the
+     name "Chapt..." in the drawer at 200%; under it, the name has the row. */
+  it('sits under the name, in a column that takes the row as the name does elsewhere', () => {
+    const rule = /\n\.filelist__copy \{([^}]*)\}/.exec(CSS)?.[1] ?? '';
+    expect(rule).toContain('flex: 1 1 auto;');
+    expect(rule).toContain('min-width: 0;');
+    expect(rule).toContain('display: flex;');
+    expect(rule).toContain('flex-direction: column;');
+    const name = /\n\.filelist__name \{([^}]*)\}/.exec(CSS)?.[1] ?? '';
+    expect(name).toContain('flex: 1 1 auto;');
   });
 });

@@ -30,9 +30,9 @@ function indexKey(value: string): string {
  * does in the toolbar; the badge after it counts the suggestions still pending,
  * or ticks a chapter with none. Both come from `chapterListMarks` (apply.5).
  * A conflict copy that Obsidian Sync, Dropbox or Syncthing made gets a
- * "conflict copy" badge, its tooltip naming the tool and the chapter it
- * copies (`conflictCopyLabel`, files.11); it is listed and opens as any
- * chapter does. With no rows, the list says why (`chapterListNotice`): no folder chosen, a
+ * "conflict copy" badge under its name, its tooltip naming the tool and the
+ * chapter it copies (`conflictCopyLabel`, files.11); it is listed and opens as
+ * any chapter does. With no rows, the list says why (`chapterListNotice`): no folder chosen, a
  * folder with no chapters, or a manuscript folder that could not be read,
  * with Try again (apply.25).
  */
@@ -118,12 +118,18 @@ export function FileList({
                       title={marks.dotLabel}
                     />
                   ) : null}
-                  <span className="filelist__name">{file.relativePath}</span>
                   {conflict ? (
-                    <span className="badge badge--conflict" title={conflict}>
-                      {CONFLICT_COPY_BADGE}
+                    // The badge goes on a line of its own under the name, so
+                    // the name keeps the width any chapter's has (C.78).
+                    <span className="filelist__copy">
+                      <span className="filelist__name">{file.relativePath}</span>
+                      <span className="badge badge--conflict" title={conflict}>
+                        {CONFLICT_COPY_BADGE}
+                      </span>
                     </span>
-                  ) : null}
+                  ) : (
+                    <span className="filelist__name">{file.relativePath}</span>
+                  )}
                   {marks.pending === null ? null : marks.pending > 0 ? (
                     <span className="badge badge--pending" title="Pending suggestions">
                       {marks.pending}

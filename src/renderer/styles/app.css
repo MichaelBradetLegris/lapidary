@@ -1848,10 +1848,24 @@ input[type='text'] {
   color: var(--badge-pending-ink);
 }
 
-/* A sync tool's conflict copy (files.11). It keeps its width and its one line,
-   so a long copy's name gives way to it, as the name ends in an ellipsis. */
+/* A sync tool's conflict copy (files.11): its name, and the badge on a line
+   under it, so the name has the width any chapter's name has. Beside the name
+   the badge left it "Chapt..." in the drawer at 200% (the files.11 review). */
+.filelist__copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* On one line; in a list narrower than the badge it ends in an ellipsis rather
+   than running past the row. */
 .badge--conflict {
-  flex: none;
+  align-self: flex-start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   background: var(--badge-conflict-bg);
   border-color: var(--badge-conflict-border);

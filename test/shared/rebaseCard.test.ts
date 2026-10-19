@@ -16,7 +16,7 @@ import {
    files.20: they count only the suggestions the rebase took off the page, and say
    how many it kept out of the text. */
 
-const CARDS: RebaseCard[] = ['opened', 'history', 'reloaded', 'saving'];
+const CARDS: RebaseCard[] = ['opened', 'history', 'reloaded', 'saving', 'saving-stopped'];
 
 describe('rebase cards (apply.23)', () => {
   it('read as they did when no decision changed', () => {
@@ -104,6 +104,22 @@ describe('rebase cards and the guard (files.20)', () => {
     expect(rebaseCardTone({ newlyStale: 0 })).toBe('info');
     expect(rebaseCardTone({ newlyStale: 1 })).toBe('warn');
     expect(rebaseCardTone({ newlyStale: 6 })).toBe('warn');
+  });
+});
+
+/* The files.11 review: merge markers the change on disk brought stop the save
+   before anything is written, so its card does not say it is retrying. */
+describe('the rebase card of a save that merge markers stopped (files.11 review)', () => {
+  it('reads as the saving card without "Retrying."', () => {
+    for (const stats of [
+      { anchored: 2, newlyStale: 1, keptOut: 0, adopted: 0 },
+      { anchored: 2, newlyStale: 0, keptOut: 2, adopted: 3 }
+    ]) {
+      expect(`${rebaseCardText('saving-stopped', stats)} Retrying.`).toBe(rebaseCardText('saving', stats));
+    }
+    expect(rebaseCardText('saving-stopped', { anchored: 1, newlyStale: 0, keptOut: 0, adopted: 1 })).toBe(
+      'The chapter changed on disk before saving. Rebased: 1 re-anchored, 0 lost. 1 decision changed to match the file.'
+    );
   });
 });
 
