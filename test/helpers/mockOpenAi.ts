@@ -12,7 +12,9 @@
  * `wrongshape` JSON of the wrong shape, `slow` a reply that trickles out over
  * several seconds (for Cancel), or an unstreamed one that comes after them (for
  * a connection test's time limit), `obsidian` the review of the Obsidian sample
- * chapter (`OBSIDIAN_REVIEW`), and anything else the canned review of Chapter 01.
+ * chapter (`OBSIDIAN_REVIEW`), `outputlimit` a streamed reply cut off at the
+ * model's output limit, which ends `incomplete` (files.10), and anything else
+ * the canned review of Chapter 01.
  *
  * Two ways to use it:
  *   vitest:  const mock = await startMockOpenAi(); ... mock.url ... await mock.close();
@@ -29,7 +31,18 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 
 export type Scenario =
-  'ok' | 'unauthorized' | 'ratelimit' | 'servererror' | 'malformed' | 'wrongshape' | 'slow' | 'obsidian';
+  | 'ok'
+  | 'unauthorized'
+  | 'ratelimit'
+  | 'servererror'
+  | 'malformed'
+  | 'wrongshape'
+  | 'slow'
+  | 'obsidian'
+  | 'outputlimit';
+
+/** The output limit the `outputlimit` scenario's reply reaches: gpt-5's 128,000 tokens. */
+export const MOCK_OUTPUT_LIMIT = 128_000;
 
 export interface RecordedRequest {
   method: string;
@@ -344,6 +357,7 @@ export function scenarioForKey(authorization: string): Scenario {
   if (key.includes('wrongshape')) return 'wrongshape';
   if (key.includes('slow')) return 'slow';
   if (key.includes('obsidian')) return 'obsidian';
+  if (key.includes('outputlimit')) return 'outputlimit';
   return 'ok';
 }
 
@@ -423,7 +437,8 @@ async function streamResponse(
   res: ServerResponse,
   model: string,
   text: string,
-  delayMs: number
+  delayMs: number,
+  cutOff = false
 ): Promise<void> {
   res.writeHead(200, {
     'content-type': 'text/event-stream',
@@ -450,6 +465,22 @@ async function streamResponse(
       delta,
       logprobs: []
     });
+  }
+  if (cutOff) {
+    /* A reply cut off at the model's output limit (files.10): no text.done and
+       no completed, but `response.incomplete`, whose details give the reason.
+       No max_output_tokens was asked for, so the limit is the model's own and
+       the reply has used all of it. */
+    send({
+      type: 'response.incomplete',
+      response: {
+        ...responseObject(model, 'incomplete', text, MOCK_OUTPUT_LIMIT),
+        incomplete_details: { reason: 'max_output_tokens' },
+        max_output_tokens: null
+      }
+    });
+    res.end();
+    return;
   }
   send({
     type: 'response.output_text.done',
@@ -519,15 +550,18 @@ export async function startMockOpenAi(options: { port?: number; log?: boolean } 
         const requested = typeof request['model'] === 'string' ? request['model'] : 'gpt-5';
         // The API answers with a dated snapshot of the model that was asked for.
         const model = `${requested}-2026-06-01`;
+        const full = JSON.stringify(scenario === 'obsidian' ? OBSIDIAN_REVIEW : CANNED_REVIEW);
         const text =
           scenario === 'malformed'
             ? '{"changes": [{"paragraph": 0, "before": "had began", "after": '
             : scenario === 'wrongshape'
               ? JSON.stringify({ edits: [{ where: 0, what: 'had began' }] })
-              : JSON.stringify(scenario === 'obsidian' ? OBSIDIAN_REVIEW : CANNED_REVIEW);
+              : scenario === 'outputlimit'
+                ? full.slice(0, Math.floor(full.length / 2))
+                : full;
 
         if (request['stream'] === true) {
-          await streamResponse(res, model, text, scenario === 'slow' ? 600 : 15);
+          await streamResponse(res, model, text, scenario === 'slow' ? 600 : 15, scenario === 'outputlimit');
         } else {
           // As slow as the streamed reply, all at the end (a connection test that runs out of time).
           if (scenario === 'slow') await sleep(600 * 12);

@@ -2,10 +2,17 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { cliInitialize, runCliReview, type CliDeps } from '../../src/main/providers/claudeCli';
+import { AppFailure } from '../../src/main/errors';
+import {
+  cliInitialize,
+  runCliReview,
+  type CliDeps,
+  type CliReviewInput
+} from '../../src/main/providers/claudeCli';
 import { BASE_CLAUDE_ARGS } from '../../src/main/providers/claudeOptions';
 import { abortAll, liveControllerCount, registerController } from '../../src/main/providers/controllers';
 import type { ProgressPhase } from '../../src/main/providers/types';
+import { replyLimitMessage } from '../../src/shared/ai/replyLimit';
 import { reviewOutputJsonSchema } from '../../src/shared/prompt/schema';
 
 /* cli.1: the app talks to the user's own Claude Code over stream-json. These
@@ -229,6 +236,97 @@ describe('runCliReview', () => {
     const pending = runCliReview(deps('slow'), INPUT, hooks().hooks);
     setTimeout(() => abortAll(), 500);
     await expect(pending).rejects.toMatchObject({ code: 'cancelled' });
+  });
+});
+
+/* files.10: a reply that runs out of room, in the shapes Claude Code 2.1.302
+   sends (test/helpers/fakeClaude.ts, PLAN C.77), says so, with what helps. */
+describe('a review whose reply runs out of room (files.10)', () => {
+  const LONG = { ...INPUT, effort: 'high' as const, words: 52_300 };
+
+  async function failure(
+    scenario: string,
+    input: CliReviewInput = INPUT,
+    extraEnv: Record<string, string> = {}
+  ): Promise<AppFailure> {
+    try {
+      await runCliReview(deps(scenario, [], extraEnv), input, hooks().hooks);
+    } catch (err) {
+      if (err instanceof AppFailure) return err;
+      throw err;
+    }
+    throw new Error('expected a failure');
+  }
+
+  it('names the output limit once Claude Code stops resuming the reply, with what helps', async () => {
+    const err = await failure('output-limit', LONG);
+    expect(err.code).toBe('claude-failed');
+    expect(err.message).toBe(
+      "Claude reached its output limit (32,000 tokens) before it had written every suggestion, so none came back. The model's thinking counts against the same limit, so a lower effort in Review with AI leaves more of it for the suggestions. At 52,300 words the chapter is long for one review: if a lower effort is not enough, split it into two files and review each."
+    );
+    // Claude Code's own words name a variable the app does not set (CLAUDE.md rule 6); they go to the detail.
+    expect(err.detail).toContain('CLAUDE_CODE_MAX_OUTPUT_TOKENS');
+    expect(err.message).not.toContain('CLAUDE_CODE_MAX_OUTPUT_TOKENS');
+  });
+
+  it('says to try again after a low-effort review of a short chapter', async () => {
+    const err = await failure('output-limit');
+    expect(err.message).toBe(
+      'Claude reached its output limit (32,000 tokens) before it had written every suggestion, so none came back. Try again, or choose another model.'
+    );
+  });
+
+  it('tells a full context window from the output limit, which share one error', async () => {
+    const err = await failure('context-limit', LONG);
+    expect(err.message).toBe(replyLimitMessage('context', { who: 'Claude', words: 52_300, effort: 'high' }));
+    expect(err.message).toMatch(/^Claude ran out of room for the chapter and its reply together/);
+  });
+
+  it('says a chapter too long to send is too long to read', async () => {
+    const err = await failure('prompt-too-long', LONG);
+    expect(err.message).toBe(
+      'The chapter is too long for Claude to read in one request (52,300 words), so nothing came back. Split it into shorter files and review each.'
+    );
+    expect(err.detail).toBe('Prompt is too long');
+  });
+
+  it('reads running out of turns after a reply cut off at the limit as the limit, by the last reply', async () => {
+    const limit = replyLimitMessage('output', { who: 'Claude', words: 52_300, effort: 'high' });
+    expect((await failure('max-turns', LONG, { FAKE_CLAUDE_STOPS: 'max_tokens' })).message).toBe(limit);
+    expect((await failure('max-turns', LONG, { FAKE_CLAUDE_STOPS: 'tool_use,max_tokens' })).message).toBe(
+      limit
+    );
+    // A reply cut off and then resumed is not why the run failed.
+    for (const stops of ['max_tokens,tool_use', '']) {
+      const err = await failure('max-turns', LONG, { FAKE_CLAUDE_STOPS: stops });
+      expect(err.message).toBe('Claude ran out of turns before producing a result.');
+      expect(err.detail).toBe('Reached maximum number of turns (3)');
+    }
+  });
+
+  it('reads running out of schema retries after a cut-off reply as the limit', async () => {
+    expect((await failure('schema-retries', LONG, { FAKE_CLAUDE_STOPS: 'max_tokens' })).message).toBe(
+      replyLimitMessage('output', { who: 'Claude', words: 52_300, effort: 'high' })
+    );
+    expect(await failure('schema-retries', LONG)).toMatchObject({
+      code: 'claude-invalid-output',
+      message: 'Claude could not produce output matching the schema after several tries.'
+    });
+  });
+
+  it('reads a success with no output after a cut-off reply as the limit, not as a reply of the wrong shape', async () => {
+    const limit = replyLimitMessage('output', { who: 'Claude', words: 52_300, effort: 'high' });
+    expect((await failure('no-output', LONG, { FAKE_CLAUDE_RESULT_STOP: 'max_tokens' })).message).toBe(limit);
+    // With no stop reason in the result, the last streamed reply's decides.
+    expect(
+      (await failure('no-output', LONG, { FAKE_CLAUDE_STOPS: 'max_tokens', FAKE_CLAUDE_RESULT_STOP: 'none' }))
+        .message
+    ).toBe(limit);
+    // The result's own stop reason outranks the stream's.
+    expect(await failure('no-output', LONG, { FAKE_CLAUDE_STOPS: 'max_tokens' })).toMatchObject({
+      code: 'claude-invalid-output'
+    });
+    expect(await failure('no-output', LONG)).toMatchObject({ code: 'claude-invalid-output' });
   });
 });
 

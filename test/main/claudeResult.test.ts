@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cutOffReply,
   endedWithoutResult,
   readRateLimit,
   resultToError,
   startupReasonOf
 } from '../../src/main/providers/claudeResult';
 import { LOGIN_EXPIRED_MESSAGE, NOT_SIGNED_IN_MESSAGE } from '../../src/shared/ai/claudeStatus';
+import { replyLimitMessage } from '../../src/shared/ai/replyLimit';
 
 /* setup.5: what a Claude Code result means for the review. */
 
@@ -118,6 +120,74 @@ describe('endedWithoutResult', () => {
     expect(endedWithoutResult({ refusal: 'Declined.' }, 'Not logged in', 0)).toMatchObject({
       code: 'claude-refusal'
     });
+  });
+
+  it('names a reply that ran out of room, but not a last reply that merely stopped at the limit (files.10)', () => {
+    const facts = { words: 45_000, effort: 'high' as const };
+    const limit = replyLimitMessage('output', { who: 'Claude', ...facts });
+    expect(
+      endedWithoutResult({ assistantError: 'max_output_tokens', limitFacts: facts }, '', 0).message
+    ).toBe(limit);
+    expect(
+      endedWithoutResult(
+        { limitFacts: facts },
+        "Claude's response exceeded the 32000 output token maximum",
+        0
+      ).message
+    ).toBe(replyLimitMessage('output', { who: 'Claude', maxTokens: 32_000, ...facts }));
+    expect(endedWithoutResult({ stopReason: 'max_tokens', limitFacts: facts }, '', 0).message).toBe(
+      'Claude ended without returning a result.'
+    );
+  });
+});
+
+describe('a result whose reply ran out of room (files.10)', () => {
+  const facts = { words: 45_000, effort: 'high' as const };
+  const limit = replyLimitMessage('output', { who: 'Claude', ...facts });
+
+  it("reads the result's api_error, and its stop_reason ahead of the stream's", () => {
+    expect(
+      resultToError(
+        { subtype: 'error_max_turns', is_error: true, stop_reason: 'max_tokens' },
+        { limitFacts: facts }
+      )?.message
+    ).toBe(limit);
+    expect(
+      resultToError(
+        { subtype: 'error_max_turns', is_error: true, stop_reason: 'tool_use' },
+        { stopReason: 'max_tokens', limitFacts: facts }
+      )?.message
+    ).toBe('Claude ran out of turns before producing a result.');
+    expect(
+      resultToError(
+        { subtype: 'error_max_turns', is_error: true, stop_reason: null },
+        { stopReason: 'max_tokens' }
+      )?.message
+    ).toBe(replyLimitMessage('output', { who: 'Claude' }));
+    expect(
+      resultToError(
+        { subtype: 'success', is_error: true, api_error: 'max_output_tokens' },
+        { limitFacts: facts }
+      )?.message
+    ).toBe(limit);
+  });
+
+  it('turns a success with no usable output into the limit only when the reply was cut off', () => {
+    expect(cutOffReply({ subtype: 'success', stop_reason: 'end_turn' }, {})).toBeNull();
+    expect(
+      cutOffReply({ subtype: 'success', stop_reason: 'max_tokens' }, { limitFacts: facts })
+    ).toMatchObject({
+      code: 'claude-failed',
+      message: limit
+    });
+    expect(cutOffReply({ subtype: 'success' }, { assistantError: 'max_output_tokens' })?.message).toBe(
+      replyLimitMessage('output', { who: 'Claude' })
+    );
+    expect(cutOffReply({ subtype: 'success', api_error: 'max_output_tokens' }, {})).not.toBeNull();
+    expect(cutOffReply({ subtype: 'success' }, { stopReason: 'max_tokens' })).not.toBeNull();
+    expect(
+      cutOffReply({ subtype: 'success', stop_reason: 'end_turn' }, { stopReason: 'max_tokens' })
+    ).toBeNull();
   });
 });
 

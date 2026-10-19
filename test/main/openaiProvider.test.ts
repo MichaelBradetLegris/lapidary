@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { OpenAI } from 'openai';
+import { APIError, OpenAI } from 'openai';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { NO_DEV_SWITCHES, readDevSwitches, setDevSwitches } from '../../src/main/devSwitches';
 import { AppFailure } from '../../src/main/errors';
@@ -8,16 +8,25 @@ import {
   OPENAI_BASE_URL,
   clientOptions,
   createOpenAiProvider,
+  incompleteFailure,
   mapOpenAiError,
   outputTextOf
 } from '../../src/main/providers/openai';
 import { createRegistry } from '../../src/main/providers/registry';
 import type { ProgressPhase, ReviewProvider } from '../../src/main/providers/types';
+import { LOWER_EFFORT_ADVICE, groupDigits, replyLimitMessage } from '../../src/shared/ai/replyLimit';
 import type { ReviewRequest } from '../../src/shared/ipc';
 import { fromPromptNumbering } from '../../src/shared/prompt/chapter';
 import { createAiReview, toChangeCategory } from '../../src/shared/review';
 import { normalizeText } from '../../src/shared/text/eol';
-import { OBSIDIAN_REVIEW, scenarioForKey, startMockOpenAi, type MockOpenAi } from '../helpers/mockOpenAi';
+import { chapterStats } from '../../src/shared/text/stats';
+import {
+  MOCK_OUTPUT_LIMIT,
+  OBSIDIAN_REVIEW,
+  scenarioForKey,
+  startMockOpenAi,
+  type MockOpenAi
+} from '../helpers/mockOpenAi';
 
 /* The OpenAI provider driven over real HTTP against the local mock in
    test/helpers/mockOpenAi.ts: model listing, a streamed review, the error
@@ -273,6 +282,41 @@ describe('OpenAI provider against the local mock', () => {
     expect(err.code).toBe('openai-no-key');
   });
 
+  it('names the output limit when the reply is cut off there, with what helps (files.10)', async () => {
+    expect(scenarioForKey('Bearer sk-test-outputlimit')).toBe('outputlimit');
+    const h = hooks();
+    const err = await failure(provider('sk-test-outputlimit-0000').review(request(), h)); // check-public: allow
+    expect(err.code).toBe('openai-failed');
+    expect(err.message).toBe(
+      replyLimitMessage('output', {
+        who: 'gpt-5-mini-2026-06-01',
+        maxTokens: MOCK_OUTPUT_LIMIT,
+        words: chapterStats(chapter).words,
+        effort: 'xhigh'
+      })
+    );
+    expect(err.message).toBe(
+      `gpt-5-mini-2026-06-01 reached its output limit (128,000 tokens) before it had written every suggestion, so none came back. ${LOWER_EFFORT_ADVICE}`
+    );
+    expect(err.detail).toBe('max_output_tokens');
+    expect(h.phases.at(-1)).toBe('done');
+  });
+
+  it('says a long chapter cut off at the limit after a low-effort review is to be split', async () => {
+    // The sample chapter, repeated past 40,000 words: what Review with AI warns about.
+    const paragraphs = chapter.trim().split('\n\n');
+    const copies = Math.ceil(40_000 / chapterStats(chapter).words);
+    const text = `${Array.from({ length: copies }, () => paragraphs.join('\n\n')).join('\n\n')}\n`;
+    const words = chapterStats(text).words;
+    expect(words).toBeGreaterThanOrEqual(40_000);
+    const err = await failure(
+      provider('sk-test-outputlimit-0000').review(request({ text, effort: 'low' }), hooks()) // check-public: allow
+    );
+    expect(err.message).toBe(
+      `gpt-5-mini-2026-06-01 reached its output limit (128,000 tokens) before it had written every suggestion, so none came back. At ${groupDigits(words)} words the chapter is long for one review: split it into two files and review each.`
+    );
+  });
+
   it('cancels a streaming review through the abort signal', async () => {
     const controller = new AbortController();
     const h = hooks(controller.signal);
@@ -308,6 +352,78 @@ describe('OpenAI helpers', () => {
     const err = mapOpenAiError(new Error('boom'), 'review the chapter') as AppFailure;
     expect(err.code).toBe('openai-failed');
     expect(err.message).toContain('boom');
+  });
+
+  it('says a chapter longer than the context window is too long to read, for a review only (files.10)', () => {
+    const tooLong = APIError.generate(
+      400,
+      {
+        error: {
+          message:
+            'Your input exceeds the context window of this model. Please adjust your input and try again.',
+          type: 'invalid_request_error',
+          param: 'input',
+          code: 'context_length_exceeded'
+        }
+      },
+      undefined,
+      new Headers()
+    );
+    const chapterFacts = { who: 'gpt-4o', words: 140_250, effort: 'high' as const };
+    const err = mapOpenAiError(tooLong, 'review the chapter', chapterFacts) as AppFailure;
+    expect(err.code).toBe('openai-failed');
+    expect(err.message).toBe(
+      'The chapter is too long for gpt-4o to read in one request (140,250 words), so nothing came back. Split it into shorter files and review each.'
+    );
+    expect(err.detail).toContain('context window');
+    // Without a chapter, as for the model list or a connection test, it stays a refused request.
+    expect((mapOpenAiError(tooLong, 'answer the test') as AppFailure).message).toMatch(
+      /^OpenAI refused the request to answer the test: /
+    );
+    // Any other 400 keeps its usual words.
+    const other = APIError.generate(
+      400,
+      { error: { message: 'Unsupported value', code: 'unsupported_value' } },
+      undefined,
+      new Headers()
+    );
+    expect((mapOpenAiError(other, 'review the chapter', chapterFacts) as AppFailure).message).toMatch(
+      /The model or the effort level may not be available/
+    );
+  });
+
+  it('says what stopped an incomplete reply other than the output limit (files.10)', () => {
+    const facts = { words: 3_000, effort: 'high' as const };
+    const filtered = incompleteFailure(
+      { model: 'gpt-5-2026-06-01', incomplete_details: { reason: 'content_filter' } },
+      'gpt-5',
+      facts
+    );
+    expect(filtered).toMatchObject({
+      code: 'openai-failed',
+      message:
+        "OpenAI's content filter stopped the reply from gpt-5-2026-06-01 before it was finished, so no suggestions came back. Try again, or choose another model.",
+      detail: 'content_filter'
+    });
+    expect(incompleteFailure({ incomplete_details: null }, 'gpt-5', facts).message).toBe(
+      'OpenAI stopped the reply from gpt-5 before it was finished (no reason given), so no suggestions came back. Try again.'
+    );
+    // At the output limit with no usage, the limit goes unnamed.
+    expect(
+      incompleteFailure({ incomplete_details: { reason: 'max_output_tokens' } }, 'gpt-5', facts).message
+    ).toBe(replyLimitMessage('output', { who: 'gpt-5', ...facts }));
+    // A limit the request had set is the one named.
+    expect(
+      incompleteFailure(
+        {
+          incomplete_details: { reason: 'max_output_tokens' },
+          max_output_tokens: 16_000,
+          usage: { output_tokens: 16_000 }
+        },
+        'gpt-5',
+        facts
+      ).message
+    ).toMatch(/^gpt-5 reached its output limit \(16,000 tokens\)/);
   });
 });
 

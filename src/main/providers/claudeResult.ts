@@ -1,4 +1,10 @@
-import { classifyClaudeFailure, isUsageLimit as defaultIsUsageLimit } from '../../shared/ai/claudeStatus';
+import {
+  claudeReplyLimit,
+  classifyClaudeFailure,
+  isUsageLimit as defaultIsUsageLimit,
+  type ClaudeFailureInput
+} from '../../shared/ai/claudeStatus';
+import { replyLimitMessage } from '../../shared/ai/replyLimit';
 import type { RateLimitInfo } from '../../shared/ipc';
 import { fail, type AppFailure } from '../errors';
 
@@ -19,13 +25,48 @@ export interface ResultMessage {
   is_error?: unknown;
   result?: unknown;
   errors?: unknown;
+  /** why the model's last reply stopped, such as `max_tokens` */
+  stop_reason?: unknown;
+  /** the typed kind of the API error that ended the run (2.1.302), such as `max_output_tokens` */
+  api_error?: unknown;
   [key: string]: unknown;
 }
 
-/** What the run said before its result: a refusal, or an assistant message's error. */
+/**
+ * What the run said before its result: a refusal, an assistant message's
+ * error, and why the last streamed reply stopped; and, for a review, the
+ * chapter's words and the effort, which word a reply that ran out of room
+ * (files.10). An assistant message's `api_error` is not read: where it says
+ * `max_output_tokens`, so does its `error`.
+ */
 export interface ResultContext {
   refusal?: string;
   assistantError?: string;
+  /** the `stop_reason` of the last `message_delta` stream event */
+  stopReason?: string;
+  limitFacts?: ClaudeFailureInput['limitFacts'];
+}
+
+const textField = (value: unknown): string | undefined =>
+  typeof value === 'string' && value !== '' ? value : undefined;
+
+/**
+ * What the classifier reads besides the text and the subtype: the context's
+ * error and facts, the result's `api_error`, and its `stop_reason` ahead of
+ * the stream's.
+ */
+function failureSignals(
+  message: ResultMessage | null,
+  context: ResultContext
+): Omit<ClaudeFailureInput, 'text' | 'subtype' | 'startupReason'> {
+  const apiError = textField(message?.api_error);
+  const stopReason = textField(message?.stop_reason) ?? context.stopReason;
+  return {
+    ...(context.assistantError ? { assistantError: context.assistantError } : {}),
+    ...(apiError ? { apiError } : {}),
+    ...(stopReason ? { stopReason } : {}),
+    ...(context.limitFacts ? { limitFacts: context.limitFacts } : {})
+  };
 }
 
 /**
@@ -68,11 +109,27 @@ export function resultToError(
   const startupReason = startupReasonOf(message);
   const failure = classifyClaudeFailure({
     ...(startupReason ? { startupReason } : {}),
-    ...(context.assistantError ? { assistantError: context.assistantError } : {}),
+    ...failureSignals(message, context),
     ...(message.subtype && message.subtype !== 'success' ? { subtype: message.subtype } : {}),
     text
   });
   return fail(failure.code, failure.message, failure.detail);
+}
+
+/**
+ * A successful result whose structured output is missing or does not parse,
+ * when the reply was cut off at the output limit: the limit is why, not the
+ * model (files.10). Null when nothing says the reply was cut off, and the
+ * caller reports a reply of the wrong shape.
+ */
+export function cutOffReply(message: ResultMessage, context: ResultContext): AppFailure | null {
+  const signals = failureSignals(message, context);
+  const cutOff =
+    signals.stopReason === 'max_tokens' ||
+    signals.assistantError === 'max_output_tokens' ||
+    signals.apiError === 'max_output_tokens';
+  if (!cutOff) return null;
+  return fail('claude-failed', replyLimitMessage('output', { ...context.limitFacts, who: 'Claude' }));
 }
 
 /**
@@ -123,8 +180,10 @@ export function readRateLimit(value: unknown): RateLimitInfo {
 }
 
 /**
- * A run that ended with no result at all: what it said on stderr decides,
- * else a plain "ended without a result".
+ * A run that ended with no result at all: what it said on stderr, or an
+ * assistant error, decides, else a plain "ended without a result". A last
+ * reply that stopped at the limit is not enough on its own here: the process
+ * ended for some other reason.
  */
 export function endedWithoutResult(
   context: ResultContext,
@@ -132,11 +191,9 @@ export function endedWithoutResult(
   malformedLines: number
 ): AppFailure {
   if (context.refusal) return fail('claude-refusal', context.refusal);
-  const failure = classifyClaudeFailure({
-    ...(context.assistantError ? { assistantError: context.assistantError } : {}),
-    text: stderr
-  });
-  if (failure.code !== 'claude-failed' || context.assistantError) {
+  const input = { ...failureSignals(null, context), text: stderr };
+  const failure = classifyClaudeFailure(input);
+  if (failure.code !== 'claude-failed' || context.assistantError || claudeReplyLimit(input)) {
     return fail(failure.code, failure.message, failure.detail);
   }
   return fail(

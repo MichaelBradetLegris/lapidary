@@ -6,7 +6,13 @@ import { parseReviewOutput } from '../../shared/prompt/schema';
 import type { EffortLevel } from '../../shared/types';
 import { fail } from '../errors';
 import { claudeArgs } from './claudeOptions';
-import { endedWithoutResult, readRateLimit, resultToError } from './claudeResult';
+import {
+  cutOffReply,
+  endedWithoutResult,
+  readRateLimit,
+  resultToError,
+  type ResultContext
+} from './claudeResult';
 import { CONNECTION_TEST_PROMPT, CONNECTION_TEST_SYSTEM_PROMPT } from './connectionTest';
 import type { ProviderHooks, ProviderResult, ProviderTestHooks, ProviderTestResult } from './types';
 
@@ -313,21 +319,22 @@ export interface CliReviewInput {
   prompt: string;
   model: string;
   effort: EffortLevel;
+  /** the chapter's words (`chapterStats`), for the message when the reply runs out of room (files.10) */
+  words?: number;
 }
 
-interface Context {
+interface Context extends ResultContext {
   /** the model the `system` init message named */
   model?: string;
   fallbackNote?: string;
   rateLimit?: RateLimitInfo;
-  refusal?: string;
-  assistantError?: string;
 }
 
-/** A stream event's fields that drive the progress label. */
+/** A stream event's fields that drive the progress label, and why a reply stopped (files.10). */
 interface StreamEvent {
   type?: string;
   usage?: { output_tokens?: number };
+  delta?: { stop_reason?: unknown };
 }
 
 /** One request to Claude: what a review and a connection test have in common. */
@@ -340,6 +347,8 @@ interface Exchange<T> {
   signal: AbortSignal;
   /** what is being asked for, in the words of a failure: "review" or "test" */
   what: string;
+  /** a review's chapter words and effort, which word a reply that ran out of room (files.10) */
+  limitFacts?: ResultContext['limitFacts'];
   onStreamEvent?: (event: StreamEvent) => void;
   onRateLimit?: (info: RateLimitInfo) => void;
   /** the `result` message has arrived */
@@ -367,7 +376,7 @@ async function exchange<T>(deps: CliDeps, ex: Exchange<T>): Promise<T> {
   else ex.signal.addEventListener('abort', abort, { once: true });
   controller.signal.addEventListener('abort', () => run.kill(), { once: true });
 
-  const context: Context = {};
+  const context: Context = ex.limitFacts ? { limitFacts: ex.limitFacts } : {};
   const cancelled = cancelledText(ex.what);
 
   try {
@@ -381,7 +390,11 @@ async function exchange<T>(deps: CliDeps, ex: Exchange<T>): Promise<T> {
     for (let message = await run.next(); message; message = await run.next()) {
       switch (message.type) {
         case 'stream_event': {
-          ex.onStreamEvent?.(message['event'] ?? {});
+          const event = (message['event'] ?? {}) as StreamEvent;
+          // The last reply's reason wins: one cut off and then resumed is not a failure (files.10).
+          const stop = event.delta?.stop_reason;
+          if (event.type === 'message_delta' && typeof stop === 'string' && stop) context.stopReason = stop;
+          ex.onStreamEvent?.(event);
           break;
         }
         case 'assistant': {
@@ -441,6 +454,7 @@ export async function runCliReview(
       prompt: input.prompt,
       signal: hooks.signal,
       what: 'review',
+      limitFacts: { effort: input.effort, ...(input.words === undefined ? {} : { words: input.words }) },
       onStreamEvent: (event) => {
         if (event.type === 'message_delta' && event.usage?.output_tokens) {
           tokens = event.usage.output_tokens;
@@ -549,6 +563,9 @@ function finish(message: CliMessage, context: Context): ProviderResult {
 
   const parsed = parseReviewOutput(message['structured_output']);
   if (!parsed.ok || !parsed.value) {
+    // A reply cut off at the output limit is not the model's mistake (files.10).
+    const cutOff = cutOffReply(message, context);
+    if (cutOff) throw cutOff;
     throw fail(
       'claude-invalid-output',
       'Claude answered but the response did not match the expected shape.',

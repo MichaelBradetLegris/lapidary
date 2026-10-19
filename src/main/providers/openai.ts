@@ -9,12 +9,14 @@ import {
 } from '../../shared/ai/openai';
 import { parseOpenAiText, toStrictJsonSchema } from '../../shared/ai/openaiReply';
 import { estimateCostUsd } from '../../shared/ai/pricing';
+import { replyLimitMessage, type ReplyLimitFacts } from '../../shared/ai/replyLimit';
 import { renderChapter } from '../../shared/prompt/chapter';
 import { reviewOutputJsonSchema } from '../../shared/prompt/schema';
 import { buildSystemPrompt } from '../../shared/prompt/system';
 import { chapterName } from '../../shared/review';
+import { chapterStats } from '../../shared/text/stats';
 import { getDevSwitches } from '../devSwitches';
-import { fail } from '../errors';
+import { fail, type AppFailure } from '../errors';
 import { CONNECTION_TEST_PROMPT, CONNECTION_TEST_SYSTEM_PROMPT } from './connectionTest';
 import type {
   ProviderHooks,
@@ -154,7 +156,8 @@ export function createOpenAiProvider(deps: OpenAiDeps): ReviewProvider {
     model: string,
     request: ReviewRequest,
     hooks: ProviderHooks,
-    onTokens: (tokens: number) => void
+    onTokens: (tokens: number) => void,
+    facts: ChapterFacts
   ): Promise<StreamedReply> {
     const reply: StreamedReply = { text: '', usage: undefined, model, completed: false, problem: null };
 
@@ -194,11 +197,7 @@ export function createOpenAiProvider(deps: OpenAiDeps): ReviewProvider {
           break;
         }
         case 'response.incomplete': {
-          const reason = event.response.incomplete_details?.reason ?? 'the response was cut short';
-          reply.problem = fail(
-            'openai-failed',
-            `OpenAI stopped before finishing (${reason}). Try a shorter chapter or a lower effort.`
-          );
+          reply.problem = incompleteFailure(event.response, model, facts);
           break;
         }
         case 'response.failed': {
@@ -226,17 +225,19 @@ export function createOpenAiProvider(deps: OpenAiDeps): ReviewProvider {
     };
 
     hooks.onProgress('starting');
+    // The count Review with AI showed, and the effort, for a reply that runs out of room (files.10).
+    const facts: ChapterFacts = { words: chapterStats(request.text).words, effort: request.effort };
     try {
       const model = await resolveModel(api, request.model);
 
       let reply: StreamedReply;
       try {
-        reply = await streamReply(api, model, request, hooks, onTokens);
+        reply = await streamReply(api, model, request, hooks, onTokens, facts);
       } catch (err) {
         if (hooks.signal.aborted || err instanceof APIUserAbortError) {
           throw fail('cancelled', 'Review cancelled.');
         }
-        throw mapOpenAiError(err, 'review the chapter');
+        throw mapOpenAiError(err, 'review the chapter', { ...facts, who: model });
       }
 
       // An abort can also end the stream quietly rather than by throwing.
@@ -309,6 +310,54 @@ export function createOpenAiProvider(deps: OpenAiDeps): ReviewProvider {
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
+/** The chapter's words and the review's effort, which word a reply that ran out of room (files.10). */
+type ChapterFacts = Pick<ReplyLimitFacts, 'words' | 'effort'>;
+
+/** The fields of an incomplete response read here. */
+interface IncompleteResponse {
+  model?: string;
+  incomplete_details?: { reason?: string } | null;
+  max_output_tokens?: number | null;
+  usage?: { output_tokens?: number } | null;
+}
+
+/**
+ * A response that ended `incomplete` (files.10). At `max_output_tokens` the
+ * reply was cut off at the model's output limit, which the app never sets, so
+ * the limit is the model's own and the tokens the reply had used when it
+ * stopped are that limit; the words are `replyLimitMessage`'s. A content
+ * filter, or any other reason, says what stopped it. OpenAI's reason stays in
+ * `detail`.
+ */
+export function incompleteFailure(
+  response: IncompleteResponse,
+  model: string,
+  facts: ChapterFacts
+): AppFailure {
+  const who = response.model || model;
+  const reason = response.incomplete_details?.reason;
+  if (reason === 'max_output_tokens') {
+    const maxTokens = response.max_output_tokens ?? response.usage?.output_tokens;
+    return fail(
+      'openai-failed',
+      replyLimitMessage('output', { ...facts, who, ...(maxTokens ? { maxTokens } : {}) }),
+      reason
+    );
+  }
+  if (reason === 'content_filter') {
+    return fail(
+      'openai-failed',
+      `OpenAI's content filter stopped the reply from ${who} before it was finished, so no suggestions came back. Try again, or choose another model.`,
+      reason
+    );
+  }
+  return fail(
+    'openai-failed',
+    `OpenAI stopped the reply from ${who} before it was finished (${reason ?? 'no reason given'}), so no suggestions came back. Try again.`,
+    reason
+  );
+}
+
 interface StreamedReply {
   text: string;
   usage: unknown;
@@ -361,17 +410,28 @@ export function outputTextOf(response: unknown): string {
   return text;
 }
 
+/** OpenAI's 400 for a request longer than the model's context window. */
+const CONTEXT_EXCEEDED = /context[ _](window|length)/i;
+
 /**
  * HTTP status to something the author can act on. 401 points at Settings, 429
  * says the account is out of credit or too busy, 5xx and a dead network say to
- * try again.
+ * try again. A review's chapter too long for the model to read is said so
+ * plainly (`chapter`, files.10).
  */
-export function mapOpenAiError(err: unknown, doing: string): Error {
+export function mapOpenAiError(err: unknown, doing: string, chapter?: ReplyLimitFacts): Error {
   if (err instanceof APIUserAbortError) return fail('cancelled', 'Review cancelled.');
 
   if (err instanceof APIError) {
     const detail = err.message;
     const status = typeof err.status === 'number' ? err.status : undefined;
+    if (
+      chapter &&
+      status === 400 &&
+      (err.code === 'context_length_exceeded' || CONTEXT_EXCEEDED.test(detail))
+    ) {
+      return fail('openai-failed', replyLimitMessage('input', chapter), detail);
+    }
     if (status === 401 || status === 403) {
       return fail(
         'openai-invalid-key',

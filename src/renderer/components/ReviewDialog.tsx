@@ -12,7 +12,7 @@ import type {
 import { defaultIsOpus, proPlanNote } from '../../shared/ai/claudeModels';
 import { claudeUpdateAdvice } from '../../shared/ai/claudeStatus';
 import { reviewDialogWarning, type LastFailure } from '../../shared/ui/setup';
-import { chapterStats } from '../../shared/text/stats';
+import { chapterStats, reviewSizeAdvice } from '../../shared/text/stats';
 import { historyCounts, historyWhen } from '../../shared/ui/history';
 import { REVIEW_BUTTON_SELECTOR } from '../../shared/ui/dialog';
 import { reviewStartLabels, reviewStartNote } from '../../shared/ui/save';
@@ -110,6 +110,7 @@ export function ReviewDialog({
   const [notSaved, setNotSaved] = useState<string[]>([]);
   const boxRef = useRef<HTMLDivElement>(null);
   const stats = chapterStats(review.base.text);
+  const sizeAdvice = reviewSizeAdvice(stats.words);
   const previous = history[0];
   const previousCounts = previous ? historyCounts(previous, reviewPath, review) : null;
   const provider = settings.provider;
@@ -196,6 +197,17 @@ export function ReviewDialog({
           {stats.words === 1 ? '' : 's'}. Nothing is written to the chapter: every suggestion comes back for
           you to accept or dismiss.
         </p>
+        {/* A long chapter takes longer and costs more; a very long one may not
+            fit in one reply (files.10, PLAN 5.5). */}
+        {sizeAdvice?.level === 'warn' ? (
+          <div className="modal__warn" role="note" data-testid="review-size-advice">
+            <span>{sizeAdvice.text}</span>
+          </div>
+        ) : sizeAdvice ? (
+          <p className="modal__note" data-testid="review-size-advice">
+            {sizeAdvice.text}
+          </p>
+        ) : null}
         {error ? <p className="modal__hint modal__hint--error">{error}</p> : null}
 
         <div className="modal__row">
