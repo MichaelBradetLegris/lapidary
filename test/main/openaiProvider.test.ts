@@ -159,6 +159,19 @@ describe('OpenAI provider against the local mock', () => {
     expect(JSON.stringify(format['schema'])).not.toContain('maxLength');
   });
 
+  it("sends the Obsidian rule, and a note's paragraph only as its number and the hidden line (files.8)", async () => {
+    const before = mock.requests.length;
+    const text = `${chapter.trimEnd()}\n\n%% Ellen, not Mara: change it in chapter 3. %%\n`;
+    await provider('sk-test-ok-1234').review(request({ text }), hooks());
+    const sent = mock.requests.slice(before).find((r) => r.path === '/v1/responses');
+    const body = sent?.body as Record<string, unknown>;
+    expect(String(body['instructions'])).toContain('The chapter is a note in an Obsidian vault');
+    expect(String(body['input'])).toContain('paragraphs="11"');
+    expect(String(body['input'])).toContain("\n\n[11] (author's note or code, hidden; skip it)\n</chapter>");
+    expect(String(body['input'])).not.toContain('Ellen');
+    expect(JSON.stringify(sent?.body)).not.toContain('Ellen');
+  });
+
   it('produces hunks and comments that anchor in the sample chapter', async () => {
     const result = await provider('sk-test-ok-1234').review(request(), hooks());
     // As the renderer does: the model answers in the prompt's numbers, from 1.
