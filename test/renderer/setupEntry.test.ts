@@ -34,7 +34,9 @@ describe('every layout has the cards, the dialogs and the question (setup.7)', (
         // (each `{}` is a JSX comment with its text taken out)
         /<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*<\/div>\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*<\/div>\s*\);/
       );
-      expect(layout).toContain('<StatusBar review={review} {...statusRuntime} rateLimit={usageNotice} />');
+      expect(layout).toMatch(
+        /<StatusBar\s+review=\{review\}\s+\{\.\.\.statusRuntime\}\s+rateLimit=\{usageNotice\}\s+plan=\{claudeRuntime\?\.subscriptionType\}\s*\/>/
+      );
     });
   }
 
@@ -238,9 +240,10 @@ describe("Claude's usage on the page (setup.9)", () => {
       /testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*rateLimit=\{ai\.rateLimit\}\s*\/>/
     );
     const bar = read('components/StatusBar.tsx');
-    expect(bar).toContain('{rateLimit ? <UsageNotice info={rateLimit} /> : null}');
-    expect(bar).toContain('const text = describeRateLimit(info, now);');
-    expect(bar).toContain('title={rateLimitTitle(info, now) ?? undefined}');
+    // With the plan, on which the weekly Sonnet limit's name depends (setup.9 review).
+    expect(bar).toContain('{rateLimit ? <UsageNotice info={rateLimit} plan={plan} /> : null}');
+    expect(bar).toContain('const text = describeRateLimit(info, now, plan);');
+    expect(bar).toContain('title={rateLimitTitle(info, now, plan) ?? undefined}');
     // Worded again while it shows, so the time left keeps up and it goes at the reset.
     expect(bar).toMatch(
       /useEffect\(\(\) => \{\s*if \(!showing\) return;\s*const timer = window\.setInterval\(\(\) => setTick\(\(n\) => n \+ 1\), USAGE_NOTICE_TICK_MS\);\s*return \(\) => window\.clearInterval\(timer\);\s*\}, \[showing\]\);/
@@ -256,11 +259,18 @@ describe("Claude's usage on the page (setup.9)", () => {
       APP.indexOf('const reviewDialogStillOpen = ')
     );
     expect(start).toMatch(
-      /if \(err instanceof ApiError && err\.code === 'claude-usage-limit'\) \{\s*notify\('error', usageLimitCard\(err\.message, ai\.latestRateLimit\(\)\)\);\s*return;\s*\}/
+      /if \(err instanceof ApiError && err\.code === 'claude-usage-limit'\) \{\s*notify\(\s*'error',\s*usageLimitCard\(err\.message, ai\.latestRateLimit\(\), ai\.runtimes\.claude\?\.subscriptionType\)\s*\);\s*return;\s*\}/
     );
     // Every notice is kept at once beside the state, for that card: the broadcast,
     // a review's answer and a test's.
     const ai = read('state/useAi.ts');
+    // The failure is recorded with the card's decision, from the same notice, read at once,
+    // so Setup says what the card said (setup.9 review).
+    const failed = ai.slice(ai.indexOf('} catch (err) {', ai.indexOf('const runReview = ')));
+    expect(failed).toMatch(
+      /const event = failureSetupEvent\(err\.code, err\.message, rateLimitNow\.current, claudeRuntime\.current\);\s*setLastFailure\(\(prev\) => nextLastFailure\(prev, event\)\);/
+    );
+    expect(ai.match(/type: 'failure'/g)).toBeNull();
     expect(ai).toMatch(
       /window\.api\.on\('ai:rate-limit', \(info\) => \{\s*rateLimitNow\.current = info;\s*setRateLimit\(info\);\s*\}\);/
     );

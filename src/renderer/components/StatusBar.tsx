@@ -18,6 +18,8 @@ interface Props {
   runtimeTitle?: string;
   /** Claude Code's last usage notice, worded by `describeRateLimit` (setup.9) */
   rateLimit?: RateLimitInfo | null;
+  /** Claude Code's `subscriptionType`, on which the weekly Sonnet limit's name depends (setup.9 review) */
+  plan?: string | undefined;
 }
 
 /**
@@ -148,10 +150,16 @@ const USAGE_NOTICE_TICK_MS = 30_000;
  * shows it is worded again every 30 s, so the time left keeps up and the
  * notice goes once its limit has reset.
  */
-function UsageNotice({ info }: { info: RateLimitInfo }): React.JSX.Element | null {
+function UsageNotice({
+  info,
+  plan
+}: {
+  info: RateLimitInfo;
+  plan?: string | undefined;
+}): React.JSX.Element | null {
   const [, setTick] = useState(0);
   const now = new Date();
-  const text = describeRateLimit(info, now);
+  const text = describeRateLimit(info, now, plan);
   const showing = text !== null;
   useEffect(() => {
     if (!showing) return;
@@ -163,7 +171,7 @@ function UsageNotice({ info }: { info: RateLimitInfo }): React.JSX.Element | nul
     <span
       className="statusbar__warn"
       data-testid="status-usage"
-      title={rateLimitTitle(info, now) ?? undefined}
+      title={rateLimitTitle(info, now, plan) ?? undefined}
     >
       {text}
     </span>
@@ -182,7 +190,8 @@ export function StatusBar({
   runtimeLabel,
   onRuntime,
   runtimeTitle,
-  rateLimit
+  rateLimit,
+  plan
 }: Props): React.JSX.Element {
   const counts = review ? decisionCounts(review.hunks) : { pending: 0, accepted: 0, dismissed: 0, stale: 0 };
   const unsaved = unsavedPhrase(review ? unsavedDecisionCount(review.hunks) : 0);
@@ -236,7 +245,7 @@ export function StatusBar({
           {review?.generator.costEstimated ? ' estimate' : ''}
         </span>
       ) : null}
-      {rateLimit ? <UsageNotice info={rateLimit} /> : null}
+      {rateLimit ? <UsageNotice info={rateLimit} plan={plan} /> : null}
       {runtimeLabel ? (
         onRuntime ? (
           <button type="button" className="statusbar__runtime" title={runtimeTitle} onClick={onRuntime}>

@@ -148,6 +148,16 @@ describe('readRateLimit (setup.9)', () => {
   });
 
   it('keeps extra usage in use, and a share past the whole limit', () => {
+    // As Claude Code 2.1.302 sends it: the plan's limit refused, extra usage paying.
+    expect(
+      readRateLimit({
+        status: 'rejected',
+        resetsAt: 1790000000,
+        rateLimitType: 'five_hour',
+        isUsingOverage: true,
+        overageStatus: 'allowed'
+      })
+    ).toEqual({ status: 'rejected', resetsAt: RESET, kind: 'five_hour', usingOverage: true });
     expect(
       readRateLimit({
         status: 'allowed',

@@ -12,6 +12,7 @@ import { guidelinesFingerprint } from '../../shared/prompt/system';
 import { createAiReview, toChangeCategory } from '../../shared/review';
 import { modelFor, type Provider, type Review, type Settings } from '../../shared/types';
 import {
+  failureSetupEvent,
   focusRecheckDue,
   nextLastFailure,
   testSetupEvent,
@@ -346,10 +347,11 @@ export function useAi(): AiController {
       });
     } catch (err) {
       if (provider === 'claude' && err instanceof ApiError && err.code !== 'cancelled') {
-        const code = err.code;
-        setLastFailure((prev) =>
-          nextLastFailure(prev, { type: 'failure', code, runtime: claudeRuntime.current })
-        );
+        /* Read now, with the notice that came before the failure, as the
+           usage-limit card reads it, so Setup says what that card says
+           (setup.9 review). */
+        const event = failureSetupEvent(err.code, err.message, rateLimitNow.current, claudeRuntime.current);
+        setLastFailure((prev) => nextLastFailure(prev, event));
       }
       throw err;
     } finally {

@@ -4,7 +4,7 @@ import {
   NOT_SIGNED_IN_MESSAGE,
   signedInElsewhereMessage
 } from '../../src/shared/ai/claudeStatus';
-import type { RuntimeStatus } from '../../src/shared/ipc';
+import type { RateLimitInfo, RuntimeStatus } from '../../src/shared/ipc';
 import {
   CLAUDE_RUNTIME_CARD,
   CONNECTION_TEST_NOTES,
@@ -12,6 +12,7 @@ import {
   EXPIRED_INTRO,
   FOCUS_RECHECK_MS,
   NOT_INSTALLED_INTRO,
+  OTHER_USAGE_LIMIT_TEXT,
   SIGNED_IN_AGAIN,
   SIGNED_OUT_INTRO,
   USAGE_LIMIT_TEXT,
@@ -19,6 +20,7 @@ import {
   canTestConnection,
   canTryReviewAnyway,
   checkedAtText,
+  failureSetupEvent,
   connectionTestLine,
   connectionTestNote,
   focusRecheckDue,
@@ -48,7 +50,7 @@ import {
   type LastFailure,
   type SetupViewId
 } from '../../src/shared/ui/setup';
-import { OTHER_MODELS_ADVICE, WAIT_ADVICE } from '../../src/shared/ui/usage';
+import { OTHER_MODELS_ADVICE, WAIT_ADVICE, usageLimitCard } from '../../src/shared/ui/usage';
 
 /* setup.6: what the Setup screen shows, and when a failure stops counting. */
 
@@ -118,6 +120,36 @@ describe('nextLastFailure', () => {
 
   it('clears on a review or connection test that went through', () => {
     expect(nextLastFailure(expired, { type: 'success' })).toBeNull();
+  });
+
+  it("keeps whether a usage limit was one of the plan's, as the review's card decided (setup.9 review)", () => {
+    const limit = nextLastFailure(
+      null,
+      failureSetupEvent(
+        'claude-usage-limit',
+        "You've hit your team's shared budget. Switch to another model to continue.",
+        { status: 'rejected', kind: 'overage' },
+        claude()
+      )
+    );
+    expect(limit).toEqual({
+      code: 'claude-usage-limit',
+      executablePath: PATH,
+      cliVersion: '2.1.283',
+      planLimit: false
+    });
+    expect(nextLastFailure(limit, { type: 'check', runtime: claude() })).toBe(limit);
+    expect(
+      nextLastFailure(
+        null,
+        failureSetupEvent(
+          'claude-usage-limit',
+          "You've hit your session limit · resets 3pm",
+          { status: 'rejected', kind: 'five_hour' },
+          claude()
+        )
+      )?.planLimit
+    ).toBe(true);
   });
 
   it('clears an outdated failure when Claude Code changes, and only then', () => {
@@ -396,7 +428,13 @@ describe('reviewDialogWarning', () => {
     );
     expect(reviewDialogWarning(claude(), expired)).toContain('sign-in had ended');
     expect(reviewDialogWarning(claude(), { code: 'claude-not-signed-in' })).toContain('not signed in');
-    expect(reviewDialogWarning(claude(), { code: 'claude-usage-limit' })).toContain('usage limit');
+    expect(reviewDialogWarning(claude(), { code: 'claude-usage-limit', planLimit: true })).toBe(
+      "The last review stopped at your Claude plan's usage limit. If the limit has reset since, go ahead."
+    );
+    // A team's budget or usage credits: not the plan's limit, which may not reset.
+    expect(reviewDialogWarning(claude(), { code: 'claude-usage-limit', planLimit: false })).toBe(
+      "The last review stopped at a usage limit other than your Claude plan's own. If it no longer applies, go ahead."
+    );
   });
 
   it('says nothing when Claude is ready, or before the first check', () => {
@@ -469,7 +507,7 @@ describe('setupStatus', () => {
   });
 
   it('advises on a usage limit from the last notice: wait, or the models a one-model limit leaves free (setup.9)', () => {
-    const limit: LastFailure = { code: 'claude-usage-limit' };
+    const limit: LastFailure = { code: 'claude-usage-limit', planLimit: true };
     expect(setupStatus('usage-limit', claude(), limit)).toEqual({
       tone: 'warn',
       title: 'Claude usage limit reached',
@@ -486,10 +524,105 @@ describe('setupStatus', () => {
       WAIT_ADVICE,
       FREE_PLAN_WARNING
     ]);
+    expect(
+      setupStatus('usage-limit', claude(), limit, { status: 'rejected', kind: 'seven_day_overage_included' })
+        .lines
+    ).toEqual([USAGE_LIMIT_TEXT, OTHER_MODELS_ADVICE.seven_day_overage_included]);
     // The notice speaks only to a usage limit.
     expect(
       setupStatus('ready', claude(), null, { status: 'rejected', kind: 'seven_day_opus' }).lines.join(' ')
     ).not.toContain('Opus');
+  });
+
+  it('advises on the weekly Sonnet limit as Claude Code names it on the plan the check found', () => {
+    const limit: LastFailure = { code: 'claude-usage-limit', planLimit: true };
+    const sonnet: RateLimitInfo = { status: 'rejected', kind: 'seven_day_sonnet' };
+    expect(setupStatus('usage-limit', claude({ subscriptionType: 'pro' }), limit, sonnet).lines).toEqual([
+      USAGE_LIMIT_TEXT,
+      WAIT_ADVICE
+    ]);
+    expect(
+      setupStatus('usage-limit', claude({ subscriptionType: 'enterprise' }), limit, sonnet).lines
+    ).toEqual([USAGE_LIMIT_TEXT, WAIT_ADVICE]);
+    expect(setupStatus('usage-limit', claude({ subscriptionType: 'max' }), limit, sonnet).lines).toEqual([
+      USAGE_LIMIT_TEXT,
+      OTHER_MODELS_ADVICE.seven_day_sonnet
+    ]);
+  });
+
+  it("says no more than Claude Code's message for a usage limit that is not one of the plan's (setup.9 review)", () => {
+    const other: LastFailure = { code: 'claude-usage-limit', planLimit: false };
+    for (const notice of [
+      null,
+      { status: 'rejected', kind: 'overage' },
+      { status: 'rejected', kind: 'five_hour', usingOverage: true },
+      // A later notice does not change what the card decided.
+      { status: 'rejected', kind: 'five_hour' }
+    ]) {
+      expect(setupStatus('usage-limit', claude(), other, notice), JSON.stringify(notice)).toEqual({
+        tone: 'warn',
+        title: 'Claude usage limit reached',
+        lines: [OTHER_USAGE_LIMIT_TEXT]
+      });
+    }
+    expect(setupStatus('usage-limit', claude({ planWarning: FREE_PLAN_WARNING }), other).lines).toEqual([
+      OTHER_USAGE_LIMIT_TEXT,
+      FREE_PLAN_WARNING
+    ]);
+    expect(OTHER_USAGE_LIMIT_TEXT).not.toContain('resets on its own');
+  });
+
+  it("gives the same advice as the review's card, or none where it gives none: one rule for both", () => {
+    // Claude Code 2.1.302's messages, each with the notice it sends before it.
+    const pairs: Array<[string, RateLimitInfo | null, string | undefined]> = [
+      ["You've hit your session limit · resets 3pm", { status: 'rejected', kind: 'five_hour' }, 'max'],
+      ["You've hit your limit · resets 3pm", null, 'max'],
+      [
+        "You've hit your Opus limit · resets Oct 24, 9am",
+        { status: 'rejected', kind: 'seven_day_opus' },
+        'max'
+      ],
+      [
+        "You've hit your weekly limit · resets Oct 24, 9am",
+        { status: 'rejected', kind: 'seven_day_sonnet' },
+        'pro'
+      ],
+      [
+        "You've hit your Sonnet limit · resets Oct 24, 9am",
+        { status: 'rejected', kind: 'seven_day_sonnet' },
+        'max'
+      ],
+      [
+        "You've hit your Fable limit · resets Oct 24, 9am",
+        { status: 'rejected', kind: 'seven_day_overage_included' },
+        'max'
+      ],
+      ["You're out of usage credits · resets 3pm", { status: 'rejected', kind: 'five_hour' }, 'max'],
+      ["You're out of usage credits", { status: 'rejected', kind: 'overage' }, 'max'],
+      ["You're out of usage credits", null, 'max'],
+      [
+        "You've hit your team's shared budget. Switch to another model to continue.",
+        { status: 'rejected', kind: 'overage' },
+        'team'
+      ],
+      ["You've hit your monthly spend limit. Switch to another model to continue.", null, 'pro'],
+      ["You've reached your Fable limit. Switch to another model to continue.", null, 'max'],
+      ["Your seat type doesn't include usage", null, 'enterprise']
+    ];
+    const advised: string[] = [];
+    for (const [message, notice, plan] of pairs) {
+      const card = usageLimitCard(message, notice, plan);
+      const last = nextLastFailure(null, failureSetupEvent('claude-usage-limit', message, notice, claude()));
+      const lines = setupStatus('usage-limit', claude({ subscriptionType: plan }), last, notice).lines;
+      if (card === message) {
+        expect(lines, message).toEqual([OTHER_USAGE_LIMIT_TEXT]);
+      } else {
+        advised.push(message);
+        expect(lines[0], message).toBe(USAGE_LIMIT_TEXT);
+        expect(card, message).toBe(`${message}. ${lines[1] ?? ''}`);
+      }
+    }
+    expect(advised).toHaveLength(7);
   });
 
   it('turns a free plan into a warning', () => {
@@ -697,6 +830,44 @@ describe('Test the connection (setup.8)', () => {
       type: 'failure',
       code: 'unknown',
       runtime: null
+    });
+  });
+
+  it("remembers whether a usage limit it stopped at is one of the plan's, from its own notice (setup.9 review)", () => {
+    const limited = (message: string, rateLimit?: RateLimitInfo) => ({
+      ok: false,
+      durationMs: 900,
+      error: { code: 'claude-usage-limit' as const, message },
+      ...(rateLimit ? { rateLimit } : {})
+    });
+    expect(
+      testSetupEvent(
+        limited("You've hit your session limit · resets 3pm", { status: 'rejected', kind: 'five_hour' }),
+        claude()
+      )
+    ).toEqual({ type: 'failure', code: 'claude-usage-limit', runtime: claude(), planLimit: true });
+    expect(
+      testSetupEvent(
+        limited("You've hit your team's shared budget. Switch to another model to continue.", {
+          status: 'rejected',
+          kind: 'overage'
+        }),
+        claude()
+      )
+    ).toEqual({ type: 'failure', code: 'claude-usage-limit', runtime: claude(), planLimit: false });
+    expect(testSetupEvent(limited("You're out of usage credits"), claude())).toMatchObject({
+      planLimit: false
+    });
+    // The same words with the plan's reset, after a notice that names the plan's limit.
+    expect(
+      testSetupEvent(
+        limited("You're out of usage credits · resets 3pm", { status: 'rejected', kind: 'five_hour' }),
+        claude()
+      )
+    ).toMatchObject({ planLimit: true });
+    // With no notice, Claude Code's words decide.
+    expect(testSetupEvent(limited("You've hit your session limit · resets 3pm"), claude())).toMatchObject({
+      planLimit: true
     });
   });
 

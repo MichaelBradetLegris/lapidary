@@ -249,9 +249,17 @@ export interface RateLimitInfo {
   resetsAt?: string;
   /** which limit: `five_hour`, `seven_day`, `seven_day_opus`, `seven_day_sonnet`, ... (Claude Code's `rateLimitType`) */
   kind?: string;
-  /** the share of that limit used, 0 to 1, and past 1 when usage runs over (Claude Code's `utilization`) */
+  /**
+   * the share of that limit used, 0 to 1, and past 1 when usage runs over
+   * (Claude Code's `utilization`); Claude Code 2.1.302 sends it only with
+   * `allowed_warning`, never with `allowed` or `rejected` (C.64)
+   */
   utilization?: number;
-  /** the plan's limit is used up and extra usage, which may be billed, is paying (Claude Code's `isUsingOverage`) */
+  /**
+   * the plan's limit is used up and extra usage, which may be billed, is
+   * paying (Claude Code's `isUsingOverage`); 2.1.302 sets it on a `rejected`
+   * notice only
+   */
   usingOverage?: boolean;
 }
 

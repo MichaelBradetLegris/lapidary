@@ -6,6 +6,7 @@ import {
   USING_EXTRA_USAGE,
   WAIT_ADVICE,
   describeRateLimit,
+  isPlanLimit,
   limitName,
   rateLimitTitle,
   resetTime,
@@ -49,9 +50,15 @@ describe('describeRateLimit', () => {
       expect(describeRateLimit({ ...notice(base), utilization: 0.25 }, NOW), status).toBeNull();
       expect(describeRateLimit({ ...notice(base), utilization: 0 }, NOW), status).toBeNull();
     }
-    // Rounded to a whole percent first, so it never shows "79%" nor hides "80%".
+    // Rounded down, as Claude Code words its own warning, so 79.6% is 79% and says nothing.
     expect(describeRateLimit(notice({ utilization: 0.794 }), NOW)).toBeNull();
-    expect(describeRateLimit(notice({ utilization: 0.796 }), NOW)).toBe(
+    expect(describeRateLimit(notice({ utilization: 0.796 }), NOW)).toBeNull();
+    expect(describeRateLimit(notice({ utilization: 0.8 }), NOW)).toBe('5-hour limit 80% used, resets 15:45');
+    expect(describeRateLimit(notice({ utilization: 0.829 }), NOW)).toBe(
+      '5-hour limit 82% used, resets 15:45'
+    );
+    // Claude Code takes the share to a tenth of a percent first: 0.7996 is 80.0%.
+    expect(describeRateLimit(notice({ utilization: 0.7996 }), NOW)).toBe(
       '5-hour limit 80% used, resets 15:45'
     );
   });
@@ -67,6 +74,15 @@ describe('describeRateLimit', () => {
     expect(describeRateLimit(notice({ utilization: 1 }), NOW)).toBe('5-hour limit 100% used, resets 15:45');
     expect(describeRateLimit(notice({ utilization: 1.08 }), NOW)).toBe(
       '5-hour limit 100% used, resets 15:45'
+    );
+  });
+
+  it('never says 100% of a limit not reached: 99.5% is 99%, as Claude Code says it', () => {
+    expect(describeRateLimit(notice({ utilization: 0.995 }), NOW)).toBe(
+      '5-hour limit 99% used, resets 15:45'
+    );
+    expect(describeRateLimit(notice({ utilization: 0.999 }), NOW)).toBe(
+      '5-hour limit 99% used, resets 15:45'
     );
   });
 
@@ -109,6 +125,23 @@ describe('describeRateLimit', () => {
       const info: RateLimitInfo = { status: 'allowed', utilization: 0.9, ...(kind ? { kind } : {}) };
       expect(describeRateLimit(info, NOW), kind).toBe(words);
     }
+  });
+
+  it('names the weekly Sonnet limit as Claude Code does on the plan: the weekly limit on Pro and Enterprise', () => {
+    const sonnet: RateLimitInfo = { status: 'rejected', kind: 'seven_day_sonnet' };
+    for (const plan of ['pro', 'Pro', 'enterprise']) {
+      expect(describeRateLimit(sonnet, NOW, plan), plan).toBe('Weekly limit reached');
+    }
+    for (const plan of ['max', 'team', 'free', undefined]) {
+      expect(describeRateLimit(sonnet, NOW, plan), plan).toBe('Weekly Sonnet limit reached');
+    }
+    // The other limits are named the same on every plan.
+    expect(describeRateLimit({ status: 'rejected', kind: 'seven_day_opus' }, NOW, 'pro')).toBe(
+      'Weekly Opus limit reached'
+    );
+    expect(describeRateLimit({ status: 'rejected', kind: 'five_hour' }, NOW, 'enterprise')).toBe(
+      '5-hour limit reached'
+    );
   });
 
   it('ends at the limit when there is no reset, or one that cannot be read', () => {
@@ -200,23 +233,30 @@ describe('resetTime and resetTimeInWords: the time format', () => {
   });
 });
 
-describe('untilPhrase: singular and plural', () => {
+describe('untilPhrase: singular and plural, the minutes counted up', () => {
   const cases: Array<[number, string]> = [
+    [-5000, 'in less than a minute'],
     [0, 'in less than a minute'],
-    [59_999, 'in less than a minute'],
+    [1, 'in 1 minute'],
+    [59_999, 'in 1 minute'],
     [MINUTE, 'in 1 minute'],
-    [2 * MINUTE - 1, 'in 1 minute'],
+    [MINUTE + 1, 'in 2 minutes'],
+    [2 * MINUTE - 1, 'in 2 minutes'],
     [2 * MINUTE, 'in 2 minutes'],
     [59 * MINUTE, 'in 59 minutes'],
+    [HOUR - 1, 'in 1 hour'],
     [HOUR, 'in 1 hour'],
     [HOUR + MINUTE, 'in 1 hour and 1 minute'],
     [HOUR + 45 * MINUTE, 'in 1 hour and 45 minutes'],
     [2 * HOUR, 'in 2 hours'],
     [2 * HOUR + MINUTE, 'in 2 hours and 1 minute'],
+    [2 * HOUR + 9 * MINUTE + 40_000, 'in 2 hours and 10 minutes'],
     [2 * HOUR + 10 * MINUTE, 'in 2 hours and 10 minutes'],
     [23 * HOUR + 59 * MINUTE, 'in 23 hours and 59 minutes'],
+    [24 * HOUR - 1, 'in 1 day'],
     [24 * HOUR, 'in 1 day'],
     [25 * HOUR, 'in 1 day and 1 hour'],
+    [26 * HOUR - 5, 'in 1 day and 2 hours'],
     [26 * HOUR + 30 * MINUTE, 'in 1 day and 2 hours'],
     [48 * HOUR + 30 * MINUTE, 'in 2 days'],
     [3 * 24 * HOUR + HOUR, 'in 3 days and 1 hour'],
@@ -237,14 +277,57 @@ describe('rateLimitTitle: the tooltip', () => {
     );
   });
 
-  it('says a reached limit stops reviews until it resets', () => {
+  it('gives the time left to the clock time it follows, whatever the seconds of either', () => {
+    // The status bar reads the clock with its seconds: 13:35:20 here.
+    const later = new Date(2026, 9, 22, 13, 35, 20);
+    const title = (resetsAt: Date): string | null =>
+      rateLimitTitle(notice({ utilization: 0.9, resetsAt: resetsAt.toISOString() }), later);
+    expect(title(new Date(2026, 9, 22, 15, 45))).toBe(
+      "90% of your Claude plan's 5-hour limit is used. It resets at 15:45, in 2 hours and 10 minutes."
+    );
+    expect(title(new Date(2026, 9, 22, 15, 45, 30))).toBe(
+      "90% of your Claude plan's 5-hour limit is used. It resets at 15:45, in 2 hours and 10 minutes."
+    );
+    expect(title(new Date(2026, 9, 22, 13, 36, 0))).toBe(
+      "90% of your Claude plan's 5-hour limit is used. It resets at 13:36, in 1 minute."
+    );
+    expect(title(new Date(2026, 9, 22, 13, 35, 50))).toBe(
+      "90% of your Claude plan's 5-hour limit is used. It resets at 13:35, in less than a minute."
+    );
+    // Past a day, whole hours: 26 hours less 5 ms is tomorrow at 15:35, 26 hours on the clock.
+    expect(title(new Date(later.getTime() + 26 * HOUR - 5))).toBe(
+      "90% of your Claude plan's 5-hour limit is used. It resets tomorrow at 15:35, in 1 day and 2 hours."
+    );
+  });
+
+  it('says a reached limit stops reviews until it resets, with the one model a one-model limit holds', () => {
     expect(
       rateLimitTitle(
         { status: 'rejected', kind: 'seven_day_opus', resetsAt: at(2026, 9, 24, 9, 0), utilization: 1 },
         NOW
       )
     ).toBe(
-      "Your Claude plan's weekly Opus limit is used up, so reviews with Claude stop until it resets on Saturday at 09:00, in 1 day and 19 hours."
+      "Your Claude plan's weekly Opus limit is used up, so reviews with Opus stop until it resets on Saturday at 09:00, in 1 day and 19 hours."
+    );
+    expect(rateLimitTitle({ status: 'rejected', kind: 'seven_day_sonnet', resetsAt: TODAY_1545 }, NOW)).toBe(
+      "Your Claude plan's weekly Sonnet limit is used up, so reviews with Sonnet stop until it resets at 15:45, in 2 hours and 10 minutes."
+    );
+    expect(
+      rateLimitTitle({ status: 'rejected', kind: 'seven_day_overage_included', resetsAt: TODAY_1545 }, NOW)
+    ).toBe(
+      "Your Claude plan's weekly model limit is used up, so reviews with that model stop until it resets at 15:45, in 2 hours and 10 minutes."
+    );
+    // On Pro and Enterprise Claude Code counts the weekly Sonnet limit as the weekly limit.
+    for (const plan of ['pro', 'enterprise']) {
+      expect(
+        rateLimitTitle({ status: 'rejected', kind: 'seven_day_sonnet', resetsAt: TODAY_1545 }, NOW, plan),
+        plan
+      ).toBe(
+        "Your Claude plan's weekly limit is used up, so reviews with Claude stop until it resets at 15:45, in 2 hours and 10 minutes."
+      );
+    }
+    expect(rateLimitTitle({ status: 'rejected', kind: 'seven_day', resetsAt: TODAY_1545 }, NOW)).toBe(
+      "Your Claude plan's weekly limit is used up, so reviews with Claude stop until it resets at 15:45, in 2 hours and 10 minutes."
     );
     expect(rateLimitTitle({ status: 'rejected', kind: 'overage', resetsAt: TODAY_1545 }, NOW)).toBe(
       'Your extra usage limit is used up, so reviews with Claude stop until it resets at 15:45, in 2 hours and 10 minutes.'
@@ -255,6 +338,21 @@ describe('rateLimitTitle: the tooltip', () => {
   });
 
   it('says extra usage may be billed, and when the plan limit comes back', () => {
+    // As Claude Code 2.1.302 sends it: the plan's limit refused, extra usage paying. Not "reviews stop".
+    const extraUsage: RateLimitInfo = {
+      status: 'rejected',
+      kind: 'five_hour',
+      usingOverage: true,
+      resetsAt: at(2026, 9, 23, 9, 0)
+    };
+    expect(describeRateLimit(extraUsage, NOW)).toBe(USING_EXTRA_USAGE);
+    expect(rateLimitTitle(extraUsage, NOW)).toBe(
+      "Your Claude plan's 5-hour limit is used up, so Claude Code is using extra usage, which may be billed. The limit resets tomorrow at 09:00, in 19 hours and 25 minutes."
+    );
+    expect(rateLimitTitle({ ...extraUsage, kind: 'seven_day_opus' }, NOW)).toBe(
+      "Your Claude plan's weekly Opus limit is used up, so Claude Code is using extra usage, which may be billed. The limit resets tomorrow at 09:00, in 19 hours and 25 minutes."
+    );
+    // The same words for an `allowed` notice with extra usage, which 2.1.302 does not send.
     expect(rateLimitTitle(notice({ usingOverage: true, resetsAt: at(2026, 9, 23, 9, 0) }), NOW)).toBe(
       "Your Claude plan's 5-hour limit is used up, so Claude Code is using extra usage, which may be billed. The limit resets tomorrow at 09:00, in 19 hours and 25 minutes."
     );
@@ -318,6 +416,86 @@ describe('usageLimitAdvice: wait, or Sonnet and Haiku', () => {
     expect(OTHER_MODELS_ADVICE.seven_day_sonnet).toContain(
       'Haiku and Opus do not count against the weekly Sonnet limit'
     );
+    // The weekly limit of one model, which Claude Code names after it ("Fable limit").
+    expect(usageLimitAdvice({ status: 'rejected', kind: 'seven_day_overage_included' })).toBe(
+      'Other models do not count against this weekly model limit: choose another under Model in Review with AI to go on now, or wait until the limit resets.'
+    );
+  });
+
+  it('advises waiting for the weekly Sonnet limit on Pro and Enterprise, where it is the weekly limit', () => {
+    const sonnet: RateLimitInfo = { status: 'rejected', kind: 'seven_day_sonnet' };
+    for (const plan of ['pro', 'enterprise']) {
+      expect(usageLimitAdvice(sonnet, plan), plan).toBe(WAIT_ADVICE);
+    }
+    for (const plan of ['max', 'team', undefined]) {
+      expect(usageLimitAdvice(sonnet, plan), plan).toBe(OTHER_MODELS_ADVICE.seven_day_sonnet);
+    }
+    expect(usageLimitAdvice({ status: 'rejected', kind: 'seven_day_opus' }, 'pro')).toBe(
+      OTHER_MODELS_ADVICE.seven_day_opus
+    );
+  });
+});
+
+/** Claude Code 2.1.302's usage-limit messages for one of the plan's limits (its `AS`, `lt` and `hie`). */
+const PLAN_LIMIT_MESSAGES = [
+  "You've hit your limit · resets 3pm",
+  "You've hit your session limit · resets 3pm",
+  "You've hit your weekly limit · resets Oct 24, 9am",
+  "You've hit your Opus limit · resets Oct 24, 9am",
+  "You've hit your Sonnet limit · resets Oct 24, 9am · progress saved",
+  "You've hit your Fable limit · resets Oct 24, 9am"
+];
+
+/** Its usage-limit messages for anything else: budgets, spend limits, usage credits, seats. */
+const OTHER_LIMIT_MESSAGES = [
+  "You're out of usage credits",
+  'Your org is out of usage · add funds to continue',
+  "Your seat type doesn't include usage",
+  "You're out of extra usage",
+  "You've hit your team's shared budget. Switch to another model to continue.",
+  "You've hit your team's shared budget. /model to switch models.",
+  "You've hit your monthly spend limit. Switch to another model to continue.",
+  "You've hit your channel's monthly spend limit. Switch to another model to continue.",
+  "You've hit your org's monthly spend limit · ask your admin to raise it",
+  "You've reached your Fable limit. Switch to another model to continue.",
+  "You're out of usage credits. Run /usage-credits to keep using Fable 5 or /model to switch models."
+];
+
+describe("isPlanLimit: one of the plan's limits, which waiting mends", () => {
+  it("knows Claude Code's words for the plan's limits, with no notice or an earlier one", () => {
+    for (const message of PLAN_LIMIT_MESSAGES) {
+      expect(isPlanLimit(message, null), message).toBe(true);
+      expect(isPlanLimit(message, { status: 'allowed', kind: 'five_hour' }), message).toBe(true);
+    }
+  });
+
+  it('takes nothing else for one, with no notice, an earlier one or one about extra usage', () => {
+    for (const message of OTHER_LIMIT_MESSAGES) {
+      for (const info of [
+        null,
+        { status: 'allowed', utilization: 0.9 },
+        { status: 'rejected', kind: 'overage' },
+        { status: 'rejected', kind: 'five_hour', usingOverage: true },
+        { status: 'rejected', usingOverage: true }
+      ]) {
+        expect(isPlanLimit(message, info), `${message} ${JSON.stringify(info)}`).toBe(false);
+      }
+    }
+  });
+
+  it('follows a notice that says a plan limit was reached, unless the words say to switch model', () => {
+    const reached: RateLimitInfo = { status: 'rejected', kind: 'five_hour' };
+    expect(isPlanLimit('Limit reached', reached)).toBe(true);
+    // Claude Code's words when the plan's limit and the extra usage behind it both ran out.
+    expect(isPlanLimit("You're out of usage credits · resets 3pm", reached)).toBe(true);
+    expect(isPlanLimit("You've hit your team's shared budget · your session limit resets 3pm", reached)).toBe(
+      true
+    );
+    expect(
+      isPlanLimit("You've hit your team's shared budget. Switch to another model to continue.", reached)
+    ).toBe(false);
+    // Extra usage, even under a plan limit's words.
+    expect(isPlanLimit(PLAN_LIMIT_MESSAGES[0] ?? '', { status: 'rejected', kind: 'overage' })).toBe(false);
   });
 });
 
@@ -326,10 +504,31 @@ describe('usageLimitCard: the card a review that stopped at a usage limit puts u
 
   it("keeps Claude Code's words, which name the reset, then advises", () => {
     expect(usageLimitCard(HIT, null)).toBe(`${HIT}. ${WAIT_ADVICE}`);
-    expect(usageLimitCard("You've reached your weekly limit.", null)).toBe(
-      `You've reached your weekly limit. ${WAIT_ADVICE}`
+    expect(usageLimitCard("You've hit your weekly limit.", null)).toBe(
+      `You've hit your weekly limit. ${WAIT_ADVICE}`
     );
     expect(usageLimitCard(`  ${HIT}\n`, null)).toBe(`${HIT}. ${WAIT_ADVICE}`);
+    for (const message of PLAN_LIMIT_MESSAGES) {
+      expect(usageLimitCard(message, null), message).toBe(`${message}. ${WAIT_ADVICE}`);
+    }
+  });
+
+  it('advises as Claude Code names the limit on the plan: the weekly limit on Pro, Sonnet on Max', () => {
+    const sonnet: RateLimitInfo = { status: 'rejected', kind: 'seven_day_sonnet' };
+    expect(usageLimitCard("You've hit your weekly limit · resets Oct 24, 9am", sonnet, 'pro')).toBe(
+      `You've hit your weekly limit · resets Oct 24, 9am. ${WAIT_ADVICE}`
+    );
+    expect(usageLimitCard("You've hit your Sonnet limit · resets Oct 24, 9am", sonnet, 'max')).toBe(
+      `You've hit your Sonnet limit · resets Oct 24, 9am. ${OTHER_MODELS_ADVICE.seven_day_sonnet}`
+    );
+    expect(
+      usageLimitCard("You've hit your Fable limit · resets Oct 24, 9am", {
+        status: 'rejected',
+        kind: 'seven_day_overage_included'
+      })
+    ).toBe(
+      `You've hit your Fable limit · resets Oct 24, 9am. ${OTHER_MODELS_ADVICE.seven_day_overage_included}`
+    );
   });
 
   it('advises from the notice that came before the failure, which names the limit', () => {
@@ -346,17 +545,23 @@ describe('usageLimitCard: the card a review that stopped at a usage limit puts u
     expect(usageLimitCard('', { status: 'rejected', kind: 'five_hour' })).toBe(WAIT_ADVICE);
   });
 
-  it('adds nothing to a usage limit that waiting does not mend', () => {
-    for (const message of [
-      "You're out of usage credits",
-      'Your org is out of usage · add funds to continue',
-      "Your seat type doesn't include usage",
-      "You're out of extra usage"
-    ]) {
+  it("adds nothing to a usage limit that is not one of the plan's: Claude Code's words say what to do", () => {
+    for (const message of OTHER_LIMIT_MESSAGES) {
       expect(usageLimitCard(message, null), message).toBe(message);
       expect(usageLimitCard(message, { status: 'allowed', utilization: 0.9 }), message).toBe(message);
       expect(usageLimitCard(message, { status: 'rejected', kind: 'overage' }), message).toBe(message);
       expect(usageLimitCard(message, { status: 'rejected', usingOverage: true }), message).toBe(message);
+      expect(
+        usageLimitCard(message, { status: 'rejected', kind: 'five_hour', usingOverage: true }),
+        message
+      ).toBe(message);
     }
+  });
+
+  it('advises when a plan limit and the extra usage behind it ran out together, as the notice says', () => {
+    // Claude Code 2.1.302 then gives the plan's reset, and the notice names the plan's limit.
+    expect(
+      usageLimitCard("You're out of usage credits · resets 3pm", { status: 'rejected', kind: 'five_hour' })
+    ).toBe(`You're out of usage credits · resets 3pm. ${WAIT_ADVICE}`);
   });
 });

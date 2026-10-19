@@ -116,7 +116,6 @@ describe('the Claude test, through Claude Code (runCliTest)', () => {
         status: 'allowed',
         resetsAt: new Date(1790000000 * 1000).toISOString(),
         kind: 'five_hour',
-        utilization: 0.42,
         usingOverage: false
       }
     ]);
@@ -202,7 +201,6 @@ describe('testConnection, what ai:test answers', () => {
         status: 'allowed',
         resetsAt: new Date(1790000000 * 1000).toISOString(),
         kind: 'five_hour',
-        utilization: 0.42,
         usingOverage: false
       }
     });

@@ -782,9 +782,13 @@ export function App(): React.JSX.Element {
           notify('info', 'Review cancelled.');
           return;
         }
-        // Claude Code's words, then what to do: wait, or another model (setup.9).
+        // Claude Code's words, then what to do for a plan limit: wait, or another model
+        // (setup.9). useAi records the same decision for Setup (failureSetupEvent).
         if (err instanceof ApiError && err.code === 'claude-usage-limit') {
-          notify('error', usageLimitCard(err.message, ai.latestRateLimit()));
+          notify(
+            'error',
+            usageLimitCard(err.message, ai.latestRateLimit(), ai.runtimes.claude?.subscriptionType)
+          );
           return;
         }
         if (err instanceof ApiError && (err.code === 'openai-invalid-key' || err.code === 'openai-no-key')) {
@@ -999,7 +1003,12 @@ export function App(): React.JSX.Element {
               rateLimit={ai.rateLimit}
             />
           </div>
-          <StatusBar review={review} {...statusRuntime} rateLimit={usageNotice} />
+          <StatusBar
+            review={review}
+            {...statusRuntime}
+            rateLimit={usageNotice}
+            plan={claudeRuntime?.subscriptionType}
+          />
         </div>
         <div className="app-shell__dialogs" inert={inert.dialogs}>
           {newChapterDialog}
@@ -1107,7 +1116,12 @@ export function App(): React.JSX.Element {
           </div>
         </div>
 
-        <StatusBar review={review} {...statusRuntime} rateLimit={usageNotice} />
+        <StatusBar
+          review={review}
+          {...statusRuntime}
+          rateLimit={usageNotice}
+          plan={claudeRuntime?.subscriptionType}
+        />
         <HunkTooltip />
         <EditPopover onSaved={(message, tone) => notify(tone ?? 'info', message, 'edit')} />
       </div>

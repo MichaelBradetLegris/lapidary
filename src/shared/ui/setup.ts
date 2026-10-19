@@ -20,7 +20,7 @@ import {
 import { APP_NAME } from '../branding';
 import type { ConnectionTestResult, RateLimitInfo, RuntimeStatus } from '../ipc';
 import type { ErrorCode } from '../types';
-import { usageLimitAdvice } from './usage';
+import { isPlanLimit, usageLimitAdvice } from './usage';
 
 export type SetupViewId =
   /** no status yet: the first check is still running */
@@ -44,11 +44,17 @@ export interface LastFailure {
   cliVersion?: string;
   /** a check has said "signed out" since the failure; a ready check after that clears it */
   signedOutSince?: boolean;
+  /**
+   * for a usage limit: whether it is one of the plan's limits, which reset on
+   * their own, as the review's card decided it (`isPlanLimit`), so that Setup
+   * says what that card said (setup.9 review)
+   */
+  planLimit?: boolean;
 }
 
 export type SetupEvent =
-  /** a review or a connection test failed with `code` */
-  | { type: 'failure'; code: ErrorCode; runtime?: RuntimeStatus | null }
+  /** a review or a connection test failed with `code` (`failureSetupEvent`) */
+  | { type: 'failure'; code: ErrorCode; runtime?: RuntimeStatus | null; planLimit?: boolean }
   /** a review or a connection test went through */
   | { type: 'success' }
   /** a runtime check finished */
@@ -67,7 +73,8 @@ export function nextLastFailure(last: LastFailure | null, event: SetupEvent): La
       return {
         code: event.code,
         ...(event.runtime?.executablePath ? { executablePath: event.runtime.executablePath } : {}),
-        ...(event.runtime?.cliVersion ? { cliVersion: event.runtime.cliVersion } : {})
+        ...(event.runtime?.cliVersion ? { cliVersion: event.runtime.cliVersion } : {}),
+        ...(event.planLimit === undefined ? {} : { planLimit: event.planLimit })
       };
     case 'success':
       return null;
@@ -410,7 +417,9 @@ export function reviewDialogWarning(
     case 'signed-out':
       return 'The last review said Claude Code was not signed in. If you have signed in since, go ahead.';
     case 'usage-limit':
-      return "The last review stopped at your Claude plan's usage limit. If the limit has reset since, go ahead.";
+      return last?.planLimit === true
+        ? "The last review stopped at your Claude plan's usage limit. If the limit has reset since, go ahead."
+        : "The last review stopped at a usage limit other than your Claude plan's own. If it no longer applies, go ahead.";
     default:
       return null;
   }
@@ -437,6 +446,10 @@ export const COULD_NOT_CHECK_ADVICE =
 
 export const USAGE_LIMIT_TEXT =
   "The last review stopped because your Claude plan's usage limit was reached. The limit resets on its own, at the time Claude Code's message gave. Nothing here needs setting up.";
+
+/** A usage limit that is not one of the plan's (`isPlanLimit`): Claude Code's message said which, and what to do. */
+export const OTHER_USAGE_LIMIT_TEXT =
+  "The last review stopped at a usage limit that is not one of your Claude plan's own limits, such as usage credits, a spend limit or a team's shared budget. Claude Code's message said which. Nothing here needs setting up.";
 
 function claudeCode(runtime: RuntimeStatus | null | undefined): string {
   return runtime?.cliVersion ? `Claude Code ${runtime.cliVersion}` : 'Claude Code';
@@ -465,8 +478,11 @@ function apiKeyLines(runtime: RuntimeStatus | null | undefined): string[] {
 
 /**
  * The status card: the view in a few words, what was found, and the plan
- * warning when there is one. A usage limit says what to do about it, from the
- * last usage notice, which names the limit (`usageLimitAdvice`, setup.9).
+ * warning when there is one. A usage limit says what to do about it as the
+ * review's card did: for one of the plan's limits, the advice from the last
+ * usage notice, which names the limit, on the plan the check found
+ * (`usageLimitAdvice`, setup.9); for any other, nothing beyond Claude Code's
+ * message (`LastFailure.planLimit`, setup.9 review).
  */
 export function setupStatus(
   view: SetupViewId,
@@ -517,7 +533,10 @@ export function setupStatus(
       return {
         tone: 'warn',
         title: 'Claude usage limit reached',
-        lines: [USAGE_LIMIT_TEXT, usageLimitAdvice(rateLimit), ...plan]
+        lines:
+          last?.planLimit === true
+            ? [USAGE_LIMIT_TEXT, usageLimitAdvice(rateLimit, runtime?.subscriptionType), ...plan]
+            : [OTHER_USAGE_LIMIT_TEXT, ...plan]
       };
     case 'api-key':
       return {
@@ -808,7 +827,28 @@ export function testSetupEvent(
   if (result.ok) return { type: 'success' };
   const code = result.error?.code ?? 'unknown';
   if (code === 'cancelled') return null;
-  return { type: 'failure', code, runtime: runtime ?? null };
+  return failureSetupEvent(code, result.error?.message ?? '', result.rateLimit, runtime);
+}
+
+/**
+ * A review or connection test that failed with `code`, Claude Code's
+ * `message`, after the usage notice `rateLimit`, the last that came before
+ * the failure. A usage limit carries whether it is one of the plan's limits,
+ * decided as the review's card decides it (`isPlanLimit`), so that Setup's
+ * usage-limit view says what that card said (setup.9 review).
+ */
+export function failureSetupEvent(
+  code: ErrorCode,
+  message: string,
+  rateLimit: RateLimitInfo | null | undefined,
+  runtime: RuntimeStatus | null | undefined
+): SetupEvent {
+  return {
+    type: 'failure',
+    code,
+    runtime: runtime ?? null,
+    ...(code === 'claude-usage-limit' ? { planLimit: isPlanLimit(message, rateLimit) } : {})
+  };
 }
 
 /** A finished test, with when it finished. */

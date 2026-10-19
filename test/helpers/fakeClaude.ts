@@ -58,32 +58,23 @@ const REVIEW = {
  * the shape of Claude Code 2.1.302's schema (the Agent SDK's
  * `SDKRateLimitInfo`; `readRateLimit` in claudeResult.ts, setup.9): the
  * status (`allowed`, `allowed_warning` or `rejected`), the reset in Unix
- * seconds, which limit (`rateLimitType`), the share used as a fraction
- * (`utilization`, 0 to 1) and whether extra usage is paying
- * (`isUsingOverage`), beside fields the app does not read. A usage limit
+ * seconds, which limit (`rateLimitType`) and whether extra usage is paying
+ * (`isUsingOverage`), beside fields the app does not read. The share used
+ * (`utilization`, a fraction) comes only with `allowed_warning`, which 2.1.302
+ * sends when it warns, so neither notice here has one (C.64). A usage limit
  * comes after a `rejected` one. FAKE_CLAUDE_RATE_LIMIT, as JSON, replaces it.
  */
 function rateLimitInfo(name: string): unknown {
   const given = process.env['FAKE_CLAUDE_RATE_LIMIT'];
   if (given) return JSON.parse(given) as unknown;
   const unread = { overageStatus: 'rejected', overageDisabledReason: 'org_level_disabled' };
-  return name === 'usage-limit'
-    ? {
-        status: 'rejected',
-        resetsAt: 1790000000,
-        rateLimitType: 'five_hour',
-        utilization: 1,
-        isUsingOverage: false,
-        ...unread
-      }
-    : {
-        status: 'allowed',
-        resetsAt: 1790000000,
-        rateLimitType: 'five_hour',
-        utilization: 0.42,
-        isUsingOverage: false,
-        ...unread
-      };
+  return {
+    status: name === 'usage-limit' ? 'rejected' : 'allowed',
+    resetsAt: 1790000000,
+    rateLimitType: 'five_hour',
+    isUsingOverage: false,
+    ...unread
+  };
 }
 
 /**

@@ -84,8 +84,10 @@ export function resultToError(
  * - `resetsAt`: when the limit resets, in Unix seconds;
  * - `rateLimitType`: `five_hour`, `seven_day`, `seven_day_opus`,
  *   `seven_day_sonnet`, `seven_day_overage_included` or `overage`;
- * - `utilization`: the share of that limit used, a fraction (usually 0 to 1);
- * - `isUsingOverage`: the plan's limit is used up and extra usage is paying;
+ * - `utilization`: the share of that limit used, a fraction (usually 0 to 1),
+ *   sent only with `allowed_warning`, when Claude Code itself warns (C.64);
+ * - `isUsingOverage`: the plan's limit is used up and extra usage is paying,
+ *   set on a `rejected` notice only;
  * - and fields read nowhere here: `overageStatus`, `overageResetsAt`,
  *   `overageDisabledReason`, `surpassedThreshold`, `unifiedWindows` and more.
  *
