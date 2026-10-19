@@ -20,9 +20,20 @@ import {
   planBlockEdit
 } from '../../src/shared/edit';
 import { buildRenderBlocks } from '../../src/shared/render';
-import { createAiReview, createReview, guardLoadedReview } from '../../src/shared/review';
+import {
+  createAiReview,
+  createReview,
+  guardLoadedReview,
+  remapAfterCommit,
+  unanchorOutsideBody
+} from '../../src/shared/review';
 import { bodyStart, syntaxSignature } from '../../src/shared/text/obsidian';
-import { bodyParagraphs, frontmatterRange, splitParagraphs } from '../../src/shared/text/paragraphs';
+import {
+  bodyParagraphs,
+  frontmatterRange,
+  splitParagraphs,
+  type Paragraph
+} from '../../src/shared/text/paragraphs';
 import type { Hunk, HunkSource, HunkStatus, Review, ReviewBase } from '../../src/shared/types';
 
 interface PieceSpec {
@@ -1567,6 +1578,25 @@ describe('no hunk before the body (files.22)', () => {
     expect(frontmatterRange(after)).toEqual(frontmatterRange(before));
   }
 
+  /**
+   * Save to chapter, as `savedReview` folds the decisions in, then the review
+   * opened again as `reviews.ts` loads it: every hunk stays on the page with
+   * its decision, the page draws each where the body has a paragraph, and the
+   * load step moves none (the `files.22` review). Gives the saved text and hunks.
+   */
+  function savedAndOpened(base: string, hunks: readonly Hunk[]): { text: string; hunks: Hunk[] } {
+    const committed = commitDecisions(base, hunks);
+    const after = remapAfterCommit(base, hunks, committed, []).hunks;
+    expect(after.map((h) => [h.id, h.status, h.anchor])).toEqual(
+      hunks.map((h) => [h.id, h.status, h.anchor])
+    );
+    if (bodyOf(committed.text).length > 0) expect(drawn(committed.text, after)).toBe(true);
+    const reopened = reviewOf(committed.text, after);
+    expect(unanchorOutsideBody(reopened)).toBe(reopened);
+    expect(composeText(committed.text, after)).toBe(committed.text);
+    return { text: committed.text, hunks: after };
+  }
+
   type Typing = 'nothing' | 'words' | 'top' | 'end' | 'breaks' | 'empty';
 
   it('the paragraph box makes no hunk before the body, and Done with nothing typed makes none at all', () => {
@@ -1639,12 +1669,122 @@ describe('no hunk before the body (files.22)', () => {
             if (typing === 'top') expect(composed.slice(prefix.length)).toMatch(/^Added words here\.\n\n/);
           }
           expect(drawn(base, next)).toBe(true);
+          savedAndOpened(base, next);
         }
       ),
       { numRuns: 1000 }
     );
     for (const typing of Object.keys(counts) as Typing[]) expect(counts[typing], typing).toBeGreaterThan(100);
     expect(first).toBeGreaterThan(300);
+  });
+
+  /**
+   * The paragraphs as `splitParagraphs` gave them before `files.22`: a single
+   * line break at either end of the body was part of the paragraph beside it.
+   */
+  function splitBeforeFiles22(text: string): Paragraph[] {
+    const fm = frontmatterRange(text);
+    const out: Paragraph[] = fm
+      ? [{ index: -1, start: 0, end: fm.end, text: text.slice(0, fm.end), isFrontmatter: true }]
+      : [];
+    const cursor = fm?.end ?? 0;
+    const rest = text.slice(cursor);
+    let last = 0;
+    const push = (start: number, end: number): void => {
+      const raw = rest.slice(start, end);
+      if (raw.trim().length === 0) return;
+      out.push({
+        index: out.length - (fm ? 1 : 0),
+        start: cursor + start,
+        end: cursor + end,
+        text: raw,
+        isFrontmatter: false
+      });
+    };
+    for (const match of rest.matchAll(/\n(?:[ \t]*\n)+/g)) {
+      push(last, match.index);
+      last = match.index + match[0].length;
+    }
+    push(last, rest.length);
+    return out;
+  }
+
+  it('a review the paragraph box made before files.22 opens with every hunk on the page drawn, and a box opened again overlaps none (the files.22 review)', () => {
+    let off = 0;
+    fc.assert(
+      fc.property(
+        fc.record({
+          front: fc.constantFrom(...FRONTS),
+          tail: fc.constantFrom(...TAILS),
+          specs: fc.array(specArb, { minLength: 1, maxLength: 6 }),
+          which: fc.nat(),
+          again: fc.nat(),
+          typing: fc.constantFrom<Typing>('nothing', 'words', 'top', 'end', 'breaks', 'empty'),
+          words: fc.array(fc.nat({ max: 20 }), { minLength: 1, maxLength: 3 })
+        }),
+        ({ front, tail, specs, which, again, typing, words }) => {
+          const built = buildCase(specs);
+          const base = `${front}${built.base}${tail}`;
+          const hunks = built.hunks.map((h) => ({
+            ...h,
+            start: h.start + front.length,
+            end: h.end + front.length
+          }));
+          // The box as it was: opened on the paragraph as the split before files.22 gave it.
+          const old = splitBeforeFiles22(base);
+          const oldBody = bodyParagraphs(old);
+          const target = oldBody[which % oldBody.length];
+          if (!target) throw new Error('a chapter with no body paragraph');
+          const span = blockSpanFor(base, old, hunks, target.index);
+          if (!span) throw new Error('no block for a body paragraph');
+          const live = liveTextIn(base, hunks, span);
+          const pieces = live.split(' ');
+          for (const k of words) pieces[k % pieces.length] = `new${k}`;
+          const typed = {
+            nothing: live,
+            words: pieces.join(' '),
+            top: `Added words here.\n\n${live}`,
+            end: `${live}\n\nAdded words here.`,
+            breaks: `\n\n${live}\n`,
+            empty: ''
+          }[typing];
+          const plan = planBlockEdit({ base, paragraphs: old, hunks, span, text: typed });
+          const made = plan.kind === 'edit' ? applyBlockEdit(hunks, plan) : hunks;
+
+          const loaded = unanchorOutsideBody(reviewOf(base, made));
+          if (loaded.hunks.some((h, i) => h !== made[i])) off += 1;
+          // Each hunk stays as it was or goes off the page at offset 0, its words and decision kept.
+          loaded.hunks.forEach((h, i) => {
+            const was = made[i];
+            if (h !== was) expect(h).toEqual({ ...was, anchor: 'stale', start: 0, end: 0 });
+          });
+          expect(drawn(base, loaded.hunks)).toBe(true);
+          expect(unanchorOutsideBody(loaded)).toBe(loaded);
+
+          // A box opened again on any paragraph, a word typed: no hunk overlaps another, and each is drawn.
+          const paragraphs = splitParagraphs(base);
+          const body = bodyParagraphs(paragraphs);
+          const next = body[again % body.length];
+          if (!next) throw new Error('a chapter with no body paragraph');
+          const span2 = blockSpanFor(base, paragraphs, loaded.hunks, next.index);
+          if (!span2) throw new Error('no block for a body paragraph');
+          const live2 = liveTextIn(base, loaded.hunks, span2);
+          const plan2 = planBlockEdit({
+            base,
+            paragraphs,
+            hunks: loaded.hunks,
+            span: span2,
+            text: `Then ${live2}?`
+          });
+          if (plan2.kind !== 'edit') throw new Error('expected an edit');
+          const after = applyBlockEdit(loaded.hunks, plan2);
+          expect(findOverlaps(after)).toEqual([]);
+          expect(drawn(base, after)).toBe(true);
+        }
+      ),
+      { numRuns: 1000 }
+    );
+    expect(off).toBeGreaterThan(250);
   });
 
   const WORDS = ['rain', 'mill', 'Mara', 'river', 'the', 'fell'];
@@ -1656,6 +1796,7 @@ describe('no hunk before the body (files.22)', () => {
   it('the full-text diff makes no hunk before the body, and puts a paragraph added at the top before the first one', () => {
     let atTop = 0;
     let layoutOnly = 0;
+    let moved = 0;
     let empty = 0;
     fc.assert(
       fc.property(
@@ -1710,11 +1851,27 @@ describe('no hunk before the body (files.22)', () => {
           );
           expect(bodyOf(all)).toEqual(bodyOf(corrected));
           frontKept(original, all);
-          const some = composeText(
-            original,
-            hunks.map((h, i) => ({ ...h, status: decisions[i] ?? h.status }))
-          );
+          const decided = hunks.map((h, i) => ({ ...h, status: decisions[i] ?? h.status }));
+          const some = composeText(original, decided);
           frontKept(original, some);
+
+          // Saved and opened again, each stays on the page where it is drawn; every decision turned
+          // afterwards still gives the corrected body, or the original one, with the frontmatter as it was
+          // (the files.22 review).
+          const saved = savedAndOpened(original, decided);
+          const folded = commitDecisions(original, decided).hunks;
+          if (saved.hunks.some((h, i) => h.start !== folded[i]?.start)) moved += 1;
+          for (const [status, body] of [
+            ['accepted', bodyOf(corrected)],
+            ['dismissed', bodyOf(original)]
+          ] as const) {
+            const turned = composeText(
+              saved.text,
+              saved.hunks.map((h) => ({ ...h, status }))
+            );
+            expect(bodyOf(turned)).toEqual(body);
+            frontKept(saved.text, turned);
+          }
         }
       ),
       { numRuns: 1000 }
@@ -1722,5 +1879,6 @@ describe('no hunk before the body (files.22)', () => {
     expect(atTop).toBeGreaterThan(100);
     expect(layoutOnly).toBeGreaterThan(20);
     expect(empty).toBeGreaterThan(50);
+    expect(moved).toBeGreaterThan(10);
   });
 });

@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { composeText, unsavedDecisionCount } from '../../src/shared/diff/compose';
-import { createDiffReview, createReview } from '../../src/shared/review';
+import {
+  composeForFile,
+  composeText,
+  decisionCounts,
+  unsavedDecisionCount
+} from '../../src/shared/diff/compose';
+import { buildRenderBlocks } from '../../src/shared/render';
+import { createDiffReview, createReview, upgradeLoadedReview } from '../../src/shared/review';
+import { splitParagraphs } from '../../src/shared/text/paragraphs';
 import { bulkPlan } from '../../src/shared/ui/bulk';
 import { closePrompt, leavePrompt } from '../../src/shared/ui/save';
 import { modelOptions } from '../../src/renderer/state/models';
@@ -9,6 +16,7 @@ import {
   hasDialogText,
   isLocked,
   reviewKeptAt,
+  savedReview,
   useApp,
   type ConfirmSpec
 } from '../../src/renderer/state/store';
@@ -493,6 +501,39 @@ describe('editing a paragraph in place (Phase 5d)', () => {
     expect(useApp.getState().commitDraft(1)).toEqual({ status: 'noop' });
     expect(useApp.getState().drafts).toEqual({});
     expect(useApp.getState().review!.hunks).toHaveLength(1);
+  });
+
+  it('a paragraph added to a chapter of frontmatter alone stays accepted on the page after Save and when the review opens again (the files.22 review)', () => {
+    // Seen in a window: after Save the page drew it nowhere, and opened again it was under Unanchored.
+    const file = '---\ntitle: Empty\n---\n';
+    useApp
+      .getState()
+      .setReview(createDiffReview({ originalRaw: file, correctedRaw: `${file}A new start.\n` }));
+    const [made] = useApp.getState().review!.hunks;
+    useApp.getState().setHunkStatus(made!.id, 'accepted');
+    const written = useApp.getState().review!;
+    expect(composeForFile(written)).toBe(`${file}\nA new start.\n`);
+    const saved = savedReview(written, 'h2');
+    const text = saved.base.text;
+    expect(saved.hunks).toEqual([
+      expect.objectContaining({
+        start: text.indexOf('A new start.'),
+        end: text.length,
+        original: '',
+        replacement: 'A new start.',
+        baseSide: 'replacement',
+        status: 'accepted',
+        anchor: 'exact'
+      })
+    ]);
+    const blocks = buildRenderBlocks(text, splitParagraphs(text), saved.hunks);
+    expect(blocks.find((b) => !b.isFrontmatter)?.segments[0]).toMatchObject({
+      kind: 'hunk',
+      hunk: { id: made!.id }
+    });
+    expect(upgradeLoadedReview(saved)).toBe(saved);
+    expect(decisionCounts(saved.hunks)).toMatchObject({ accepted: 1, stale: 0 });
+    expect(unsavedDecisionCount(saved.hunks)).toBe(0);
   });
 
   it('where the body follows the frontmatter at once, the first paragraph closes with nothing done, and a word typed leaves the frontmatter as it was (files.22)', () => {

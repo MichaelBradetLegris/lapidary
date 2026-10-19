@@ -1,9 +1,16 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { commitDecisions } from '../../src/shared/diff/compose';
-import { createReview, remapAfterCommit, repairCommentAnchors } from '../../src/shared/review';
-import { findParagraph, splitParagraphs } from '../../src/shared/text/paragraphs';
-import type { Hunk, ReviewComment } from '../../src/shared/types';
+import { commitDecisions, composeText } from '../../src/shared/diff/compose';
+import { diffToHunks } from '../../src/shared/diff/wordDiff';
+import { buildRenderBlocks } from '../../src/shared/render';
+import {
+  createReview,
+  remapAfterCommit,
+  repairCommentAnchors,
+  upgradeLoadedReview
+} from '../../src/shared/review';
+import { bodyParagraphs, findParagraph, splitParagraphs } from '../../src/shared/text/paragraphs';
+import type { Hunk, HunkStatus, ReviewComment } from '../../src/shared/types';
 
 /* files.21: comments and labels follow their paragraphs through a save. The
    author split paragraph 42-43 with the pen and saved; every later comment then
@@ -141,6 +148,82 @@ describe('remapAfterCommit', () => {
         }
       )
     );
+  });
+});
+
+describe('remapAfterCommit at either end of the body (the files.22 review)', () => {
+  /** Save as `savedReview` does it, then the review as `reviews.ts` loads it back. */
+  function saveAndLoad(base: string, hunks: Hunk[]): { text: string; hunks: Hunk[]; loaded: Hunk[] } {
+    const saved = save(base, hunks, []);
+    const loaded = upgradeLoadedReview(
+      createReview({
+        sourcePath: 'C:/Novel/Ch.md',
+        base: { text: saved.text, hash: 'h', eol: 'lf', bom: false, trailingNewline: true },
+        hunks: saved.hunks,
+        generator: { kind: 'manual' },
+        now: '2026-10-19T00:00:00.000Z'
+      })
+    );
+    return { text: saved.text, hunks: saved.hunks, loaded: loaded.hunks };
+  }
+  /** The ids the page draws, in the blocks of the body. */
+  const drawnIds = (text: string, hunks: readonly Hunk[]): string[] =>
+    buildRenderBlocks(text, splitParagraphs(text), hunks).flatMap((b) =>
+      b.segments.flatMap((s) => (s.kind === 'hunk' ? [s.hunk.id] : []))
+    );
+  const decide = (hunks: readonly Hunk[], ...statuses: HunkStatus[]): Hunk[] =>
+    hunks.map((h, i) => ({ ...h, status: statuses[i] ?? h.status }));
+  const FRONT = '---\ntitle: Empty\n---';
+
+  it('keeps a paragraph added to a chapter of frontmatter alone on the page once saved, accepted and drawn', () => {
+    // Submit manual review on a chapter that is frontmatter alone, the paragraph accepted and saved.
+    const [made] = decide(diffToHunks(FRONT, `${FRONT}\nA new start.`), 'accepted');
+    expect(made).toMatchObject({ start: FRONT.length, original: '', replacement: '\n\nA new start.' });
+    const { text, hunks, loaded } = saveAndLoad(FRONT, [made!]);
+    expect(text).toBe(`${FRONT}\n\nA new start.`);
+    const start = text.indexOf('A new start.');
+    expect(hunks).toEqual([
+      {
+        ...made,
+        start,
+        end: text.length,
+        baseSide: 'replacement',
+        original: '',
+        replacement: 'A new start.',
+        paragraph: 0
+      }
+    ]);
+    expect(loaded).toEqual(hunks);
+    expect(drawnIds(text, hunks)).toEqual([made!.id]);
+    // Taken out again, its words go and the frontmatter stays closed.
+    expect(composeText(text, decide(hunks, 'dismissed'))).toBe(`${FRONT}\n\n`);
+  });
+
+  it('puts a paragraph left out at the top of the one saved, in its order, where the page draws it', () => {
+    for (const before of [FRONT, `${FRONT}\n`, '', '  ']) {
+      const corrected = `${FRONT}\nOne.\n\nTwo.\n\nThree.`;
+      const made = decide(diffToHunks(before, corrected), 'dismissed', 'accepted', 'pending');
+      expect(made.map((h) => h.start)).toEqual([before.length, before.length, before.length]);
+      const { text, hunks, loaded } = saveAndLoad(before, made);
+      expect(loaded, JSON.stringify(before)).toEqual(hunks);
+      expect(drawnIds(text, hunks)).toEqual(hunks.map((h) => h.id));
+      expect(hunks.every((h) => h.anchor === 'exact')).toBe(true);
+      expect(hunks.map((h) => h.status)).toEqual(['dismissed', 'accepted', 'pending']);
+      // Accepted later, each paragraph goes in where it was, in its order.
+      const all = composeText(text, decide(hunks, 'accepted', 'accepted', 'accepted'));
+      expect(bodyParagraphs(splitParagraphs(all)).map((p) => p.text)).toEqual(['One.', 'Two.', 'Three.']);
+      expect(all.slice(0, before.length)).toBe(before);
+    }
+  });
+
+  it('keeps a last paragraph deleted on the page once saved, drawn at the end of the one before it', () => {
+    const before = `${FRONT}\nKeep this.\n\nDrop this.\n\nAnd this.`;
+    const made = decide(diffToHunks(before, `${FRONT}\nKeep this.`), 'accepted', 'accepted');
+    const { text, hunks, loaded } = saveAndLoad(before, made);
+    expect(text).toBe(`${FRONT}\nKeep this.`);
+    expect(loaded).toEqual(hunks);
+    expect(drawnIds(text, hunks)).toEqual(hunks.map((h) => h.id));
+    expect(composeText(text, decide(hunks, 'dismissed', 'dismissed'))).toBe(before);
   });
 });
 

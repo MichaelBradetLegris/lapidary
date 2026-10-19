@@ -1050,7 +1050,7 @@ describe('the body only (files.20)', () => {
 
   it('never places a hunk at the line break that closes the frontmatter', () => {
     // As the paragraph box made one before files.22, where the body starts on the next line; a review saved
-    // then may still hold one, though it now loads with it off the page (unanchorBeforeBody).
+    // then may still hold one, though it now loads with it off the page (unanchorOutsideBody).
     const text = '---\na: 1\n---\nFirst words.\n\nSecond.';
     const brk = text.indexOf('\nFirst');
     const hunk = { ...hunkAt(brk, '\n', '', 'accepted'), source: 'manual' as const };

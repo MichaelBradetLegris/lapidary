@@ -8,8 +8,10 @@ import {
   screenModelHunks,
   touchingRule
 } from '../../src/shared/diff/protect';
-import { composeReview } from '../../src/shared/diff/compose';
+import { composeReview, composeText, findOverlaps } from '../../src/shared/diff/compose';
 import { rebaseReview } from '../../src/shared/diff/rebase';
+import { applyBlockEdit, blockSpanFor, liveTextIn, planBlockEdit } from '../../src/shared/edit';
+import { buildRenderBlocks } from '../../src/shared/render';
 import { createAiReview, guardLoadedReview, upgradeLoadedReview } from '../../src/shared/review';
 import { MARKUP_CHARS, SYNTAX_KINDS, SYNTAX_LABELS, type SyntaxKind } from '../../src/shared/text/obsidian';
 import { splitParagraphs } from '../../src/shared/text/paragraphs';
@@ -775,6 +777,93 @@ describe('a review saved with a hunk before the body, loaded (files.22)', () => 
       own({ start: 0, end: 5, original: 'First', replacement: 'Frist' })
     ]);
     expect(upgradeLoadedReview(plain)).toBe(plain);
+  });
+
+  describe('at either end of the text (the files.22 review)', () => {
+    // A file that ends in two line breaks, and one with no frontmatter that starts with a blank line.
+    const ENDS = 'Para one.\n\nLast words.\n';
+    const STARTS = '\nFirst words.\n\nSecond.';
+    /** An author's hunk on the last occurrence of `piece`. */
+    const at = (text: string, piece: string, over: Partial<Hunk> = {}): Hunk => {
+      const start = text.lastIndexOf(piece);
+      return own({ start, end: start + piece.length, original: piece, ...over });
+    };
+    /** The ids the page draws, in the blocks of the body. */
+    const drawnIds = (text: string, hunks: readonly Hunk[]): string[] =>
+      buildRenderBlocks(text, splitParagraphs(text), hunks).flatMap((b) =>
+        b.segments.flatMap((s) => (s.kind === 'hunk' ? [s.hunk.id] : []))
+      );
+
+    it('takes off the page each hunk the box made on the line break there, words and decision kept', () => {
+      for (const [text, before] of [
+        // E: "words." made "words!" took the line break that ends the text.
+        [ENDS, at(ENDS, '.\n', { replacement: '!' })],
+        // A2: Done with nothing typed deleted it.
+        [ENDS, at(ENDS, '\n')],
+        // B: "First" made "Early" took the blank line that starts the text.
+        [STARTS, at(STARTS, '\nFirst', { replacement: 'Early' })],
+        // B2: Done with nothing typed deleted it.
+        [STARTS, at(STARTS, '\n', { start: 0, end: 1 })]
+      ] as const) {
+        expect(text.slice(before.start, before.end)).toBe(before.original);
+        const saved = review(text, [before]);
+        // Before the fix: on the page, drawn nowhere, and written by Save.
+        expect(drawnIds(text, saved.hunks)).toEqual([]);
+        expect(composeReview(saved)).not.toBe(text);
+        const loaded = upgradeLoadedReview(saved);
+        expect(loaded.hunks).toEqual([{ ...before, anchor: 'stale', start: 0, end: 0 }]);
+        // Save writes the text as the page draws it, and loading again changes nothing.
+        expect(composeReview(loaded)).toBe(text);
+        expect(upgradeLoadedReview(loaded)).toBe(loaded);
+      }
+    });
+
+    it('so a box opened on that paragraph again makes no hunk that overlaps it', () => {
+      const loaded = upgradeLoadedReview(review(ENDS, [at(ENDS, '.\n', { replacement: '!' })]));
+      const paragraphs = splitParagraphs(ENDS);
+      const span = blockSpanFor(ENDS, paragraphs, loaded.hunks, 1);
+      if (!span) throw new Error('no block for paragraph 2');
+      expect(liveTextIn(ENDS, loaded.hunks, span)).toBe('Last words.');
+      const plan = planBlockEdit({ base: ENDS, paragraphs, hunks: loaded.hunks, span, text: 'Last words?' });
+      if (plan.kind !== 'edit') throw new Error('expected an edit');
+      const next = applyBlockEdit(loaded.hunks, plan);
+      expect(findOverlaps(next)).toEqual([]);
+      expect(composeText(ENDS, next)).toBe('Para one.\n\nLast words?\n');
+    });
+
+    it('leaves a hunk that starts at the first words or ends at the last, and one on the words between', () => {
+      const end = ENDS.length - 1;
+      for (const [text, hunk] of [
+        [ENDS, own({ start: end, end, original: '', replacement: ' Then nothing.' })],
+        [ENDS, at(ENDS, '.', { replacement: '!' })],
+        [ENDS, at(ENDS, 'one.\n\nLast', { replacement: 'one, last' })],
+        [STARTS, own({ start: 1, end: 1, original: '', replacement: 'Then ' })],
+        [STARTS, at(STARTS, 'First', { replacement: 'Early' })]
+      ] as const) {
+        const clean = review(text, [hunk]);
+        expect(drawnIds(text, clean.hunks)).toEqual([hunk.id]);
+        expect(upgradeLoadedReview(clean)).toBe(clean);
+      }
+    });
+
+    it('in a body with no paragraph, takes off only a hunk that starts before the body', () => {
+      const EMPTY = '---\ntitle: x\n---\n\n';
+      const after = own({ start: EMPTY.length, end: EMPTY.length, original: '', replacement: 'A start.' });
+      const clean = review(EMPTY, [after]);
+      expect(upgradeLoadedReview(clean)).toBe(clean);
+      const before = own({ start: 16, end: 16, original: '', replacement: '\n\nA start.' });
+      expect(upgradeLoadedReview(review(EMPTY, [before])).hunks).toEqual([
+        { ...before, anchor: 'stale', start: 0, end: 0 }
+      ]);
+    });
+
+    it('leaves a model suggestion there to the guard, which keeps it out as a paragraph break', () => {
+      const pending = suggest(ENDS, 'Last words¦.\n', '.\n', '!');
+      expect(upgradeLoadedReview(review(ENDS, [pending])).hunks[0]).toMatchObject({
+        anchor: 'stale',
+        keptOut: 'paragraph-break'
+      });
+    });
   });
 });
 

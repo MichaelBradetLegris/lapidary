@@ -153,15 +153,51 @@ describe('diffToHunks', () => {
       // Found by the files.22 property: the deletion took them, and reached past the paragraph's block.
       const original = 'Keep this.\n\nDrop this.\n \n';
       const hunks = diffToHunks(original, 'Keep this.');
-      expect(hunks).toEqual([expect.objectContaining({ original: 'Drop this.', replacement: '' })]);
+      expect(hunks).toEqual([expect.objectContaining({ original: '\n\nDrop this.', replacement: '' })]);
       const blocks = buildRenderBlocks(original, splitParagraphs(original), hunks);
       expect(blocks.some((b) => b.segments.some((s) => s.kind === 'hunk'))).toBe(true);
+      expect(acceptAll(original, 'Keep this.')).toBe('Keep this.\n \n');
       // A paragraph that follows still takes the blank line between with it.
       const middle = diffToHunks(
         'Keep this.\n\nDrop this.\n\nKeep this too.\n\n',
         'Keep this.\n\nKeep this too.'
       );
       expect(middle).toEqual([expect.objectContaining({ original: 'Drop this.\n\n', replacement: '' })]);
+    });
+
+    it('deletes the last paragraphs with the blank line before each, as the paragraph box does, so the chapter ends at the words that stay (the files.22 review)', () => {
+      const front = '---\ntitle: A\n---\n';
+      for (const [original, corrected, deleted] of [
+        [`${front}Keep this.\n\nDrop this.`, `${front}Keep this.`, ['\n\nDrop this.']],
+        [
+          `${front}Keep this.\n\nDrop this.\n\nAnd this.`,
+          `${front}Keep this.`,
+          ['\n\nDrop this.', '\n\nAnd this.']
+        ],
+        // The last paragraph kept as a rewrite of the one before it: the deletion starts where it ends.
+        [
+          `${front}Keep this.\n\nDrop this.\n\nAnd this.`,
+          `${front}Keep this.\n\nDrop that.`,
+          ['\n\nAnd this.']
+        ]
+      ] as const) {
+        const hunks = diffToHunks(original, corrected);
+        expect(
+          hunks.filter((h) => h.replacement === '').map((h) => h.original),
+          original
+        ).toEqual(deleted);
+        expect(acceptAll(original, corrected)).toBe(corrected);
+        const blocks = buildRenderBlocks(original, splitParagraphs(original), hunks);
+        const drawn = blocks.flatMap((b) =>
+          b.segments.flatMap((s) => (s.kind === 'hunk' ? [s.hunk.id] : []))
+        );
+        expect(drawn).toEqual(hunks.map((h) => h.id));
+      }
+      // Every paragraph deleted: the first has no blank line before it to take, and the frontmatter and the
+      // line break that closes it stay as they are.
+      const all = `${front}Drop this.\n\nAnd this.`;
+      expect(diffToHunks(all, front).map((h) => h.original)).toEqual(['Drop this.', '\n\nAnd this.']);
+      expect(acceptAll(all, front)).toBe(front);
     });
 
     it('still puts a paragraph added at the top of a text with no frontmatter first', () => {
