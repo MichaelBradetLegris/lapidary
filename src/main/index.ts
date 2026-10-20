@@ -1,13 +1,15 @@
-import { app, BrowserWindow, Menu } from 'electron';
+import { app, BrowserWindow, dialog, Menu } from 'electron';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { APP_DATA_DIR, APP_ID, APP_NAME } from '../shared/branding';
+import { createRendererGoneHandler, installCrashHandlers } from './crash';
 import { readDevSwitches, setDevSwitches } from './devSwitches';
 import { backgroundThrottling, bringForward, chromiumSwitches, showWindow } from './foreground';
 import { closeGuard, installIpcBridge, registerCoreHandlers, stopWatching, systemShell } from './ipc';
 import { flushLog, initLog, log } from './log';
 import { navigationAction } from './navigation';
+import { sendNotice } from './notice';
 import { abortAll } from './providers/controllers';
 import { loadSettings } from './settings';
 import { SHELL_STUB_PREFIX } from './shellApi';
@@ -85,6 +87,31 @@ function installDevShortcuts(win: BrowserWindow): void {
   });
 }
 
+/**
+ * Reload window or Quit, after the page's process has gone (hardening.4),
+ * unless the app is quitting, the session is ending, the process exited
+ * cleanly or a close under way goes ahead (`createRendererGoneHandler`). The
+ * box goes with its window, through its signal, should the window close
+ * first.
+ */
+const afterRendererGone = createRendererGoneHandler<BrowserWindow>({
+  guard: closeGuard,
+  showBox: async (win, options) => {
+    const controller = new AbortController();
+    const abort = (): void => controller.abort();
+    win.once('closed', abort);
+    try {
+      return (await dialog.showMessageBox(win, { ...options, signal: controller.signal })).response;
+    } finally {
+      if (!win.isDestroyed()) win.removeListener('closed', abort);
+    }
+  },
+  reload: (win) => win.webContents.reload(),
+  quit: () => app.quit(),
+  isDestroyed: (win) => win.isDestroyed(),
+  log
+});
+
 function createWindow(): BrowserWindow {
   const icon = iconPath();
   const win = new BrowserWindow({
@@ -132,10 +159,12 @@ function createWindow(): BrowserWindow {
   closeGuard.attach(win);
 
   /* The one render-process-gone handler (11.3 a). A page that is gone holds
-     nothing more that could be saved, so no close waits for it. */
+     nothing more that could be saved, so no close waits for it: the close
+     guard hears first, and a close under way goes ahead. Otherwise the author
+     is offered Reload window or Quit (hardening.4, PLAN 7.7). */
   win.webContents.on('render-process-gone', (_e, details) => {
-    closeGuard.onRendererGone();
-    if (isDev) console.error('[renderer] process gone', details);
+    const closing = closeGuard.onRendererGone();
+    void afterRendererGone(win, details, closing);
   });
 
   if (isDev) {
@@ -189,6 +218,8 @@ if (!app.requestSingleInstanceLock()) {
 function start(): void {
   // After the lock, so a copy that loses the race writes nothing (11.3 a).
   initLog(path.join(app.getPath('userData'), 'logs'));
+  // Main's own unexpected errors: logged, and a card in the window (hardening.4).
+  installCrashHandlers(process, { log, notice: sendNotice });
   log('info', 'app.start', {
     version: app.getVersion(),
     packaged: app.isPackaged,

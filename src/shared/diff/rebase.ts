@@ -46,15 +46,24 @@ export interface RebaseResult {
   changes: RebaseChanges;
 }
 
+/**
+ * There is no search window round the old offset for words found exactly:
+ * every occurrence of a side's words in the body is a candidate, and the
+ * `NEAREST` to the old offset are scored (4.5). Only the fuzzy fallback, run
+ * when neither side has a candidate, still searches near the old offset
+ * (`fuzzyFind`'s `Match_Distance`), so a hunk whose words were edited as well
+ * as moved may leave the page once they moved a few hundred characters. A
+ * `window` option, declared here until `files.23` and read by nothing, was
+ * removed.
+ */
 export interface RebaseOptions {
-  /** how far either side of the old offset to look before widening the search */
-  window?: number;
   /** characters of surrounding text used to re-anchor a zero-length hunk */
   contextChars?: number;
+  /** reject a fuzzy match whose edit distance ratio exceeds this */
   maxDistanceRatio?: number;
 }
 
-const DEFAULTS = { window: 400, contextChars: 48, maxDistanceRatio: 0.2 };
+const DEFAULTS = { contextChars: 48, maxDistanceRatio: 0.2 };
 
 interface Found {
   start: number;

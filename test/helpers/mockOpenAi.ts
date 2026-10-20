@@ -9,11 +9,17 @@
  * The API key picks the scenario, so the real app can be driven through every
  * path from its own Settings dialog: a key containing `unauthorized` gets a 401,
  * `ratelimit` a 429, `servererror` a 500, `malformed` a reply that is not JSON,
- * `wrongshape` JSON of the wrong shape, `slow` a reply that trickles out over
- * several seconds (for Cancel), or an unstreamed one that comes after them (for
- * a connection test's time limit), `obsidian` the review of the Obsidian sample
- * chapter (`OBSIDIAN_REVIEW`), `outputlimit` a streamed reply cut off at the
- * model's output limit, which ends `incomplete` (files.10), and anything else
+ * `prose` a reply written as prose (`PROSE_REPLY`), as a model that ignored
+ * the schema might send (hardening.3b), `wrongshape` JSON of the wrong shape,
+ * `slow` a reply that trickles out over several seconds (for Cancel), or an
+ * unstreamed one that comes after them (for a connection test's time limit),
+ * `obsidian` the review of the Obsidian sample chapter (`OBSIDIAN_REVIEW`),
+ * `outputlimit` a streamed reply cut off at the model's output limit, which
+ * ends `incomplete` (files.10), `unverified` the 400 OpenAI gives a streamed
+ * request from an organisation that has not verified its identity, while an
+ * unstreamed one is answered (`UNVERIFIED_STREAM_MESSAGE`, hardening.10),
+ * `skippedonly` a model list holding only models the default passes over while
+ * it has any other (`SKIPPED_ONLY_MODELS`, hardening.10), and anything else
  * the canned review of Chapter 01.
  *
  * Two ways to use it:
@@ -36,13 +42,25 @@ export type Scenario =
   | 'ratelimit'
   | 'servererror'
   | 'malformed'
+  | 'prose'
   | 'wrongshape'
   | 'slow'
   | 'obsidian'
-  | 'outputlimit';
+  | 'outputlimit'
+  | 'unverified'
+  | 'skippedonly';
 
 /** The output limit the `outputlimit` scenario's reply reaches: gpt-5's 128,000 tokens. */
 export const MOCK_OUTPUT_LIMIT = 128_000;
+
+/**
+ * The `unverified` scenario's refusal (hardening.10), worded as OpenAI's API
+ * words it for a streamed request to gpt-5 or o3 from an organisation that
+ * has not verified its identity: status 400, `invalid_request_error`, `param`
+ * `stream`, code `unsupported_value`.
+ */
+export const UNVERIFIED_STREAM_MESSAGE =
+  'Your organization must be verified to stream this model. Please go to: https://platform.openai.com/settings/organization/general and click on Verify Organization. If you just verified, it can take up to 15 minutes for access to propagate.';
 
 export interface RecordedRequest {
   method: string;
@@ -331,12 +349,27 @@ export const OBSIDIAN_REVIEW = {
   ]
 };
 
+/**
+ * The `prose` scenario's reply (hardening.3b): the review written out as
+ * prose rather than JSON, quoting the chapter, so a test can show that none
+ * of it reaches the log when the reply is refused.
+ */
+export const PROSE_REPLY =
+  'Here is my review of the chapter. In the first paragraph, "the river had began to climb the steps" should read "the river had begun to climb the steps". ' +
+  'In the second, "should of" is a mishearing of "should have". The ending lands well; I would keep the last line short.';
+
 const MODELS = [
   { id: 'gpt-5.5', created: 1_780_000_000, object: 'model', owned_by: 'openai' },
   { id: 'gpt-5-mini', created: 1_755_000_000, object: 'model', owned_by: 'openai' },
   { id: 'gpt-5', created: 1_754_000_000, object: 'model', owned_by: 'openai' },
   // Newer than every gpt-5, to prove the default prefers the gpt-5 family.
   { id: 'gpt-6-preview-mock', created: 1_790_000_000, object: 'model', owned_by: 'openai' },
+  // Each newer than a gpt-5 the default could take, and never the default (hardening.10).
+  // The first three are listed; o3-deep-research is left out as a search model.
+  { id: 'gpt-5.5-pro', created: 1_781_000_000, object: 'model', owned_by: 'system' },
+  { id: 'gpt-5-codex', created: 1_758_000_000, object: 'model', owned_by: 'system' },
+  { id: 'gpt-5-chat-latest', created: 1_754_500_000, object: 'model', owned_by: 'system' },
+  { id: 'o3-deep-research', created: 1_749_000_000, object: 'model', owned_by: 'system' },
   { id: 'gpt-4o', created: 1_715_000_000, object: 'model', owned_by: 'system' },
   { id: 'o3', created: 1_744_000_000, object: 'model', owned_by: 'system' },
   { id: 'text-embedding-3-large', created: 1_705_000_000, object: 'model', owned_by: 'system' },
@@ -348,16 +381,32 @@ const MODELS = [
   { id: 'gpt-4o-realtime-preview', created: 1_727_000_000, object: 'model', owned_by: 'system' }
 ];
 
+/**
+ * The `skippedonly` scenario's model list (hardening.10): a -pro, a -codex
+ * and a -chat model, newest first in that order, and one that is not text.
+ * With nothing else to take, the default is the codex, never the newer pro
+ * the list opens with.
+ */
+export const SKIPPED_ONLY_MODELS = [
+  { id: 'gpt-5.5-pro', created: 1_781_000_000, object: 'model', owned_by: 'system' },
+  { id: 'gpt-5-codex', created: 1_758_000_000, object: 'model', owned_by: 'system' },
+  { id: 'gpt-5-chat-latest', created: 1_754_500_000, object: 'model', owned_by: 'system' },
+  { id: 'whisper-1', created: 1_677_000_000, object: 'model', owned_by: 'openai-internal' }
+];
+
 export function scenarioForKey(authorization: string): Scenario {
   const key = authorization.toLowerCase();
   if (key.includes('unauthorized')) return 'unauthorized';
   if (key.includes('ratelimit')) return 'ratelimit';
   if (key.includes('servererror')) return 'servererror';
   if (key.includes('malformed')) return 'malformed';
+  if (key.includes('prose')) return 'prose';
   if (key.includes('wrongshape')) return 'wrongshape';
   if (key.includes('slow')) return 'slow';
   if (key.includes('obsidian')) return 'obsidian';
   if (key.includes('outputlimit')) return 'outputlimit';
+  if (key.includes('unverified')) return 'unverified';
+  if (key.includes('skippedonly')) return 'skippedonly';
   return 'ok';
 }
 
@@ -366,8 +415,15 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-function apiError(res: ServerResponse, status: number, type: string, code: string, message: string): void {
-  sendJson(res, status, { error: { message, type, param: null, code } });
+function apiError(
+  res: ServerResponse,
+  status: number,
+  type: string,
+  code: string,
+  message: string,
+  param: string | null = null
+): void {
+  sendJson(res, status, { error: { message, type, param, code } });
 }
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
@@ -541,12 +597,26 @@ export async function startMockOpenAi(options: { port?: number; log?: boolean } 
       }
 
       if (req.method === 'GET' && url.pathname === '/v1/models') {
-        sendJson(res, 200, { object: 'list', data: MODELS });
+        sendJson(res, 200, {
+          object: 'list',
+          data: scenario === 'skippedonly' ? SKIPPED_ONLY_MODELS : MODELS
+        });
         return;
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/responses') {
         const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
+        if (scenario === 'unverified' && request['stream'] === true) {
+          apiError(
+            res,
+            400,
+            'invalid_request_error',
+            'unsupported_value',
+            UNVERIFIED_STREAM_MESSAGE,
+            'stream'
+          );
+          return;
+        }
         const requested = typeof request['model'] === 'string' ? request['model'] : 'gpt-5';
         // The API answers with a dated snapshot of the model that was asked for.
         const model = `${requested}-2026-06-01`;
@@ -554,11 +624,13 @@ export async function startMockOpenAi(options: { port?: number; log?: boolean } 
         const text =
           scenario === 'malformed'
             ? '{"changes": [{"paragraph": 0, "before": "had began", "after": '
-            : scenario === 'wrongshape'
-              ? JSON.stringify({ edits: [{ where: 0, what: 'had began' }] })
-              : scenario === 'outputlimit'
-                ? full.slice(0, Math.floor(full.length / 2))
-                : full;
+            : scenario === 'prose'
+              ? PROSE_REPLY
+              : scenario === 'wrongshape'
+                ? JSON.stringify({ edits: [{ where: 0, what: 'had began' }] })
+                : scenario === 'outputlimit'
+                  ? full.slice(0, Math.floor(full.length / 2))
+                  : full;
 
         if (request['stream'] === true) {
           await streamResponse(res, model, text, scenario === 'slow' ? 600 : 15, scenario === 'outputlimit');

@@ -15,6 +15,27 @@ export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: AppError
 /* Payload shapes                                                      */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Why settings.json could not be read (hardening.15, PLAN C.86), a fixed word
+ * and never the error: `refused`, the read itself failed twice, as when
+ * another program holds the file open; `no-copy`, the file is not JSON and no
+ * copy of it could be made before starting afresh. The card the page shows
+ * then gives each its own advice (`settingsUnreadableCard`).
+ */
+export type SettingsReadFailure = 'refused' | 'no-copy';
+
+/**
+ * `settings:get`'s answer (hardening.15, PLAN C.86): the settings as main read
+ * them, or, while settings.json is there but cannot be read, or is not JSON
+ * and cannot be copied aside, no settings and `readFailed` with the `reason`,
+ * never the error. Handed the defaults, the page would show the welcome guide
+ * and write lists built from them over the author's once the file could be
+ * read.
+ */
+export type SettingsAnswer =
+  | { readFailed: false; settings: Settings }
+  | { readFailed: true; reason: SettingsReadFailure; settings: null };
+
 export interface ChapterFile {
   path: string;
   /** path relative to the manuscript folder, using forward slashes */
@@ -280,6 +301,82 @@ export interface ConnectionTestResult {
   rateLimit?: RateLimitInfo;
 }
 
+/**
+ * The Claude Code the last lookup found (setup.3, `installedCli` in
+ * `src/main/providers/claude.ts`). Reading it runs nothing: before the first
+ * check of the run there is nothing to say.
+ */
+export type ClaudeCodeInfo =
+  | { state: 'not-checked' }
+  | { state: 'not-installed' }
+  | {
+      state: 'found';
+      /** what `claude --version` said, or null when it said nothing readable */
+      version: string | null;
+      /** a terminal finds `claude` by name, so the short commands work as they are */
+      onPath: boolean;
+    };
+
+/**
+ * The versions that matter when something goes wrong (`app:info`,
+ * hardening.5), all read while the app runs, none written in at build time:
+ * `src/main/appInfo.ts`. No path, so nothing here names the user.
+ */
+export interface AppInfo {
+  /** `APP_NAME` */
+  name: string;
+  /** the app's own version, from its package.json */
+  version: string;
+  /** an installed build, not a development run */
+  packaged: boolean;
+  electron: string;
+  chromium: string;
+  node: string;
+  /** `process.platform`: `win32`, `darwin` or `linux` */
+  platform: string;
+  arch: string;
+  /** the system's own version number, as `os.release()` gives it: `10.0.26300` on Windows 11 */
+  osRelease: string;
+  /** the `openai` package's version, from its package.json; null when it cannot be read */
+  openai: string | null;
+  /** the user's Claude Code, as the last lookup found it */
+  claudeCode: ClaudeCodeInfo;
+  /** the oldest Claude Code the app works with (`MIN_CLAUDE_CODE`) */
+  claudeCodeMin: string;
+}
+
+/**
+ * What Copy diagnostics puts on the clipboard (`app:diagnostics`,
+ * hardening.5): plain text, made in main by `diagnosticsReport`
+ * (`src/shared/diagnostics/report.ts`), with the home folder written `~` and
+ * no chapter text, email address, key or last four characters of one.
+ */
+export interface DiagnosticsReport {
+  text: string;
+}
+
+/** Which kind of error the page did not expect (`log:renderer`, hardening.4). */
+export type RendererErrorKind =
+  /** an error nothing caught: a window `error` event */
+  | 'error'
+  /** a promise rejected with no handler: a window `unhandledrejection` event */
+  | 'rejection'
+  /** drawing the page failed and the error boundary caught it, so the window shows its fallback */
+  | 'render'
+  /** drawing the page failed past the error boundary (React's `onUncaughtError`) */
+  | 'render-uncaught';
+
+/**
+ * One line the page asks main to log (`log:renderer`, hardening.4): what
+ * kind of error, and its loggable fields (`pageErrorFields`), scalars only.
+ * Main keeps only the fields in `RENDERER_LOG_FIELDS`, scrubs them as it
+ * writes them, and writes at most 30 such lines a minute.
+ */
+export interface RendererLogLine {
+  kind: RendererErrorKind;
+  fields: Record<string, string | number | boolean | null>;
+}
+
 /** How "Open" opens the guidelines file: in Obsidian, or in the system's app for .md (setup.10). */
 export type OpenGuidelinesVia = 'obsidian' | 'default';
 
@@ -318,17 +415,20 @@ export interface EffectivePaths {
 
 /**
  * The only places the renderer may ask the shell to open or reveal: what "show
- * in folder" can point at. The last four live under userData and are created
- * on demand: `data` is the folder itself, `logs` selects main.log, `backups`
+ * in folder" can point at. The last five live under userData, the folders
+ * created on demand: `data` is the folder itself, `settings` selects
+ * settings.json, or the data folder once the file is gone (the card shown
+ * while it cannot be read, hardening.15), `logs` selects main.log, `backups`
  * the backups root, and `drafts` the folder of set-aside paragraph text
- * (setup.7a), or, given the `name` of one set-aside file, that file, opened in
- * the computer's app for .txt files (apply.16). Given a chapter's
- * `sourcePath`, `backups` opens that chapter's own backup folder instead, with
- * the newest backup selected: main works the folder out from the path and
- * refuses one outside the backups root, and a chapter with no backups yet is
- * answered `not-found` (apply.11).
+ * (setup.7a), or, given the `name` of one set-aside file, that file, opened
+ * in the computer's app for .txt files (apply.16). Given a chapter's
+ * `sourcePath`, `backups` opens that chapter's own backup folder instead,
+ * with the newest backup selected: main works the folder out from the path
+ * and refuses one outside the backups root, and a chapter with no backups yet
+ * is answered `not-found` (apply.11).
  */
-export type RevealTarget = 'manuscript' | 'reviews' | 'guidelines' | 'data' | 'logs' | 'backups' | 'drafts';
+export type RevealTarget =
+  'manuscript' | 'reviews' | 'guidelines' | 'data' | 'settings' | 'logs' | 'backups' | 'drafts';
 
 /**
  * One paragraph box as it is kept on disk (apply.16, PLAN 11.3 j): the
@@ -448,7 +548,7 @@ export type FlushReason =
 /* ------------------------------------------------------------------ */
 
 export interface ApiRequestMap {
-  'settings:get': { request: void; response: Settings };
+  'settings:get': { request: void; response: SettingsAnswer };
   'settings:set': { request: Partial<Settings>; response: Settings };
   'settings:effective': { request: void; response: EffectivePaths };
   'dialog:pick-folder': { request: { title: string; defaultPath?: string }; response: string | null };
@@ -517,6 +617,15 @@ export interface ApiRequestMap {
   'app:close-status': { request: { status: CloseStatus }; response: void };
   /** true closes the window, or goes on quitting; false keeps it open */
   'app:close-decision': { request: { close: boolean }; response: void };
+  /** the versions, read without running anything (hardening.5) */
+  'app:info': { request: void; response: AppInfo };
+  /**
+   * the diagnostics report (hardening.5): what the last checks found, never a
+   * new check of Claude or OpenAI, and nothing of the chapters but their count
+   */
+  'app:diagnostics': { request: void; response: DiagnosticsReport };
+  /** an error the page did not expect, for the log (hardening.4); main writes at most 30 a minute */
+  'log:renderer': { request: RendererLogLine; response: void };
 }
 
 export type RequestChannel = keyof ApiRequestMap;
@@ -564,7 +673,10 @@ const REQUEST_CHANNEL_FLAGS = {
   'view:zoom': true,
   'app:guard-state': true,
   'app:close-status': true,
-  'app:close-decision': true
+  'app:close-decision': true,
+  'app:info': true,
+  'app:diagnostics': true,
+  'log:renderer': true
 } as const satisfies Record<RequestChannel, true>;
 
 export const REQUEST_CHANNELS: readonly RequestChannel[] = Object.keys(

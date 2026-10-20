@@ -32,6 +32,20 @@ export async function changeZoom(action: ZoomAction): Promise<number> {
   return zoom;
 }
 
+/**
+ * Put `zoom` on every window, as read from the settings: `settings:get` does,
+ * so a window that opened while settings.json could not be read, at the
+ * defaults' 100%, takes the author's zoom once the file can be read
+ * (hardening.15). A window already at it is left alone. The page has the
+ * level from the settings it is handed, so nothing is sent.
+ */
+export function applyZoom(zoom: number): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed() || win.webContents.getZoomFactor() === zoom) continue;
+    win.webContents.setZoomFactor(zoom);
+  }
+}
+
 function actionForKey(key: string): ZoomAction | null {
   if (key === '=' || key === '+') return 'in';
   if (key === '-' || key === '_') return 'out';

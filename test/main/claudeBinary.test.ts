@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  afterLookup,
+  afterVersion,
   canRun,
   claudeAuthStatus,
   claudeCandidates,
@@ -86,6 +88,35 @@ describe('claudeCandidates', () => {
       'path /usr/local/bin/claude',
       'path /usr/bin/claude'
     ]);
+  });
+});
+
+describe('the record of what the lookup found (hardening.5)', () => {
+  const exe = 'C:\\Users\\Ann\\.local\\bin\\claude.exe'; // check-public: allow
+  const other = 'C:\\Tools\\claude.exe';
+
+  it('keeps the version a lookup of the same path cannot know, and forgets it for another path', () => {
+    const read = afterVersion(afterLookup(undefined, { path: exe, onPath: false }), exe, '2.1.302');
+    expect(read).toEqual({ path: exe, onPath: false, version: '2.1.302' });
+    expect(afterLookup(read, { path: exe, onPath: true })).toEqual({
+      path: exe,
+      onPath: true,
+      version: '2.1.302'
+    });
+    expect(afterLookup(read, { path: other, onPath: true })).toEqual({
+      path: other,
+      onPath: true,
+      version: null
+    });
+    expect(afterLookup(read, null)).toBeNull();
+  });
+
+  it('takes a version only for the path it was read from', () => {
+    const found = afterLookup(undefined, { path: exe, onPath: true });
+    expect(afterVersion(found, other, '9.9.9')).toBe(found);
+    expect(afterVersion(found, exe, null)).toEqual({ path: exe, onPath: true, version: null });
+    expect(afterVersion(undefined, exe, '2.1.302')).toBeUndefined();
+    expect(afterVersion(null, exe, '2.1.302')).toBeNull();
   });
 });
 

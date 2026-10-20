@@ -142,3 +142,8 @@ export function flushLog(): void {
 export function tail(n: number, minLevel: LogLevel = 'debug'): string[] {
   return current?.tail(n, minLevel) ?? [];
 }
+
+/** False before `initLog`, and once a write has failed and the file is no longer written. */
+export function logWriting(): boolean {
+  return current?.writing() ?? false;
+}

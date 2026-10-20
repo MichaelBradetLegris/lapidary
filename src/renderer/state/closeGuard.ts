@@ -63,10 +63,23 @@ export interface CloseGuardDeps {
   cancelReview: () => void;
   /** how long the writes may take before the page asks; `WRITES_WAIT_MS` unless a test shortens it */
   writesWaitMs?: number;
+  /**
+   * What a close would put at risk, read from the store: `closeGuardStateOf`
+   * unless given, and `crashedPageState` on the page shown after a crash
+   * (hardening.4), which can offer no Save.
+   */
+  stateOf?: (state: GuardSlices) => CloseGuardState;
+  /**
+   * false when the page cannot show a question (hardening.4's last resort,
+   * with nothing drawn): each question is taken as answered Close anyway, so
+   * a close still gives the writes their time and then goes, rather than
+   * waiting for an answer nobody can give.
+   */
+  questions?: boolean;
 }
 
 /** The parts of the store a close puts at risk. */
-type GuardSlices = Pick<
+export type GuardSlices = Pick<
   AppState,
   | 'review'
   | 'drafts'
@@ -97,6 +110,27 @@ export function closeGuardStateOf(state: GuardSlices): CloseGuardState {
   };
 }
 
+/**
+ * What a close puts at risk once drawing the window has failed and the page
+ * shown in its place has taken the guard over (hardening.4, `CrashFallback`).
+ * Decisions are kept in their review and boxes in their drafts once written,
+ * and a crashed page cannot save to the chapter, so no chapter is named and
+ * nothing is counted as unsaved: what is left at risk is a write not yet made
+ * and a review still running. Text typed in a dialog went with the page.
+ */
+export function crashedPageState(state: GuardSlices): CloseGuardState {
+  const live = closeGuardStateOf(state);
+  return {
+    chapter: null,
+    unsavedDecisions: 0,
+    changedParagraphs: 0,
+    locked: false,
+    reviewRunning: live.reviewRunning,
+    writesPending: live.writesPending,
+    dialogText: false
+  };
+}
+
 function sameGuardState(a: CloseGuardState, b: CloseGuardState): boolean {
   return (
     a.chapter === b.chapter &&
@@ -123,14 +157,106 @@ function slicesChanged(a: GuardSlices, b: GuardSlices): boolean {
   );
 }
 
+/**
+ * One run of `prepareToLeaveApp`, with the deps it began with. The page shown
+ * after a crash ends it as it takes the guard over (hardening.4): what the run
+ * would go on to do, Wait's next round of writes or the close question with
+ * its Save, belongs to the page that failed. An ended run stops at its next
+ * step and answers false, so the close it held is kept.
+ */
+interface Run {
+  readonly deps: CloseGuardDeps;
+  ended: boolean;
+  /** resolves when the run is ended, so a run waiting on its writes stops at once */
+  readonly stopped: Promise<'ended'>;
+  end(): void;
+}
+
+function startRun(deps: CloseGuardDeps): Run {
+  let stop: () => void = () => undefined;
+  const stopped = new Promise<'ended'>((resolve) => {
+    stop = () => resolve('ended');
+  });
+  const run: Run = {
+    deps,
+    ended: false,
+    stopped,
+    end() {
+      run.ended = true;
+      stop();
+    }
+  };
+  return run;
+}
+
+/** Thrown at an ended run's next step; `leaveApp` answers false, with no card. */
+class RunEnded extends Error {}
+
+/** Go on only while the run has not been ended. */
+function goOn(run: Run): void {
+  if (run.ended) throw new RunEnded('The page that began this close has been replaced.');
+}
+
 /** The deps App installed; `prepareToLeaveApp` uses them. */
 let installed: CloseGuardDeps | null = null;
 /** The run of `prepareToLeaveApp` under way; a second call shares it. */
 let leaving: Promise<boolean> | null = null;
+/** That run's state, which the page shown after a crash ends. */
+let leavingRun: Run | null = null;
 /** Main has asked to close and has not been answered yet, so the page reports how far it has got. */
 let closeAsked = false;
 /** One of the run's questions is on screen. */
 let asking = false;
+
+/**
+ * Write what the writers hold after drawing the window failed (hardening.4,
+ * `CrashFallback`): failed writes queued again, then flushed, and why any is
+ * still not on disk, in the words of its card; empty when all is.
+ */
+export async function writeAfterCrash(writes: PageWrites): Promise<string[]> {
+  try {
+    writes.retry();
+    await writes.flush();
+  } catch {
+    // A writer that throws has said why in its failures, or has nothing to say.
+  }
+  return [...new Set(writes.failures())];
+}
+
+/**
+ * The page shown after a crash takes the close guard over from App
+ * (hardening.4) with `crashedPageState`. What the failed page would go on to
+ * do belongs to that page: a run of `prepareToLeaveApp` it began is ended,
+ * and a question it had open is answered Cancel, so the run stops there
+ * rather than writing again or asking its close question, Save included, on
+ * this page. A close it held is then kept, and the next is asked of this
+ * page, which offers no Save. `questions` is false when nothing can be drawn
+ * to ask them. Returns the uninstall.
+ */
+export function installCrashedPageGuard(
+  io: CloseGuardIo,
+  writes: PageWrites,
+  options: { questions: boolean }
+): () => void {
+  leavingRun?.end();
+  const open = useApp.getState();
+  if (open.confirmSpec) open.answerChoice('cancel');
+  return installCloseGuard({
+    io,
+    writes,
+    // Never called: a crashed page names no chapter, so no question offers Save.
+    save: () => Promise.resolve('failed'),
+    // The review's request belongs to the page that failed; quitting the app stops it.
+    cancelReview: () => undefined,
+    stateOf: crashedPageState,
+    questions: options.questions
+  });
+}
+
+/** What a close puts at risk now, as the installed guard reads it. */
+function stateNow(deps: CloseGuardDeps): CloseGuardState {
+  return (deps.stateOf ?? closeGuardStateOf)(useApp.getState());
+}
 
 function report(deps: CloseGuardDeps, status: CloseStatus): void {
   if (closeAsked) deps.io.sendStatus(status);
@@ -138,6 +264,7 @@ function report(deps: CloseGuardDeps, status: CloseStatus): void {
 
 /** Ask one of the run's questions; main is told it is on screen. */
 async function ask(deps: CloseGuardDeps, spec: ConfirmSpec): Promise<ConfirmChoice> {
+  if (deps.questions === false) return 'alt';
   report(deps, 'prompting');
   asking = true;
   try {
@@ -163,13 +290,13 @@ function nextTask(): Promise<void> {
  * without it, so while the store still says a write or a save is pending
  * and none has failed, the page goes round again within the same time.
  * Otherwise a close with nothing to ask went on the next tick and lost it
- * (apply.9 review).
+ * (apply.9 review). A run ended meanwhile stops waiting at once (`RunEnded`).
  */
-async function raceWrites(deps: CloseGuardDeps): Promise<'written' | 'slow' | 'failed'> {
+async function raceWrites(run: Run): Promise<'written' | 'slow' | 'failed'> {
+  const deps = run.deps;
   deps.writes.retry();
   let over = false;
-  const more = (): boolean =>
-    !over && closeGuardStateOf(useApp.getState()).writesPending && deps.writes.failures().length === 0;
+  const more = (): boolean => !over && stateNow(deps).writesPending && deps.writes.failures().length === 0;
   const done = (async () => {
     await pendingSave();
     await deps.writes.flush();
@@ -187,25 +314,32 @@ async function raceWrites(deps: CloseGuardDeps): Promise<'written' | 'slow' | 'f
   const slow = new Promise<'slow'>((resolve) => {
     timer = setTimeout(() => resolve('slow'), deps.writesWaitMs ?? WRITES_WAIT_MS);
   });
+  let first: 'done' | 'slow' | 'ended';
   try {
-    if ((await Promise.race([done, slow])) === 'slow') return 'slow';
+    first = await Promise.race([done, slow, run.stopped]);
   } finally {
     over = true;
     clearTimeout(timer);
   }
+  goOn(run);
+  if (first === 'slow') return 'slow';
   return deps.writes.failures().length > 0 ? 'failed' : 'written';
 }
 
 /**
  * Everything the page holds is on disk (`written`), or the author chose Close
  * anyway in "Still writing your decisions" (`close-anyway`). Wait, Escape or a
- * question replacing it tries again, with another `writesWaitMs`.
+ * question replacing it tries again, with another `writesWaitMs`, unless the
+ * run has been ended: the crash page answers the question Cancel as it takes
+ * the guard over, and Wait's next round is not this run's to make.
  */
-async function writeEverything(deps: CloseGuardDeps): Promise<'written' | 'close-anyway'> {
+async function writeEverything(run: Run): Promise<'written' | 'close-anyway'> {
   for (;;) {
-    if ((await raceWrites(deps)) === 'written') return 'written';
-    const prompt = stillWritingPrompt(deps.writes.failures(), closeGuardStateOf(useApp.getState()));
-    if ((await ask(deps, prompt)) === 'alt') return 'close-anyway';
+    if ((await raceWrites(run)) === 'written') return 'written';
+    const prompt = stillWritingPrompt(run.deps.writes.failures(), stateNow(run.deps));
+    const choice = await ask(run.deps, prompt);
+    goOn(run);
+    if (choice === 'alt') return 'close-anyway';
   }
 }
 
@@ -214,59 +348,69 @@ function stopReview(deps: CloseGuardDeps): void {
   if (useApp.getState().aiBusyPath !== null) deps.cancelReview();
 }
 
-/** True to close: the author's answer, after what it asked for is on disk. */
-async function decide(deps: CloseGuardDeps): Promise<boolean> {
+/**
+ * True to close: the author's answer, after what it asked for is on disk.
+ * Every step after an await goes on only while the run has not been ended
+ * (`goOn`), so a run the crash page took over asks nothing more.
+ */
+async function decide(run: Run): Promise<boolean> {
+  const deps = run.deps;
   // A question already open (a leave prompt, "Apply paragraph edits first?")
   // gives way to this one, as to any question that replaces it, and a save
   // waiting on its answer then ends.
   const open = useApp.getState();
   if (open.confirmSpec) open.answerChoice('cancel');
 
-  if ((await writeEverything(deps)) === 'close-anyway') {
+  if ((await writeEverything(run)) === 'close-anyway') {
     stopReview(deps);
     return true;
   }
-  const prompt = closePrompt(closeGuardStateOf(useApp.getState()));
+  const prompt = closePrompt(stateNow(deps));
   // Nothing to ask: the writes were all there was, and they are done.
   if (!prompt) return true;
 
   const choice = await ask(deps, prompt);
+  goOn(run);
   if (choice === 'cancel') return false;
   if (choice === 'confirm') {
     // "Apply, save and close" already said the boxes are applied. The save is
     // the one under way now, so it runs against the clock as the writes do,
     // and a slow one is asked about rather than holding the window.
     const saving = deps.save({ applyDrafts: 'apply' });
-    if ((await writeEverything(deps)) === 'close-anyway') {
+    if ((await writeEverything(run)) === 'close-anyway') {
       stopReview(deps);
       return true;
     }
     // A save that did not reach the file keeps the window; its card says why.
-    const outcome = await saving;
+    const outcome = await Promise.race([saving, run.stopped]);
+    goOn(run);
     if (outcome !== 'saved' && outcome !== 'nothing-to-save') return false;
   }
   stopReview(deps);
   // Close, keep for later needs everything written, and so does what the save
   // and the closed boxes wrote; anything decided meanwhile is in it too.
-  await writeEverything(deps);
+  await writeEverything(run);
   return true;
 }
 
-async function leaveApp(deps: CloseGuardDeps): Promise<boolean> {
+async function leaveApp(run: Run): Promise<boolean> {
   let close = false;
   try {
-    close = await decide(deps);
+    close = await decide(run);
   } catch (err) {
-    useApp
-      .getState()
-      .notify(
-        'error',
-        `The window could not get ready to close: ${err instanceof Error ? err.message : String(err)}`
-      );
+    // An ended run was told to stop: nothing went wrong, and the close is kept.
+    if (!(err instanceof RunEnded)) {
+      useApp
+        .getState()
+        .notify(
+          'error',
+          `The window could not get ready to close: ${err instanceof Error ? err.message : String(err)}`
+        );
+    }
   } finally {
     // Always answered, so main never waits on a question that has gone.
     closeAsked = false;
-    deps.io.sendDecision(close);
+    run.deps.io.sendDecision(close);
   }
   return close;
 }
@@ -291,11 +435,16 @@ export function prepareToLeaveApp(reason: LeaveAppReason): Promise<boolean> {
     if (asking) deps.io.sendStatus('prompting');
   }
   if (leaving) return leaving;
-  const run = leaveApp(deps).finally(() => {
-    if (leaving === run) leaving = null;
+  const run = startRun(deps);
+  const answer = leaveApp(run).finally(() => {
+    if (leaving === answer) {
+      leaving = null;
+      leavingRun = null;
+    }
   });
-  leaving = run;
-  return run;
+  leaving = answer;
+  leavingRun = run;
+  return answer;
 }
 
 /**
@@ -307,8 +456,9 @@ export function prepareToLeaveApp(reason: LeaveAppReason): Promise<boolean> {
 export function installCloseGuard(deps: CloseGuardDeps): () => void {
   installed = deps;
   let last: CloseGuardState | null = null;
+  const stateOf = deps.stateOf ?? closeGuardStateOf;
   const push = (slices: GuardSlices): void => {
-    const next = closeGuardStateOf(slices);
+    const next = stateOf(slices);
     if (last && sameGuardState(last, next)) return;
     last = next;
     deps.io.pushState(next);

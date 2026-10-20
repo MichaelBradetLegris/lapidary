@@ -30,7 +30,7 @@ Run each with `npm run <name>`; `npm test` and `npm start` also work without `ru
 Running the app:
 
 - `dev`: electron-vite in development mode, with hot reload. It uses your real data folder, `%APPDATA%\ai-grammar-checker`, unless the variable `MANUSCRIPT_REVIEW_USER_DATA` names another, so your own settings, saved key and reviews are in play. Prefer `dev:clean`.
-- `dev:clean`: the same run in a cleaned environment (`scripts/dev-clean.cjs`). It removes every variable whose name starts with `CLAUDE`, `ANTHROPIC` or `DISABLE_` and prints their names, never their values. It uses the git-ignored `.dev-userdata` folder as the data folder and opens DevTools on port 9222. A shell inside a Claude Code session carries variables that change what the app's own Claude Code does, so use this for every verification run. `npm run dev:clean -- --help` lists its options: a fresh data folder, an empty Claude Code configuration (signed out), a dummy API key, no Claude Code at all, or a packaged exe instead of the development build.
+- `dev:clean`: the same run in a cleaned environment (`scripts/dev-clean.cjs`). It removes every variable whose name starts with `CLAUDE`, `ANTHROPIC` or `DISABLE_` and prints their names, never their values. It uses the git-ignored `.dev-userdata` folder as the data folder and opens DevTools on port 9222. A shell inside a Claude Code session carries variables that change what the app's own Claude Code does, so use this for every verification run. `npm run dev:clean -- --help` lists its options, which the header of `scripts/dev-clean.cjs` explains: another or a fresh data folder, another or an empty Claude Code configuration (signed out), a dummy API key or auth token, no Claude Code at all, a quiet window that never takes the foreground, a shell that opens nothing and prints what it would have opened, or a packaged exe instead of the development build. CLAUDE.md lists them with the development switches they set.
 - `start`: `electron-vite preview`, which builds the app without the type check and runs the build. Like `dev`, it uses your real data folder.
 
 Building:
@@ -58,7 +58,7 @@ Before you commit, these must pass: `typecheck`, `lint`, `format:check`, `test`,
 src/
   main/            Electron main process (Node)
     index.ts         start-up, the window and its security settings
-    ipc.ts           IPC handlers, typed against src/shared/ipc.ts
+    ipc.ts           IPC handlers, typed against src/shared/ipc.ts (ipcEnvelope.ts logs a failed request)
     files.ts         list and read chapters, Save, New chapter
     atomic.ts        the atomic write behind Save: temporary file, then rename
     watcher.ts       watches the manuscript folder
@@ -77,6 +77,7 @@ src/
       claudeResult.ts  which error a review run's result stands for, if any
       claudeRuntime.ts the launch check (claudeHandshake.ts)
       openai.ts        OpenAI, through the Responses API
+      logged.ts        logs each provider's calls as counts, never their text
   preload/         the typed bridge the window receives, and nothing else
   renderer/        React UI with no Node access: App.tsx, components/, state/, styles/
   shared/          pure TypeScript, no Node or DOM imports, all unit-tested
@@ -107,6 +108,7 @@ samples/           a small manuscript to try the app on
 6. Claude Code runs with no built-in tools, no user settings, never `--bare`, never the vault as its working directory, and never a changed client identity.
 7. PLAN.md is the source of truth: a design change edits it in the same commit.
 8. Every user-visible change adds a line to CHANGELOG.md in the same commit (below).
+9. The log records what happened, never content: a log call takes scalar fields, and an error goes in only through `loggableErrorFields`. That keeps an app error's message, so a `fail` message never quotes chapter text, a prompt, the guidelines or a reply; such text goes in `detail`, which is never logged.
 
 ## Testing without a key
 
@@ -123,7 +125,7 @@ $env:MANUSCRIPT_REVIEW_OPENAI_BASE_URL = 'http://127.0.0.1:4599/v1'
 npm run dev:clean
 ```
 
-Then save any key in Settings. The key picks what the mock does: one containing `unauthorized` gets a 401, `ratelimit` a 429, `servererror` a 500, `malformed` a reply that is not JSON, `wrongshape` JSON of the wrong shape, `slow` a reply that trickles in over several seconds (to try Cancel), and anything else a canned review. The address variable is a development switch: a packaged build ignores it, like every other switch in `src/main/devSwitches.ts`.
+Then save any key in Settings. The key picks what the mock does: one containing `unauthorized` gets a 401, `ratelimit` a 429, `servererror` a 500, `malformed` a reply that is not JSON, `prose` a reply written as prose, `wrongshape` JSON of the wrong shape, `slow` a reply that trickles in over several seconds (to try Cancel), `obsidian` a review of `Chapter 03 - Obsidian.md` in which some suggestions reach into its Obsidian syntax, `outputlimit` a reply cut off at the model's output limit, `unverified` the refusal OpenAI gives a streamed request from an organisation that has not verified its identity, `skippedonly` a model list holding only models the default usually passes over, and anything else a canned review of Chapter 01. CLAUDE.md says what each does in full. The address variable is a development switch: a packaged build ignores it, like every other switch in `src/main/devSwitches.ts`.
 
 **Claude.** The tests use `test/helpers/fakeClaude.ts`, which speaks Claude Code's stream-json protocol, and `test/main/claudeCli.test.ts` pins that protocol. When Claude Code changes it, update both, and `MIN_CLAUDE_CODE` in `src/shared/ai/claudeStatus.ts`. In the app, `dev:clean`'s options show the Setup screen's states without touching your own sign-in: `--claude-config-empty` (signed out), `--no-claude-code` (not installed) and `--api-key-dummy` (an API key in use).
 

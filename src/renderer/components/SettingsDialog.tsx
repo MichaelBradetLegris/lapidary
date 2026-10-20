@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { openAiKeyLine } from '../../shared/ai/openai';
+import { openAiKeyLine, openAiKeyRowLabel } from '../../shared/ai/openai';
 import type {
   EffectivePaths,
   ModelInfo,
@@ -104,7 +104,11 @@ export function SettingsDialog({
 
   useEffect(refreshPaths, [refreshPaths]);
 
+  /* A refusal, such as a guidelines file that is not .md or .txt, stays on
+     screen until the next change, which clears it as the other actions do
+     (hardening.8 review). */
   const update = (patch: Partial<Settings>): void => {
+    setError(null);
     call('settings:set', patch)
       .then((next) => {
         onApply(next);
@@ -121,8 +125,11 @@ export function SettingsDialog({
       .catch((err: unknown) => setError(errorMessage(err)));
   };
 
+  /* The picker shows the two types main takes; a name typed in it can still be
+     anything, and main refuses one that is not .md or .txt in words this
+     dialog shows, keeping the file chosen before (hardening.8 review). */
   const pickGuidelines = (): void => {
-    call('dialog:pick-file', { title: 'Choose the guidelines file', extensions: ['md'] })
+    call('dialog:pick-file', { title: 'Choose the guidelines file', extensions: ['md', 'txt'] })
       .then((file) => {
         if (file) update({ guidelinesPath: file });
       })
@@ -286,7 +293,7 @@ export function SettingsDialog({
         </div>
 
         <div className="modal__row">
-          <span>OpenAI API key</span>
+          <span>{openAiKeyRowLabel()}</span>
           <span
             className={`modal__path ${keyStatus?.configured ? '' : 'modal__path--warn'}`}
             data-testid="settings-key-line"

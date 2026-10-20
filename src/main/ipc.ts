@@ -1,6 +1,9 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, safeStorage, screen, shell } from 'electron';
 import { existsSync, promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { diagnosticsReport, type DisplayFacts } from '../shared/diagnostics/report';
+import type { Settings } from '../shared/types';
 import type {
   ApiEventMap,
   ChapterFile,
@@ -23,8 +26,20 @@ import {
   setAsideFile,
   setAsideFolderFor
 } from './drafts';
-import { fail, toAppError } from './errors';
-import { beginRequest, cancelRequest, endRequest, providers } from './providers';
+import { collectAppInfo, openAiPackageVersion } from './appInfo';
+import { createRendererLog } from './crash';
+import { collectDiagnostics } from './diagnostics';
+import { fail } from './errors';
+import {
+  beginRequest,
+  cancelRequest,
+  endRequest,
+  installedCli,
+  lastFailure,
+  lastRuntime,
+  noteTest,
+  providers
+} from './providers';
 import { testConnection } from './providers/connectionTest';
 import { registerController } from './providers/controllers';
 import { clearOpenAiKey, openAiKeyStatus, storeOpenAiKey } from './secrets';
@@ -37,6 +52,7 @@ import {
   isInsideManuscript,
   listChapters,
   readChapter,
+  saveLogFields,
   writeChapter
 } from './files';
 import {
@@ -46,7 +62,8 @@ import {
   guidelinesPathFor,
   guidelinesStatus
 } from './guidelines';
-import { log } from './log';
+import { runHandler } from './ipcEnvelope';
+import { log, logWriting, tail } from './log';
 import { openGuidelines } from './openGuidelines';
 import { pickShell, type ShellApi } from './shellApi';
 import {
@@ -60,16 +77,21 @@ import {
   reviewIndex,
   saveReview
 } from './reviews';
-import { loadSettings, saveSettings } from './settings';
+import { loadSettings, loadSettingsChecked, saveSettings } from './settings';
+import { SETTINGS_FILE, settingsAnswer } from './settingsStore';
 import { applyTheme } from './theme';
 import { createManuscriptWatcher, listAndWatch } from './watcher';
-import { changeZoom } from './zoom';
+import { applyZoom, changeZoom } from './zoom';
 
 type Handler<C extends RequestChannel> = (payload: RequestPayload<C>) => Promise<ResponsePayload<C>>;
 
 const handlers = new Map<RequestChannel, (payload: unknown) => Promise<unknown>>();
 
-/** Register one typed request handler. Every channel goes through the same envelope. */
+/**
+ * Register one typed request handler. Every channel goes through the same
+ * envelope (`runHandler`), which refuses a payload of the wrong shape or with
+ * a NUL in a path field before the handler runs (`checkPayload`, hardening.8).
+ */
 export function handle<C extends RequestChannel>(channel: C, fn: Handler<C>): void {
   handlers.set(channel, (payload) => fn(payload as RequestPayload<C>));
 }
@@ -112,25 +134,33 @@ export const closeGuard = createCloseGuard<BrowserWindow>({
  * registered. A file system error that reaches here unexplained is worded as
  * a write that replaces a file; every read path explains its own first
  * (`readFailure`, apply.24), and so does every write that makes a new file,
- * a copy or a folder (`writeFailure`, apply.25).
+ * a copy or a folder (`writeFailure`, apply.25). A failure is logged as
+ * `ipc.failed`, never with its payload (`runHandler`, hardening.3b), and a
+ * payload that is not what its channel takes never reaches its handler
+ * (`checkPayload`, hardening.8).
  */
 export function installIpcBridge(): void {
   for (const [channel, fn] of handlers) {
-    ipcMain.handle(channel, async (_event, payload: unknown): Promise<IpcResult<unknown>> => {
-      try {
-        return { ok: true, value: await fn(payload) };
-      } catch (err) {
-        return { ok: false, error: toAppError(err) };
-      }
-    });
+    ipcMain.handle(channel, (_event, payload: unknown): Promise<IpcResult<unknown>> =>
+      runHandler(channel, payload, fn, log)
+    );
   }
 }
 
 export function registerCoreHandlers(): void {
+  /* While settings.json cannot be read, the page is handed no settings, only
+     the flag, and the watcher is left as it is (hardening.15, C.86). A read
+     that works puts the author's theme and zoom back, which the window took
+     from the defaults when the file could not be read as it opened;
+     `applyTheme` and `applyZoom` change nothing already in effect. */
   handle('settings:get', async () => {
-    const settings = await loadSettings();
-    startWatching(settings.manuscriptFolder);
-    return settings;
+    const read = await loadSettingsChecked();
+    if (!read.readFailed) {
+      startWatching(read.settings.manuscriptFolder);
+      applyTheme(read.settings.theme);
+      applyZoom(read.settings.zoom);
+    }
+    return settingsAnswer(read);
   });
 
   handle('settings:set', async (patch) => {
@@ -187,6 +217,78 @@ export function registerCoreHandlers(): void {
   registerAiHandlers();
   registerSecretHandlers();
   registerCloseGuardHandlers();
+  registerDiagnosticsHandlers();
+}
+
+/** The versions, read now: the app's, Electron's, the openai package's and the user's Claude Code (hardening.5). */
+function appInfo(): ReturnType<typeof collectAppInfo> {
+  return collectAppInfo({
+    version: app.getVersion(),
+    packaged: app.isPackaged,
+    versions: process.versions,
+    platform: process.platform,
+    arch: process.arch,
+    osRelease: os.release(),
+    openAiVersion: openAiPackageVersion,
+    installedCli
+  });
+}
+
+/**
+ * How the app is drawn: the theme in force, Windows' contrast themes, and
+ * the first window's zoom, size and display. The GPU's compositing status is
+ * Chromium's own word for it, such as `enabled` or `disabled_software`.
+ */
+function displayFacts(settings: Settings): DisplayFacts {
+  const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed()) ?? null;
+  const [width = 0, height = 0] = win ? win.getContentSize() : [];
+  return {
+    theme: settings.theme,
+    dark: nativeTheme.shouldUseDarkColors,
+    forcedColors: nativeTheme.inForcedColorsMode,
+    zoom: win ? win.webContents.getZoomFactor() : settings.zoom,
+    scale: win ? screen.getDisplayMatching(win.getBounds()).scaleFactor : null,
+    window: win ? { width, height, maximized: win.isMaximized() } : null,
+    gpuCompositing: app.getGPUFeatureStatus().gpu_compositing || null
+  };
+}
+
+/**
+ * The page's unexpected errors (hardening.4): only the fields main knows, at
+ * most 30 lines a minute (`createRendererLog`).
+ */
+const rendererLog = createRendererLog({ log });
+
+/**
+ * Copy diagnostics and the versions (hardening.5). Neither runs a check of
+ * Claude or OpenAI: they read what the last one found, so asking for them
+ * costs nothing and logs no `ai.runtime`. The report is scrubbed here, where
+ * the home folder is known, before it crosses to the page. The page's own
+ * errors come in here too, for the log (`log:renderer`, hardening.4).
+ */
+function registerDiagnosticsHandlers(): void {
+  handle('log:renderer', (line) => {
+    rendererLog(line);
+    return Promise.resolve();
+  });
+  handle('app:info', appInfo);
+  handle('app:diagnostics', async () => {
+    const data = await collectDiagnostics({
+      now: () => new Date(),
+      info: appInfo,
+      settings: loadSettings,
+      lastRuntime,
+      lastFailure,
+      display: displayFacts,
+      userData: app.getPath('userData'),
+      switches: getDevSwitches(),
+      logWriting,
+      warnings: (n) => tail(n, 'warn'),
+      guidelinesTemplate: guidelinesTemplate(),
+      ci: caseInsensitiveFs()
+    });
+    return { text: diagnosticsReport(data, { home: os.homedir() }) };
+  });
 }
 
 /**
@@ -276,9 +378,11 @@ function registerAiHandlers(): void {
 
   /* Test the connection (setup.8): one very small request, only when the
      author presses the button. A failed test is an answer, not an error, and
-     the log keeps only its outcome, never what the provider said. */
+     the log keeps only its outcome, never what the provider said. The
+     answer moves the last failure, as the page's does (noteTest). */
   handle('ai:test', async ({ provider }) => {
     const result = await testConnection(providers().get(provider), { track: registerController });
+    noteTest(provider, result);
     log('info', 'ai.test', {
       provider,
       ok: result.ok,
@@ -359,6 +463,7 @@ function registerFileHandlers(): void {
   });
 
   handle('files:save', async (request) => {
+    const started = Date.now();
     const settings = await loadSettings();
     assertSavableChapter(request.path, {
       manuscriptFolder: settings.manuscriptFolder,
@@ -377,6 +482,7 @@ function registerFileHandlers(): void {
       })
     });
     if (response.status === 'stale') forgetHash(request.path);
+    log('info', 'file.save', saveLogFields(request, response, Date.now() - started));
     return response;
   });
 
@@ -441,7 +547,13 @@ function registerFileHandlers(): void {
       return { path: text };
     }
     let file: string | null;
-    if (target === 'data' || target === 'logs' || target === 'backups' || target === 'drafts') {
+    if (
+      target === 'data' ||
+      target === 'settings' ||
+      target === 'logs' ||
+      target === 'backups' ||
+      target === 'drafts'
+    ) {
       file = await userDataTarget(target);
     } else {
       const settings = await loadSettings();
@@ -459,11 +571,17 @@ function registerFileHandlers(): void {
  * The userData places "show in folder" can open, created on demand so the
  * author never lands on a missing folder (setup.7a). `backups` here is the
  * root, for Settings; a chapter's own backup folder is shown from its path
- * (`chapterBackups`, apply.11).
+ * (`chapterBackups`, apply.11). `settings` is settings.json itself, for the
+ * card shown while it cannot be read, or the data folder once the author has
+ * moved the file away (hardening.15).
  */
-async function userDataTarget(target: 'data' | 'logs' | 'backups' | 'drafts'): Promise<string> {
+async function userDataTarget(target: 'data' | 'settings' | 'logs' | 'backups' | 'drafts'): Promise<string> {
   const root = app.getPath('userData');
   if (target === 'data') return root;
+  if (target === 'settings') {
+    const file = path.join(root, SETTINGS_FILE);
+    return existsSync(file) ? file : root;
+  }
   const folder =
     target === 'logs'
       ? path.join(root, 'logs')

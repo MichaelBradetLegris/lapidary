@@ -17,6 +17,12 @@
  */
 
 import { PRO_PRESELECT_HINT } from '../ai/claudeModels';
+import {
+  OPENAI_MATURITY,
+  openAiMaturitySentence,
+  openAiMaturityWord,
+  type OpenAiMaturity
+} from '../ai/openai';
 import { APP_NAME } from '../branding';
 import type { EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../ipc';
 import type { Provider, Settings } from '../types';
@@ -77,7 +83,16 @@ export const WELCOME_SKIP = 'Skip';
 export const WELCOME_SKIP_TITLE = `Close the guide. Settings has ${SHOW_WELCOME_AGAIN}.`;
 
 export const SET_UP_CLAUDE = 'Set up Claude';
-export const USE_OPENAI = 'Use OpenAI instead (experimental, pay per use)';
+/**
+ * The button that makes OpenAI the provider: "Use OpenAI instead
+ * (experimental, pay per use)" while `OPENAI_MATURITY` says so (hardening.11).
+ */
+export function openAiChoiceLabel(maturity: OpenAiMaturity = OPENAI_MATURITY): string {
+  const word = openAiMaturityWord(maturity);
+  return word ? `Use OpenAI instead (${word}, pay per use)` : 'Use OpenAI instead (pay per use)';
+}
+
+export const USE_OPENAI = openAiChoiceLabel();
 export const USE_CLAUDE = 'Use Claude instead';
 
 export type WelcomeStepId = 'claude' | 'folder' | 'style-sheet';
@@ -140,7 +155,18 @@ export const CLAUDE_STEP_TITLE = 'Connect Claude';
 
 export const CLAUDE_STEP_TEXT = `${APP_NAME} reviews your chapters with Claude through Claude Code, Anthropic's command-line tool, which you install and sign in to yourself, with your Claude plan or an API key. ${SET_UP_CLAUDE} shows how, and this step says when Claude is ready.`;
 
-export const OPENAI_STEP_TEXT = `Reviews go to OpenAI instead, billed per token to the account that owns the API key. OpenAI in ${APP_NAME} is experimental. Paste a key in Settings to finish this step.`;
+/** The step's text with OpenAI chosen; it says OpenAI is experimental while `OPENAI_MATURITY` does. */
+export function openAiStepText(maturity: OpenAiMaturity = OPENAI_MATURITY): string {
+  return [
+    'Reviews go to OpenAI instead, billed per token to the account that owns the API key.',
+    openAiMaturitySentence(maturity),
+    'Paste a key in Settings to finish this step.'
+  ]
+    .filter((sentence) => sentence !== null)
+    .join(' ');
+}
+
+export const OPENAI_STEP_TEXT = openAiStepText();
 
 /**
  * Claude can review: signed in, on a plan that runs Claude Code. A usage limit
@@ -197,7 +223,13 @@ export const FOLDER_STEP_TITLE = 'Choose your manuscript folder';
 export const FOLDER_STEP_TEXT =
   'The folder that holds your chapters: your Obsidian vault, or a folder inside it.';
 
-export const FOLDER_LISTS = `${APP_NAME} lists every .md and .txt file in the folder and its subfolders as a chapter, leaving out folders whose names start with a dot, such as Obsidian's .obsidian.`;
+/**
+ * What the chapter list holds, in one sentence. `listChapters` leaves out more
+ * than this names (PLAN 6.1: folders named node_modules, out or dist, the
+ * reviews folder when it lies inside, links and junctions), so it never says
+ * every file is listed; it names what an author meets in a vault (files.23).
+ */
+export const FOLDER_LISTS = `${APP_NAME} lists the .md and .txt files in the folder and its subfolders as chapters, leaving out a few, among them the guidelines file, Excalidraw drawings and anything whose name starts with a dot, such as Obsidian's .obsidian and .trash folders.`;
 
 export const FOLDER_SAVES = `It changes a chapter file only when you press Save to chapter, and first copies the version it replaces into a backup in ${APP_NAME}'s own data folder.`;
 

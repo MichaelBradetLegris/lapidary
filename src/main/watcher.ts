@@ -1,6 +1,7 @@
 import { watch as chokidarWatch, type ChokidarOptions } from 'chokidar';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
+import { loggableErrorFields } from '../shared/diagnostics/redact';
 import type { ApiEventMap, EventChannel } from '../shared/ipc';
 import { pathKey } from '../shared/paths';
 import { caseInsensitiveFs, hashBytes, isChapterFile } from './files';
@@ -164,7 +165,7 @@ export function createWatcher(deps: WatcherDeps): ManuscriptWatcher {
     if (handle) {
       const closing = handle;
       void closing.close().catch((err: unknown) => {
-        deps.log('warn', 'watcher.close-failed', { message: (err as Error).message });
+        deps.log('warn', 'watcher.close-failed', loggableErrorFields(err));
       });
     }
     if (invalidateTimer) clearTimeout(invalidateTimer);
@@ -227,10 +228,10 @@ export function createWatcher(deps: WatcherDeps): ManuscriptWatcher {
       // nothing and will not try again, so this start failed (files.21). An
       // error for a subfolder, or once it is running, is only logged.
       const failed = state === 'starting' && typeof e.path === 'string' && keyOf(e.path) === rootKey;
+      // Through the error policy (hardening.3b): an errno error's code and syscall, never its path.
       deps.log('warn', 'watcher.error', {
         folder,
-        code: e.code,
-        message: e.message,
+        ...loggableErrorFields(err),
         ...(failed ? { stopped: true } : {})
       });
       if (!failed) return;

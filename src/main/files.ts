@@ -116,9 +116,12 @@ export function manuscriptFolderName(folder: string): string {
 }
 
 /**
- * Every `.md` and `.txt` under `folder`, skipping dot-folders, the reviews
- * folder, Excalidraw drawings (`*.excalidraw.md`, files.11) and any files
- * named in `excludeFiles` (the guidelines file is not a chapter). A sync
+ * Every `.md` and `.txt` under `folder`, skipping dot-files and dot-folders,
+ * folders named in `SKIP_DIRS`, the reviews folder, Excalidraw drawings
+ * (`*.excalidraw.md`, files.11), any files named in `excludeFiles` (the
+ * guidelines file is not a chapter), and symbolic links and junctions, which
+ * are neither a plain file nor a folder to `readdir` (PLAN 6.1). The welcome
+ * guide's folder line names the ones an author meets (`FOLDER_LISTS`). A sync
  * tool's conflict copy is listed like any other chapter; the list marks it
  * (`conflictCopyLabel`). A subfolder that cannot be read is skipped; the manuscript folder
  * itself must be, or the list would say it holds no chapters, so a read the
@@ -330,6 +333,29 @@ export async function writeChapter(request: SaveRequest, hooks: WriteHooks = {})
   hooks.onWritten?.(request.path, hash);
   if (hooks.afterWrite) await hooks.afterWrite(request.path).catch(() => undefined);
   return backup ? { status: 'written', hash, backup } : { status: 'written', hash };
+}
+
+/**
+ * What `file.save` logs of a save that answered (PLAN 11.3 m, hardening.3b):
+ * how it ended, the text's size in characters, the line endings and BOM kept,
+ * whether a backup was made or the newest one already held these bytes, and
+ * how long it took. Never the text or the chapter's path. A save that threw
+ * is logged by the IPC envelope as `ipc.failed`.
+ */
+export function saveLogFields(
+  request: SaveRequest,
+  response: SaveResponse,
+  durationMs: number
+): Record<string, string | number | boolean> {
+  const status =
+    response.status === 'stale' ? 'stale' : response.unchanged === true ? 'unchanged' : 'written';
+  const backup =
+    response.status === 'written' && response.backup
+      ? response.backup.created
+        ? 'created'
+        : 'reused'
+      : 'none';
+  return { status, chars: request.text.length, eol: request.eol, bom: request.bom, backup, durationMs };
 }
 
 /* ------------------------------------------------------------------ */

@@ -17,11 +17,13 @@ import {
   listChapters,
   readChapter,
   readTextFile,
+  saveLogFields,
   writeChapter,
   type WriteHooks
 } from '../../src/main/files';
 import { backupFolderFor, backupsRootFor, chapterBackupHooks, listBackups } from '../../src/main/backups';
-import type { SaveResponse } from '../../src/shared/ipc';
+import { createLogger } from '../../src/main/log';
+import type { SaveRequest, SaveResponse } from '../../src/shared/ipc';
 
 let root: string;
 
@@ -766,6 +768,99 @@ describe('writeChapter backup hooks (apply.10, PLAN 11.3 h)', () => {
     expect(hashBytes(await fs.readFile(backups[1]!.file))).toBe(hashBytes(original));
     expect(await fs.readFile(backups[0]!.file)).toEqual(Buffer.from('﻿one\r\nthree\r\n', 'utf8'));
     expect(await fs.readdir(vault)).toEqual(['Chapter 01.md']);
+  });
+});
+
+describe('what file.save logs (hardening.3b, PLAN 11.3 m)', () => {
+  const SENTINEL = 'SAVE-SENTINEL-7f3a';
+  const KEYS = ['backup', 'bom', 'chars', 'durationMs', 'eol', 'status'];
+
+  it('says how a save ended and which backup stands for it, as counts, never the path or the text', () => {
+    const request: SaveRequest = {
+      path: 'C:/vault/Chapter 12 - The Weir.md',
+      text: `${SENTINEL} and the river had begun to climb`,
+      eol: 'crlf',
+      bom: true,
+      trailingNewline: true,
+      expectedHash: 'h'
+    };
+    const disk = { ...request, hash: 'd' };
+    const cases: [SaveResponse, string, string][] = [
+      [{ status: 'written', hash: 'a', backup: { name: 'b.md', created: true } }, 'written', 'created'],
+      [{ status: 'written', hash: 'a', backup: { name: 'b.md', created: false } }, 'written', 'reused'],
+      [{ status: 'written', hash: 'a', unchanged: true }, 'unchanged', 'none'],
+      [{ status: 'written', hash: 'a' }, 'written', 'none'],
+      [{ status: 'stale', disk }, 'stale', 'none']
+    ];
+    for (const [response, status, backup] of cases) {
+      const fields = saveLogFields(request, response, 12);
+      expect(fields).toEqual({
+        status,
+        chars: request.text.length,
+        eol: 'crlf',
+        bom: true,
+        backup,
+        durationMs: 12
+      });
+      expect(Object.keys(fields).sort()).toEqual(KEYS);
+      expect(JSON.stringify(fields)).not.toContain(SENTINEL);
+      expect(JSON.stringify(fields)).not.toContain('Weir');
+    }
+    expect(saveLogFields({ ...request, eol: 'lf', bom: false }, cases[0]![0], 3)).toMatchObject({
+      eol: 'lf',
+      bom: false
+    });
+  });
+
+  it('logs real saves through the backup hooks: created, reused, unchanged and stale', async () => {
+    const vault = path.join(root, 'vault');
+    const file = path.join(vault, 'Chapter 12 - The Weir.md');
+    const original = Buffer.from('﻿one\r\ntwo\r\n', 'utf8');
+    await fs.mkdir(vault, { recursive: true });
+    await fs.writeFile(file, original);
+    const hooks = chapterBackupHooks({
+      backupsRoot: backupsRootFor(path.join(root, 'userData')),
+      manuscriptFolder: vault,
+      ci: true,
+      now: () => new Date(2026, 9, 20, 9, 0, 0)
+    });
+    // Never written to disk: the lines are read from memory.
+    const logger = createLogger({ dir: path.join(root, 'logs'), home: null, schedule: () => undefined });
+    /** A save of `text` as the files:save handler logs it; `expectedHash` stands in for one the page holds. */
+    async function save(text: string, expectedHash?: string): Promise<SaveResponse> {
+      const content = await readChapter(file);
+      const request: SaveRequest = {
+        path: file,
+        text,
+        eol: content.eol,
+        bom: content.bom,
+        trailingNewline: content.trailingNewline,
+        expectedHash: expectedHash ?? content.hash
+      };
+      const response = await writeChapter(request, hooks);
+      logger.log('info', 'file.save', saveLogFields(request, response, 7));
+      return response;
+    }
+
+    const text = `${SENTINEL} one\nthree`;
+    expect(await save(text)).toMatchObject({ status: 'written', backup: { created: true } });
+    // The file goes back to the bytes the newest backup holds, as after a git checkout, so that backup stands for the next save.
+    await fs.writeFile(file, original);
+    expect(await save(text)).toMatchObject({ status: 'written', backup: { created: false } });
+    expect(await save(text)).toMatchObject({ status: 'written', unchanged: true });
+    expect(await save(`${text}\nfour`, 'not-what-is-on-disk')).toMatchObject({ status: 'stale' });
+
+    const lines = logger.tail(10);
+    const rest = (status: string, chars: number, backup: string): string =>
+      `INFO file.save status=${status} chars=${chars} eol=crlf bom=true backup=${backup} durationMs=7`;
+    expect(lines.map((line) => line.slice(line.indexOf(' ') + 1))).toEqual([
+      rest('written', text.length, 'created'),
+      rest('written', text.length, 'reused'),
+      rest('unchanged', text.length, 'none'),
+      rest('stale', text.length + '\nfour'.length, 'none')
+    ]);
+    const all = lines.join('\n');
+    for (const leak of [SENTINEL, 'three', 'Weir', vault, root]) expect(all).not.toContain(leak);
   });
 });
 

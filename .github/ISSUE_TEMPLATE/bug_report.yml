@@ -66,7 +66,7 @@ body:
     attributes:
       label: Diagnostics or log
       description: |
-        To open the log, press Windows+R, paste `%APPDATA%\ai-grammar-checker\logs\main.log` and press Enter. Copy the lines from around the time it happened. The app leaves chapter text, keys and email addresses out of the log and shortens your user folder to `~`, but read the lines before you paste them.
+        Open the Setup screen (Settings, then Setup in the Claude account row), press Copy diagnostics near its foot, and paste the text here. It gives the versions, your settings and what the last checks found. If a maintainer asks for the log as well, press Windows+R, paste `%APPDATA%\ai-grammar-checker\logs\main.log` and press Enter, and copy the lines from around the time it happened. The app leaves chapter text, keys and email addresses out of both and shortens your user folder to `~`, but read the text before you paste it.
       render: text
     validations:
       required: false

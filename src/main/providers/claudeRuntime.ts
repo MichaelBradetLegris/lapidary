@@ -9,6 +9,7 @@ import {
 import type { RuntimeStatus } from '../../shared/ipc';
 import type { LastFailure } from '../../shared/ui/setup';
 import { AppFailure } from '../errors';
+import type { InstalledRecord, LocatedClaude } from './claudeBinary';
 import type { CliInitInfo } from './claudeCli';
 
 /*
@@ -20,11 +21,16 @@ import type { CliInitInfo } from './claudeCli';
  */
 
 export interface RuntimeCheckDeps {
-  /** the Claude Code executable, or null when it is not installed */
-  locate: () => Promise<string | null>;
+  /** where Claude Code is and whether a terminal finds it by name, or null when it is not installed */
+  locate: () => Promise<LocatedClaude | null>;
   version: (executable: string) => Promise<string | null>;
   authStatus: (executable: string) => Promise<AuthStatus | null>;
   handshake: (executable: string) => Promise<CliInitInfo>;
+  /**
+   * where the check keeps what the lookup found and what `--version` said,
+   * which `app:info` and Copy diagnostics read (`installedCli`, hardening.5)
+   */
+  installed: Pick<InstalledRecord, 'lookedUp' | 'versionRead'>;
   now: () => Date;
 }
 
@@ -33,8 +39,9 @@ const SIGN_IN_CODES = new Set(['claude-not-signed-in', 'claude-login-expired']);
 export function createClaudeRuntimeCheck(deps: RuntimeCheckDeps): () => Promise<RuntimeStatus> {
   return async () => {
     const checkedAt = deps.now().toISOString();
-    const executable = await deps.locate();
-    if (!executable) {
+    const located = await deps.locate();
+    deps.installed.lookedUp(located);
+    if (!located) {
       return {
         provider: 'claude',
         state: 'missing-binary',
@@ -43,8 +50,12 @@ export function createClaudeRuntimeCheck(deps: RuntimeCheckDeps): () => Promise<
       };
     }
 
+    const executable = located.path;
     const [version, auth, init] = await Promise.all([
-      deps.version(executable),
+      deps.version(executable).then((answer) => {
+        deps.installed.versionRead(executable, answer);
+        return answer;
+      }),
       deps.authStatus(executable),
       deps.handshake(executable).then(
         (info) => ({ info }),
@@ -99,9 +110,13 @@ export function createClaudeRuntimeCheck(deps: RuntimeCheckDeps): () => Promise<
  */
 export function claudeDiagnostics(runtime: RuntimeStatus | null, lastFailure: LastFailure | null): string[] {
   if (!runtime) return ['Claude: not checked yet'];
+  const found =
+    runtime.state === 'missing-binary'
+      ? 'not found'
+      : `${runtime.cliVersion ?? 'unknown version'}${runtime.executablePath ? ` at ${runtime.executablePath}` : ''}`;
   return [
     `Claude: ${runtime.state}${runtime.credential ? ` (${runtime.credential})` : ''}`,
-    `Claude Code: ${runtime.cliVersion ?? 'unknown version'}${runtime.executablePath ? ` at ${runtime.executablePath}` : ''}`,
+    `Claude Code: ${found}`,
     `Claude Code minimum: ${runtime.minCliVersion ?? MIN_CLAUDE_CODE}`,
     ...(runtime.authMethod ? [`Auth method: ${runtime.authMethod}`] : []),
     ...(runtime.subscriptionType ? [`Plan: ${runtime.subscriptionType}`] : []),

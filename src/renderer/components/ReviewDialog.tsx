@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { openAiKeyLine, toOpenAiEffort } from '../../shared/ai/openai';
+import { openAiKeyLine, openAiMaturityNote, toOpenAiEffort } from '../../shared/ai/openai';
 import type {
   EffectivePaths,
   GuidelinesStatus,
@@ -129,6 +129,7 @@ export function ReviewDialog({
     setNotSaved([]);
     onSaveThenStart(setNotSaved);
   };
+  const maturityNote = isOpenAi ? openAiMaturityNote() : null;
   const planNote = isOpenAi ? null : proPlanNote(runtime?.subscriptionType, current, defaultIsOpus(list));
   const claudeWarning = isOpenAi ? null : reviewDialogWarning(runtime, claudeLastFailure);
   const updateAdvice = isOpenAi
@@ -225,6 +226,13 @@ export function ReviewDialog({
           </select>
           <span />
         </div>
+        {/* OpenAI has met only the mock server so far: its option says so,
+            and this note says what that means (hardening.11). */}
+        {maturityNote ? (
+          <p className="modal__note" data-testid="openai-maturity-note">
+            {maturityNote}
+          </p>
+        ) : null}
 
         {isOpenAi ? (
           <>

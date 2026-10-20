@@ -7,7 +7,7 @@ import {
   unsavedDecisionCount
 } from '../../src/shared/diff/compose';
 import { insideWord } from '../../src/shared/diff/fuzzy';
-import { rebaseReview } from '../../src/shared/diff/rebase';
+import { rebaseReview, type RebaseOptions } from '../../src/shared/diff/rebase';
 import { createDiffReview, createReview } from '../../src/shared/review';
 import { normalizeText } from '../../src/shared/text/eol';
 import { bodyStart } from '../../src/shared/text/obsidian';
@@ -52,6 +52,44 @@ describe('rebaseReview', () => {
       expect(shifted.slice(h.start, h.end)).toBe(h.original);
     }
     expect(next.hunks.every((h) => h.paragraph >= 1)).toBe(true);
+  });
+
+  it("finds a hunk's words however far the file moved them, as there is no window round the old offset for exact matches (files.23)", () => {
+    const review = build();
+    const filler = 'The rain went on and on over the town, and the roofs ran with water all night.';
+    const above = Array.from({ length: 8 }, () => Array.from({ length: 5 }, () => filler).join(' ')).join(
+      '\n\n'
+    );
+    const far = `${above}\n\n${ORIGINAL}`;
+    // Far past the 400 characters the old, unused window option stood for.
+    expect(far.indexOf(ORIGINAL)).toBeGreaterThan(3000);
+
+    const { review: next, stats } = rebaseReview(review, baseOf(far));
+    expect(stats.stale).toBe(0);
+    expect(stats.anchored).toBe(review.hunks.length);
+    // Found as surely as after a short paragraph added above ("of" is in the text twice).
+    const near = `A brand new opening paragraph.\n\n${ORIGINAL}`;
+    const nearHunks = rebaseReview(review, baseOf(near)).review.hunks;
+    const moved = far.indexOf(ORIGINAL) - near.indexOf(ORIGINAL);
+    expect(next.hunks.map((h) => [h.start - moved, h.end - moved, h.anchor])).toEqual(
+      nearHunks.map((h) => [h.start, h.end, h.anchor])
+    );
+    expect(next.hunks.map((h) => h.anchor)).toEqual(['exact', 'ambiguous', 'exact']);
+    for (const h of next.hunks) expect(far.slice(h.start, h.end)).toBe(h.original);
+
+    // A change made by hand that far down is found and taken as made too.
+    const byHand = `${above}\n\n${ORIGINAL.replace('had began', 'had begun')}`;
+    const adopted = rebaseReview(review, baseOf(byHand));
+    expect(adopted.review.hunks.find((h) => h.replacement === 'begun')).toMatchObject({
+      baseSide: 'replacement',
+      status: 'accepted'
+    });
+    expect(adopted.stats.stale).toBe(0);
+
+    // The option is gone, not merely unread (4.5).
+    // @ts-expect-error RebaseOptions has no window since files.23
+    const options: RebaseOptions = { window: 400 };
+    expect(rebaseReview(review, baseOf(far), options).review.hunks).toEqual(next.hunks);
   });
 
   it('marks a hunk stale when its paragraph is gone', () => {

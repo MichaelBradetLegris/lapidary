@@ -3,6 +3,7 @@ import type { ModelInfo, ReviewRequest, RuntimeStatus } from '../../shared/ipc';
 import {
   defaultOpenAiModel,
   estimateTokens,
+  openAiModelToSend,
   toOpenAiEffort,
   usableModels,
   type OpenAiModel
@@ -135,7 +136,7 @@ export function createOpenAiProvider(deps: OpenAiDeps): ReviewProvider {
     }));
   }
 
-  /** The model to send: the author's choice, or the newest gpt-5 the key can see. */
+  /** The model to send: the author's choice, or what the list's default resolves to (`openAiModelToSend`). */
   async function resolveModel(api: OpenAI, requested: string, signal?: AbortSignal): Promise<string> {
     if (requested.trim().length > 0) return requested.trim();
     const listed: OpenAiModel[] = [];
@@ -145,9 +146,9 @@ export function createOpenAiProvider(deps: OpenAiDeps): ReviewProvider {
       }
     } catch {
       // A key that cannot list models can often still answer, so guess rather than fail.
-      return 'gpt-5';
+      return openAiModelToSend(requested, null);
     }
-    return defaultOpenAiModel(listed) ?? 'gpt-5';
+    return openAiModelToSend(requested, listed);
   }
 
   /** One streamed call, reduced to what the review needs. Throws mapped errors. */
@@ -413,11 +414,44 @@ export function outputTextOf(response: unknown): string {
 /** OpenAI's 400 for a request longer than the model's context window. */
 const CONTEXT_EXCEEDED = /context[ _](window|length)/i;
 
+/** Where an organisation is verified, as OpenAI's own refusal names it. */
+export const OPENAI_VERIFY_URL = 'https://platform.openai.com/settings/organization/general';
+
+/** The words of OpenAI's refusals to an unverified organisation: to stream a model, or to use it at all. */
+const UNVERIFIED_ORGANISATION = /organi[sz]ation must be verified to (stream|use)/i;
+
+/**
+ * OpenAI's refusal of a model to an organisation that has not verified its
+ * identity (hardening.10). Streaming gpt-5 or o3 is refused with a 400, "Your
+ * organization must be verified to stream this model", with `param` `stream`
+ * and code `unsupported_value`; either the words, or a mention of verifying on
+ * a 400 that refuses `stream`, is enough. A request that does not stream, as
+ * the connection test's, is not refused that way. Some models are refused to
+ * such an organisation outright, streamed or not, with "must be verified to
+ * use the model", reported as a 403 (C.82); those words on a 400 or a 403
+ * count too, so the author is not sent to replace a key that works.
+ */
+export function isStreamingVerificationError(err: unknown): boolean {
+  if (!(err instanceof APIError)) return false;
+  if (err.status === 400 && err.param === 'stream' && /verif/i.test(err.message)) return true;
+  return (err.status === 400 || err.status === 403) && UNVERIFIED_ORGANISATION.test(err.message);
+}
+
+/** The words for either refusal, with the fix (hardening.10). */
+export function unverifiedStreamMessage(doing: string, model?: string): string {
+  return (
+    `OpenAI needs this key's organisation to be verified before ${model ?? 'this model'} can ${doing}. ` +
+    `Verify it with Verify Organization at ${OPENAI_VERIFY_URL} and try again; a new verification can take up to 15 minutes to take effect. ` +
+    'Or choose another model, as not every model needs it.'
+  );
+}
+
 /**
  * HTTP status to something the author can act on. 401 points at Settings, 429
  * says the account is out of credit or too busy, 5xx and a dead network say to
  * try again. A review's chapter too long for the model to read is said so
- * plainly (`chapter`, files.10).
+ * plainly (`chapter`, files.10), and a model refused to an unverified
+ * organisation, a 403 among them, says how to verify it (hardening.10).
  */
 export function mapOpenAiError(err: unknown, doing: string, chapter?: ReplyLimitFacts): Error {
   if (err instanceof APIUserAbortError) return fail('cancelled', 'Review cancelled.');
@@ -431,6 +465,9 @@ export function mapOpenAiError(err: unknown, doing: string, chapter?: ReplyLimit
       (err.code === 'context_length_exceeded' || CONTEXT_EXCEEDED.test(detail))
     ) {
       return fail('openai-failed', replyLimitMessage('input', chapter), detail);
+    }
+    if (isStreamingVerificationError(err)) {
+      return fail('openai-failed', unverifiedStreamMessage(doing, chapter?.who), detail);
     }
     if (status === 401 || status === 403) {
       return fail(

@@ -34,7 +34,7 @@ describe('every layout has the cards, the dialogs and the question (setup.7)', (
       expect(layout).toContain('<div className="app-shell__page" inert={inert.page}>');
       expect(layout).toMatch(
         // (each `{}` is a JSX comment with its text taken out)
-        /<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*<\/div>\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*<\/div>\s*\);/
+        /<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*\{diagnosticsDialog\}\s*<\/div>\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*<\/div>\s*\);/
       );
       expect(layout).toMatch(
         /<StatusBar\s+review=\{review\}\s+\{\.\.\.statusRuntime\}\s+rateLimit=\{usageNotice\}\s+plan=\{claudeRuntime\?\.subscriptionType\}\s*\/>/
@@ -175,7 +175,7 @@ describe('Copy says when it fails (setup.7)', () => {
 describe('Test the connection, from the button to main and back (setup.8)', () => {
   it('gives the Setup screen the test, whether one is running and how the last went', () => {
     expect(SETUP).toMatch(
-      /onTest=\{testClaude\}\s*testing=\{ai\.testing\.claude \?\? false\}\s*testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*(rateLimit=\{ai\.rateLimit\}\s*)?\/>/
+      /onTest=\{testClaude\}\s*testing=\{ai\.testing\.claude \?\? false\}\s*testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*(rateLimit=\{ai\.rateLimit\}\s*)?(onCopyDiagnostics=\{\(\) => setDiagnosticsOpen\('copy'\)\}\s*)?\/>/
     );
     const test = APP.slice(APP.indexOf('const testClaude = '), APP.indexOf('const refuseWhileEditing = '));
     expect(test).toContain("void testConnection('claude').then((result) => {");
@@ -202,8 +202,9 @@ describe('Test the connection, from the button to main and back (setup.8)', () =
 
   it('is answered in main by testConnection, with its controller tracked so quitting ends it', () => {
     const main = withoutComments(readFileSync(path.join(RENDERER, '../main/ipc.ts'), 'utf8'));
+    // Main's last failure moves with the answer the page gets (hardening.3b review).
     expect(main).toContain(
-      "handle('ai:test', async ({ provider }) => {\n    const result = await testConnection(providers().get(provider), { track: registerController });"
+      "handle('ai:test', async ({ provider }) => {\n    const result = await testConnection(providers().get(provider), { track: registerController });\n    noteTest(provider, result);"
     );
     const claude = withoutComments(readFileSync(path.join(RENDERER, '../main/providers/claude.ts'), 'utf8'));
     // The same Claude Code, flags, environment and folder as a review (CLAUDE.md rule 6).
@@ -239,7 +240,7 @@ describe("Claude's usage on the page (setup.9)", () => {
     expect(APP).toContain('const usageNotice = claudeInUse ? ai.rateLimit : null;');
     expect(APP).toContain("const claudeInUse = activeProvider === 'claude' || setupOpen;");
     expect(SETUP).toMatch(
-      /testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*rateLimit=\{ai\.rateLimit\}\s*\/>/
+      /testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*rateLimit=\{ai\.rateLimit\}\s*(onCopyDiagnostics=\{\(\) => setDiagnosticsOpen\('copy'\)\}\s*)?\/>/
     );
     const bar = read('components/StatusBar.tsx');
     // With the plan, on which the weekly Sonnet limit's name depends (setup.9 review).
@@ -282,5 +283,39 @@ describe("Claude's usage on the page (setup.9)", () => {
     expect(ai).toContain('const latestRateLimit = useCallback(() => rateLimitNow.current, []);');
     expect(ai.match(/setRateLimit\(/g)).toHaveLength(3);
     expect(ai.match(/rateLimitNow\.current = /g)).toHaveLength(3);
+  });
+});
+
+describe('Copy diagnostics, from Setup and from a card (hardening.5)', () => {
+  it("gives Setup the link, which opens Diagnostics to copy, and a card's Show diagnostics to show", () => {
+    expect(SETUP).toContain("onCopyDiagnostics={() => setDiagnosticsOpen('copy')}");
+    const cards = APP.slice(APP.indexOf('const onCardAction = '), APP.indexOf('const statusRuntime = '));
+    expect(cards).toMatch(/case 'show-diagnostics':\s*setDiagnosticsOpen\('show'\);\s*break;/);
+  });
+
+  it('draws the dialog only while it is open, copying at once only for the link, and closes it', () => {
+    expect(APP).toContain('const diagnosticsOpen = useApp((s) => s.diagnosticsOpen);');
+    expect(APP).toMatch(
+      /const diagnosticsDialog = diagnosticsOpen \? \(\s*<DiagnosticsDialog copyOnOpen=\{diagnosticsOpen === 'copy'\} onClose=\{\(\) => setDiagnosticsOpen\(null\)\} \/>\s*\) : null;/
+    );
+  });
+
+  it('asks main once as it opens, copies the report it got, and only once on its own', () => {
+    const dialog = read('components/DiagnosticsDialog.tsx');
+    // The report's request and copy moved to a hook with hardening.4, which the crash page shares.
+    const report = read('state/diagnosticsReport.ts');
+    expect(dialog).toContain('const report = useDiagnosticsReport(copyOnOpen);');
+    expect(report).toContain("call('app:diagnostics', undefined)");
+    // Only the latest answer counts, so what is shown is what was copied (StrictMode asks twice).
+    expect(report).toMatch(
+      /useEffect\(\(\) => \{\s*fetchReport\(\);\s*return \(\) => \{\s*latest\.current \+= 1;/
+    );
+    expect(report).toMatch(/if \(request === latest\.current\) setText\(report\.text\);/);
+    expect(report).toMatch(
+      /if \(!copyOnOpen \|\| text === null \|\| copiedOnOpen\.current\) return;\s*copiedOnOpen\.current = true;\s*copyText\(text\);/
+    );
+    expect(report).toContain('navigator.clipboard.writeText(report)');
+    expect(dialog).toContain('useDialogEscape(boxRef, onClose);');
+    expect(dialog).toContain('useDialogFocus(boxRef, DIAGNOSTICS_LINK_SELECTOR, copyRef);');
   });
 });

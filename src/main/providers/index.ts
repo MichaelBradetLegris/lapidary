@@ -1,27 +1,71 @@
 import { app, safeStorage } from 'electron';
+import type { ConnectionTestResult, RuntimeStatus } from '../../shared/ipc';
+import type { Provider } from '../../shared/types';
+import type { LastFailure } from '../../shared/ui/setup';
+import { log } from '../log';
 import { openAiKey, openAiKeyStatus } from '../secrets';
 import { claudeProvider } from './claude';
 import { registerController } from './controllers';
+import { withLogging, type LoggedProvider } from './logged';
 import { createOpenAiProvider } from './openai';
 import { createRegistry, type ProviderRegistry } from './registry';
 
 /**
  * The app's providers. The OpenAI one is handed functions that read the key
  * from the encrypted secrets file at call time, so no provider ever holds a
- * credential between calls.
+ * credential between calls. Each is wrapped in `withLogging` (logged.ts),
+ * which logs its calls as counts and remembers its last runtime status and
+ * failure (hardening.3b).
  */
 
+let logged: readonly LoggedProvider[] | null = null;
 let registry: ProviderRegistry | null = null;
 
-export function providers(): ProviderRegistry {
-  registry ??= createRegistry([
+function loggedProviders(): readonly LoggedProvider[] {
+  logged ??= [
     claudeProvider,
     createOpenAiProvider({
       key: () => openAiKey(safeStorage, app.getPath('userData')),
       status: () => openAiKeyStatus(safeStorage, app.getPath('userData'))
     })
-  ]);
+  ].map((provider) => withLogging(provider, { log }));
+  return logged;
+}
+
+export function providers(): ProviderRegistry {
+  registry ??= createRegistry(loggedProviders());
   return registry;
+}
+
+/** What the last runtime check of `id` found, without running another; null before the first. */
+export function lastRuntime(id: Provider): RuntimeStatus | null {
+  return (
+    loggedProviders()
+      .find((provider) => provider.id === id)
+      ?.lastRuntime() ?? null
+  );
+}
+
+/** The Claude Code the last lookup found and its version (setup.3), without looking again (hardening.5). */
+export { installedCli } from './claude';
+
+/** The last failure of `id` that says something about setup (`nextLastFailure`), or null. */
+export function lastFailure(id: Provider): LastFailure | null {
+  return (
+    loggedProviders()
+      .find((provider) => provider.id === id)
+      ?.lastFailure() ?? null
+  );
+}
+
+/**
+ * A connection test of `id` answered the page with `result` (`testConnection`):
+ * its last failure moves as the renderer's does (`LoggedProvider.noteTest`).
+ */
+export function noteTest(id: Provider, result: ConnectionTestResult): void {
+  loggedProviders()
+    .find((provider) => provider.id === id)
+    ?.noteTest(result);
 }
 
 /* In-flight reviews, so Cancel can reach whichever provider is running. Each

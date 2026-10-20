@@ -97,6 +97,25 @@ describe('loggableErrorFields', () => {
     expect(JSON.stringify(fields)).not.toContain('Here is');
   });
 
+  it('never takes a quoted line that starts with "at" for a frame (hardening.3b)', () => {
+    // V8 quotes about ten characters of the input with their line breaks, so
+    // its message can hold a line that looks like a frame.
+    for (const input of ['\nat ZQX', 'X\n at ZQX', '{"a":\n  at ZQX']) {
+      let caught: unknown;
+      try {
+        JSON.parse(input);
+      } catch (err) {
+        caught = err;
+      }
+      const stack = (caught as Error).stack ?? '';
+      expect(stack.split('\n').some((line) => /^\s*at ZQX/.test(line))).toBe(true);
+      const fields = loggableErrorFields(caught, ctx);
+      expect(fields['name']).toBe('SyntaxError');
+      expect(String(fields['frames'])).toMatch(/^at JSON\.parse/);
+      expect(JSON.stringify(fields)).not.toContain('ZQX');
+    }
+  });
+
   it('logs only the code of an app error that quotes model output, and never its detail', () => {
     const reply = Object.assign(new Error('The model said: Dear diary...'), {
       name: 'AppFailure',
@@ -115,6 +134,24 @@ describe('loggableErrorFields', () => {
       detail: 'secret'
     });
     expect(loggableErrorFields(io)).toEqual({ code: 'io', message: 'Could not save.' });
+  });
+
+  it("treats the page's ApiError as an app error, which crosses to the log since hardening.4", () => {
+    const reply = Object.assign(new Error('The model replied: Dear diary...'), {
+      name: 'ApiError',
+      code: 'openai-invalid-output',
+      detail: 'Dear diary, full chapter text'
+    });
+    expect(loggableErrorFields(reply)).toEqual({ code: 'openai-invalid-output' });
+    const io = Object.assign(new Error('Could not save.'), {
+      name: 'ApiError',
+      code: 'io',
+      detail: 'secret'
+    });
+    expect(loggableErrorFields(io)).toEqual({ code: 'io', message: 'Could not save.' });
+    // Without a string code it is any other error.
+    const odd = Object.assign(new Error('odd'), { name: 'ApiError' });
+    expect(loggableErrorFields(odd)).toMatchObject({ name: 'ApiError', message: 'odd' });
   });
 
   it('logs an errno error without its path', () => {

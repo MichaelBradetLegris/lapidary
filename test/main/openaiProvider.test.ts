@@ -6,14 +6,18 @@ import { NO_DEV_SWITCHES, readDevSwitches, setDevSwitches } from '../../src/main
 import { AppFailure } from '../../src/main/errors';
 import {
   OPENAI_BASE_URL,
+  OPENAI_VERIFY_URL,
   clientOptions,
   createOpenAiProvider,
   incompleteFailure,
+  isStreamingVerificationError,
   mapOpenAiError,
-  outputTextOf
+  outputTextOf,
+  unverifiedStreamMessage
 } from '../../src/main/providers/openai';
 import { createRegistry } from '../../src/main/providers/registry';
 import type { ProgressPhase, ReviewProvider } from '../../src/main/providers/types';
+import { selectedModel } from '../../src/renderer/state/models';
 import { LOWER_EFFORT_ADVICE, groupDigits, replyLimitMessage } from '../../src/shared/ai/replyLimit';
 import type { ReviewRequest } from '../../src/shared/ipc';
 import { fromPromptNumbering } from '../../src/shared/prompt/chapter';
@@ -23,6 +27,7 @@ import { chapterStats } from '../../src/shared/text/stats';
 import {
   MOCK_OUTPUT_LIMIT,
   OBSIDIAN_REVIEW,
+  UNVERIFIED_STREAM_MESSAGE,
   scenarioForKey,
   startMockOpenAi,
   type MockOpenAi
@@ -30,7 +35,8 @@ import {
 
 /* The OpenAI provider driven over real HTTP against the local mock in
    test/helpers/mockOpenAi.ts: model listing, a streamed review, the error
-   mapping for 401, 429, 5xx and a dead server, a malformed reply, and Cancel.
+   mapping for 401, 429, 5xx, a dead server and an unverified organisation, a
+   malformed reply, and Cancel.
    The key picks the mock's scenario. No real key and no network. */
 
 const SAMPLE = path.join(
@@ -124,11 +130,24 @@ describe('OpenAI provider against the local mock', () => {
     expect((await provider(null).runtime()).state).toBe('not-signed-in');
   });
 
-  it('lists text models newest first and marks the newest gpt-5 as the default', async () => {
+  it('lists text models newest first and marks the newest full gpt-5 as the default (hardening.10)', async () => {
     const models = await provider('sk-test-ok-1234').models();
     const ids = models.map((m) => m.value);
-    expect(ids).toEqual(['gpt-6-preview-mock', 'gpt-5.5', 'gpt-5-mini', 'gpt-5', 'o3', 'gpt-4o']);
+    expect(ids).toEqual([
+      'gpt-6-preview-mock',
+      'gpt-5.5-pro',
+      'gpt-5.5',
+      'gpt-5-codex',
+      'gpt-5-mini',
+      'gpt-5-chat-latest',
+      'gpt-5',
+      'o3',
+      'gpt-4o'
+    ]);
+    // o3-deep-research is left out as a search model. The newer -pro, -codex and
+    // -chat models are listed, but the default is never one of them.
     expect(models.filter((m) => m.isDefault).map((m) => m.value)).toEqual(['gpt-5.5']);
+    expect(models.find((m) => m.isDefault)?.label).toBe('gpt-5.5 (default)');
   });
 
   it('streams a review and returns the parsed output, model, usage and an estimated cost', async () => {
@@ -225,7 +244,7 @@ describe('OpenAI provider against the local mock', () => {
     expect(review.hunks).toHaveLength(23);
   });
 
-  it('resolves an empty model setting to the newest gpt-5', async () => {
+  it('resolves an empty model setting to the newest full gpt-5, never the newer gpt-5.5-pro', async () => {
     const before = mock.requests.length;
     const result = await provider('sk-test-ok-1234').review(request({ model: '' }), hooks());
     expect(result.model).toBe('gpt-5.5-2026-06-01');
@@ -317,6 +336,64 @@ describe('OpenAI provider against the local mock', () => {
     );
   });
 
+  it('says how to verify the organisation when OpenAI will not stream to it (hardening.10)', async () => {
+    expect(scenarioForKey('Bearer sk-unverified-0000')).toBe('unverified');
+    const unverified = provider('sk-unverified-0000');
+    // The model list is not refused; only a streamed request is.
+    expect((await unverified.models()).some((m) => m.isDefault)).toBe(true);
+    const before = mock.requests.length;
+    const h = hooks();
+    const err = await failure(unverified.review(request(), h));
+    expect(err.code).toBe('openai-failed');
+    expect(err.message).toBe(unverifiedStreamMessage('review the chapter', 'gpt-5-mini'));
+    expect(err.message).toBe(
+      "OpenAI needs this key's organisation to be verified before gpt-5-mini can review the chapter. " +
+        `Verify it with Verify Organization at ${OPENAI_VERIFY_URL} and try again; a new verification can take up to 15 minutes to take effect. ` +
+        'Or choose another model, as not every model needs it.'
+    );
+    expect(OPENAI_VERIFY_URL).toBe('https://platform.openai.com/settings/organization/general');
+    // OpenAI's own words stay in `detail`, which is never logged.
+    expect(err.detail).toContain(UNVERIFIED_STREAM_MESSAGE);
+    const sent = mock.requests.slice(before).filter((r) => r.path === '/v1/responses');
+    expect(sent).toHaveLength(1);
+    expect((sent[0]?.body as Record<string, unknown>)['stream']).toBe(true);
+    expect(h.phases.at(-1)).toBe('done');
+    // An empty model setting names the model the list's default resolves to.
+    const resolved = await failure(unverified.review(request({ model: '' }), hooks()));
+    expect(resolved.message).toMatch(
+      /^OpenAI needs this key's organisation to be verified before gpt-5\.5 can /
+    );
+    // An unstreamed request is answered, as the API answers it, so the connection
+    // test passes for an organisation whose review is refused (C.82, found and left).
+    const tested = await unverified.test!({ signal: new AbortController().signal });
+    expect(tested.model).toBe('gpt-5.5-2026-06-01');
+    const testSent = mock.requests.at(-1)?.body as Record<string, unknown>;
+    expect(testSent['model']).toBe('gpt-5.5');
+    expect(testSent['stream']).toBeUndefined();
+  });
+
+  it('takes the codex, not the newer pro the list opens with, when only skipped models are listed (hardening.10)', async () => {
+    expect(scenarioForKey('Bearer sk-test-skippedonly')).toBe('skippedonly');
+    const skippedOnly = provider('sk-test-skippedonly-0000'); // check-public: allow
+    const models = await skippedOnly.models();
+    expect(models.map((m) => m.value)).toEqual(['gpt-5.5-pro', 'gpt-5-codex', 'gpt-5-chat-latest']);
+    // The one row marked default is the one the review dialog's select shows.
+    expect(models.filter((m) => m.isDefault).map((m) => m.label)).toEqual(['gpt-5-codex (default)']);
+    expect(selectedModel(models, '')).toBe('gpt-5-codex');
+    // And it is what an empty model setting sends, for a review and for a connection test.
+    const before = mock.requests.length;
+    const result = await skippedOnly.review(request({ model: '' }), hooks());
+    expect(result.model).toBe('gpt-5-codex-2026-06-01');
+    expect((await skippedOnly.test!({ signal: new AbortController().signal })).model).toBe(
+      'gpt-5-codex-2026-06-01'
+    );
+    const sent = mock.requests.slice(before).filter((r) => r.path === '/v1/responses');
+    expect(sent.map((r) => (r.body as Record<string, unknown>)['model'])).toEqual([
+      'gpt-5-codex',
+      'gpt-5-codex'
+    ]);
+  });
+
   it('cancels a streaming review through the abort signal', async () => {
     const controller = new AbortController();
     const h = hooks(controller.signal);
@@ -390,6 +467,95 @@ describe('OpenAI helpers', () => {
     expect((mapOpenAiError(other, 'review the chapter', chapterFacts) as AppFailure).message).toMatch(
       /The model or the effort level may not be available/
     );
+  });
+
+  it('knows the refusal to stream to an unverified organisation, and nothing else (hardening.10)', () => {
+    const refusal = (status: number, error: Record<string, unknown>): APIError =>
+      APIError.generate(status, { error }, undefined, new Headers());
+    const real = {
+      message: UNVERIFIED_STREAM_MESSAGE,
+      type: 'invalid_request_error',
+      param: 'stream',
+      code: 'unsupported_value'
+    };
+    expect(isStreamingVerificationError(refusal(400, real))).toBe(true);
+    // The words alone, or a refusal of `stream` that speaks of verifying, are enough.
+    expect(isStreamingVerificationError(refusal(400, { ...real, param: null, code: null }))).toBe(true);
+    expect(
+      isStreamingVerificationError(
+        refusal(400, { ...real, message: 'Streaming gpt-5 needs a verified organization.' })
+      )
+    ).toBe(true);
+    // Other 400s, another status, and anything that is not the API's error are not.
+    expect(
+      isStreamingVerificationError(
+        refusal(400, { ...real, message: "Unsupported value: 'stream' is not supported with this model." })
+      )
+    ).toBe(false);
+    expect(
+      isStreamingVerificationError(
+        refusal(400, {
+          message: "Unsupported value: 'xhigh' is not supported with this model.",
+          param: 'reasoning.effort',
+          code: 'unsupported_value'
+        })
+      )
+    ).toBe(false);
+    // Only a 400 or a 403 carries it, and a refusal of `stream` only on a 400.
+    expect(isStreamingVerificationError(refusal(401, real))).toBe(false);
+    expect(
+      isStreamingVerificationError(
+        refusal(403, { ...real, message: 'Streaming needs a verified organization.' })
+      )
+    ).toBe(false);
+    expect(isStreamingVerificationError(new Error(UNVERIFIED_STREAM_MESSAGE))).toBe(false);
+    expect(isStreamingVerificationError(UNVERIFIED_STREAM_MESSAGE)).toBe(false);
+
+    // Mapped with the fix, for whatever was being done; no model named outside a review.
+    const mapped = mapOpenAiError(refusal(400, real), 'answer the test') as AppFailure;
+    expect(mapped.code).toBe('openai-failed');
+    expect(mapped.message).toBe(unverifiedStreamMessage('answer the test'));
+    expect(mapped.message).toMatch(
+      /^OpenAI needs this key's organisation to be verified before this model can answer the test\. /
+    );
+    expect(mapped.message).toContain(OPENAI_VERIFY_URL);
+    expect(mapped.detail).toContain('must be verified to stream');
+    // A review names its model.
+    const facts = { who: 'gpt-5', words: 3_000, effort: 'high' as const };
+    expect((mapOpenAiError(refusal(400, real), 'review the chapter', facts) as AppFailure).message).toBe(
+      unverifiedStreamMessage('review the chapter', 'gpt-5')
+    );
+
+    // The related refusal of a model outright, as reported for o3 and gpt-image-1,
+    // is a 403 (C.82): it asks for the same verification, not a new key.
+    const toUse = {
+      message:
+        'Your organization must be verified to use the model `o3`. Please go to: https://platform.openai.com/settings/organization/general and click on Verify Organization. If you just verified, it can take up to 15 minutes for access to propagate.',
+      type: 'invalid_request_error',
+      param: null,
+      code: null
+    };
+    expect(isStreamingVerificationError(refusal(403, toUse))).toBe(true);
+    expect(isStreamingVerificationError(refusal(400, toUse))).toBe(true);
+    expect(isStreamingVerificationError(refusal(403, real))).toBe(true);
+    const refusedModel = mapOpenAiError(refusal(403, toUse), 'review the chapter', {
+      ...facts,
+      who: 'o3'
+    }) as AppFailure;
+    expect(refusedModel.code).toBe('openai-failed');
+    expect(refusedModel.message).toBe(unverifiedStreamMessage('review the chapter', 'o3'));
+    expect(refusedModel.detail).toContain('must be verified to use the model');
+    // A plain 403 is still a refused key, which Settings can fix.
+    const plain403 = refusal(403, {
+      message: 'You are not allowed to sample from this model',
+      type: 'invalid_request_error',
+      param: null,
+      code: null
+    });
+    expect(isStreamingVerificationError(plain403)).toBe(false);
+    const rejected = mapOpenAiError(plain403, 'review the chapter', facts) as AppFailure;
+    expect(rejected.code).toBe('openai-invalid-key');
+    expect(rejected.message).toBe('OpenAI rejected the API key. Check it in Settings, or paste a new one.');
   });
 
   it('says what stopped an incomplete reply other than the output limit (files.10)', () => {

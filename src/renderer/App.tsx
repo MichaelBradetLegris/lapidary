@@ -21,10 +21,11 @@ import { welcomeNotKept, welcomeShown } from '../shared/ui/welcome';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
 import { bodyClassName, columnClassName } from '../shared/ui/columns';
 import { shellInert } from '../shared/ui/dialog';
-import type { ApiEventMap, ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
+import type { ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
 import { PROVIDER_NAMES, type Provider, type Review } from '../shared/types';
 import { ColumnStrip } from './components/ColumnStrip';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { DiagnosticsDialog } from './components/DiagnosticsDialog';
 import { EditPopover } from './components/EditPopover';
 import { FileList } from './components/FileList';
 import { FilterChips } from './components/FilterChips';
@@ -37,33 +38,24 @@ import { NotificationCards } from './components/NotificationCards';
 import { ReviewDialog } from './components/ReviewDialog';
 import { ReviewPane } from './components/ReviewPane';
 import { SettingsDialog } from './components/SettingsDialog';
+import { SettingsUnreadable } from './components/SettingsUnreadable';
 import { SetupScreen } from './components/SetupScreen';
 import { SidePanel } from './components/SidePanel';
 import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { ApiError, call, errorMessage } from './state/client';
-import {
-  installCloseGuard,
-  type CloseGuardDeps,
-  type CloseGuardIo,
-  type PageWrites
-} from './state/closeGuard';
-import {
-  draftWriteFailures,
-  flushDraftWrites,
-  installDraftPersistence,
-  retryDraftWrites,
-  type DraftIo
-} from './state/drafts';
+import { installCloseGuard, type CloseGuardDeps } from './state/closeGuard';
+import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state/drafts';
 import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
-import { dismissHint, flushHintWrites, type HintIo } from './state/hints';
-import { flushSplitWrites } from './state/split';
+import { dismissHint, type HintIo } from './state/hints';
+import { CLOSE_GUARD_IO, PAGE_WRITES } from './state/pageIo';
 import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { noteMergeMarkers } from './state/mergeMarkers';
 import { useKeyboardBindings } from './state/keyboard';
 import { useProgressLabel } from './state/progress';
 import { reviewWithoutSaving, saveThenReview } from './state/reviewStart';
+import { readSettings, useSettingsRead, type SettingsReadIo } from './state/settingsRead';
 import { useApp, type NotificationAction } from './state/store';
 import { closeWelcome, reopenWelcome, type WelcomeIo } from './state/welcome';
 import {
@@ -72,7 +64,6 @@ import {
   markReviewPersistedState,
   retryReviewWrites,
   reviewWriteFailureOf,
-  reviewWriteFailures,
   writeReviewNow
 } from './state/reviewPersistence';
 import { baseFrom, useSaveChapter, type SaveDeps } from './state/saveChapter';
@@ -85,54 +76,19 @@ const DRAFT_IO: DraftIo = {
   setAside: (request) => call('drafts:set-aside', request)
 };
 
-/** Listen to one of main's events, or to nothing outside the app window. */
-function onMain<E extends 'app:close-requested' | 'app:flush'>(
-  event: E,
-  listener: (payload: ApiEventMap[E]) => void
-): () => void {
-  return typeof window.api?.on === 'function' ? window.api.on(event, listener) : () => undefined;
-}
-
-/**
- * How the close guard reaches main (apply.9, state/closeGuard.ts). `call`
- * sends before its first await, so each message is on its way when this
- * returns: a close right after a decision already finds it pushed.
- */
-const CLOSE_GUARD_IO: CloseGuardIo = {
-  pushState: (state) => void call('app:guard-state', state).catch(() => undefined),
-  sendStatus: (status) => void call('app:close-status', { status }).catch(() => undefined),
-  sendDecision: (close) => void call('app:close-decision', { close }).catch(() => undefined),
-  onCloseRequested: (listener) => onMain('app:close-requested', () => listener()),
-  onFlush: (listener) => onMain('app:flush', ({ reason }) => listener(reason))
-};
-
 /** How a one-time hint is put away for good (apply.12, state/hints.ts). */
 const HINT_IO: HintIo = {
   setSettings: (patch) => call('settings:set', patch)
 };
 
+/** How the page asks main for the settings (hardening.15, state/settingsRead.ts). */
+const SETTINGS_READ_IO: SettingsReadIo = {
+  getSettings: () => call('settings:get', undefined)
+};
+
 /** How Start, Skip and Show the welcome guide again write the settings (setup.11, state/welcome.ts). */
 const WELCOME_IO: WelcomeIo = {
   setSettings: (patch) => call('settings:set', patch)
-};
-
-/**
- * The review and paragraph writers, which a close and the end of a session
- * write out (apply.9), and a hint put away just before, such as the Save hint
- * that Save and close puts away (apply.12), and the side panel's split moved
- * just before (ui.6). A hint or a split that cannot be written is not
- * reported: the hint shows again at the next start, which has the split last
- * written.
- */
-const PAGE_WRITES: PageWrites = {
-  flush: async () => {
-    await Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites(), flushSplitWrites()]);
-  },
-  retry: () => {
-    retryReviewWrites();
-    retryDraftWrites();
-  },
-  failures: () => [...reviewWriteFailures(), ...draftWriteFailures()]
 };
 
 /**
@@ -172,7 +128,12 @@ export function App(): React.JSX.Element {
   const setSettingsOpen = useApp((s) => s.setSettingsOpen);
   const setupOpen = useApp((s) => s.setupOpen);
   const setSetupOpen = useApp((s) => s.setSetupOpen);
+  const diagnosticsOpen = useApp((s) => s.diagnosticsOpen);
+  const setDiagnosticsOpen = useApp((s) => s.setDiagnosticsOpen);
   const welcomeClosed = useApp((s) => s.welcomeClosed);
+  const settingsReadFailed = useSettingsRead((s) => s.failed);
+  const settingsTrying = useSettingsRead((s) => s.trying);
+  const settingsFailedAgain = useSettingsRead((s) => s.failedAgain);
   const chapterSaving = useApp((s) => s.chapterSaving);
   const questionOpen = useApp((s) => s.confirmSpec !== null);
 
@@ -306,14 +267,25 @@ export function App(): React.JSX.Element {
     void refreshIndex();
   }, [refreshIndex]);
 
+  /* The settings, as the page loads and from the card's Try again
+     (`readSettings`). While settings.json cannot be read, main hands the page
+     none and the store keeps none, so the card below stands in place of
+     everything else, and nothing that assumes a first run shows or writes
+     (hardening.15, C.86). */
+  const loadSettings = useCallback(
+    (again: boolean) => {
+      void readSettings(SETTINGS_READ_IO, again)
+        .then((read) => {
+          if (read) refreshFiles();
+        })
+        .catch(fail);
+    },
+    [refreshFiles, fail]
+  );
+
   useEffect(() => {
-    call('settings:get', undefined)
-      .then((loaded) => {
-        setSettings(loaded);
-        refreshFiles();
-      })
-      .catch(fail);
-  }, [setSettings, refreshFiles, fail]);
+    loadSettings(false);
+  }, [loadSettings]);
 
   /* History lists the chapter on screen, so a reply for a chapter the author
      has left since is dropped (apply.3). */
@@ -967,12 +939,16 @@ export function App(): React.JSX.Element {
           // The no-backups card: the backups root, as in Settings (apply.11).
           revealBackups();
           break;
+        case 'show-diagnostics':
+          // Shows the report; only Setup's Copy diagnostics copies it at once (hardening.5).
+          setDiagnosticsOpen('show');
+          break;
         default:
-          // Diagnostics (hardening.5) and updates (release.9) wire theirs in when they land.
+          // Updates (release.9) wire theirs in when they land.
           break;
       }
     },
-    [openSettings, openSetup, fail, revealBackups]
+    [openSettings, openSetup, fail, revealBackups, setDiagnosticsOpen]
   );
 
   /* The status bar's runtime label is a button: Setup for Claude, Settings
@@ -987,7 +963,7 @@ export function App(): React.JSX.Element {
      OpenAI's (setup.9). */
   const usageNotice = claudeInUse ? ai.rateLimit : null;
 
-  /* The four dialogs, each drawn only when it can be. They sit outside the
+  /* The dialogs, each drawn only when it can be. They sit outside the
      page, which is inert while one of them is open, so Tab and Shift+Tab go
      round the dialog's own controls and nothing behind its backdrop can take
      the focus; a question makes the dialogs inert too (ui.4, `shellInert`). */
@@ -1063,10 +1039,53 @@ export function App(): React.JSX.Element {
         onShowWelcome={showWelcomeAgain}
       />
     ) : null;
+  /* Diagnostics (hardening.5): from Setup's Copy diagnostics, which copies
+     the report as it comes in, or a card's Show diagnostics. */
+  const diagnosticsDialog = diagnosticsOpen ? (
+    <DiagnosticsDialog copyOnOpen={diagnosticsOpen === 'copy'} onClose={() => setDiagnosticsOpen(null)} />
+  ) : null;
   const inert = shellInert({
-    dialog: [newChapterDialog, manualReviewDialog, reviewDialog, settingsDialog].some((d) => d !== null),
+    dialog: [newChapterDialog, manualReviewDialog, reviewDialog, settingsDialog, diagnosticsDialog].some(
+      (d) => d !== null
+    ),
     question: questionOpen
   });
+
+  /* settings.json could not be read (hardening.15, C.86): one card says so,
+     in the words for the reason main gave, with Try again, in place of
+     everything else, the toolbar and the status bar too, whose buttons lead to
+     Settings, Setup and the rest, none of which has settings to work from. The
+     notification cards stay, for a Try again whose request fails, and so does
+     the question, for a close. Diagnostics, which needs no settings, opens
+     over the card from its own Show diagnostics or a card's, and the page is
+     inert only under what this layout draws: under the whole list of dialogs
+     it went inert with nothing over it and could not be left (the
+     hardening.15 review). A read that works puts the settings in the store,
+     and the page is drawn as usual. */
+  if (settingsReadFailed && settings === null) {
+    const cardInert = shellInert({ dialog: diagnosticsDialog !== null, question: questionOpen });
+    return (
+      <div className="app-shell">
+        <div className="app-shell__page" inert={cardInert.page}>
+          <div className="body body--single">
+            <NotificationCards onAction={onCardAction} />
+            <SettingsUnreadable
+              reason={settingsReadFailed}
+              trying={settingsTrying}
+              failedAgain={settingsFailedAgain}
+              onTryAgain={() => loadSettings(true)}
+              onShowFile={() => void call('shell:reveal', { target: 'settings' }).catch(fail)}
+              onShowDiagnostics={() => setDiagnosticsOpen('show')}
+            />
+          </div>
+        </div>
+        <div className="app-shell__dialogs" inert={cardInert.dialogs}>
+          {diagnosticsDialog}
+        </div>
+        <ConfirmDialog />
+      </div>
+    );
+  }
 
   /* The Setup screen, or the welcome guide, in place of the chapter list, the
      prose and the side panel (setup.7, setup.11). Setup comes first, so the
@@ -1100,6 +1119,7 @@ export function App(): React.JSX.Element {
                 testing={ai.testing.claude ?? false}
                 testOutcome={ai.testOutcomes.claude ?? null}
                 rateLimit={ai.rateLimit}
+                onCopyDiagnostics={() => setDiagnosticsOpen('copy')}
               />
             ) : settings ? (
               <WelcomeScreen
@@ -1128,6 +1148,7 @@ export function App(): React.JSX.Element {
           {manualReviewDialog}
           {reviewDialog}
           {settingsDialog}
+          {diagnosticsDialog}
         </div>
         <ConfirmDialog />
       </div>
@@ -1246,6 +1267,7 @@ export function App(): React.JSX.Element {
         {manualReviewDialog}
         {reviewDialog}
         {settingsDialog}
+        {diagnosticsDialog}
       </div>
       {/* Last, above everything: a question can be asked from any dialog above. */}
       <ConfirmDialog />

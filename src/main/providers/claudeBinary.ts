@@ -92,6 +92,66 @@ export interface LocatedClaude {
   onPath: boolean;
 }
 
+/**
+ * What the last lookup found and what its `--version` said (`installedCli`
+ * in claude.ts), for diagnostics and `app:info` (hardening.5), which read it
+ * and never look again.
+ */
+export interface InstalledCli extends LocatedClaude {
+  /** null until `--version` has answered for this path, or when its answer could not be read */
+  version: string | null;
+}
+
+/**
+ * The record after a lookup: what it found, keeping the version already read
+ * when the path is the same, since a lookup does not run `--version`.
+ */
+export function afterLookup(
+  previous: InstalledCli | null | undefined,
+  located: LocatedClaude | null
+): InstalledCli | null {
+  if (!located) return null;
+  return { ...located, version: previous?.path === located.path ? previous.version : null };
+}
+
+/** The record after `--version` of `executable` answered; a version of another path changes nothing. */
+export function afterVersion(
+  previous: InstalledCli | null | undefined,
+  executable: string,
+  version: string | null
+): InstalledCli | null | undefined {
+  return previous?.path === executable ? { ...previous, version } : previous;
+}
+
+/**
+ * Where `installedCli` (claude.ts) is kept. The runtime check writes to it
+ * itself (`createClaudeRuntimeCheck`), so what `app:info` and Copy
+ * diagnostics read is what the check found (hardening.5 review); claude.ts
+ * writes a lookup made outside a check, for a model list, a review or a
+ * test before the first check.
+ */
+export interface InstalledRecord {
+  /** what the last lookup found and its version; null: not installed; undefined: not looked for yet */
+  current(): InstalledCli | null | undefined;
+  /** a lookup found this, or nothing (`afterLookup`) */
+  lookedUp(located: LocatedClaude | null): void;
+  /** `--version` of `executable` said this (`afterVersion`) */
+  versionRead(executable: string, version: string | null): void;
+}
+
+export function createInstalledRecord(): InstalledRecord {
+  let installed: InstalledCli | null | undefined;
+  return {
+    current: () => installed,
+    lookedUp: (located) => {
+      installed = afterLookup(installed, located);
+    },
+    versionRead: (executable, version) => {
+      installed = afterVersion(installed, executable, version);
+    }
+  };
+}
+
 /** The first candidate that exists, or null when Claude Code is not installed. */
 export async function locateClaudeCode(deps: LocateDeps): Promise<LocatedClaude | null> {
   if (deps.noClaudeCode) return null;

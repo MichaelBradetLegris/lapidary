@@ -75,18 +75,22 @@ The key must be a real environment variable, set before the app starts. Claude C
 
 ## Connecting OpenAI
 
+OpenAI in Lapidary is experimental: it has been tested only with a stand-in for OpenAI's service, not with a real key, so a review may fail in ways not yet seen. The review dialog and Settings say so too.
+
 1. Create a key at https://platform.openai.com/api-keys. It belongs to an OpenAI Platform account, which is separate from a ChatGPT subscription and is billed per token. Make sure the account has credit.
 2. In the app, open **Settings**, paste the key into the **OpenAI API key** field, and click **Save key**. The field empties at once and the status line changes to "saved in Settings, encrypted (ends xxxx)".
-3. In **Review with AI**, choose **OpenAI (API key)** as the provider.
+3. In **Review with AI**, choose **OpenAI (API key, experimental)** as the provider.
 
 Alternatively, set `OPENAI_API_KEY` as an environment variable, the same way as `ANTHROPIC_API_KEY` above, before starting the app. It is used only when no key is saved, and Settings says which one is active. **Remove key** deletes the saved key.
+
+Unless you choose a model in **Review with AI**, reviews use the newest full GPT-5 your key can use, else the newest GPT-5 mini, else nano. A pro, codex or chat model is used only when your key can use no other, and a pro model, which costs several times as much, only when it can use nothing else; the list marks the one that will be used "(default)". OpenAI streams some models, gpt-5 among them, only to organisations that have verified their identity, and some it lets only those organisations use at all; if a review says yours has not been verified, verify it with **Verify Organization** at https://platform.openai.com/settings/organization/general, or choose another model.
 
 ## First run
 
 The first time you start the app, a welcome guide takes the place of the main window. Each of its three steps says when it is done, and you can do them in any order:
 
 1. **Connect Claude** says where Claude stands, in Setup's words ("Claude Code is not installed", "Claude is ready" and so on). **Set up Claude** opens Setup ([Connecting Claude](#connecting-claude)), and its **Close** brings you back to the guide. To review with OpenAI instead, click **Use OpenAI instead (experimental, pay per use)**, then save a key in Settings ([Connecting OpenAI](#connecting-openai)).
-2. **Choose your manuscript folder.** Click **Choose folder** and pick the folder that holds your novel's chapters: your Obsidian vault, or a folder inside it. The app lists every `.md` and `.txt` file in it and its subfolders as a chapter, leaving out folders whose names start with a dot, such as `.obsidian` and `.trash` (the full list is under [Working in an Obsidian vault](#working-in-an-obsidian-vault)), so choose the novel's own folder rather than a vault full of other notes. It changes a chapter file only when you press **Save to chapter**, and first copies the version it replaces into a backup in its own data folder. The one file it adds of its own is `GUIDELINES.md` (the next step); the chapters you make with **New chapter**, the + beside "Chapters", go there too. Reviews are kept in the app's data folder unless you choose a **Reviews folder** in Settings.
+2. **Choose your manuscript folder.** Click **Choose folder** and pick the folder that holds your novel's chapters: your Obsidian vault, or a folder inside it. The app lists the `.md` and `.txt` files in it and its subfolders as chapters, leaving out a few, among them the guidelines file, Excalidraw drawings and anything whose name starts with a dot, such as the `.obsidian` and `.trash` folders (the full list is under [Working in an Obsidian vault](#working-in-an-obsidian-vault)), so choose the novel's own folder rather than a vault full of other notes. It changes a chapter file only when you press **Save to chapter**, and first copies the version it replaces into a backup in its own data folder. The one file it adds of its own is `GUIDELINES.md` (the next step); the chapters you make with **New chapter**, the + beside "Chapters", go there too. Reviews are kept in the app's data folder unless you choose a **Reviews folder** in Settings.
 3. **Fill in your style sheet.** **Create and open in Obsidian** makes `GUIDELINES.md` from a template and opens it in Obsidian; once the file is there, the button reads **Open in Obsidian**. **Open with default app** opens it in your computer's app for `.md` files instead, and **Show in folder** shows it in File Explorer; each makes the file first if it is not there yet. Fill in its Style sheet section ([The guidelines file](#the-guidelines-file)), save it, and come back to the app: the step is done once the section holds something.
 
 Then click **Start**, which works once a folder is chosen; the line beside it says what is still to do. **Skip** closes the guide at any time. You can change the folder later in **Settings**, which also has **Show the welcome guide again**.
@@ -204,10 +208,10 @@ They apply to Claude Code everywhere, not only in this app. Setting them in `~/.
 
 **Where the app keeps its data.** In `%APPDATA%\ai-grammar-checker` (its name dates from before the app was renamed):
 
-- `settings.json`: your settings. If it was ever unreadable, a copy named `settings.json.corrupt-<time>` sits beside it.
+- `settings.json`: your settings. If it was ever unreadable, a copy named `settings.json.corrupt-<time>` sits beside it. While the app cannot read it, because another program holds it open, or because it is damaged and cannot be copied aside, the app says so with Try again and changes nothing in it.
 - `secrets.json`: the encrypted OpenAI key. It exists only once you have saved a key.
 - `reviews\`: your reviews, unless you chose another reviews folder in Settings. Each review holds the full text of its chapter.
-- `logs\main.log`, and `main.1.log` once it fills: a short record of events, such as start, quit and problems the app worked around. It never holds chapter text, prompts, replies, keys or email addresses, and your user folder appears in it as `~`.
+- `logs\main.log`, and `main.1.log` once it fills: a short record of events: start and quit, what each check of Claude or OpenAI found, each review and save as sizes, counts and times, requests that failed, and problems the app worked around. It never holds chapter text, guidelines, prompts, replies, keys or email addresses, and your user folder appears in it as `~`.
 - Folders that Electron keeps for itself, such as caches.
 
 Your chapters change only when you click **Save to chapter**. Besides them, the app adds to your manuscript folder only `GUIDELINES.md`, once and never overwritten, the chapters you make with **New chapter** and, if you chose a reviews folder inside it, your reviews. Claude Code keeps its own sign-in and settings; the app holds none of them.

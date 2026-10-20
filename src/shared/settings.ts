@@ -6,6 +6,7 @@ import {
   type Provider,
   type Settings
 } from './types';
+import { extensionOf, hasNul, isAbsolutePath } from './paths';
 import { normalizeSplit } from './ui/split';
 import { normalizeTheme } from './ui/theme';
 import { normalizeZoom } from './ui/zoom';
@@ -31,6 +32,51 @@ function nullableString(value: unknown, fallback: string | null): string | null 
   return typeof value === 'string' && value.length > 0 ? value : fallback;
 }
 
+/**
+ * A folder the settings name, kept only when it is an absolute path with no
+ * NUL in it; anything else is dropped to null, the usual folder (hardening.8).
+ * A relative path would be read from whatever folder the app was started in.
+ */
+function folderSetting(value: unknown): string | null {
+  return typeof value === 'string' && isAbsolutePath(value) && !hasNul(value) ? value : null;
+}
+
+/** The file types the guidelines file may be, as `assertGuidelinesFile` in main allows. */
+const GUIDELINES_EXTENSIONS: ReadonlySet<string> = new Set(['.md', '.txt']);
+
+/**
+ * The guidelines file the settings name, kept only when it is an absolute path
+ * to a .md or .txt file; anything else is dropped to null, the GUIDELINES.md in
+ * the manuscript folder (hardening.8).
+ */
+function guidelinesSetting(value: unknown): string | null {
+  const file = folderSetting(value);
+  return file !== null && GUIDELINES_EXTENSIONS.has(extensionOf(file)) ? file : null;
+}
+
+/** The settings that name a folder or a file, which the normaliser drops when it cannot use them. */
+export type PathSettingKey = 'manuscriptFolder' | 'reviewsFolder' | 'guidelinesPath';
+
+const PATH_SETTING_KEYS: readonly PathSettingKey[] = ['manuscriptFolder', 'reviewsFolder', 'guidelinesPath'];
+
+/**
+ * The first folder or file in `patch` that `normalizeSettings` would drop to
+ * null, or null when there is none. Null itself is kept (the usual folder or
+ * file), and a key the patch leaves out, or sends as undefined, is not looked
+ * at. The drop is for a settings.json read from disk; main refuses a patch
+ * this names rather than save null over what was chosen before (hardening.8
+ * review, PLAN 11.3 d).
+ */
+export function droppedPathSetting(patch: object): PathSettingKey | null {
+  for (const key of PATH_SETTING_KEYS) {
+    const value = (patch as Record<string, unknown>)[key];
+    if (value === undefined || value === null) continue;
+    const kept = key === 'guidelinesPath' ? guidelinesSetting(value) : folderSetting(value);
+    if (kept === null) return key;
+  }
+  return null;
+}
+
 /** Unique non-empty strings, in their first order. */
 function stringSet(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -43,11 +89,11 @@ function stringSet(value: unknown): string[] {
 
 export function normalizeSettings(input: unknown): Settings {
   const raw = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
-  const manuscriptFolder = nullableString(raw['manuscriptFolder'], DEFAULT_SETTINGS.manuscriptFolder);
+  const manuscriptFolder = folderSetting(raw['manuscriptFolder']);
   return {
     manuscriptFolder,
-    reviewsFolder: nullableString(raw['reviewsFolder'], DEFAULT_SETTINGS.reviewsFolder),
-    guidelinesPath: nullableString(raw['guidelinesPath'], DEFAULT_SETTINGS.guidelinesPath),
+    reviewsFolder: folderSetting(raw['reviewsFolder']),
+    guidelinesPath: guidelinesSetting(raw['guidelinesPath']),
     provider: isProvider(raw['provider']) ? raw['provider'] : DEFAULT_SETTINGS.provider,
     // Any model a file names is kept, even one the list no longer shows; empty means the default.
     model: typeof raw['model'] === 'string' && raw['model'] ? raw['model'] : DEFAULT_SETTINGS.model,

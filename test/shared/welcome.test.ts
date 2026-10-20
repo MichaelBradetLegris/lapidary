@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { PRO_PRESELECT_HINT } from '../../src/shared/ai/claudeModels';
+import { OPENAI_MATURITY } from '../../src/shared/ai/openai';
 import { APP_NAME } from '../../src/shared/branding';
 import type { EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../../src/shared/ipc';
 import { normalizeSettings } from '../../src/shared/settings';
@@ -15,6 +16,8 @@ import {
   SHOW_WELCOME_AGAIN,
   USE_OPENAI,
   folderGuidelinesFact,
+  openAiChoiceLabel,
+  openAiStepText,
   folderReviewsFact,
   welcomeAgainPatch,
   welcomeNotKept,
@@ -187,6 +190,18 @@ describe('1. Connect Claude', () => {
     expect(CLAUDE_STEP_TEXT).toContain(`${APP_NAME} reviews your chapters with Claude through Claude Code`);
   });
 
+  it('says OpenAI is experimental only while OPENAI_MATURITY does (hardening.11)', () => {
+    expect(USE_OPENAI).toBe(openAiChoiceLabel(OPENAI_MATURITY));
+    expect(OPENAI_STEP_TEXT).toBe(openAiStepText(OPENAI_MATURITY));
+    expect(openAiStepText('experimental')).toBe(
+      `Reviews go to OpenAI instead, billed per token to the account that owns the API key. OpenAI in ${APP_NAME} is experimental. Paste a key in Settings to finish this step.`
+    );
+    expect(openAiChoiceLabel('tested')).toBe('Use OpenAI instead (pay per use)');
+    expect(openAiStepText('tested')).toBe(
+      'Reviews go to OpenAI instead, billed per token to the account that owns the API key. Paste a key in Settings to finish this step.'
+    );
+  });
+
   it('with OpenAI chosen: its key, Open Settings while there is none, and the way back to Claude', () => {
     const none = step(
       { ...FRESH, provider: 'openai', openai: { provider: 'openai', state: 'not-signed-in' } },
@@ -217,7 +232,6 @@ describe('2. Choose your manuscript folder', () => {
       expect(facts).toHaveLength(4);
       // What the app lists.
       expect(facts[0]).toBe(FOLDER_LISTS);
-      expect(FOLDER_LISTS).toContain('.md and .txt');
       // That it changes a chapter only on Save to chapter.
       expect(facts[1]).toBe(FOLDER_SAVES);
       expect(FOLDER_SAVES).toContain('only when you press Save to chapter');
@@ -226,6 +240,14 @@ describe('2. Choose your manuscript folder', () => {
       // Where reviews live.
       expect(facts[3]).toMatch(/^Reviews are kept in /);
     }
+  });
+
+  it('says what the chapter list leaves out that an author meets, never that every file is listed (files.23)', () => {
+    expect(FOLDER_LISTS).toBe(
+      `${APP_NAME} lists the .md and .txt files in the folder and its subfolders as chapters, leaving out a few, among them the guidelines file, Excalidraw drawings and anything whose name starts with a dot, such as Obsidian's .obsidian and .trash folders.`
+    );
+    // listChapters leaves out more than the line names (PLAN 6.1), so the line may not claim all.
+    expect(FOLDER_LISTS).not.toMatch(/\bevery\b|\ball\b/i);
   });
 
   it('is to do with no folder, with Choose folder in blue, and done with one, naming it', () => {

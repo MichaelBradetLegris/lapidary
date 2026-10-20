@@ -42,9 +42,13 @@ export async function closeWelcome(io: WelcomeIo): Promise<void> {
  * Show the welcome guide again: writes `welcomeAgainPatch` from the settings
  * as they stand, then takes main's answer and lets the guide show, in one
  * update. Rejects with the write's error, and the guide then stays as it was.
+ * Without settings in the store, as while settings.json cannot be read, it
+ * writes nothing: a list of hints built from none would replace the
+ * author's once the file could be read (hardening.15).
  */
 export async function reopenWelcome(io: WelcomeIo): Promise<void> {
-  const hints = useApp.getState().settings?.dismissedHints ?? [];
-  const saved = await io.setSettings(welcomeAgainPatch(hints));
+  const current = useApp.getState().settings;
+  if (!current) return;
+  const saved = await io.setSettings(welcomeAgainPatch(current.dismissedHints));
   useApp.setState({ settings: saved, welcomeClosed: false });
 }

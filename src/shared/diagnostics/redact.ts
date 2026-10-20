@@ -98,6 +98,18 @@ export function stackFrames(stack: string | undefined, ctx: ScrubContext = {}, m
     .map((line) => truncate(scrub(line, ctx), 200));
 }
 
+/**
+ * The part of a stack after the error's message. V8 starts a stack with
+ * `<name>: <message>`, and a message that quotes text with a line break in
+ * it, as JSON.parse's does, can carry a line starting with "at" that would
+ * pass for a frame (hardening.3b): cut at the message, only frames are left.
+ */
+function afterMessage(stack: string, message: string): string {
+  if (message === '') return stack;
+  const at = stack.indexOf(message);
+  return at < 0 ? stack : stack.slice(at + message.length);
+}
+
 /** App error codes whose message quotes the model's reply. */
 function quotesModelOutput(code: string): boolean {
   return code.endsWith('-invalid-output') || code === 'claude-refusal';
@@ -113,12 +125,21 @@ interface ErrorLike {
 }
 
 /**
+ * Names an app error goes by: `AppFailure` in main, and `ApiError` in the
+ * page, which carries main's code and message across (`log:renderer`,
+ * hardening.4).
+ */
+const APP_ERROR_NAMES: ReadonlySet<string> = new Set(['AppFailure', 'ApiError']);
+
+/**
  * The one policy for putting an error in the log:
  *
- * - an app error (`AppFailure`, recognised by its string `code` and name) logs
- *   its code, plus its message unless that quotes model output; never `detail`;
+ * - an app error (`AppFailure`, or the page's `ApiError`, recognised by its
+ *   string `code` and name) logs its code, plus its message unless that
+ *   quotes model output; never `detail`;
  * - a SyntaxError logs its name and stack frames only, because V8 quotes the
- *   text it failed to parse in the message;
+ *   text it failed to parse in the message, and frames are read only from
+ *   the stack after the message;
  * - an errno error logs its name, code, errno and syscall, never the path;
  * - anything else logs its name, message and frames.
  */
@@ -129,9 +150,12 @@ export function loggableErrorFields(err: unknown, ctx: ScrubContext = {}): Recor
   const e = err as ErrorLike;
   const name = typeof e.name === 'string' ? e.name : 'Error';
   const message = typeof e.message === 'string' ? e.message : '';
-  const frames = stackFrames(typeof e.stack === 'string' ? e.stack : undefined, ctx).join(' | ');
+  const frames = stackFrames(
+    typeof e.stack === 'string' ? afterMessage(e.stack, message) : undefined,
+    ctx
+  ).join(' | ');
 
-  if (name === 'AppFailure' && typeof e.code === 'string') {
+  if (APP_ERROR_NAMES.has(name) && typeof e.code === 'string') {
     return quotesModelOutput(e.code)
       ? { code: e.code }
       : { code: e.code, message: truncate(scrub(message, ctx)) };

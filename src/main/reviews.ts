@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { APP_NAME } from '../shared/branding';
 import { unsavedDecisionCount } from '../shared/diff/compose';
 import type { LoadedReview, ReviewSummary } from '../shared/ipc';
 import { loggableErrorFields } from '../shared/diagnostics/redact';
@@ -73,7 +74,21 @@ function folderFor(reviewsFolder: string, sourcePath: string): string {
   return path.join(reviewsFolder, chapterSlug(sourcePath));
 }
 
+/**
+ * A new entry's name, before `.review.json`: the review's `createdAt` with
+ * its colons and dots made dashes. A review the app makes has
+ * `toISOString()`'s time; one whose time holds a `/` or `\`, which only a
+ * review file edited by hand could have, would name a subfolder of the
+ * chapter's folder, so it is refused with `invalid-input` (hardening.15,
+ * PLAN C.85). The words name the field, never the value.
+ */
 function stampFor(review: Review): string {
+  if (/[\\/]/.test(review.createdAt)) {
+    throw fail(
+      'invalid-input',
+      `This review could not be saved: its time (createdAt) holds a / or \\, which a file name cannot hold. A review ${APP_NAME} makes never has one, so the review file may have been edited by hand.`
+    );
+  }
   return review.createdAt.replace(/[:.]/g, '-');
 }
 
@@ -581,6 +596,8 @@ export async function reviewIndex(
  * from before a reviews-folder change, a `..` path, another chapter's entry)
  * gets a new entry in the right folder instead, so a save never fails, and
  * never lands somewhere else, for a reason that has to do with the path.
+ * A new entry whose time holds a separator is refused before anything is
+ * made or written (`stampFor`, hardening.15).
  *
  * A new entry becomes the review the chapter opens with (apply.26): it is the
  * review on screen, or one that finished while the author was in another
@@ -595,10 +612,19 @@ export async function saveReview(
   const ci = caseInsensitive(options);
   return serialized(async () => {
     const dir = folderFor(reviewsFolder, review.sourcePath);
-    await makeFolder(dir, reviewFolderName(review.sourcePath));
     const inPlace =
       file !== undefined && (await mayOverwrite(file, dir, review.sourcePath, ci)) ? file : null;
-    const target = inPlace ?? (await newEntryPath(dir, review, ci));
+    let target: string;
+    if (inPlace !== null) {
+      await makeFolder(dir, reviewFolderName(review.sourcePath));
+      target = inPlace;
+    } else {
+      // A time that cannot name a new entry is refused before the folder is
+      // made or anything is written (hardening.15).
+      const stamp = stampFor(review);
+      await makeFolder(dir, reviewFolderName(review.sourcePath));
+      target = await newEntryPath(dir, stamp, review, ci);
+    }
     await atomicWriteFile(target, serialize(review));
     cache.delete(path.resolve(target));
     if (inPlace === null) await markLastOpen(dir, review.sourcePath, path.basename(target), ci);
@@ -624,15 +650,23 @@ async function mayOverwrite(file: string, dir: string, sourcePath: string, ci: b
 
 /**
  * `<stamp>.review.json`, or `<stamp>-2.review.json` and so on when that name is
- * taken by another chapter's review. The same review saved again without a
- * path still lands on its own entry.
+ * taken by another chapter's review, `stamp` being `stampFor`'s. The same
+ * review saved again without a path still lands on its own entry.
+ *
+ * A name that is there but cannot be read may be this very review, so, as in
+ * `mayOverwrite`, the save fails saying why rather than go on to the next
+ * name, which would make a copy that opens in its place (apply.25). It also
+ * ends the search when no name can be read at all, as when the review's time
+ * holds a NUL: every look then fails before touching the disk, so the next
+ * name would be tried for ever without the event loop getting a turn
+ * (hardening.8 review).
  */
-async function newEntryPath(dir: string, review: Review, ci: boolean): Promise<string> {
-  const stamp = stampFor(review);
+async function newEntryPath(dir: string, stamp: string, review: Review, ci: boolean): Promise<string> {
   for (let n = 1; ; n += 1) {
     const candidate = path.join(dir, `${stamp}${n === 1 ? '' : `-${n}`}${SUFFIX}`);
     if (!(await fileExists(candidate))) return candidate;
     const entry = await readEntry(candidate);
+    if (isUnread(entry)) throw readFailure(entry.error, reviewFileName(candidate));
     if (isEntry(entry) && entry.summary.id === review.id && belongs(entry, review.sourcePath, ci)) {
       return candidate;
     }

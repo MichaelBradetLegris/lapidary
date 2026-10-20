@@ -48,6 +48,36 @@ export function isInsidePath(root: string, file: string, ci: boolean): boolean {
 }
 
 /**
+ * True when `p` starts from a root: a drive letter and a separator (`C:\`,
+ * `C:/`), a UNC share (`\\srv\share`), or a slash or backslash. This is
+ * Windows' rule (`path.win32.isAbsolute`), which takes POSIX's absolute paths
+ * too, and it does not ask which system it runs on, so a settings file reads
+ * the same in a test on Linux (hardening.8). `Novel`, `.\Novel`, `~/Novel` and
+ * `C:Novel`, which Windows reads from the drive's current folder, are not.
+ */
+export function isAbsolutePath(p: string): boolean {
+  return /^(?:[A-Za-z]:)?[\\/]/.test(p);
+}
+
+/** True when `p` holds a NUL character, which no file system takes in a path (hardening.8). */
+export function hasNul(p: string): boolean {
+  return p.includes('\u0000');
+}
+
+/**
+ * The extension of the last segment of `p` as `path.extname` reads it, lower
+ * case: `.md` for `Notes.MD`, and nothing for `.md` alone, a dot-file with
+ * no extension, or for `..`. Either separator ends a segment, and a path that
+ * ends in one names a folder, so it has none (where `path.extname` would read
+ * the segment before it).
+ */
+export function extensionOf(p: string): string {
+  const name = p.slice(Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')) + 1);
+  const dot = name.lastIndexOf('.');
+  return dot > 0 && name !== '..' ? name.slice(dot).toLowerCase() : '';
+}
+
+/**
  * How many path segments the two paths share at their end, compared by key:
  * `C:/Old/Novel/Ch 1.md` and `D:/New/Novel/Ch 1.md` share 2. Used to recognise a
  * vault that moved (PLAN 11.3 g).

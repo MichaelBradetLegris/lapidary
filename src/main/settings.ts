@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import type { Settings } from '../shared/types';
 import { log } from './log';
-import { createSettingsStore, type SettingsStore } from './settingsStore';
+import { createSettingsStore, type SettingsRead, type SettingsStore } from './settingsStore';
 
 /**
  * The app's settings, through the store in settingsStore.ts, which holds the
@@ -20,6 +20,11 @@ function theStore(): SettingsStore {
 
 export function loadSettings(): Promise<Settings> {
   return theStore().load();
+}
+
+/** As `loadSettings`, and says whether settings.json could be read (`settings:get`, hardening.15). */
+export function loadSettingsChecked(): Promise<SettingsRead> {
+  return theStore().loadChecked();
 }
 
 export function saveSettings(patch: Partial<Settings>): Promise<Settings> {

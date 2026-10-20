@@ -1061,6 +1061,20 @@ describe('shutdown is never blocked', () => {
     expect(win.sent).toEqual([['app:flush', { reason: 'query-session-end' }]]);
     // The session may yet go on, so a close is still asked about.
     expect(win.userCloses()).toBe(false);
+    expect(guard.isSessionEnding()).toBe(false);
+  });
+
+  it('says the session is ending only after session-end, for hardening.4 to ask nothing then', () => {
+    const { guard, win } = setup();
+    expect(guard.isSessionEnding()).toBe(false);
+    win.emit('query-session-end');
+    expect(guard.isSessionEnding()).toBe(false);
+    win.emit('session-end');
+    expect(guard.isSessionEnding()).toBe(true);
+    // It is the session's, not the window's: a page gone or a reload does not undo it.
+    guard.onRendererGone();
+    win.reloads();
+    expect(guard.isSessionEnding()).toBe(true);
   });
 
   it('session-end asks the page to write, and every close after it goes through at once', () => {
