@@ -1,5 +1,7 @@
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -16,6 +18,10 @@ import { describe, expect, it } from 'vitest';
  * The workflow is read by its lines, as scripts/verify-package.ts reads
  * latest.yml, so the test needs no YAML package. That works because the file
  * is prettier's: two spaces per level, jobs at 2, steps at 6, step keys at 8.
+ * Every key of a job and of a step is read, so that an `if` or a
+ * `continue-on-error`, which would let a failed check go on, cannot hide. The
+ * release step's own script is also run in bash, as the runner runs it, with
+ * a stub gh.
  */
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -23,7 +29,9 @@ const require = createRequire(import.meta.url);
 
 const notes = require('../../scripts/release-notes.cjs') as {
   versionFromTag(tag: unknown): string | null;
+  installerName(version: string, name?: string): string;
 };
+const branding = require('../../scripts/branding.cjs') as { appName(): string };
 
 const TEXT = readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8');
 const LINES = TEXT.split(/\r?\n/);
@@ -60,6 +68,17 @@ function mapping(lines: readonly string[], indent: number): Record<string, strin
   return out;
 }
 
+/**
+ * The key of every line at `indent`, in order. A line there that is not a
+ * plain `key:` (a quoted key, a merge key, a flow mapping) comes back whole,
+ * marked unreadable, so that a test comparing keys fails on it.
+ */
+function keysOf(lines: readonly string[], indent: number): string[] {
+  return lines
+    .filter((line) => !isBlankOrComment(line) && indentOf(line) === indent)
+    .map((line) => /^\s*([\w-]+):(?:\s|$)/.exec(line)?.[1] ?? `unreadable: ${line.trim()}`);
+}
+
 /** The index of the line `<indent spaces><key>:` (with or without a value) in `lines`. */
 function keyAt(lines: readonly string[], key: string, indent: number): number {
   return lines.findIndex((line) => line.startsWith(`${' '.repeat(indent)}${key}:`));
@@ -75,6 +94,8 @@ function mappingUnder(lines: readonly string[], key: string, indent: number) {
 }
 
 interface Step {
+  /** Every key the step has, in order, read by `keysOf`. */
+  keys: string[];
   uses?: string;
   usesComment?: string;
   name?: string;
@@ -109,7 +130,7 @@ function stepsOf(job: readonly string[]): Step[] {
     else if (steps.length > 0) steps[steps.length - 1]?.push(line);
   }
   return steps.map((lines) => {
-    const step: Step = { with: {}, env: {} };
+    const step: Step = { keys: keysOf(lines, 8), with: {}, env: {} };
     lines.forEach((line, i) => {
       if (isBlankOrComment(line) || indentOf(line) !== 8) return;
       const match = /^\s*([\w-]+):\s*(.*)$/.exec(line);
@@ -219,6 +240,49 @@ describe('when it runs (release.7)', () => {
       expect(job.slice(at, at + 3)).toEqual(['    defaults:', '      run:', '        shell: bash']);
     }
     expect(mapping(release, 4).needs).toBe('build');
+  });
+});
+
+describe('a failed step stops the release (release.7)', () => {
+  // `if` and `continue-on-error`, on a step or a job, are what would let a
+  // tag check-release refused, or failing tests, go on to npm ci, the package
+  // and the upload. The live run proved a mismatched tag stops before npm ci.
+  const STEP_KEYS = ['uses', 'with', 'name', 'id', 'run', 'env'];
+
+  it('gives each job only the keys it has now, so neither has an if or continue-on-error', () => {
+    expect(keysOf(build, 4)).toEqual([
+      'runs-on',
+      'timeout-minutes',
+      'permissions',
+      'defaults',
+      'env',
+      'outputs',
+      'steps'
+    ]);
+    expect(keysOf(release, 4)).toEqual([
+      'needs',
+      'runs-on',
+      'timeout-minutes',
+      'permissions',
+      'defaults',
+      'steps'
+    ]);
+  });
+
+  it('gives each step no key but uses, with, name, id, run and env', () => {
+    expect(allSteps.every((step) => step.keys.length > 0)).toBe(true);
+    const others = allSteps.flatMap((step, i) =>
+      step.keys.filter((key) => !STEP_KEYS.includes(key)).map((key) => `step ${i + 1}: ${key}`)
+    );
+    expect(others).toEqual([]);
+  });
+
+  it('has no if or continue-on-error anywhere in the file', () => {
+    // Also as a key in a flow mapping, `{ run: x, if: false }`, or quoted.
+    const gates = LINES.filter(
+      (line) => !isBlankOrComment(line) && /(?:^|[\s{,])["']?(?:if|continue-on-error)["']?\s*:/.test(line)
+    );
+    expect(gates).toEqual([]);
   });
 });
 
@@ -378,3 +442,193 @@ describe('the release job', () => {
     expect(script).not.toMatch(/--latest|--draft=false|gh release edit/);
   });
 });
+
+/**
+ * Git Bash on Windows, which is what `shell: bash` runs there (never
+ * System32's bash.exe, which is WSL's), else /bin/bash; undefined when neither
+ * is found.
+ */
+function findBash(): string | undefined {
+  if (process.platform !== 'win32') {
+    return ['/bin/bash', '/usr/bin/bash', '/usr/local/bin/bash'].find((file) => existsSync(file));
+  }
+  const roots: string[] = [];
+  if (process.env.ProgramFiles) roots.push(path.join(process.env.ProgramFiles, 'Git'));
+  // <root>/mingw64/libexec/git-core
+  const exec = spawnSync('git', ['--exec-path'], { encoding: 'utf8' });
+  if (exec.status === 0) roots.push(path.resolve(exec.stdout.trim(), '..', '..', '..'));
+  return roots.map((root) => path.join(root, 'bin', 'bash.exe')).find((file) => existsSync(file));
+}
+
+const BASH = findBash();
+
+/**
+ * Stands in for gh as a function, loaded through BASH_ENV, so that no gh on
+ * the machine can run whatever PATH holds. Each call is one line of
+ * arguments, each ended by NUL, and the call returns GH_STATUS.
+ */
+const GH_STUB = [
+  'gh() {',
+  `  printf '%s\\0' "$@" >> "$GH_CALLS"`,
+  `  printf '\\n' >> "$GH_CALLS"`,
+  '  return "$GH_STATUS"',
+  '}',
+  ''
+].join('\n');
+
+interface CreateRun {
+  status: number | null;
+  stdout: string;
+  /** The arguments of each gh call, in order. */
+  gh: string[][];
+}
+
+/**
+ * Runs the release job's "Create the draft release" script as the runner
+ * runs `shell: bash` (`bash --noprofile --norc -eo pipefail <file>`), in a
+ * workspace holding release/notes.md and, unless `assets` is null,
+ * release/assets/ with those files. The environment holds only the step's
+ * TAG and TITLE and the stub's variables, so nothing from this machine's
+ * reaches the script.
+ */
+function runCreate(options: {
+  tag: string;
+  assets: readonly string[] | null;
+  title?: string;
+  ghStatus?: number;
+}): CreateRun {
+  const script = releaseSteps.find((step) => step.name === 'Create the draft release')?.run;
+  if (!BASH || !script) throw new Error('no bash, or no "Create the draft release" step');
+  const dir = mkdtempSync(path.join(tmpdir(), 'release-step-'));
+  const posix = (file: string): string => file.replace(/\\/g, '/');
+  try {
+    const workspace = path.join(dir, 'workspace');
+    mkdirSync(path.join(workspace, 'release'), { recursive: true });
+    writeFileSync(path.join(workspace, 'release', 'notes.md'), 'The notes.\n');
+    if (options.assets) {
+      mkdirSync(path.join(workspace, 'release', 'assets'));
+      for (const name of options.assets) writeFileSync(path.join(workspace, 'release', 'assets', name), name);
+    }
+    writeFileSync(path.join(dir, 'step.sh'), `${script}\n`);
+    writeFileSync(path.join(dir, 'gh-stub.sh'), GH_STUB);
+    const calls = path.join(dir, 'gh-calls.txt');
+    const result = spawnSync(
+      BASH,
+      ['--noprofile', '--norc', '-eo', 'pipefail', posix(path.join(dir, 'step.sh'))],
+      {
+        cwd: workspace,
+        env: {
+          BASH_ENV: posix(path.join(dir, 'gh-stub.sh')),
+          GH_CALLS: posix(calls),
+          GH_STATUS: String(options.ghStatus ?? 0),
+          TAG: options.tag,
+          TITLE: options.title ?? `${branding.appName()} ${options.tag.slice(1)}`
+        },
+        encoding: 'utf8'
+      }
+    );
+    const lines = existsSync(calls) ? readFileSync(calls, 'utf8').split('\n').slice(0, -1) : [];
+    return {
+      status: result.status,
+      stdout: result.stdout,
+      gh: lines.map((line) => line.split('\0').slice(0, -1))
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** The four files `build` hands over for a version, under the app's real names. */
+function fourFiles(version: string, name = branding.appName()): string[] {
+  const installer = notes.installerName(version, name);
+  return [installer, `${installer}.blockmap`, 'latest.yml', 'SHA256SUMS.txt'];
+}
+
+/** gh's arguments up to the files, then the files in order (the glob's order is the locale's). */
+function split(call: readonly string[] | undefined): { flags: string[]; files: string[] } {
+  const at = (call ?? []).indexOf('release/notes.md') + 1;
+  return { flags: (call ?? []).slice(0, at), files: [...(call ?? []).slice(at)].sort() };
+}
+
+const assetPaths = (names: readonly string[]): string[] =>
+  names.map((name) => `release/assets/${name}`).sort();
+
+describe.skipIf(!BASH)(
+  BASH
+    ? 'the release step, run in bash as the runner runs it'
+    : 'the release step in bash: skipped, as neither Git Bash nor /bin/bash was found',
+  { timeout: 30_000 },
+  () => {
+    it('makes a draft of a plain version from its four files, not a prerelease', () => {
+      const run = runCreate({ tag: 'v1.0.0', assets: fourFiles('1.0.0') });
+      expect(run.status).toBe(0);
+      expect(run.gh).toHaveLength(1);
+      const { flags, files } = split(run.gh[0]);
+      expect(flags).toEqual([
+        'release',
+        'create',
+        'v1.0.0',
+        '--draft',
+        '--verify-tag',
+        '--title',
+        `${branding.appName()} 1.0.0`,
+        '--notes-file',
+        'release/notes.md'
+      ]);
+      expect(files).toEqual(assetPaths(fourFiles('1.0.0')));
+    });
+
+    it.each([
+      ['v1.1.0-rc.1', true],
+      ['v0.9.0-rc.1', true],
+      ['v1.0.0-alpha-beta.2', true],
+      ['v10.20.30', false]
+    ])('adds --prerelease for %s: %s', (tag, prerelease) => {
+      const version = tag.slice(1);
+      const run = runCreate({ tag, assets: fourFiles(version) });
+      expect(run.status).toBe(0);
+      expect(run.gh).toHaveLength(1);
+      const { flags, files } = split(run.gh[0]);
+      expect(flags).toEqual([
+        'release',
+        'create',
+        tag,
+        '--draft',
+        '--verify-tag',
+        ...(prerelease ? ['--prerelease'] : []),
+        '--title',
+        `${branding.appName()} ${version}`,
+        '--notes-file',
+        'release/notes.md'
+      ]);
+      expect(files).toEqual(assetPaths(fourFiles(version)));
+    });
+
+    it.each([
+      ['no assets folder', null, 0],
+      ['an empty assets folder', [], 0],
+      ['three files', fourFiles('1.0.0').filter((name) => name !== 'latest.yml'), 3],
+      ['five files', [...fourFiles('1.0.0'), 'builder-debug.yml'], 5]
+    ])('refuses %s, and never calls gh', (_label, assets, count) => {
+      const run = runCreate({ tag: 'v1.0.0', assets });
+      expect(run.status).toBe(1);
+      expect(run.stdout.split(/\r?\n/)).toContain(`::error::Expected 4 release files, found ${count}.`);
+      expect(run.gh).toEqual([]);
+    });
+
+    it('keeps a title and file names with spaces whole', () => {
+      const assets = fourFiles('1.0.0', 'Some App');
+      const run = runCreate({ tag: 'v1.0.0', assets, title: 'Some App 1.0.0' });
+      expect(run.status).toBe(0);
+      const { flags, files } = split(run.gh[0]);
+      expect(flags.slice(5)).toEqual(['--title', 'Some App 1.0.0', '--notes-file', 'release/notes.md']);
+      expect(files).toEqual(assetPaths(assets));
+    });
+
+    it('fails when gh fails', () => {
+      const run = runCreate({ tag: 'v1.0.0', assets: fourFiles('1.0.0'), ghStatus: 1 });
+      expect(run.gh).toHaveLength(1);
+      expect(run.status).toBe(1);
+    });
+  }
+);
