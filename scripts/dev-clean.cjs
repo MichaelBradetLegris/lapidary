@@ -25,6 +25,9 @@
  *                          rendering while covered (development builds only; PLAN dev.1)
  *   --shell-stub           open nothing outside the app: a link, a file or a folder the app would
  *                          hand the system is printed instead (development builds only; setup.10b)
+ *   --fake-update <plan>   the fake update in place of GitHub: a version such as 1.0.1, the
+ *                          version and download-fails or install-fails (quote the two words), or
+ *                          up-to-date, no-releases or offline (development builds only; release.8b)
  *   --exe <path>           run a packaged build instead of `npm run dev`
  */
 const { spawn } = require('node:child_process');
@@ -36,7 +39,7 @@ const { appName } = require('./branding.cjs');
 const ROOT = path.join(__dirname, '..');
 const PREFIX = appName().toLowerCase();
 const args = process.argv.slice(2);
-const WITH_VALUE = new Set(['--user-data', '--claude-config', '--exe']);
+const WITH_VALUE = new Set(['--user-data', '--claude-config', '--exe', '--fake-update']);
 const FLAGS = new Set([
   '--user-data-fresh',
   '--claude-config-empty',
@@ -50,7 +53,7 @@ const FLAGS = new Set([
 function usage(problem) {
   if (problem) console.error(problem);
   console.error(
-    'Usage: npm run dev:clean -- [--user-data <dir> | --user-data-fresh] [--claude-config-empty | --claude-config <dir>] [--api-key-dummy] [--auth-token-dummy] [--no-claude-code] [--quiet] [--shell-stub] [--exe <path>]'
+    'Usage: npm run dev:clean -- [--user-data <dir> | --user-data-fresh] [--claude-config-empty | --claude-config <dir>] [--api-key-dummy] [--auth-token-dummy] [--no-claude-code] [--quiet] [--shell-stub] [--fake-update <plan>] [--exe <path>]'
   );
   process.exit(problem ? 1 : 0);
 }
@@ -123,10 +126,14 @@ if (options['--shell-stub']) {
   env.MANUSCRIPT_REVIEW_DEV_SHELL_STUB = '1';
   console.log('Shell stub: links, files and folders are printed here, never opened.');
 }
+if (options['--fake-update']) {
+  env.MANUSCRIPT_REVIEW_DEV_FAKE_UPDATE = options['--fake-update'];
+  console.log(`Fake update: ${options['--fake-update']}; nothing is asked of GitHub.`);
+}
 
 let child;
 if (options['--exe']) {
-  for (const flag of ['--no-claude-code', '--quiet', '--shell-stub']) {
+  for (const flag of ['--no-claude-code', '--quiet', '--shell-stub', '--fake-update']) {
     if (options[flag]) console.log(`Note: a packaged build ignores ${flag}, like every development switch.`);
   }
   child = spawn(

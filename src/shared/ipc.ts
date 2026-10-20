@@ -8,6 +8,7 @@ import type { AppError, EffortLevel, Eol, Provider, Review, ReviewComment, Setti
 import type { ZoomAction } from './ui/zoom';
 import type { StyleSheetStatus } from './prompt/guidelines';
 import type { ClaudeCredential } from './ai/claudeStatus';
+import type { UpdateStatus } from './updates';
 
 export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: AppError };
 
@@ -626,6 +627,22 @@ export interface ApiRequestMap {
   'app:diagnostics': { request: void; response: DiagnosticsReport };
   /** an error the page did not expect, for the log (hardening.4); main writes at most 30 a minute */
   'log:renderer': { request: RendererLogLine; response: void };
+  /* The updater (release.8b, PLAN 11.3 n): where it is, and what the author
+     asks of it. Every change also comes as the `update:state` event. */
+  /** where the updater is now, for a page that has just loaded */
+  'update:get': { request: void; response: UpdateStatus };
+  /** check now, whatever the setting says; answers once the check has ended */
+  'update:check': { request: void; response: UpdateStatus };
+  /** download the version on offer, which must be `version`, and remember the consent (Windows only) */
+  'update:download': { request: { version: string }; response: UpdateStatus };
+  /**
+   * Restart now: main lets its writes end, then starts the installer and
+   * quits; the page has already asked its close question
+   * (`prepareToLeaveApp('update')`). Answers `installing` when the installer
+   * is starting, or `failed` at the install stage when it could not, as
+   * `update:state` also says.
+   */
+  'update:install': { request: void; response: UpdateStatus };
 }
 
 export type RequestChannel = keyof ApiRequestMap;
@@ -676,7 +693,11 @@ const REQUEST_CHANNEL_FLAGS = {
   'app:close-decision': true,
   'app:info': true,
   'app:diagnostics': true,
-  'log:renderer': true
+  'log:renderer': true,
+  'update:get': true,
+  'update:check': true,
+  'update:download': true,
+  'update:install': true
 } as const satisfies Record<RequestChannel, true>;
 
 export const REQUEST_CHANNELS: readonly RequestChannel[] = Object.keys(
@@ -720,6 +741,8 @@ export interface ApiEventMap {
   'app:close-requested': { quitting: boolean };
   /** write every waiting review and drafts write now; nothing is asked (shutdown, PLAN 7.7) */
   'app:flush': { reason: FlushReason };
+  /** the updater moved (release.8b): the page draws its card from this (`updateCardFor`) */
+  'update:state': UpdateStatus;
 }
 
 export type EventChannel = keyof ApiEventMap;
@@ -738,7 +761,8 @@ const EVENT_CHANNEL_FLAGS = {
   'view:zoom-changed': true,
   'app:notice': true,
   'app:close-requested': true,
-  'app:flush': true
+  'app:flush': true,
+  'update:state': true
 } as const satisfies Record<EventChannel, true>;
 
 export const EVENT_CHANNELS: readonly EventChannel[] = Object.keys(EVENT_CHANNEL_FLAGS) as EventChannel[];

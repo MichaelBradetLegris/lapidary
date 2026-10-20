@@ -17,6 +17,8 @@ import {
   BUILDS,
   BUNDLED_PACKAGES_FILE,
   NOTICES_FILE,
+  SUPPLIED_LICENCE_NAME,
+  SUPPLIED_MIT_LICENCES,
   bundledPackageDirs,
   declaredLicence,
   entryHeading,
@@ -24,10 +26,12 @@ import {
   licenceIds,
   licenceProblem,
   licenceProblems,
+  mitLicenceText,
   renderNotices,
   resolvePackageDir,
   shippedPackages,
   sourceUrl,
+  withSuppliedLicence,
   writeNotices,
   type ShippedPackage
 } from '../../scripts/third-party-notices';
@@ -375,6 +379,60 @@ describe('what ships', () => {
     const packages = shippedPackages(root);
     expect(packages.find((p) => p.name === 'y')?.files.map((file) => file.name)).toEqual(['UNLICENSE']);
     expect(licenceProblems(packages)).toEqual(['c 1.0.0 (node_modules/c) has no licence file to copy']);
+  });
+
+  it('gives lazy-val 1.0.5, which declares MIT and ships no licence file, the MIT text with its author (release.8b)', () => {
+    expect(SUPPLIED_MIT_LICENCES).toEqual({ 'lazy-val@1.0.5': 'Vladimir Krivosheev' });
+    const root = fakeProject();
+    writeJson(path.join(root, 'package.json'), {
+      name: 'fake-app',
+      version: '2.3.4',
+      dependencies: { a: '^1.0.0', c: '^1.0.0', 'lazy-val': '^1.0.5' },
+      devDependencies: { electron: '44.3.0' }
+    });
+    writeJson(path.join(root, 'node_modules/lazy-val/package.json'), {
+      name: 'lazy-val',
+      version: '1.0.5',
+      license: 'MIT',
+      author: 'Vladimir Krivosheev'
+    });
+    writeFileSync(path.join(root, 'node_modules/lazy-val/readme.md'), '## lazy-val');
+    const lazy = (): ShippedPackage | undefined => shippedPackages(root).find((p) => p.name === 'lazy-val');
+    expect(lazy()?.files).toEqual([
+      { name: SUPPLIED_LICENCE_NAME, text: mitLicenceText('Vladimir Krivosheev') }
+    ]);
+    expect(lazy()?.files[0]?.text).toContain('Copyright (c) Vladimir Krivosheev');
+    expect(lazy()?.files[0]?.text).toContain(
+      'The above copyright notice and this permission notice shall be included'
+    );
+    expect(licenceProblems(shippedPackages(root))).toEqual([]);
+    const notices = renderNotices('Fake', '2.3.4', shippedPackages(root));
+    expect(notices).toContain(`lazy-val 1.0.5\n${'='.repeat(78)}`);
+    expect(notices).toContain(SUPPLIED_LICENCE_NAME);
+  });
+
+  it('supplies no text for another version, another licence, or a package that ships its own', () => {
+    const lazy = { name: 'lazy-val', version: '1.0.5', licence: 'MIT' };
+    const own = [{ name: 'LICENSE', text: 'MIT licence of lazy-val' }];
+    expect(withSuppliedLicence(lazy, own)).toBe(own);
+    expect(withSuppliedLicence({ ...lazy, version: '1.0.6' }, [])).toEqual([]);
+    expect(withSuppliedLicence({ ...lazy, licence: 'ISC' }, [])).toEqual([]);
+    expect(withSuppliedLicence({ ...lazy, licence: undefined }, [])).toEqual([]);
+    expect(withSuppliedLicence({ ...lazy, name: 'lazy-value' }, [])).toEqual([]);
+    const notice = [{ name: 'NOTICE', text: 'lazy-val' }];
+    expect(withSuppliedLicence(lazy, notice).map((file) => file.name)).toEqual([
+      SUPPLIED_LICENCE_NAME,
+      'NOTICE'
+    ]);
+    expect(
+      licenceProblems([
+        pkg({
+          name: 'lazy-val',
+          version: '1.0.6',
+          files: withSuppliedLicence({ ...lazy, version: '1.0.6' }, [])
+        })
+      ])
+    ).toEqual(['lazy-val 1.0.6 (node_modules/a) has no licence file to copy']);
   });
 
   it('stops when a required dependency is not installed', () => {

@@ -14,6 +14,7 @@ import { abortAll } from './providers/controllers';
 import { loadSettings } from './settings';
 import { SHELL_STUB_PREFIX } from './shellApi';
 import { applyTheme, currentWindowBackground, installTheme } from './theme';
+import { startUpdates } from './updates';
 import { windowIconPath } from './windowIcon';
 import { installZoom } from './zoom';
 
@@ -270,6 +271,8 @@ function start(): void {
     applyTheme(settings.theme);
     installTheme();
     createWindow();
+    // The first check 15 s from now, then daily; nothing in a development run (11.3 a and n).
+    startUpdates();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

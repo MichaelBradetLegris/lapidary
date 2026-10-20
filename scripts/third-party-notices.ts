@@ -188,6 +188,68 @@ export function licenceProblem(licence: string | undefined): string | undefined 
 /** A notice file (NOTICE, NOTICE.md), which goes with a licence but is not one. */
 const NOTICE_FILE = /^notice/i;
 
+/**
+ * Packages that declare MIT in their package.json but ship no licence file,
+ * and whose source repository has none either, by name and exact version, with
+ * the copyright holder their package.json names as the author (`release.8b`,
+ * PLAN Appendix C "electron-updater and the licence text lazy-val lacks").
+ * The notices give such a package the MIT License's own text with that
+ * holder, since the licence asks for its text to go with every copy. Keyed by
+ * version, so a new version is looked at again; any other package with no
+ * licence file still fails the gate.
+ */
+export const SUPPLIED_MIT_LICENCES: Readonly<Record<string, string>> = {
+  // electron-updater's dependency; github.com/develar/lazy-val has no LICENSE file either.
+  'lazy-val@1.0.5': 'Vladimir Krivosheev'
+};
+
+/** The heading of a licence text the notices supply, which says so. */
+export const SUPPLIED_LICENCE_NAME =
+  'MIT License (the package declares MIT and ships no licence file; this is its text)';
+
+/** The MIT License, with `holder` in the copyright line. */
+export function mitLicenceText(holder: string): string {
+  return [
+    'MIT License',
+    '',
+    `Copyright (c) ${holder}`,
+    '',
+    'Permission is hereby granted, free of charge, to any person obtaining a copy',
+    'of this software and associated documentation files (the "Software"), to deal',
+    'in the Software without restriction, including without limitation the rights',
+    'to use, copy, modify, merge, publish, distribute, sublicense, and/or sell',
+    'copies of the Software, and to permit persons to whom the Software is',
+    'furnished to do so, subject to the following conditions:',
+    '',
+    'The above copyright notice and this permission notice shall be included in all',
+    'copies or substantial portions of the Software.',
+    '',
+    'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR',
+    'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,',
+    'FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE',
+    'AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER',
+    'LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,',
+    'OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE',
+    'SOFTWARE.'
+  ].join('\n');
+}
+
+/**
+ * The licence files a package's entry carries: its own, or, when it has no
+ * licence file of its own (a NOTICE alone is not one) and is in
+ * `SUPPLIED_MIT_LICENCES` at that version declaring exactly MIT, the MIT
+ * License's text with its holder, before any notice it has.
+ */
+export function withSuppliedLicence(
+  pkg: { name: string; version: string; licence: string | undefined },
+  files: LicenceFile[]
+): LicenceFile[] {
+  if (files.some((file) => !NOTICE_FILE.test(file.name))) return files;
+  const holder = SUPPLIED_MIT_LICENCES[`${pkg.name}@${pkg.version}`];
+  if (holder === undefined || pkg.licence !== 'MIT') return files;
+  return [{ name: SUPPLIED_LICENCE_NAME, text: mitLicenceText(holder) }, ...files];
+}
+
 /** One line per package that may not ship, or that has no licence file; empty when all may. */
 export function licenceProblems(packages: readonly ShippedPackage[]): string[] {
   const problems: string[] = [];
@@ -389,14 +451,17 @@ export function shippedPackages(root: string, outDir = path.join(root, 'out')): 
     const manifest = path.join(dir, 'package.json');
     if (!isFile(manifest)) throw new Error(`${relative(root, dir)} has no package.json.`);
     const pkg = readJson(manifest);
-    return {
-      dir: relative(root, dir),
+    const found = {
       name: typeof pkg.name === 'string' ? pkg.name : path.basename(dir),
       version: typeof pkg.version === 'string' ? pkg.version : '0.0.0',
-      licence: declaredLicence(pkg),
+      licence: declaredLicence(pkg)
+    };
+    return {
+      dir: relative(root, dir),
+      ...found,
       source: sourceUrl(pkg),
       shipped,
-      files: licenceFiles(dir)
+      files: withSuppliedLicence(found, licenceFiles(dir))
     };
   });
   const rank = (pkg: ShippedPackage): number => (pkg.shipped.includes('runtime') ? 0 : 1);

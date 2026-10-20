@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 /*
  * release.2: the npm scripts that package and release the app, and the exact
- * pins the installer and the updater depend on. electron-builder 26 publishes
+ * pins the installer and the updater depend on (electron-updater since
+ * release.8b). electron-builder 26 publishes
  * on its own on CI, on a tag build, or under an npm script named `release`,
  * unless it is told `--publish never` (`PublishManager` in app-builder-lib;
  * PLAN `release.2`).
@@ -30,20 +31,21 @@ const scripts = pkg.scripts ?? {};
 /**
  * Packages pinned to one version, never a range, each with a floor: the pin
  * must stay on the floor's major and must not go below it. PLAN 11.1's
- * "Updates" row names electron-builder 26.17.0 on the v26 line; its "Electron"
- * row asks for the latest 44.x, and `release.21`, which takes Electron there,
- * raises the floor from 44.3.0. A later patch or minor on the same major
- * passes, since `release.21`, the release checklist (11.4, step 2) and
- * `release.10`'s Dependabot all expect one. npm's `latest` tag for
- * electron-builder is 26.15.3, so `npm i -D -E electron-builder` without the
- * version goes back, and `npm audit fix --force` would take it to 26.5.0
- * (`opensource.3`). A deliberate bump edits PLAN 11.1 (CLAUDE.md rule 7) and
- * raises the floor here with it. `release.8b` adds electron-updater at 6.8.10,
- * as its PLAN text says.
+ * "Updates" row names electron-builder 26.17.0 and electron-updater 6.8.10 on
+ * the v26 line; its "Electron" row asks for the latest 44.x, and
+ * `release.21`, which takes Electron there, raises the floor from 44.3.0. A
+ * later patch or minor on the same major passes, since `release.21`, the
+ * release checklist (11.4, step 2) and `release.10`'s Dependabot all expect
+ * one. npm's `latest` tag for electron-builder is 26.15.3 and for
+ * electron-updater 6.8.9, so `npm i -E electron-updater` without the version
+ * goes back, and `npm audit fix --force` would take electron-builder to
+ * 26.5.0 (`opensource.3`). A deliberate bump edits PLAN 11.1 (CLAUDE.md rule
+ * 7) and raises the floor here with it.
  */
 const EXACT_PINS: Record<string, string> = {
   electron: '44.3.0',
-  'electron-builder': '26.17.0'
+  'electron-builder': '26.17.0',
+  'electron-updater': '6.8.10'
 };
 
 /** Compares two x.y.z versions part by part as numbers: negative, zero or positive. */
@@ -102,6 +104,17 @@ describe('packaging scripts (release.2)', () => {
 });
 
 describe('exact pins (release.2)', () => {
+  it('pins electron-updater, release.8b, among them, as a dependency the asar ships', () => {
+    // The updater runs in the installed app, so it must be in `dependencies`:
+    // electron-builder leaves devDependencies out of the asar.
+    expect(EXACT_PINS['electron-updater']).toBe('6.8.10');
+    expect(pkg.dependencies?.['electron-updater']).toBeDefined();
+    expect(pkg.devDependencies?.['electron-updater']).toBeUndefined();
+    expect(lock.packages['']?.dependencies?.['electron-updater']).toBe(
+      pkg.dependencies?.['electron-updater']
+    );
+  });
+
   it('compares versions by number, not as text', () => {
     expect(compareVersions('26.17.0', '26.17.0')).toBe(0);
     expect(compareVersions('26.18.0', '26.17.0')).toBeGreaterThan(0);
