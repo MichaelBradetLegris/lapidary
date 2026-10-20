@@ -56,8 +56,13 @@ function isCalendarDate(text) {
 const SECTION_HEADING = /^##\s+\[([^\]]+)\](.*)$/;
 /** A heading that ends a section: the next version's, or the file's own title. */
 const SECTION_END = /^#{1,2}\s/;
-/** Keep a Changelog's comparison links at the foot of the file, such as `[1.0.0]: https://...`. */
-const VERSION_LINK = /^\[(?:unreleased|\d[^\]]*)\]:\s*\S/i;
+/**
+ * Keep a Changelog's comparison links at the foot of the file: a reference
+ * definition whose label is `Unreleased` or a version, such as
+ * `[1.0.0]: https://...` or `[0.9.0-rc.1]: https://...`. Any other definition,
+ * `[1]: https://...` among them, is part of the section it sits in.
+ */
+const VERSION_LINK = /^\[(?:unreleased|\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)\]:\s*\S/i;
 const FENCE = /^\s*(```|~~~)/;
 
 /**

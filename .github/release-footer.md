@@ -13,7 +13,7 @@ You download {name} only once. After that, updates arrive in the app: it checks 
 
 ### Checksums
 
-`SHA256SUMS.txt` holds the SHA-256 checksum of each file of this release. To check the installer, run this in PowerShell, changing the folder if you saved it somewhere other than Downloads:
+`SHA256SUMS.txt` holds the SHA-256 checksum of the installer and of the two files the updater reads, `latest.yml` and the installer's `.blockmap`. To check the installer, run this in PowerShell, changing the folder if you saved it somewhere other than Downloads:
 
 ```powershell
 Get-FileHash "$HOME\Downloads\{installer}"

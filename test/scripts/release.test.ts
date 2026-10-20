@@ -123,6 +123,12 @@ const BODY_1_0_0 = [
   '- A third thing.'
 ].join('\n');
 
+/**
+ * A CHANGELOG saved with a byte order mark and CRLF line endings that opens on
+ * the section itself, so the mark comes straight before its heading.
+ */
+const BOM_CHANGELOG = '﻿## [1.0.0] - 2026-11-02\r\n\r\n- One thing.\r\n';
+
 function packageJson(version: unknown): string {
   return `${JSON.stringify({ name: 'fixture', version, private: true }, null, 2)}\n`;
 }
@@ -252,6 +258,36 @@ describe('a CHANGELOG section (extractSection)', () => {
     );
   });
 
+  it('keeps a numbered reference link in the middle of a section, and what follows it', () => {
+    const body = [
+      '### Added',
+      '',
+      '- Thing, as asked in [issue 12][1].',
+      '',
+      '[1]: https://example.com/1',
+      '',
+      '### Fixed',
+      '',
+      '- Another thing.'
+    ].join('\n');
+    const text = `## [1.0.0] - 2026-11-02\n\n${body}\n\n## [0.9.0] - 2026-10-30\n\n- A trial.\n`;
+    expect(notes.extractSection(text, '1.0.0')?.body).toBe(body);
+    for (const label of ['1', '12', '1.0', '2026-11-02', 'v1.0.0', '1.0.0 notes']) {
+      const entries = `- Fixed a crash ([#12][${label}]).\n\n[${label}]: https://example.com/1\n\n- Later entry.`;
+      expect(notes.extractSection(`## [1.0.0] - 2026-11-02\n\n${entries}\n`, '1.0.0')?.body, label).toBe(
+        entries
+      );
+    }
+  });
+
+  it.each(['[Unreleased]', '[unreleased]', '[1.0.0]', '[0.9.0-rc.1]', '[10.20.30]', '[1.0.0+build.5]'])(
+    'ends a section at the version link %s',
+    (label) => {
+      const text = `## [1.0.0] - 2026-11-02\n\n- One thing.\n\n${label}: https://example.com/compare\n- Not an entry.\n`;
+      expect(notes.extractSection(text, '1.0.0')?.body).toBe('- One thing.');
+    }
+  );
+
   it('finds the Unreleased section by its name, undated', () => {
     const section = notes.extractSection(CHANGELOG, 'Unreleased');
     expect(section?.date).toBeNull();
@@ -287,10 +323,19 @@ describe('a CHANGELOG section (extractSection)', () => {
     expect(section?.body).toBe('- One thing.');
   });
 
-  it('reads a file with CRLF line endings and a byte order mark', () => {
-    const crlf = `\uFEFF${CHANGELOG.replace(/\n/g, '\r\n')}`;
+  it('reads a file with CRLF line endings', () => {
+    const crlf = CHANGELOG.replace(/\n/g, '\r\n');
     expect(notes.extractSection(crlf, '1.0.0')).toEqual(notes.extractSection(CHANGELOG, '1.0.0'));
     expect(notes.extractSection(crlf, '1.0.0')?.body).not.toContain('\r');
+  });
+
+  it('reads a byte order mark that comes straight before the heading', () => {
+    expect(notes.extractSection(BOM_CHANGELOG, '1.0.0')).toEqual({
+      heading: '## [1.0.0] - 2026-11-02',
+      date: '2026-11-02',
+      dateText: '2026-11-02',
+      body: '- One thing.'
+    });
   });
 
   it('takes a heading inside a code fence as text', () => {
@@ -447,6 +492,11 @@ describe('the values and the real footer', () => {
     expect(footer).toContain('updates arrive in the app');
     // The checksums, and how to check one on Windows.
     expect(footer).toContain('`SHA256SUMS.txt`');
+    // What the workflow hashes into it (PLAN 11.3 n): three of the release's four assets.
+    expect(footer).toContain(
+      "`SHA256SUMS.txt` holds the SHA-256 checksum of the installer and of the two files the updater reads, `latest.yml` and the installer's `.blockmap`."
+    );
+    expect(footer).not.toContain('each file of this release');
     expect(footer).toContain(`Get-FileHash "$HOME\\Downloads\\${APP_NAME}-Setup-1.2.3.exe"`);
     // Word for word, as PLAN release.6b gives it.
     expect(footer).toContain(CLAUDE_SENTENCE);
@@ -474,6 +524,10 @@ describe('the notes (releaseNotes)', () => {
     expect(lf).toContain(CLAUDE_SENTENCE);
     expect(lf).not.toMatch(/[{}\r]/);
     expect(notes.releaseNotes(CHANGELOG, FOOTER_TEXT.replace(/\n/g, '\r\n'), values)).toBe(lf);
+  });
+
+  it('read a CHANGELOG whose byte order mark comes straight before the section heading', () => {
+    expect(notes.releaseNotes(BOM_CHANGELOG, 'Footer.', values)).toBe('- One thing.\n\n---\n\nFooter.\n');
   });
 
   it('throw when the CHANGELOG has no section for the version', () => {
@@ -560,6 +614,10 @@ describe('the release check (checkRelease)', () => {
       packageLock: `\uFEFF${packageLock('1.0.0')}`
     };
     expect(check.checkRelease('v1.0.0', bom)).toEqual([]);
+  });
+
+  it('reads a CHANGELOG whose byte order mark comes straight before the section heading', () => {
+    expect(check.checkRelease('v1.0.0', files('1.0.0', BOM_CHANGELOG))).toEqual([]);
   });
 
   it('refuses a version with no CHANGELOG section', () => {
