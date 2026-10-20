@@ -58,7 +58,7 @@ Before you commit, these must pass: `typecheck`, `lint`, `format:check`, `test`,
 src/
   main/            Electron main process (Node)
     index.ts         start-up, the window and its security settings
-    ipc.ts           IPC handlers, typed against src/shared/ipc.ts
+    ipc.ts           IPC handlers, typed against src/shared/ipc.ts (ipcEnvelope.ts logs a failed request)
     files.ts         list and read chapters, Save, New chapter
     atomic.ts        the atomic write behind Save: temporary file, then rename
     watcher.ts       watches the manuscript folder
@@ -77,6 +77,7 @@ src/
       claudeResult.ts  which error a review run's result stands for, if any
       claudeRuntime.ts the launch check (claudeHandshake.ts)
       openai.ts        OpenAI, through the Responses API
+      logged.ts        logs each provider's calls as counts, never their text
   preload/         the typed bridge the window receives, and nothing else
   renderer/        React UI with no Node access: App.tsx, components/, state/, styles/
   shared/          pure TypeScript, no Node or DOM imports, all unit-tested

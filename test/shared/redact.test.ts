@@ -97,6 +97,25 @@ describe('loggableErrorFields', () => {
     expect(JSON.stringify(fields)).not.toContain('Here is');
   });
 
+  it('never takes a quoted line that starts with "at" for a frame (hardening.3b)', () => {
+    // V8 quotes about ten characters of the input with their line breaks, so
+    // its message can hold a line that looks like a frame.
+    for (const input of ['\nat ZQX', 'X\n at ZQX', '{"a":\n  at ZQX']) {
+      let caught: unknown;
+      try {
+        JSON.parse(input);
+      } catch (err) {
+        caught = err;
+      }
+      const stack = (caught as Error).stack ?? '';
+      expect(stack.split('\n').some((line) => /^\s*at ZQX/.test(line))).toBe(true);
+      const fields = loggableErrorFields(caught, ctx);
+      expect(fields['name']).toBe('SyntaxError');
+      expect(String(fields['frames'])).toMatch(/^at JSON\.parse/);
+      expect(JSON.stringify(fields)).not.toContain('ZQX');
+    }
+  });
+
   it('logs only the code of an app error that quotes model output, and never its detail', () => {
     const reply = Object.assign(new Error('The model said: Dear diary...'), {
       name: 'AppFailure',

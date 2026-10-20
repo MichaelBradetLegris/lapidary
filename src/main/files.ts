@@ -332,6 +332,29 @@ export async function writeChapter(request: SaveRequest, hooks: WriteHooks = {})
   return backup ? { status: 'written', hash, backup } : { status: 'written', hash };
 }
 
+/**
+ * What `file.save` logs of a save that answered (PLAN 11.3 m, hardening.3b):
+ * how it ended, the text's size in characters, the line endings and BOM kept,
+ * whether a backup was made or the newest one already held these bytes, and
+ * how long it took. Never the text or the chapter's path. A save that threw
+ * is logged by the IPC envelope as `ipc.failed`.
+ */
+export function saveLogFields(
+  request: SaveRequest,
+  response: SaveResponse,
+  durationMs: number
+): Record<string, string | number | boolean> {
+  const status =
+    response.status === 'stale' ? 'stale' : response.unchanged === true ? 'unchanged' : 'written';
+  const backup =
+    response.status === 'written' && response.backup
+      ? response.backup.created
+        ? 'created'
+        : 'reused'
+      : 'none';
+  return { status, chars: request.text.length, eol: request.eol, bom: request.bom, backup, durationMs };
+}
+
 /* ------------------------------------------------------------------ */
 /* Creating a chapter                                                  */
 /* ------------------------------------------------------------------ */

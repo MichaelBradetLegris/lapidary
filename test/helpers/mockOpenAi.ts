@@ -9,12 +9,14 @@
  * The API key picks the scenario, so the real app can be driven through every
  * path from its own Settings dialog: a key containing `unauthorized` gets a 401,
  * `ratelimit` a 429, `servererror` a 500, `malformed` a reply that is not JSON,
- * `wrongshape` JSON of the wrong shape, `slow` a reply that trickles out over
- * several seconds (for Cancel), or an unstreamed one that comes after them (for
- * a connection test's time limit), `obsidian` the review of the Obsidian sample
- * chapter (`OBSIDIAN_REVIEW`), `outputlimit` a streamed reply cut off at the
- * model's output limit, which ends `incomplete` (files.10), and anything else
- * the canned review of Chapter 01.
+ * `prose` a reply written as prose (`PROSE_REPLY`), as a model that ignored
+ * the schema might send (hardening.3b), `wrongshape` JSON of the wrong shape,
+ * `slow` a reply that trickles out over several seconds (for Cancel), or an
+ * unstreamed one that comes after them (for a connection test's time limit),
+ * `obsidian` the review of the Obsidian sample chapter (`OBSIDIAN_REVIEW`),
+ * `outputlimit` a streamed reply cut off at the model's output limit, which
+ * ends `incomplete` (files.10), and anything else the canned review of
+ * Chapter 01.
  *
  * Two ways to use it:
  *   vitest:  const mock = await startMockOpenAi(); ... mock.url ... await mock.close();
@@ -36,6 +38,7 @@ export type Scenario =
   | 'ratelimit'
   | 'servererror'
   | 'malformed'
+  | 'prose'
   | 'wrongshape'
   | 'slow'
   | 'obsidian'
@@ -331,6 +334,15 @@ export const OBSIDIAN_REVIEW = {
   ]
 };
 
+/**
+ * The `prose` scenario's reply (hardening.3b): the review written out as
+ * prose rather than JSON, quoting the chapter, so a test can show that none
+ * of it reaches the log when the reply is refused.
+ */
+export const PROSE_REPLY =
+  'Here is my review of the chapter. In the first paragraph, "the river had began to climb the steps" should read "the river had begun to climb the steps". ' +
+  'In the second, "should of" is a mishearing of "should have". The ending lands well; I would keep the last line short.';
+
 const MODELS = [
   { id: 'gpt-5.5', created: 1_780_000_000, object: 'model', owned_by: 'openai' },
   { id: 'gpt-5-mini', created: 1_755_000_000, object: 'model', owned_by: 'openai' },
@@ -354,6 +366,7 @@ export function scenarioForKey(authorization: string): Scenario {
   if (key.includes('ratelimit')) return 'ratelimit';
   if (key.includes('servererror')) return 'servererror';
   if (key.includes('malformed')) return 'malformed';
+  if (key.includes('prose')) return 'prose';
   if (key.includes('wrongshape')) return 'wrongshape';
   if (key.includes('slow')) return 'slow';
   if (key.includes('obsidian')) return 'obsidian';
@@ -554,11 +567,13 @@ export async function startMockOpenAi(options: { port?: number; log?: boolean } 
         const text =
           scenario === 'malformed'
             ? '{"changes": [{"paragraph": 0, "before": "had began", "after": '
-            : scenario === 'wrongshape'
-              ? JSON.stringify({ edits: [{ where: 0, what: 'had began' }] })
-              : scenario === 'outputlimit'
-                ? full.slice(0, Math.floor(full.length / 2))
-                : full;
+            : scenario === 'prose'
+              ? PROSE_REPLY
+              : scenario === 'wrongshape'
+                ? JSON.stringify({ edits: [{ where: 0, what: 'had began' }] })
+                : scenario === 'outputlimit'
+                  ? full.slice(0, Math.floor(full.length / 2))
+                  : full;
 
         if (request['stream'] === true) {
           await streamResponse(res, model, text, scenario === 'slow' ? 600 : 15, scenario === 'outputlimit');

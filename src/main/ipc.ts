@@ -23,7 +23,7 @@ import {
   setAsideFile,
   setAsideFolderFor
 } from './drafts';
-import { fail, toAppError } from './errors';
+import { fail } from './errors';
 import { beginRequest, cancelRequest, endRequest, providers } from './providers';
 import { testConnection } from './providers/connectionTest';
 import { registerController } from './providers/controllers';
@@ -37,6 +37,7 @@ import {
   isInsideManuscript,
   listChapters,
   readChapter,
+  saveLogFields,
   writeChapter
 } from './files';
 import {
@@ -46,6 +47,7 @@ import {
   guidelinesPathFor,
   guidelinesStatus
 } from './guidelines';
+import { runHandler } from './ipcEnvelope';
 import { log } from './log';
 import { openGuidelines } from './openGuidelines';
 import { pickShell, type ShellApi } from './shellApi';
@@ -112,17 +114,14 @@ export const closeGuard = createCloseGuard<BrowserWindow>({
  * registered. A file system error that reaches here unexplained is worded as
  * a write that replaces a file; every read path explains its own first
  * (`readFailure`, apply.24), and so does every write that makes a new file,
- * a copy or a folder (`writeFailure`, apply.25).
+ * a copy or a folder (`writeFailure`, apply.25). A failure is logged as
+ * `ipc.failed`, never with its payload (`runHandler`, hardening.3b).
  */
 export function installIpcBridge(): void {
   for (const [channel, fn] of handlers) {
-    ipcMain.handle(channel, async (_event, payload: unknown): Promise<IpcResult<unknown>> => {
-      try {
-        return { ok: true, value: await fn(payload) };
-      } catch (err) {
-        return { ok: false, error: toAppError(err) };
-      }
-    });
+    ipcMain.handle(channel, (_event, payload: unknown): Promise<IpcResult<unknown>> =>
+      runHandler(channel, payload, fn, log)
+    );
   }
 }
 
@@ -359,6 +358,7 @@ function registerFileHandlers(): void {
   });
 
   handle('files:save', async (request) => {
+    const started = Date.now();
     const settings = await loadSettings();
     assertSavableChapter(request.path, {
       manuscriptFolder: settings.manuscriptFolder,
@@ -377,6 +377,7 @@ function registerFileHandlers(): void {
       })
     });
     if (response.status === 'stale') forgetHash(request.path);
+    log('info', 'file.save', saveLogFields(request, response, Date.now() - started));
     return response;
   });
 

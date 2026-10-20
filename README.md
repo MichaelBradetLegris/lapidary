@@ -207,7 +207,7 @@ They apply to Claude Code everywhere, not only in this app. Setting them in `~/.
 - `settings.json`: your settings. If it was ever unreadable, a copy named `settings.json.corrupt-<time>` sits beside it.
 - `secrets.json`: the encrypted OpenAI key. It exists only once you have saved a key.
 - `reviews\`: your reviews, unless you chose another reviews folder in Settings. Each review holds the full text of its chapter.
-- `logs\main.log`, and `main.1.log` once it fills: a short record of events, such as start, quit and problems the app worked around. It never holds chapter text, prompts, replies, keys or email addresses, and your user folder appears in it as `~`.
+- `logs\main.log`, and `main.1.log` once it fills: a short record of events: start and quit, what each check of Claude or OpenAI found, each review and save as sizes, counts and times, requests that failed, and problems the app worked around. It never holds chapter text, guidelines, prompts, replies, keys or email addresses, and your user folder appears in it as `~`.
 - Folders that Electron keeps for itself, such as caches.
 
 Your chapters change only when you click **Save to chapter**. Besides them, the app adds to your manuscript folder only `GUIDELINES.md`, once and never overwritten, the chapters you make with **New chapter** and, if you chose a reviews folder inside it, your reviews. Claude Code keeps its own sign-in and settings; the app holds none of them.

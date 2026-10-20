@@ -233,10 +233,12 @@ describe('starting once the folder can be read (files.21)', () => {
       ['info', 'watcher.start'],
       ['warn', 'watcher.error']
     ]);
+    // Through the error policy (hardening.3b): the code and syscall, never the message, which names the path.
     expect(logFields[1]).toEqual({
       folder: 'C:/Novel',
+      name: 'Error',
       code: 'EBUSY',
-      message: "EBUSY: resource busy or locked, scandir 'c:\\novel'",
+      syscall: 'scandir',
       stopped: true
     });
     // Whatever the closed watcher says after that is dropped.
