@@ -28,10 +28,34 @@ const lock = JSON.parse(readFileSync(path.join(ROOT, 'package-lock.json'), 'utf8
 const scripts = pkg.scripts ?? {};
 
 /**
- * Packages pinned to one version, never a range (PLAN 11.1, "Updates" and
- * "Electron"). electron-updater joins the list when `release.8b` adds it.
+ * Packages pinned to one version, never a range, each with a floor: the pin
+ * must stay on the floor's major and must not go below it. PLAN 11.1's
+ * "Updates" row names electron-builder 26.17.0 on the v26 line; its "Electron"
+ * row asks for the latest 44.x, and `release.21`, which takes Electron there,
+ * raises the floor from 44.3.0. A later patch or minor on the same major
+ * passes, since `release.21`, the release checklist (11.4, step 2) and
+ * `release.10`'s Dependabot all expect one. npm's `latest` tag for
+ * electron-builder is 26.15.3, so `npm i -D -E electron-builder` without the
+ * version goes back, and `npm audit fix --force` would take it to 26.5.0
+ * (`opensource.3`). A deliberate bump edits PLAN 11.1 (CLAUDE.md rule 7) and
+ * raises the floor here with it. `release.8b` adds electron-updater at 6.8.10,
+ * as its PLAN text says.
  */
-const EXACT_PINS = ['electron', 'electron-builder'];
+const EXACT_PINS: Record<string, string> = {
+  electron: '44.3.0',
+  'electron-builder': '26.17.0'
+};
+
+/** Compares two x.y.z versions part by part as numbers: negative, zero or positive. */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
 
 describe('packaging scripts (release.2)', () => {
   it('builds the unpacked app with --dir, syncing package.json first as package does', () => {
@@ -62,11 +86,31 @@ describe('packaging scripts (release.2)', () => {
 });
 
 describe('exact pins (release.2)', () => {
-  it.each(EXACT_PINS)('pins %s to one version in package.json and the lockfile', (name) => {
-    const spec = pkg.devDependencies?.[name] ?? pkg.dependencies?.[name];
-    expect(spec).toMatch(/^\d+\.\d+\.\d+$/);
-    const root = lock.packages[''];
-    expect(root?.devDependencies?.[name] ?? root?.dependencies?.[name]).toBe(spec);
-    expect(lock.packages[`node_modules/${name}`]?.version).toBe(spec);
+  it('compares versions by number, not as text', () => {
+    expect(compareVersions('26.17.0', '26.17.0')).toBe(0);
+    expect(compareVersions('26.18.0', '26.17.0')).toBeGreaterThan(0);
+    expect(compareVersions('26.17.1', '26.17.0')).toBeGreaterThan(0);
+    expect(compareVersions('26.15.3', '26.17.0')).toBeLessThan(0);
+    expect(compareVersions('26.5.0', '26.17.0')).toBeLessThan(0);
+    expect(compareVersions('44.10.0', '44.9.2')).toBeGreaterThan(0);
   });
+
+  it.each(Object.entries(EXACT_PINS))(
+    'pins %s to one version, at least %s and on its major, in package.json and the lockfile',
+    (name, floor) => {
+      const spec = pkg.devDependencies?.[name] ?? pkg.dependencies?.[name];
+      expect(spec).toMatch(/^\d+\.\d+\.\d+$/);
+      const version = spec ?? '';
+      expect(version.split('.')[0], `${name} ${version} is not on the ${floor} major`).toBe(
+        floor.split('.')[0]
+      );
+      expect(
+        compareVersions(version, floor),
+        `${name} ${version} is older than ${floor}`
+      ).toBeGreaterThanOrEqual(0);
+      const root = lock.packages[''];
+      expect(root?.devDependencies?.[name] ?? root?.dependencies?.[name]).toBe(spec);
+      expect(lock.packages[`node_modules/${name}`]?.version).toBe(spec);
+    }
+  );
 });
