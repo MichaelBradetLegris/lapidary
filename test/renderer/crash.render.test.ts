@@ -89,19 +89,52 @@ describe('ErrorBoundary', () => {
     ).toBe('<p>the app</p>');
   });
 
-  it('turns to the fallback for good once an error is caught, and hands the error and its components on', () => {
-    expect(ErrorBoundary.getDerivedStateFromError()).toEqual({ failed: true });
-    const caught: [unknown, string | null | undefined][] = [];
+  /** A boundary outside React, whose setState merges at once as React's would. */
+  function boundaryWith(caught: [unknown, string | null | undefined][]): ErrorBoundary {
     const boundary = new ErrorBoundary({
       fallback,
       onError: (error, stack) => void caught.push([error, stack]),
       children: child
     });
+    boundary.setState = (next) => {
+      boundary.state = { ...boundary.state, ...(next as Partial<typeof boundary.state>) };
+    };
+    return boundary;
+  }
+
+  /** What React does when the boundary catches: the derived state, then componentDidCatch in the commit. */
+  function caughtBy(boundary: ErrorBoundary, error: unknown, componentStack: string): void {
+    boundary.state = { ...boundary.state, ...ErrorBoundary.getDerivedStateFromError() };
+    boundary.componentDidCatch(error, { componentStack });
+  }
+
+  it('turns to the fallback for good once an error is caught, and hands the error and its components on', () => {
+    expect(ErrorBoundary.getDerivedStateFromError()).toEqual({ failed: true });
+    const caught: [unknown, string | null | undefined][] = [];
+    const boundary = boundaryWith(caught);
+    expect(boundary.render()).toBe(child);
     const err = new Error('render failed');
-    boundary.componentDidCatch(err, { componentStack: '\n    at StatusBar' });
+    caughtBy(boundary, err, '\n    at StatusBar');
     expect(caught).toEqual([[err, '\n    at StatusBar']]);
-    boundary.state = ErrorBoundary.getDerivedStateFromError();
     expect(boundary.render()).toBe(fallback);
+  });
+
+  it('catches once: an error in the fallback is thrown from its own render, past it, and handed on by the root', () => {
+    // React hands a boundary an error in any render where it has not already
+    // caught one, and draws the fallback afresh, which writes and takes the
+    // close guard again; an error that came back on that render went round
+    // for good (hardening.4 review). React never hands a boundary its own
+    // render's error, so this one reaches the root's onUncaughtError.
+    const caught: [unknown, string | null | undefined][] = [];
+    const boundary = boundaryWith(caught);
+    const first = new Error('render failed');
+    caughtBy(boundary, first, '\n    at StatusBar');
+    expect(boundary.render()).toBe(fallback);
+    const again = new Error('the crash page failed when its writes ended');
+    caughtBy(boundary, again, '\n    at CrashFallback');
+    expect(() => boundary.render()).toThrow(again);
+    // Only the first is handed on here: the root's onUncaughtError logs the second.
+    expect(caught).toEqual([[first, '\n    at StatusBar']]);
   });
 });
 

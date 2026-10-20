@@ -7,7 +7,9 @@ import type { RendererErrorKind, RendererLogLine } from '../../shared/ipc';
  * The page's unexpected errors (hardening.4, PLAN 7.7 and 11.3 m).
  *
  * - An error nothing caught (the window's `error` event) goes to main's log
- *   (`log:renderer`) and leaves a card with Show diagnostics.
+ *   (`log:renderer`) and leaves a card with Show diagnostics, at most once a
+ *   minute whatever the errors, as main's card does: a card closed is not
+ *   brought back by the next error that minute, which the log has.
  * - A promise rejected with no handler (`unhandledrejection`) is only logged,
  *   as main's are: a review cancelled or a window closing can leave one that
  *   means nothing went wrong.
@@ -24,6 +26,9 @@ import type { RendererErrorKind, RendererLogLine } from '../../shared/ipc';
  * `ErrorTarget`, so the module needs neither the DOM nor the preload bridge
  * and is tested in node.
  */
+
+/** At most one card a minute for the page's own errors, as for main's (`NOTICE_INTERVAL_MS`). */
+export const PAGE_CARD_INTERVAL_MS = 60_000;
 
 export interface ErrorReportIo {
   /** `log:renderer`; never throws, and a request that fails is dropped */
@@ -49,7 +54,7 @@ interface RejectionEventLike {
 }
 
 export interface ErrorReporter {
-  /** an error nothing caught: logged, with a card */
+  /** an error nothing caught: logged, with a card at most once a minute */
   error(error: unknown, message?: string): void;
   /** a rejection nothing handled: logged only */
   rejection(reason: unknown): void;
@@ -67,7 +72,17 @@ export function createErrorReporter(
   io: ErrorReportIo,
   options: { now?: () => number; filter?: ErrorFilter } = {}
 ): ErrorReporter {
-  const filter = options.filter ?? createErrorFilter(options.now ? { now: options.now } : {});
+  const now = options.now ?? ((): number => Date.now());
+  const filter = options.filter ?? createErrorFilter({ now });
+  let lastCard = Number.NEGATIVE_INFINITY;
+
+  /** The card, unless one was shown in the last minute. */
+  function card(): void {
+    const at = now();
+    if (at - lastCard < PAGE_CARD_INTERVAL_MS) return;
+    lastCard = at;
+    io.showCard();
+  }
 
   /** Send the line unless it is the ResizeObserver notice or a repeat; true when sent. */
   function report(kind: RendererErrorKind, fields: Record<string, FieldValue>): boolean {
@@ -82,7 +97,7 @@ export function createErrorReporter(
 
   const reporter: ErrorReporter = {
     error(error, message) {
-      if (report('error', pageErrorFields(error, message))) io.showCard();
+      if (report('error', pageErrorFields(error, message))) card();
     },
     rejection(reason) {
       report('rejection', pageErrorFields(reason));

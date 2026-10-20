@@ -1,6 +1,7 @@
 import type { ApiEventMap } from '../../shared/ipc';
 import { call } from './client';
 import type { CloseGuardIo, PageWrites } from './closeGuard';
+import type { CrashPageDeps } from './crashPage';
 import { draftWriteFailures, flushDraftWrites, retryDraftWrites } from './drafts';
 import { flushHintWrites } from './hints';
 import { flushReviewWrites, retryReviewWrites, reviewWriteFailures } from './reviewPersistence';
@@ -63,4 +64,15 @@ export const CRASH_WRITES: PageWrites = {
   },
   retry: () => PAGE_WRITES.retry(),
   failures: () => PAGE_WRITES.failures()
+};
+
+/**
+ * What the page shown after a crash takes over and writes (hardening.4,
+ * `createCrashPage`): the close guard with the writes a close makes, and
+ * `CRASH_WRITES` as it opens and on Try again.
+ */
+export const CRASH_PAGE: CrashPageDeps = {
+  io: CLOSE_GUARD_IO,
+  closeWrites: PAGE_WRITES,
+  writes: CRASH_WRITES
 };

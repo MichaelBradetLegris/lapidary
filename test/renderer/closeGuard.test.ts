@@ -5,6 +5,7 @@ import { unsavedDecisionCount } from '../../src/shared/diff/compose';
 import type { CloseGuardState, SaveRequest, SaveResponse } from '../../src/shared/ipc';
 import { createReview } from '../../src/shared/review';
 import type { Review } from '../../src/shared/types';
+import type { ConfirmSpec } from '../../src/shared/ui/confirm';
 import { closePrompt, needsAttention, stillWritingPrompt, WRITES_WAIT_MS } from '../../src/shared/ui/save';
 import {
   closeGuardStateOf,
@@ -925,6 +926,114 @@ describe('after a crash (hardening.4)', () => {
     expect(h.saves).toEqual([]);
   });
 
+  /** Every question put on screen from now on, until the returned function is called. */
+  function questionsAsked(): { specs: ConfirmSpec[]; stop: () => void } {
+    const specs: ConfirmSpec[] = [];
+    const stop = useApp.subscribe((s, prev) => {
+      if (s.confirmSpec && s.confirmSpec !== prev.confirmSpec) specs.push(s.confirmSpec);
+    });
+    return { specs, stop };
+  }
+
+  it('ends a close the failed page held at "Still writing": Wait goes no further, and nothing offers Save', async () => {
+    state().toggleAccepted('h1');
+    const h = guard();
+    h.failures = ['The review could not be saved: the disk is full.'];
+    const held = prepareToLeaveApp('close');
+    await settle();
+    expect(state().confirmSpec?.title).toBe('Still writing your decisions');
+    // The write would now be made: on the failed page, Wait went on to the
+    // close question, Save included, drawn by the crash page (review finding).
+    h.failures = [];
+    h.uninstall();
+    const asked = questionsAsked();
+    current = { ...h, uninstall: installCrashedPageGuard(h.deps.io, h.deps.writes, { questions: true }) };
+    const flushesAtTakeover = h.flushes;
+    h.sent.length = 0;
+    expect(await held).toBe(false);
+    await settle();
+    asked.stop();
+    expect(asked.specs).toEqual([]);
+    expect(state().confirmSpec).toBeNull();
+    expect(h.saves).toEqual([]);
+    expect(h.flushes).toBe(flushesAtTakeover);
+    expect(toMain(h)).toEqual(['decision:false']);
+    // An ended run is not a failure: no card says the window could not get ready.
+    expect(state().notifications).toEqual([]);
+    // The next close is the crash page's, and with everything written it goes at once.
+    h.sent.length = 0;
+    expect(await prepareToLeaveApp('close')).toBe(true);
+    expect(toMain(h)).toEqual(['received', 'decision:true']);
+    expect(h.saves).toEqual([]);
+  });
+
+  it('ends a close the failed page held in its write race at once, asking nothing after', async () => {
+    vi.useFakeTimers();
+    state().toggleAccepted('h1');
+    const h = guard();
+    const hold = deferred();
+    h.holdFlush = { promise: hold.promise, resolve: () => hold.resolve() };
+    const held = prepareToLeaveApp('close');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(state().confirmSpec).toBeNull();
+    h.uninstall();
+    const asked = questionsAsked();
+    current = { ...h, uninstall: installCrashedPageGuard(h.deps.io, h.deps.writes, { questions: true }) };
+    h.sent.length = 0;
+    // Answered without waiting out the rest of the 5 s.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await held).toBe(false);
+    expect(toMain(h)).toEqual(['decision:false']);
+    // The write it was waiting on ends, and the clock runs out: still nothing asked or saved.
+    hold.resolve();
+    await vi.advanceTimersByTimeAsync(WRITES_WAIT_MS * 2);
+    asked.stop();
+    expect(asked.specs).toEqual([]);
+    expect(state().confirmSpec).toBeNull();
+    expect(h.saves).toEqual([]);
+    expect(toMain(h)).toEqual(['decision:false']);
+  });
+
+  it('does not act on an answer that made the failed page fail: its Save is not run', async () => {
+    // Save and close pressed, and drawing what that changed failed: React
+    // shows the crash page, which takes the guard over, in the same task,
+    // before the run reads the answer.
+    state().toggleAccepted('h1');
+    const h = guard();
+    const held = prepareToLeaveApp('close');
+    await settle();
+    expect(state().confirmSpec?.title).toBe('Close Lapidary?');
+    state().answerChoice('confirm');
+    h.uninstall();
+    current = { ...h, uninstall: installCrashedPageGuard(h.deps.io, h.deps.writes, { questions: true }) };
+    expect(await held).toBe(false);
+    await settle();
+    expect(h.saves).toEqual([]);
+    expect(h.cancels).toBe(0);
+    expect(toMain(h).at(-1)).toBe('decision:false');
+  });
+
+  it("ends a close the failed page held while its Save and close ran, without waiting on that save's answer", async () => {
+    vi.useFakeTimers();
+    state().toggleAccepted('h1');
+    const reply = deferred<SaveOutcome>();
+    const h = guard({ save: () => reply.promise });
+    const held = prepareToLeaveApp('close');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state().confirmSpec?.title).toBe('Close Lapidary?');
+    state().answerChoice('confirm');
+    await vi.advanceTimersByTimeAsync(0);
+    h.uninstall();
+    current = { ...h, uninstall: installCrashedPageGuard(h.deps.io, h.deps.writes, { questions: true }) };
+    h.sent.length = 0;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await held).toBe(false);
+    reply.resolve('saved');
+    await vi.advanceTimersByTimeAsync(WRITES_WAIT_MS);
+    expect(toMain(h)).toEqual(['decision:false']);
+    expect(state().confirmSpec).toBeNull();
+  });
+
   it('with nothing drawn to ask with, a close gives the writes their time and goes, asking nothing', async () => {
     vi.useFakeTimers();
     state().toggleAccepted('h1');
@@ -999,6 +1108,37 @@ describe('the wiring (apply.9)', () => {
     expect(io).toContain('retryDraftWrites();');
     expect(io).toContain('[...reviewWriteFailures(), ...draftWriteFailures()]');
     expect(app).toContain('cancelReview');
+  });
+
+  it('the page shown after a crash writes both writers, and takes the guard over with the IPC and the writes a close makes', () => {
+    // hardening.4 review: nothing else pins these, since CrashFallback's
+    // effects never run in node; what they call is tested in crashPage.test.ts.
+    const crashWrites = io.slice(
+      io.indexOf('export const CRASH_WRITES'),
+      io.indexOf('export const CRASH_PAGE')
+    );
+    expect(crashWrites).toContain('await Promise.all([flushReviewWrites(), flushDraftWrites()]);');
+    expect(crashWrites).toContain('retry: () => PAGE_WRITES.retry(),');
+    expect(crashWrites).toContain('failures: () => PAGE_WRITES.failures()');
+    expect(io).toMatch(
+      /export const CRASH_PAGE: CrashPageDeps = \{\s*io: CLOSE_GUARD_IO,\s*closeWrites: PAGE_WRITES,\s*writes: CRASH_WRITES\s*\};/
+    );
+    const fallback = read('components/CrashFallback.tsx');
+    expect(fallback).toContain('export function CrashFallback({ onReload, deps = CRASH_PAGE }: Props)');
+    expect(fallback).toMatch(
+      /useEffect\(\(\) => \{\s*const page = createCrashPage\(deps, \{\s*setWrites,\s*focusReload: \(\) => reloadRef\.current\?\.focus\(FOCUS_WITH_RING\),\s*focusLost\s*\}\);\s*pageRef\.current = page;\s*const close = page\.open\(\);/
+    );
+    expect(fallback).toMatch(
+      /useEffect\(\(\) => \{\s*if \(!questionOpen\) pageRef\.current\?\.noQuestion\(\);\s*\}, \[questionOpen\]\);/
+    );
+    expect(fallback).toContain('onClick={() => pageRef.current?.tryAgain()}');
+    expect(fallback).toMatch(
+      /className="primary"\s*ref=\{reloadRef\}\s*\{\.\.\.heldButton\(writes\.writing, reload\)\}/
+    );
+    expect(fallback).toContain('return active === null || active === document.body;');
+    expect(fallback).toContain(
+      'const FOCUS_WITH_RING: FocusOptions & { focusVisible: boolean } = { focusVisible: true };'
+    );
   });
 
   it('the review writer says why it failed in its card words, and retries through the writer', () => {

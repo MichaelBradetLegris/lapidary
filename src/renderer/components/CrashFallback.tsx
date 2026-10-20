@@ -10,22 +10,33 @@ import {
   CRASH_WRITTEN,
   RELOAD_WINDOW
 } from '../../shared/ui/crash';
-import { installCrashedPageGuard, writeAfterCrash, type PageWrites } from '../state/closeGuard';
+import { createCrashPage, type CrashPage, type CrashPageDeps, type CrashWrites } from '../state/crashPage';
 import { useDiagnosticsReport } from '../state/diagnosticsReport';
 import { heldButton } from '../state/heldButton';
-import { CLOSE_GUARD_IO, CRASH_WRITES, PAGE_WRITES } from '../state/pageIo';
+import { CRASH_PAGE } from '../state/pageIo';
 import { useApp } from '../state/store';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DiagnosticsPanel } from './DiagnosticsPanel';
 
-/** How the page's writes stand: being written, or done with what could not be written. */
-type WriteState = { writing: true } | { writing: false; failures: string[] };
-
 interface Props {
   /** reload the window: `location.reload()`, a new page in the same window */
   onReload?: () => void;
-  /** the review and paragraph writers (`CRASH_WRITES`) unless a test gives others */
-  writes?: PageWrites;
+  /** the close guard's IPC and the writers (`CRASH_PAGE`) unless a test gives others */
+  deps?: CrashPageDeps;
+}
+
+/**
+ * Reload window shows its focus ring however the focus came to it, as the
+ * confirm dialog's default button does (`FOCUS_WITH_RING` there): Chromium
+ * leaves the ring off a button that code focuses straight after a click, so
+ * after a click on Try again nothing would show that Enter now reloads.
+ */
+const FOCUS_WITH_RING: FocusOptions & { focusVisible: boolean } = { focusVisible: true };
+
+/** The focus is on nothing: the body, or no element at all. */
+function focusLost(): boolean {
+  const active = document.activeElement;
+  return active === null || active === document.body;
 }
 
 /**
@@ -41,34 +52,40 @@ interface Props {
  * decisions are in their review and boxes in their drafts, and nothing can be
  * saved to the chapter from here, so a close goes through at once unless a
  * write is still waiting or a review is running, and then asks as the page
- * would, in the question it draws itself.
+ * would, in the question it draws itself. What it does is `createCrashPage`'s
+ * (state/crashPage.ts), tested in node; this draws it.
  */
-export function CrashFallback({ onReload, writes = CRASH_WRITES }: Props): React.JSX.Element {
-  const [state, setState] = useState<WriteState>({ writing: true });
-  const [attempt, setAttempt] = useState(0);
+export function CrashFallback({ onReload, deps = CRASH_PAGE }: Props): React.JSX.Element {
+  const [writes, setWrites] = useState<CrashWrites>({ writing: true });
   const questionOpen = useApp((s) => s.confirmSpec !== null);
   const report = useDiagnosticsReport(false);
   const reloadRef = useRef<HTMLButtonElement>(null);
+  const pageRef = useRef<CrashPage | null>(null);
 
-  // The close guard is this page's now, its questions drawn below (ConfirmDialog).
-  useEffect(() => installCrashedPageGuard(CLOSE_GUARD_IO, PAGE_WRITES, { questions: true }), []);
-
+  // The close guard is this page's now, its questions drawn below (ConfirmDialog), and the writers write.
   useEffect(() => {
-    let live = true;
-    void writeAfterCrash(writes).then((failures) => {
-      if (live) setState({ writing: false, failures });
+    const page = createCrashPage(deps, {
+      setWrites,
+      focusReload: () => reloadRef.current?.focus(FOCUS_WITH_RING),
+      focusLost
     });
+    pageRef.current = page;
+    const close = page.open();
     return () => {
-      live = false;
+      close();
+      if (pageRef.current === page) pageRef.current = null;
     };
-  }, [attempt, writes]);
+  }, [deps]);
 
+  // Reload window has the focus as the page opens, and once the question the
+  // failed page had open is gone: on the first render it is still in the
+  // store, the page under it inert, so a focus given then is lost.
   useEffect(() => {
-    reloadRef.current?.focus();
-  }, []);
+    if (!questionOpen) pageRef.current?.noQuestion();
+  }, [questionOpen]);
 
   const reload = onReload ?? ((): void => window.location.reload());
-  const failures = state.writing ? [] : state.failures;
+  const failures = writes.writing ? [] : writes.failures;
 
   return (
     <div className="app-shell">
@@ -77,7 +94,7 @@ export function CrashFallback({ onReload, writes = CRASH_WRITES }: Props): React
           <div className="setup__page">
             <h1>{CRASH_TITLE}</h1>
             <p>{CRASH_LEAD}</p>
-            {state.writing ? (
+            {writes.writing ? (
               <p className="crash__status" role="status">
                 {CRASH_WRITING}
               </p>
@@ -95,14 +112,7 @@ export function CrashFallback({ onReload, writes = CRASH_WRITES }: Props): React
                 </ul>
                 <p>
                   {CRASH_NOT_WRITTEN_AFTER}{' '}
-                  <button
-                    type="button"
-                    className="link"
-                    onClick={() => {
-                      setState({ writing: true });
-                      setAttempt((n) => n + 1);
-                    }}
-                  >
+                  <button type="button" className="link" onClick={() => pageRef.current?.tryAgain()}>
                     Try again
                   </button>
                 </p>
@@ -113,7 +123,7 @@ export function CrashFallback({ onReload, writes = CRASH_WRITES }: Props): React
                 type="button"
                 className="primary"
                 ref={reloadRef}
-                {...heldButton(state.writing, reload)}
+                {...heldButton(writes.writing, reload)}
               >
                 {RELOAD_WINDOW}
               </button>

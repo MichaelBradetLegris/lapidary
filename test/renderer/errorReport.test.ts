@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createErrorReporter } from '../../src/renderer/state/errorReport';
+import { createErrorReporter, PAGE_CARD_INTERVAL_MS } from '../../src/renderer/state/errorReport';
 import { REPEAT_MS } from '../../src/shared/diagnostics/errorFilter';
 import { loggableErrorFields } from '../../src/shared/diagnostics/redact';
 import type { RendererLogLine } from '../../src/shared/ipc';
@@ -97,6 +97,27 @@ describe('the window events', () => {
     fire();
     expect(r.lines).toHaveLength(2);
     expect(r.cards()).toBe(2);
+  });
+
+  it('shows the card at most once a minute, whatever the errors, as main does, and logs each one', () => {
+    // hardening.4 review: a card closed came straight back with the next
+    // different error, where 7.7 and section 5 say once a minute.
+    const r = reporter();
+    const target = new EventTarget();
+    r.report.install(target);
+    target.dispatchEvent(errorEvent(new Error('first')));
+    r.advance(1_000);
+    target.dispatchEvent(errorEvent(new Error('second, a different one')));
+    r.advance(PAGE_CARD_INTERVAL_MS - 1_001);
+    target.dispatchEvent(errorEvent(new TypeError('third')));
+    expect(r.lines).toHaveLength(3);
+    expect(r.cards()).toBe(1);
+    // A minute after the card, the next error brings it again.
+    r.advance(1);
+    target.dispatchEvent(errorEvent(new Error('fourth')));
+    expect(r.lines).toHaveLength(4);
+    expect(r.cards()).toBe(2);
+    expect(PAGE_CARD_INTERVAL_MS).toBe(60_000);
   });
 
   it('stops listening when uninstalled', () => {
