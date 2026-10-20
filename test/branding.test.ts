@@ -74,7 +74,8 @@ function scannedFiles(): string[] {
     ...filesIn('src', ['.ts', '.tsx', '.html', '.css'], true),
     ...filesIn('scripts', ['.cjs', '.mjs', '.ts', '.py'], false),
     ...filesIn('resources', ['.md'], false),
-    ...filesIn('.github', ['.yml', '.yaml'], true),
+    // The release notes' footer (release.6b) is shown on every release page.
+    ...filesIn('.github', ['.yml', '.yaml', '.md'], true),
     'electron.vite.config.ts',
     'electron-builder.config.cjs'
   ].filter((file) => path.normalize(file) !== path.normalize('src/shared/branding.ts'));
@@ -103,6 +104,8 @@ describe('the app name lives only in branding.ts', () => {
     expect(files).toContain('src/main/index.ts');
     expect(files).toContain('src/renderer/index.html');
     expect(files).toContain('scripts/branding.cjs');
+    expect(files).toContain('scripts/release-notes.cjs');
+    expect(files).toContain('.github/release-footer.md');
     expect(files).not.toContain('src/shared/branding.ts');
   });
 

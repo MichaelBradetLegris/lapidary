@@ -90,12 +90,14 @@ describe('packaging scripts (release.2)', () => {
   });
 
   it('points the verifier and the release scripts at their agreed files', () => {
-    // opensource.5 wrote verify-package.ts; release.6b writes the other two.
+    // opensource.5 wrote verify-package.ts and release.6b the other two.
     expect(scripts['verify:package']).toBe('node scripts/verify-package.ts');
     expect(existsSync(path.join(ROOT, 'scripts', 'verify-package.ts'))).toBe(true);
     expect(existsSync(path.join(ROOT, 'scripts', 'third-party-notices.ts'))).toBe(true);
     expect(scripts['release:check']).toBe('node scripts/check-release.cjs');
     expect(scripts['release:notes']).toBe('node scripts/release-notes.cjs');
+    expect(existsSync(path.join(ROOT, 'scripts', 'check-release.cjs'))).toBe(true);
+    expect(existsSync(path.join(ROOT, 'scripts', 'release-notes.cjs'))).toBe(true);
   });
 });
 
