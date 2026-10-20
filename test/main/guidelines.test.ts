@@ -235,9 +235,12 @@ describe('opening the guidelines file', () => {
     );
   });
 
+  // The messages name the file through path.basename, which splits a Windows
+  // path only on Windows, so the tests that check a message hand in a path
+  // with forward slashes, which both platforms split (CI runs on Linux too).
   it('refuses a .txt guidelines file for Obsidian, before the shell is called, but opens it with Open', async () => {
     const { calls, shell } = fakeShell();
-    await expect(openGuidelinesFile('C:\\Vault\\GUIDELINES.txt', 'obsidian', shell)).rejects.toMatchObject({
+    await expect(openGuidelinesFile('/vault/GUIDELINES.txt', 'obsidian', shell)).rejects.toMatchObject({
       code: 'invalid-input',
       message: 'Obsidian opens .md files, and GUIDELINES.txt is not one. Use Open to open it in another app.'
     });
@@ -270,7 +273,7 @@ describe('opening the guidelines file', () => {
 
   it('says what to do when the system cannot start Obsidian, keeping its reason as the detail', async () => {
     const { shell } = fakeShell('', 'Failed to open: No application is associated with the specified file');
-    await expect(openInObsidian('C:\\Vault\\GUIDELINES.md', shell)).rejects.toMatchObject({
+    await expect(openInObsidian('/vault/GUIDELINES.md', shell)).rejects.toMatchObject({
       code: 'io',
       message:
         'Obsidian could not be started to open GUIDELINES.md. Check that Obsidian is installed, or use Open to open the file in another app.',

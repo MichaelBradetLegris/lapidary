@@ -33,13 +33,18 @@ export function diffToHunks(original: string, corrected: string): Hunk[] {
 
   const spans: Span[] = [];
   let oi = 0;
-  let lastOriginalEnd = allParagraphs.find((p) => p.isFrontmatter)?.end ?? 0;
+  /* The end of the last body paragraph of `original` the diff kept so far, or
+     null while it is still at the top of the body. */
+  let keptEnd: number | null = null;
   let removed: Paragraph[] = [];
   let added: string[] = [];
 
   const flush = (): void => {
     if (removed.length === 0 && added.length === 0) return;
-    spans.push(...pairBlock(original, removed, added, lastOriginalEnd));
+    const next = oParas[oi];
+    spans.push(
+      ...pairBlock(original, removed, added, keptEnd, next, insertionPoint(original, keptEnd, next))
+    );
     removed = [];
     added = [];
   };
@@ -49,9 +54,7 @@ export function diffToHunks(original: string, corrected: string): Hunk[] {
       for (let i = 0; i < part.value.length; i += 1) {
         const p = oParas[oi];
         oi += 1;
-        if (!p) continue;
-        removed.push(p);
-        lastOriginalEnd = p.end;
+        if (p) removed.push(p);
       }
     } else if (part.added) {
       added.push(...part.value);
@@ -60,7 +63,7 @@ export function diffToHunks(original: string, corrected: string): Hunk[] {
       for (let i = 0; i < part.value.length; i += 1) {
         const p = oParas[oi];
         oi += 1;
-        if (p) lastOriginalEnd = p.end;
+        if (p) keptEnd = p.end;
       }
     }
   }
@@ -89,15 +92,58 @@ export function diffToHunks(original: string, corrected: string): Hunk[] {
 }
 
 /**
+ * Where the paragraphs a changed block adds go when it removes none, and the
+ * words each is inserted as (`k` counts them from 0).
+ */
+interface Insertion {
+  at: number;
+  words: (text: string, k: number) => string;
+}
+
+/**
+ * The place for paragraphs added with no removed one to follow: after the
+ * last body paragraph passed (`lastEnd`), each behind a blank line; at the top
+ * of the body, before the first paragraph (`next`), each followed by one
+ * (`files.22`); and in a body that has no paragraph at all, at the end of the
+ * text, which is never before `bodyStart`, the first behind a blank line
+ * unless it starts the text or a line. So no paragraph is ever inserted in the
+ * frontmatter or at the line break that closes it, where the page would not
+ * show it and the frontmatter could end up on the same line as the body.
+ */
+function insertionPoint(original: string, lastEnd: number | null, next: Paragraph | undefined): Insertion {
+  if (lastEnd !== null) return { at: lastEnd, words: (text) => `\n\n${text}` };
+  if (next) return { at: next.start, words: (text) => `${text}\n\n` };
+  const opensLine = original.length === 0 || original.endsWith('\n');
+  return {
+    at: original.length,
+    words: (text, k) => (k === 0 && opensLine ? text : `\n\n${text}`)
+  };
+}
+
+/**
  * Pair the removed and added paragraphs of one changed block by position. Extra
  * removed paragraphs become whole-paragraph deletions; extra added ones become
- * insertions at the block's boundary.
+ * insertions after the last removed one, or at `place` when none was removed.
+ * `keptEnd` is the end of the body paragraph kept before the block, if any, and
+ * `next` the body paragraph after it.
+ *
+ * A deletion takes a blank line with it, so the chapter is left with no gap
+ * where the paragraph was: the one after it where a paragraph follows the
+ * block, and otherwise the one before it, as the paragraph box deletes a last
+ * paragraph (`deletionSpan`), except the first paragraph of the body, which
+ * has none before it. Blank lines that end the text belong to no paragraph,
+ * and the page draws nothing past the last one: a deletion that took them
+ * would lie there (`files.22`), and so, once saved, would one that took the
+ * blank line after it with no paragraph following, whatever was decided, as
+ * that line would then end the chapter (the `files.22` review).
  */
 function pairBlock(
   original: string,
   removed: readonly Paragraph[],
   added: readonly string[],
-  boundary: number
+  keptEnd: number | null,
+  next: Paragraph | undefined,
+  place: Insertion
 ): Span[] {
   const spans: Span[] = [];
   const paired = Math.min(removed.length, added.length);
@@ -109,25 +155,31 @@ function pairBlock(
     spans.push(...wordSpans(p.text, p.start, text));
   }
 
+  // The end of the paragraph that stays before the unpaired removed ones: the last one paired, or the
+  // one kept before the block. Where no paragraph follows the block, each takes the blank line before
+  // it, except a first one with no paragraph before it.
+  const stays = paired > 0 ? (removed[paired - 1]?.end ?? null) : keptEnd;
   for (let i = paired; i < removed.length; i += 1) {
     const p = removed[i];
     if (!p) continue;
-    // Swallow the blank line after the paragraph so deleting it does not leave a gap.
-    const trailing = /^\n(?:[ \t]*\n)+/.exec(original.slice(p.end));
-    const end = p.end + (trailing?.[0].length ?? 0);
-    spans.push({ start: p.start, end, original: original.slice(p.start, end), replacement: '' });
+    let start = p.start;
+    let end = p.end;
+    if (next === undefined) {
+      start = (i === paired ? stays : removed[i - 1]?.end) ?? p.start;
+    } else {
+      // The blank line after it, where a paragraph follows: another removed one or the one after the block.
+      const trailing = /^\n(?:[ \t]*\n)+(?=[ \t]*\S)/.exec(original.slice(p.end));
+      end += trailing?.[0].length ?? 0;
+    }
+    spans.push({ start, end, original: original.slice(start, end), replacement: '' });
   }
 
-  const insertAt = removed.length > 0 ? (removed[removed.length - 1]?.end ?? boundary) : boundary;
+  const last = removed[removed.length - 1];
+  const after: Insertion = last ? { at: last.end, words: (text) => `\n\n${text}` } : place;
   for (let i = paired; i < added.length; i += 1) {
     const text = added[i];
     if (text === undefined) continue;
-    spans.push({
-      start: insertAt,
-      end: insertAt,
-      original: '',
-      replacement: insertAt > 0 ? `\n\n${text}` : `${text}\n\n`
-    });
+    spans.push({ start: after.at, end: after.at, original: '', replacement: after.words(text, i - paired) });
   }
 
   return spans;

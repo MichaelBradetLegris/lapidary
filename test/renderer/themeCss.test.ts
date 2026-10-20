@@ -447,7 +447,11 @@ const LIGHT_VALUES: Record<string, string> = {
   '--tint-small': '16%',
   '--tint-small-hover': '26%',
   // Added by apply.4: the unsaved dot and count, in ember (it was the --accent blue dot).
-  '--unsaved': '#ad4b0d'
+  '--unsaved': '#ad4b0d',
+  // Added by files.11: the conflict copy badge in the chapter list.
+  '--badge-conflict-bg': '#fde8e6',
+  '--badge-conflict-border': '#f0c4bf',
+  '--badge-conflict-ink': '#9c2a1f'
 };
 
 /**
@@ -484,6 +488,10 @@ const DARK_VALUES: Record<string, string> = {
   '--badge-pending-bg': '#3d3415',
   '--badge-pending-border': '#5c4f1f',
   '--badge-pending-ink': '#e8c95a',
+  // files.11: the conflict copy badge.
+  '--badge-conflict-bg': '#42221e',
+  '--badge-conflict-border': '#6b3530',
+  '--badge-conflict-ink': '#ff9e94',
   // #5e4b10 in the starting values; --ink-faint on it gave 2.61:1.
   '--find-bg': '#52420e',
   '--find-active-bg': '#e09a3a',

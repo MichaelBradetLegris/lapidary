@@ -1,8 +1,16 @@
 import { anchorChanges, type ChangeInput } from './diff/anchor';
+import { guardTouching, isGuarded, screenModelHunks, touchingRule } from './diff/protect';
 import { diffToHunks } from './diff/wordDiff';
 import { nextId, slugify } from './ids';
 import { normalizeText } from './text/eol';
-import { findParagraph, paragraphIndexAt, splitParagraphs, type Paragraph } from './text/paragraphs';
+import { bodyStart } from './text/obsidian';
+import {
+  bodyParagraphs,
+  findParagraph,
+  paragraphIndexAt,
+  splitParagraphs,
+  type Paragraph
+} from './text/paragraphs';
 import {
   CHANGE_CATEGORIES,
   COMMENT_CATEGORIES,
@@ -104,7 +112,13 @@ export function createReview(args: CreateReviewArgs): Review {
   };
 }
 
-/** A review built from a model's change list, anchored into the chapter. */
+/**
+ * A review built from a model's change list, anchored into the chapter. Each
+ * suggestion is screened before overlaps are resolved, and the touching rule
+ * runs within the overlap pass, so one that would change Obsidian syntax is
+ * kept out of the text and listed under Unanchored, and pushes no other off
+ * the page as an overlap (`files.7`, PLAN 4.3 and 11.3 k).
+ */
 export function createAiReview(args: {
   sourcePath: string;
   base: ReviewBase;
@@ -114,11 +128,16 @@ export function createAiReview(args: {
   raw?: unknown;
   now?: string;
 }): Review {
-  const paragraphs = splitParagraphs(args.base.text);
+  const text = args.base.text;
+  const paragraphs = splitParagraphs(text);
   // `source: 'claude'` is the hunk's provenance marker for "a model wrote this",
   // and everything downstream keys off it. Renaming it would invalidate every
   // review on disk for no gain, so both providers keep using it.
-  const hunks = anchorChanges(args.base.text, paragraphs, args.changes, { source: 'claude' });
+  const hunks = anchorChanges(text, paragraphs, args.changes, {
+    source: 'claude',
+    screen: (located) => screenModelHunks(text, located),
+    touching: touchingRule(text)
+  });
   return createReview({
     sourcePath: args.sourcePath,
     base: args.base,
@@ -197,9 +216,71 @@ export function withGeneratorProvider(review: Review): Review {
   return { ...review, generator: { ...generator, provider } };
 }
 
+/**
+ * The guard on a review loaded from disk (`files.7`): its model suggestions
+ * still pending are screened as a new review's are, then the touching rule
+ * runs (`guardTouching`: a saved review's hunks on the page never overlap,
+ * so there is no overlap pass to run it in), so a review saved before the
+ * guard existed opens with a suggestion that would change Obsidian syntax
+ * under Unanchored, kept out of the text.
+ * What the author decided, wrote or rewrote is left as it is, and so is a
+ * suggestion kept out already. The review comes back untouched when nothing
+ * is kept out, so loading it again changes nothing.
+ */
+export function guardLoadedReview(review: Review): Review {
+  const text = review.base.text;
+  const hunks = guardTouching(text, screenModelHunks(text, review.hunks));
+  return hunks.every((hunk, i) => hunk === review.hunks[i]) ? review : { ...review, hunks };
+}
+
+/**
+ * A review loaded from disk keeps on the page only hunks the page draws: none
+ * before the first body paragraph or past the last (`files.22`, C.76), so none
+ * in the frontmatter, at the line break that closes it, or in the blank lines
+ * at either end of the text. A zero-width hunk at the very start of the first
+ * paragraph or the very end of the last is drawn there and stays. In a body
+ * with no paragraph, where the page has no block to draw in, only a hunk that
+ * starts before the body (`bodyStart`) is taken off.
+ *
+ * Until `files.22` a paragraph took the line break at either end of the body
+ * when that was a single one: the break after the closing `---` where the body
+ * starts on the next line, the first line of a text that starts with a blank
+ * line, and the last line of one that ends with a blank line (a file that ends
+ * in two line breaks). The paragraph box and the full-text diff made hunks on
+ * those breaks: the deletion of one, often joined to a change of the words
+ * beside it, and a paragraph added at the top; and the diff deleted a last
+ * paragraph with the blank lines that end the text. Since `files.22` no
+ * paragraph holds them, so the page does not draw such a hunk, and Save would
+ * still write it, putting the body on the closing line, where Obsidian no
+ * longer reads the frontmatter, and a box opened on that paragraph again could
+ * make a hunk that overlaps it. Each is taken off the page as a rebase takes one (4.5,
+ * `files.20`): unanchored, its words and decision kept, listed under
+ * Unanchored. A model suggestion the guard screens is left to it, which keeps
+ * it out with the reason `frontmatter` or `paragraph-break`. The review comes
+ * back untouched when nothing moved. Nothing the app makes since `files.22`
+ * has such a hunk, before Save or after it (`remapAfterCommit`).
+ */
+export function unanchorOutsideBody(review: Review): Review {
+  const text = review.base.text;
+  const body = bodyParagraphs(splitParagraphs(text));
+  const first = body[0];
+  const last = body[body.length - 1];
+  const from = first ? first.start : bodyStart(text);
+  const to = last ? last.end : text.length;
+  let moved = false;
+  const hunks = review.hunks.map((hunk) => {
+    if (hunk.anchor === 'stale' || isGuarded(hunk) || (hunk.start >= from && hunk.end <= to)) return hunk;
+    moved = true;
+    return { ...hunk, anchor: 'stale' as const, start: 0, end: 0 };
+  });
+  return moved ? { ...review, hunks } : review;
+}
+
 /** Every load-time upgrade, in order. What `reviews.ts` runs on each file it reads. */
 export function upgradeLoadedReview(review: Review): Review {
-  return repairCommentAnchors(withGeneratorProvider(migrateReview(review)));
+  return guardLoadedReview(
+    unanchorOutsideBody(repairCommentAnchors(withGeneratorProvider(migrateReview(review))))
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -268,6 +349,45 @@ function paragraphOfQuote(
   return best ? paragraphIndexAt(paragraphs, best.at) : null;
 }
 
+/** Whether `text` is blank: nothing but spaces, tabs and line breaks. */
+const BLANK = /^[ \t\n]*$/;
+
+/**
+ * A hunk that a save left starting in the blank text before the first body
+ * paragraph, which starts at `at`, moved to the paragraph's start, where the
+ * page draws it (the `files.22` review, C.76). The full-text diff puts some
+ * words behind a blank line: a paragraph added to a body that had none, with
+ * the line break that closes the frontmatter where the text ended at its
+ * closing `---`, and a last paragraph deleted with the blank line before it.
+ * When a save leaves no words before them, the hunk starts in blank text,
+ * before the first paragraph and even before `bodyStart`, and so does a
+ * zero-width one at that place, left undecided or dismissed. The page draws
+ * neither, and the load step would take them off the page
+ * (`unanchorOutsideBody`).
+ *
+ * The blank text is left out of the side the base holds, so what the hunk
+ * writes either way is as it was but for blank lines: taken out again, its
+ * words go, and the frontmatter's closing line break and the blank line stay.
+ * A zero-width hunk goes to the paragraph's start, and its words, which went in
+ * behind blank text, go in there followed by that blank text, so paragraphs
+ * keep their order. A hunk that starts in the frontmatter's words, or lies on
+ * blank text alone, stays as it is: the app makes neither.
+ */
+function intoFirstParagraph(text: string, at: number, hunk: Hunk): Hunk {
+  if (hunk.anchor === 'stale' || hunk.start >= at) return hunk;
+  const blank = text.slice(hunk.start, at);
+  if (!BLANK.test(blank)) return hunk;
+  if (hunk.end > hunk.start) {
+    if (hunk.end <= at) return hunk;
+    const own = hunk.baseSide;
+    return { ...hunk, start: at, [own]: hunk[own].slice(blank.length) };
+  }
+  const other = hunk.baseSide === 'original' ? 'replacement' : 'original';
+  const words = hunk[other].replace(/^[ \t\n]+/, '');
+  if (words.length === 0) return hunk;
+  return { ...hunk, start: at, end: at, [other]: `${words}${blank}` };
+}
+
 /**
  * Comments and hunk labels after a save folds the decisions into a new base
  * (`markSaved`). A save that adds, joins or deletes a paragraph renumbers every
@@ -275,7 +395,9 @@ function paragraphOfQuote(
  * comment follows its paragraph's position through the commit. When that
  * paragraph was split, the comment goes with the part that holds its quote;
  * when the quote moved elsewhere, it goes to the nearest paragraph that holds
- * it. Hunk labels are recomputed from their new offsets.
+ * it. A hunk the save left in the blank text before the first paragraph moves
+ * to its start (`intoFirstParagraph`), and hunk labels are recomputed from
+ * their new offsets.
  */
 export function remapAfterCommit(
   oldBase: string,
@@ -286,9 +408,11 @@ export function remapAfterCommit(
   const oldParagraphs = splitParagraphs(oldBase);
   const newParagraphs = splitParagraphs(committed.text);
   const pairs = commitPairs(oldHunks, committed.hunks);
+  const first = bodyParagraphs(newParagraphs)[0];
 
-  const hunks = committed.hunks.map((h) => {
-    if (h.anchor === 'stale') return h;
+  const hunks = committed.hunks.map((was) => {
+    if (was.anchor === 'stale') return was;
+    const h = first ? intoFirstParagraph(committed.text, first.start, was) : was;
     const paragraph = paragraphIndexAt(newParagraphs, h.start);
     return paragraph === h.paragraph ? h : { ...h, paragraph };
   });

@@ -1,6 +1,12 @@
 import type { ChapterFile, ReviewSummary } from '../../shared/ipc';
 import type { Review } from '../../shared/types';
-import { READ_LIST_AGAIN, chapterListMarks, chapterListNotice } from '../../shared/ui/chapterList';
+import { CONFLICT_COPY_BADGE, conflictCopyLabel } from '../../shared/text/sync';
+import {
+  READ_LIST_AGAIN,
+  chapterListMarks,
+  chapterListNotice,
+  watchNotice
+} from '../../shared/ui/chapterList';
 import { IconFolder, IconPlus } from './icons';
 
 interface Props {
@@ -11,6 +17,8 @@ interface Props {
   configured: boolean;
   /** why the manuscript folder could not be read, in main's words; null when it was (apply.25) */
   problem: string | null;
+  /** false while main is not watching the manuscript folder, as when its start was refused (files.21) */
+  watching: boolean;
   onOpen: (file: ChapterFile) => void;
   onChooseFolder: () => void;
   /** read the manuscript folder again */
@@ -28,9 +36,15 @@ function indexKey(value: string): string {
  * its changes yet gets the unsaved dot before its name, as the open chapter
  * does in the toolbar; the badge after it counts the suggestions still pending,
  * or ticks a chapter with none. Both come from `chapterListMarks` (apply.5).
- * With no rows, the list says why (`chapterListNotice`): no folder chosen, a
+ * A conflict copy that Obsidian Sync, Dropbox or Syncthing made gets a
+ * "conflict copy" badge under its name, its tooltip naming the tool and the
+ * chapter it copies (`conflictCopyLabel`, files.11); it is listed and opens as
+ * any chapter does. With no rows, the list says why (`chapterListNotice`): no folder chosen, a
  * folder with no chapters, or a manuscript folder that could not be read,
- * with Try again (apply.25).
+ * with Try again (apply.25). While main is not watching the folder, a line
+ * says that changes made outside the app will not show, above the rows or
+ * under that line, with Try again, whose list read starts the watcher once
+ * the folder can be read (`watchNotice`, files.21).
  */
 export function FileList({
   files,
@@ -38,6 +52,7 @@ export function FileList({
   review,
   configured,
   problem,
+  watching,
   onOpen,
   onChooseFolder,
   onReadAgain,
@@ -46,6 +61,7 @@ export function FileList({
   const byPath = new Map(Object.entries(index).map(([key, value]) => [indexKey(key), value]));
   const activePath = review?.sourcePath ?? null;
   const notice = chapterListNotice({ configured, count: files.length, problem });
+  const unwatched = watchNotice({ configured, watching });
 
   return (
     <nav className="files">
@@ -78,23 +94,26 @@ export function FileList({
         </button>
       </div>
       {notice ? (
-        <>
-          <p className={notice.action === 'read-again' ? 'files__problem' : 'side__empty'}>{notice.text}</p>
-          {notice.action === 'choose-folder' ? (
-            <button type="button" onClick={onChooseFolder}>
-              Choose folder
-            </button>
-          ) : notice.action === 'read-again' ? (
-            <button type="button" onClick={onReadAgain}>
-              {READ_LIST_AGAIN}
-            </button>
-          ) : null}
-        </>
-      ) : (
+        <p className={notice.action === 'read-again' ? 'files__problem' : 'side__empty'}>{notice.text}</p>
+      ) : null}
+      {unwatched ? <p className="files__problem">{unwatched}</p> : null}
+      {notice?.action === 'choose-folder' ? (
+        <button type="button" onClick={onChooseFolder}>
+          Choose folder
+        </button>
+      ) : notice?.action === 'read-again' || unwatched ? (
+        <button type="button" onClick={onReadAgain}>
+          {READ_LIST_AGAIN}
+        </button>
+      ) : null}
+      {notice ? null : (
         <ul className="filelist">
           {files.map((file) => {
             const open = file.path === activePath;
             const marks = chapterListMarks(byPath.get(indexKey(file.path)), open ? review : null);
+            // A sync tool's conflict copy is listed like any chapter, and
+            // marked, so the author can compare it with the chapter (files.11).
+            const conflict = conflictCopyLabel(file.name);
             return (
               <li key={file.path}>
                 <button
@@ -111,7 +130,18 @@ export function FileList({
                       title={marks.dotLabel}
                     />
                   ) : null}
-                  <span className="filelist__name">{file.relativePath}</span>
+                  {conflict ? (
+                    // The badge goes on a line of its own under the name, so
+                    // the name keeps the width any chapter's has (C.78).
+                    <span className="filelist__copy">
+                      <span className="filelist__name">{file.relativePath}</span>
+                      <span className="badge badge--conflict" title={conflict}>
+                        {CONFLICT_COPY_BADGE}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="filelist__name">{file.relativePath}</span>
+                  )}
                   {marks.pending === null ? null : marks.pending > 0 ? (
                     <span className="badge badge--pending" title="Pending suggestions">
                       {marks.pending}

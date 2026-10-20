@@ -43,6 +43,10 @@
   --badge-pending-bg: #fff3bf;
   --badge-pending-border: #f0dfa0;
   --badge-pending-ink: #6b5600;
+  /* a sync tool's conflict copy in the chapter list (files.11) */
+  --badge-conflict-bg: #fde8e6;
+  --badge-conflict-border: #f0c4bf;
+  --badge-conflict-ink: #9c2a1f;
   --find-bg: #ffe9a8;
   --find-active-bg: #ffb64d;
   /* the text on the active match, which is --ink-faint in the frontmatter otherwise */
@@ -115,6 +119,9 @@
     --badge-pending-bg: #3d3415;
     --badge-pending-border: #5c4f1f;
     --badge-pending-ink: #e8c95a;
+    --badge-conflict-bg: #42221e;
+    --badge-conflict-border: #6b3530;
+    --badge-conflict-ink: #ff9e94;
     /* #5e4b10 in the plan: darker, so --ink-faint (a match in the frontmatter) reaches 3:1 */
     --find-bg: #52420e;
     --find-active-bg: #e09a3a;
@@ -1841,6 +1848,30 @@ input[type='text'] {
   color: var(--badge-pending-ink);
 }
 
+/* A sync tool's conflict copy (files.11): its name, and the badge on a line
+   under it, so the name has the width any chapter's name has. Beside the name
+   the badge left it "Chapt..." in the drawer at 200% (the files.11 review). */
+.filelist__copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* On one line; in a list narrower than the badge it ends in an ellipsis rather
+   than running past the row. */
+.badge--conflict {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--badge-conflict-bg);
+  border-color: var(--badge-conflict-border);
+  color: var(--badge-conflict-ink);
+}
+
 .history {
   list-style: none;
   margin: 0;
@@ -2602,6 +2633,12 @@ input[type='text'] {
   color: var(--ink-faint);
 }
 
+/* Why a suggestion was kept out of the text (files.7): the app's own words,
+   in the text colour, after the model's reason in its softer one. */
+.stale__note {
+  color: var(--ink);
+}
+
 /* ---------- margin notes (item 7) ---------- */
 
 .gutter {
@@ -3202,6 +3239,11 @@ input[type='text'] {
   color: var(--ink);
   margin: 4px 0 8px;
   overflow-wrap: anywhere;
+}
+
+/* Try again above the rows, while main is not watching the folder (files.21). */
+.files > button + .filelist {
+  margin-top: 8px;
 }
 
 /* ---------- new chapter dialog (item 7a) ---------- */

@@ -58,12 +58,45 @@ describe('a manuscript folder that cannot be read (apply.25 a)', () => {
     expect(FILE_LIST).toMatch(
       /<p className=\{notice\.action === 'read-again' \? 'files__problem' : 'side__empty'\}>\{notice\.text\}<\/p>/
     );
+    // Try again also stands under the watcher's line (files.21, below).
     expect(FILE_LIST).toMatch(
-      /notice\.action === 'read-again' \? \(\s*<button type="button" onClick=\{onReadAgain\}>\s*\{READ_LIST_AGAIN\}\s*<\/button>/
+      /notice\?\.action === 'read-again' \|\| unwatched \? \(\s*<button type="button" onClick=\{onReadAgain\}>\s*\{READ_LIST_AGAIN\}\s*<\/button>/
     );
     // The words are in shared/ui/chapterList.ts, not in the component.
     expect(FILE_LIST).not.toContain('No .md or .txt files');
     expect(CSS).toMatch(/\.files__problem \{[^}]*color: var\(--ink\);[^}]*overflow-wrap: anywhere;/);
+  });
+});
+
+/* files.21: whether main watches the manuscript folder. Main's side is in
+   test/main/watcher.test.ts and test/slow/watcher.slow.test.ts, the line in
+   test/shared/chapterList.test.ts, and the list as it renders in
+   test/renderer/fileListWatch.render.test.ts. */
+describe('a manuscript folder main is not watching (files.21)', () => {
+  it('asks main once each list answer is in, whether the read worked or not', () => {
+    const refresh = between(APP, 'const refreshFiles = useCallback(', '}, [refreshIndex]);');
+    expect(refresh).toMatch(
+      /setFilesProblem\(errorMessage\(err\)\);\s*\}\)\s*\.then\(\(\) => call\('files:watching', undefined\)\)\s*\.then\(\(answer\) => setWatching\(answer\.watching\)\)\s*\.catch\(\(\) => undefined\);/
+    );
+    expect(APP).toContain('const [watching, setWatching] = useState(true);');
+  });
+
+  it('hears when main starts or stops watching, and stops listening with the rest', () => {
+    expect(APP).toContain(
+      "const offWatching = window.api.on('files:watching-changed', (event) => setWatching(event.watching));"
+    );
+    expect(APP).toMatch(/offInvalidated\(\);\s*offWatching\(\);/);
+  });
+
+  it('hands the list whether main is watching, with the same Try again', () => {
+    expect(APP).toMatch(
+      /<FileList[^>]*problem=\{filesProblem\}\s*watching=\{watching\}[^>]*onReadAgain=\{refreshFiles\}/
+    );
+    expect(FILE_LIST).toContain('const unwatched = watchNotice({ configured, watching });');
+    expect(FILE_LIST).toContain('{unwatched ? <p className="files__problem">{unwatched}</p> : null}');
+    // The rows still show under the line when the list was read, a little below Try again.
+    expect(FILE_LIST).toMatch(/\{notice \? null : \(\s*<ul className="filelist">/);
+    expect(CSS).toMatch(/\.files > button \+ \.filelist \{\s*margin-top: 8px;\s*\}/);
   });
 });
 

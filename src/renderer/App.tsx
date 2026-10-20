@@ -4,7 +4,7 @@ import { rebaseReview } from '../shared/diff/rebase';
 import { proPreselection } from '../shared/ai/claudeModels';
 import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
 import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
-import { rebaseCardText } from '../shared/ui/rebase';
+import { mergeReloadRun, rebaseCardText, rebaseCardTone, type ReloadRun } from '../shared/ui/rebase';
 import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
 import {
   CLAUDE_RUNTIME_CARD,
@@ -60,6 +60,7 @@ import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
 import { dismissHint, flushHintWrites, type HintIo } from './state/hints';
 import { flushSplitWrites } from './state/split';
 import { beforeLeaving, type LeaveDeps } from './state/leave';
+import { noteMergeMarkers } from './state/mergeMarkers';
 import { useKeyboardBindings } from './state/keyboard';
 import { useProgressLabel } from './state/progress';
 import { reviewWithoutSaving, saveThenReview } from './state/reviewStart';
@@ -177,6 +178,8 @@ export function App(): React.JSX.Element {
 
   const [files, setFiles] = useState<ChapterFile[]>([]);
   const [filesProblem, setFilesProblem] = useState<string | null>(null);
+  /* Whether main watches the manuscript folder (files.21); true until it says otherwise. */
+  const [watching, setWatching] = useState(true);
   const [index, setIndex] = useState<Record<string, ReviewSummary>>({});
   const [history, setHistory] = useState<ReviewSummary[]>([]);
 
@@ -279,7 +282,10 @@ export function App(): React.JSX.Element {
 
   /* The chapter list. A manuscript folder that cannot be read shows main's
      words where the empty-folder line would be, with Try again (apply.25).
-     Only the newest answer is kept, as for the marks. */
+     Only the newest answer is kept, as for the marks. A list read that works
+     starts main's watcher when the folder refused its start, so once the
+     answer is in, the page asks whether main is watching the folder; a later
+     change comes as `files:watching-changed` (files.21). */
   const filesSeq = useRef(0);
   const refreshFiles = useCallback(() => {
     const ticket = ++filesSeq.current;
@@ -293,7 +299,10 @@ export function App(): React.JSX.Element {
         if (ticket !== filesSeq.current) return;
         setFiles([]);
         setFilesProblem(errorMessage(err));
-      });
+      })
+      .then(() => call('files:watching', undefined))
+      .then((answer) => setWatching(answer.watching))
+      .catch(() => undefined);
     void refreshIndex();
   }, [refreshIndex]);
 
@@ -355,6 +364,13 @@ export function App(): React.JSX.Element {
   /* ---------------- leaving (apply.7, state/leave.ts) ---------------- */
 
   const leaveDeps = useMemo<LeaveDeps>(() => ({ save }), [save]);
+
+  /* The reloads the reload card on screen reports, with the card's id: while
+     that card is up, the next reload adds to them, so a run of saves in
+     Obsidian cannot hide a suggestion lost in the first (`mergeReloadRun`,
+     PLAN 6.2, the `files.20` review). Opening a chapter or a review starts a
+     new run. */
+  const reloadRun = useRef<{ card: string; run: ReloadRun } | null>(null);
 
   /* ---------------- opening a chapter ---------------- */
 
@@ -420,6 +436,7 @@ export function App(): React.JSX.Element {
           await marked;
           // An open that worked closes the card of one that did not.
           dismissNotificationsByKey(OPEN_CHAPTER_CARD);
+          reloadRun.current = null;
           if (!loaded) {
             setReview(
               createReview({ sourcePath: file.path, base, hunks: [], generator: { kind: 'file' } }),
@@ -431,8 +448,11 @@ export function App(): React.JSX.Element {
           } else {
             const { review: rebased, stats } = rebaseReview(loaded.review, base);
             setReview(rebased, loaded.path);
-            notify(stats.stale > 0 ? 'warn' : 'info', rebaseCardText('opened', stats));
+            notify(rebaseCardTone(stats), rebaseCardText('opened', stats));
           }
+          // Merge markers in the chapter get a warning; a card left from
+          // another chapter goes (files.11).
+          noteMergeMarkers(null, base.text, file.name);
           if (adoptedFrom) {
             notify('info', `Reopened the review made when this chapter was at ${adoptedFrom}.`);
             refreshFiles();
@@ -473,8 +493,11 @@ export function App(): React.JSX.Element {
           }
           const content = await call('files:read', { path: sourcePath });
           const base = baseFrom(content);
+          // The chapter's text on screen until now, for the merge markers card.
+          const before = useApp.getState().review?.base.text ?? null;
           // An open that worked closes the card of one that did not.
           dismissNotificationsByKey(OPEN_CHAPTER_CARD);
+          reloadRun.current = null;
           if (review.base.hash === base.hash) {
             if (review === loaded.review) markReviewPersistedState(review, loaded.path);
             setReview(review, loaded.path);
@@ -483,6 +506,9 @@ export function App(): React.JSX.Element {
             setReview(rebased, loaded.path);
             notify('info', rebaseCardText('history', stats));
           }
+          // The chapter is the one on screen, read again: as at a reload, markers
+          // it has just gained get the warning and markers gone close it (files.11).
+          noteMergeMarkers(before, base.text, sourcePath);
           // The chapter opens with this review from now on, the last on
           // screen (apply.26). Main records it without touching the review;
           // a record that cannot be written leaves the chapter opening with
@@ -522,14 +548,29 @@ export function App(): React.JSX.Element {
         .then((content) => {
           const latest = useApp.getState().review;
           if (!latest) return;
-          const { review: rebased, stats } = rebaseReview(latest, baseFrom(content));
-          setReview(rebased, useApp.getState().reviewPath);
-          notify(stats.stale > 0 ? 'warn' : 'info', rebaseCardText('reloaded', stats), 'file-reload');
+          const before = latest.base.text;
+          const result = rebaseReview(latest, baseFrom(content));
+          setReview(result.review, useApp.getState().reviewPath);
+          // While the reload card is up, this reload adds to what it reported (PLAN 6.2).
+          const shown = reloadRun.current;
+          const up = shown !== null && useApp.getState().notifications.some((n) => n.id === shown.card);
+          const run = mergeReloadRun(up ? shown.run : null, result);
+          const card = notify(
+            rebaseCardTone(run.stats),
+            rebaseCardText('reloaded', run.stats),
+            'file-reload'
+          );
+          reloadRun.current = { card, run };
+          // Markers a pull or a sync has just put in get the warning, and
+          // the card goes once they are taken out (files.11).
+          noteMergeMarkers(before, content.text, event.path);
         })
         .catch(fail);
     });
 
     const offInvalidated = window.api.on('files:invalidated', () => refreshFiles());
+    // Main's watcher started, or the folder refused its start (files.21).
+    const offWatching = window.api.on('files:watching-changed', (event) => setWatching(event.watching));
     // Ctrl+plus / minus / 0 and Ctrl+wheel are handled in the main process,
     // which says so here so the status bar shows the level in use (round 5).
     const offZoom = window.api.on('view:zoom-changed', ({ zoom }) => {
@@ -543,6 +584,7 @@ export function App(): React.JSX.Element {
     return () => {
       offChanged();
       offInvalidated();
+      offWatching();
       offZoom();
       offNotice();
     };
@@ -1122,6 +1164,7 @@ export function App(): React.JSX.Element {
               review={review}
               configured={Boolean(settings?.manuscriptFolder)}
               problem={filesProblem}
+              watching={watching}
               onOpen={openFromList}
               onChooseFolder={chooseManuscriptFolder}
               onReadAgain={refreshFiles}

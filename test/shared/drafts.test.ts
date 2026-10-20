@@ -165,6 +165,21 @@ describe('placeDrafts', () => {
     expect(placeDrafts({ base, hunks: [] }, [box]).reopen).toEqual([box]);
   });
 
+  it('sets aside a first paragraph s box kept before files.22, which opened on the line break above it', () => {
+    // The body follows the closing --- at once. The box then opened on "\n" and the words; now on the words.
+    const base = `---\ntitle: One\n---\n${BASE}`;
+    expect(boxOn(base, [], 0).initial).toBe('Mara waited by the gate.');
+    const typed: StoredDraft = {
+      key: 0,
+      paragraphs: [0],
+      initial: '\nMara waited by the gate.',
+      text: '\nMara waited by the old gate.'
+    };
+    const untouched: StoredDraft = { ...typed, text: typed.initial };
+    expect(placeDrafts({ base, hunks: [] }, [typed]).setAside).toEqual([typed]);
+    expect(placeDrafts({ base, hunks: [] }, [untouched]).dropped).toEqual([untouched]);
+  });
+
   it('sets aside a box whose paragraph is past the end of the chapter', () => {
     const box: StoredDraft = { key: 7, paragraphs: [7], initial: 'Gone.', text: 'Gone, all gone.' };
     expect(placeDrafts({ base: BASE, hunks: [] }, [box]).setAside).toEqual([box]);

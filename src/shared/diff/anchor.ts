@@ -1,4 +1,5 @@
 import { nextId } from '../ids';
+import { bodyStart } from '../text/obsidian';
 import { findParagraph, paragraphIndexAt, type Paragraph } from '../text/paragraphs';
 import type { AnchorQuality, ChangeCategory, Hunk, HunkSource } from '../types';
 import { cleanOccurrences, fuzzyFind } from './fuzzy';
@@ -22,7 +23,26 @@ export interface AnchorOptions {
   /** reject a fuzzy match whose edit distance ratio exceeds this */
   maxDistanceRatio?: number;
   source?: HunkSource;
+  /**
+   * Run on the located hunks before overlaps are resolved, so a hunk it takes
+   * off the page never pushes another off as an overlap. `createAiReview`
+   * passes the guard (`screenModelHunks`, `files.7`), which keeps out a
+   * suggestion that would change Obsidian syntax.
+   */
+  screen?: (hunks: Hunk[]) => Hunk[];
+  /**
+   * Run within the overlap pass (`resolveOverlaps`), for the same reason.
+   * `createAiReview` passes the guard's touching rule (`touchingRule`).
+   */
+  touching?: TouchingRule;
 }
+
+/**
+ * A rule the overlap pass applies to each hunk that overlaps nothing left on
+ * the page, given the hunk before it that stayed there: the hunk to put in
+ * its place off the page, or null to leave it on the page.
+ */
+export type TouchingRule = (hunk: Hunk, previous: Hunk) => Hunk | null;
 
 interface Located {
   start: number;
@@ -43,8 +63,10 @@ const DEFAULTS = {
  *
  * Order of attack, from the plan section 4.3: exact inside the stated paragraph,
  * exact inside its neighbours, fuzzy against the whole text, then stale. The
- * span is trimmed to the differing words, no-op changes are dropped, and hunks
- * that would overlap an earlier one are demoted to stale.
+ * span is trimmed to the differing words, no-op changes are dropped, the
+ * hunks are screened when a `screen` is given, and hunks that would overlap
+ * an earlier one are demoted to stale, in one pass with the `touching` rule
+ * when one is given.
  */
 export function anchorChanges(
   base: string,
@@ -52,13 +74,14 @@ export function anchorChanges(
   changes: readonly ChangeInput[],
   options: AnchorOptions = {}
 ): Hunk[] {
-  const opts = { ...DEFAULTS, ...options };
-  const frontmatterEnd = paragraphs.find((p) => p.isFrontmatter)?.end ?? 0;
+  const { screen, touching, ...rest } = options;
+  const opts = { ...DEFAULTS, ...rest };
+  const body = bodyStart(base);
   const anchored: Hunk[] = [];
   const stale: Hunk[] = [];
 
   for (const change of changes) {
-    const located = locate(base, paragraphs, change, opts, frontmatterEnd);
+    const located = locate(base, paragraphs, change, opts, body);
     if (!located) {
       stale.push(makeStale(change, opts.source, 'Could not find this text in the chapter.'));
       continue;
@@ -85,15 +108,20 @@ export function anchorChanges(
     });
   }
 
-  return [...resolveOverlaps(anchored), ...stale];
+  return [...resolveOverlaps(screen ? screen(anchored) : anchored, touching), ...stale];
 }
 
+/**
+ * Where `change.before` is in the chapter, or null. The fuzzy search never
+ * places it before `body` (`bodyStart`): in the frontmatter, or at the line
+ * break that closes it (C.72).
+ */
 function locate(
   base: string,
   paragraphs: readonly Paragraph[],
   change: ChangeInput,
   opts: typeof DEFAULTS,
-  frontmatterEnd: number
+  body: number
 ): Located | null {
   const before = change.before;
   if (before.length === 0) return null;
@@ -130,12 +158,7 @@ function locate(
 
   const near = target?.start ?? 0;
   const match = fuzzyFind(base, before, near, { threshold: opts.fuzzyThreshold });
-  if (
-    match &&
-    match.ratio <= opts.maxDistanceRatio &&
-    match.text.length > 0 &&
-    match.start >= frontmatterEnd
-  ) {
+  if (match && match.ratio <= opts.maxDistanceRatio && match.text.length > 0 && match.start >= body) {
     return { start: match.start, end: match.end, text: match.text, anchor: 'fuzzy' };
   }
 
@@ -163,17 +186,23 @@ function makeStale(change: ChangeInput, source: HunkSource, note: string): Hunk 
 /**
  * Hunks never overlap. The earlier one wins; the later one is kept for the side
  * panel as stale so nothing Claude said is silently thrown away.
+ *
+ * With a `touching` rule, each hunk that overlaps nothing on the page is put
+ * to it in the same pass, against the hunk before it that stayed. One the
+ * rule takes off the page is no longer on it: it pushes no later hunk off as
+ * an overlap, and the next hunk is measured against the same one before
+ * (the `files.7` review).
  */
-export function resolveOverlaps(hunks: readonly Hunk[]): Hunk[] {
+export function resolveOverlaps(hunks: readonly Hunk[], touching?: TouchingRule): Hunk[] {
   const sorted = [...hunks].sort((a, b) => a.start - b.start || a.end - b.end);
   const out: Hunk[] = [];
-  let lastEnd = -1;
+  let previous: Hunk | null = null;
   for (const hunk of sorted) {
     if (hunk.anchor === 'stale') {
       out.push(hunk);
       continue;
     }
-    if (hunk.start < lastEnd) {
+    if (previous && hunk.start < previous.end) {
       const note = 'Overlapped an earlier suggestion.';
       out.push({
         ...hunk,
@@ -184,8 +213,13 @@ export function resolveOverlaps(hunks: readonly Hunk[]): Hunk[] {
       });
       continue;
     }
+    const off = previous && touching ? touching(hunk, previous) : null;
+    if (off) {
+      out.push(off);
+      continue;
+    }
     out.push(hunk);
-    lastEnd = hunk.end;
+    previous = hunk;
   }
   return out;
 }

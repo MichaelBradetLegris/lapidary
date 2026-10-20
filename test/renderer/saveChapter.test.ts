@@ -5,6 +5,7 @@ import { unsavedDecisionCount } from '../../src/shared/diff/compose';
 import type { FileContent, SaveRequest, SaveResponse } from '../../src/shared/ipc';
 import { createReview } from '../../src/shared/review';
 import { DEFAULT_SETTINGS, type Review } from '../../src/shared/types';
+import { MERGE_MARKERS_CARD, mergeMarkersText } from '../../src/shared/text/sync';
 import { SHOW_BACKUPS_CARD, noBackupsYet } from '../../src/shared/ui/backups';
 import {
   CHAPTER_MATCHES_PAGE,
@@ -19,6 +20,7 @@ import {
   SAVE_CARD,
   SAVED_CARD,
   saveChapter,
+  STOPPED_FOR_MERGE_MARKERS,
   type SaveDeps
 } from '../../src/renderer/state/saveChapter';
 import {
@@ -292,6 +294,99 @@ describe('Save to chapter (apply.3)', () => {
       true
     );
     expect(state().review!.base.hash).toBe('h4');
+  });
+
+  /* files.11: the rebase makes the watcher's reload of the same bytes a no-op,
+     so the save itself says the change brought merge markers. Its review: the
+     card says the file is unchanged and to resolve them before saving, so the
+     save stops there, before anything is written; the next Save goes ahead. */
+  it('stops before writing when the change on disk brought merge markers, and warns of them', async () => {
+    state().toggleAccepted('h1');
+    const marked = `${CHAPTER}\n\n<<<<<<< HEAD\nThen she left.\n=======\nThen she stayed.\n>>>>>>> origin/main`;
+    const disk: FileContent = {
+      path: SOURCE,
+      text: marked,
+      hash: 'h3',
+      eol: 'lf',
+      bom: false,
+      trailingNewline: true
+    };
+    const h = harness({ status: 'stale', disk }, { status: 'written', hash: 'h4' });
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('failed');
+    // One request, the one that found the file changed: nothing was written.
+    expect(h.requests).toHaveLength(1);
+    expect(h.reviewWrites).toEqual([]);
+    expect(h.saved).toEqual([]);
+    expect(state().notifications.map((n) => ({ tone: n.tone, text: n.text, key: n.key }))).toEqual([
+      {
+        tone: 'warn',
+        text: 'The chapter changed on disk before saving. Rebased: 1 re-anchored, 0 lost.',
+        key: undefined
+      },
+      { tone: 'warn', text: mergeMarkersText('Chapter 01.md'), key: MERGE_MARKERS_CARD },
+      { tone: 'warn', text: STOPPED_FOR_MERGE_MARKERS, key: SAVE_CARD }
+    ]);
+    expect(cards().join(' ')).not.toContain('Retrying');
+    // The page shows the file as it is now, markers and all, the decision still to save.
+    expect(state().review!.base).toMatchObject({ text: marked, hash: 'h3' });
+    expect(unsavedDecisionCount(state().review!.hunks)).toBe(1);
+    expect(state().chapterSaving).toBe(false);
+
+    // The next Save goes ahead, the markers written back as they are, and the
+    // card left as the author left it.
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('saved');
+    expect(h.requests[1]).toMatchObject({
+      expectedHash: 'h3',
+      text: marked.replace('Tilting', 'As he tilted')
+    });
+    expect(lastCard()).toBe(SAVED_CARD);
+    expect(state().notifications.filter((n) => n.key === MERGE_MARKERS_CARD)).toHaveLength(1);
+  });
+
+  it('saves as before when the change on disk kept markers the page already had', async () => {
+    const marked = `${CHAPTER}\n\n<<<<<<< HEAD\nx\n>>>>>>> b`;
+    state().setReview({ ...chapterReview(), base: { ...chapterReview().base, text: marked } }, REVIEW_PATH);
+    state().toggleAccepted('h1');
+    const disk: FileContent = {
+      path: SOURCE,
+      text: `${marked}\n\nThen she left.`,
+      hash: 'h3',
+      eol: 'lf',
+      bom: false,
+      trailingNewline: true
+    };
+    const h = harness({ status: 'stale', disk }, { status: 'written', hash: 'h4' });
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('saved');
+    expect(h.requests[1]?.text).toBe(`${marked}\n\nThen she left.`.replace('Tilting', 'As he tilted'));
+    expect(cards()).toContain(
+      'The chapter changed on disk before saving. Rebased: 1 re-anchored, 0 lost. Retrying.'
+    );
+    // The author has seen these markers: no card comes back for them.
+    expect(state().notifications.filter((n) => n.key === MERGE_MARKERS_CARD)).toEqual([]);
+    expect(lastCard()).toBe(SAVED_CARD);
+  });
+
+  it('closes the merge markers card when the change on disk took them out', async () => {
+    state().setReview(
+      {
+        ...chapterReview(),
+        base: { ...chapterReview().base, text: `${CHAPTER}\n\n<<<<<<< HEAD\nx\n>>>>>>> b` }
+      },
+      REVIEW_PATH
+    );
+    state().notify('warn', mergeMarkersText(SOURCE), MERGE_MARKERS_CARD);
+    state().toggleAccepted('h1');
+    const disk: FileContent = {
+      path: SOURCE,
+      text: CHAPTER,
+      hash: 'h3',
+      eol: 'lf',
+      bom: false,
+      trailingNewline: true
+    };
+    const h = harness({ status: 'stale', disk }, { status: 'written', hash: 'h4' });
+    expect(await saveChapter({ applyDrafts: 'ask' }, h.deps)).toBe('saved');
+    expect(state().notifications.filter((n) => n.key === MERGE_MARKERS_CARD)).toEqual([]);
   });
 
   it('counts on the rebase card the decisions that changed to match the file (apply.23)', async () => {

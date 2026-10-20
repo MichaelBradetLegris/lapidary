@@ -62,7 +62,7 @@ import {
 } from './reviews';
 import { loadSettings, saveSettings } from './settings';
 import { applyTheme } from './theme';
-import { createManuscriptWatcher } from './watcher';
+import { createManuscriptWatcher, listAndWatch } from './watcher';
 import { changeZoom } from './zoom';
 
 type Handler<C extends RequestChannel> = (payload: RequestPayload<C>) => Promise<ResponsePayload<C>>;
@@ -81,7 +81,11 @@ export function broadcast<E extends EventChannel>(channel: E, payload: ApiEventM
   }
 }
 
-/** The manuscript folder watcher (PLAN 6.2, files.5). */
+/**
+ * The manuscript folder watcher (PLAN 6.2, files.5). Settings starts it on
+ * the folder chosen; a list read that works starts it again when the folder
+ * refused its start (`listAndWatch`, files.21).
+ */
 const watcher = createManuscriptWatcher(broadcast);
 const startWatching = (folder: string | null): void => watcher.start(folder);
 const rememberHash = (file: string, hash: string): void => watcher.rememberHash(file, hash);
@@ -326,16 +330,24 @@ export function systemShell(): ShellApi {
 /** What Save may still write after Settings changes folder (files.2). */
 const openedChapters = new OpenedChapters();
 
-/** The chapters in the manuscript folder, as the file list shows them. */
+/**
+ * The chapters in the manuscript folder, as the file list shows them. A read
+ * that works starts the watcher when nothing watches the folder (files.21).
+ */
 async function currentChapters(): Promise<ChapterFile[]> {
   const settings = await loadSettings();
   if (!settings.manuscriptFolder) return [];
   const guidelines = guidelinesPathFor(settings);
-  return listChapters(settings.manuscriptFolder, settings.reviewsFolder, guidelines ? [guidelines] : []);
+  return listAndWatch(watcher, settings.manuscriptFolder, (folder) =>
+    listChapters(folder, settings.reviewsFolder, guidelines ? [guidelines] : [])
+  );
 }
 
 function registerFileHandlers(): void {
   handle('files:list', currentChapters);
+
+  // The page asks after each list read, and hears of a change from `files:watching-changed`.
+  handle('files:watching', () => Promise.resolve({ watching: watcher.watching() }));
 
   handle('files:read', async ({ path: file }) => {
     const content = await readChapter(file);

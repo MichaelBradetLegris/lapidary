@@ -1,23 +1,49 @@
+import { bodyStart } from '../text/obsidian';
 import { paragraphIndexAt, splitParagraphs, type Paragraph } from '../text/paragraphs';
 import type { AnchorQuality, BaseSide, Hunk, HunkStatus, Review, ReviewBase, ReviewComment } from '../types';
 import { resolveOverlaps } from './anchor';
 import { changesBase } from './compose';
 import { cleanOccurrences, fuzzyFind, insideWord, isCleanMatch, isWordChar, occurrences } from './fuzzy';
+import { screenModelHunks, touchingRule } from './protect';
 
 export interface RebaseStats {
-  /** hunks that found a home in the new text */
+  /** hunks on the page after the rebase: found in the new text, and neither kept out nor overlapped */
   anchored: number;
-  /** hunks that could not be found and dropped out of the inline view */
+  /** hunks off the page after the rebase, those already off it before included */
   stale: number;
+  /**
+   * hunks the rebase took off the page: on it before, off it after, and not
+   * kept out (`files.20`). What the cards count as "could not be found".
+   */
+  newlyStale: number;
+  /**
+   * model suggestions the rebase kept out of the text (`files.20`): placed
+   * where the file has them now, they would change Obsidian syntax. Those
+   * kept out before are not counted again.
+   */
+  keptOut: number;
   /** hunks whose decision was flipped to match what is now on disk */
   adopted: number;
   /** comments that lost their paragraph */
   orphanedComments: number;
 }
 
+/**
+ * The hunks behind three of the counts, by id: those the rebase took off the
+ * page (`newlyStale`), those it kept out of the text (`keptOut`) and those
+ * whose decision it changed to match the file (`adopted`). The reload card
+ * reads them to report a run of reloads (`mergeReloadRun`, PLAN 6.2, C.74).
+ */
+export interface RebaseChanges {
+  newlyStale: string[];
+  keptOut: string[];
+  adopted: string[];
+}
+
 export interface RebaseResult {
   review: Review;
   stats: RebaseStats;
+  changes: RebaseChanges;
 }
 
 export interface RebaseOptions {
@@ -49,6 +75,14 @@ interface Found {
  * outside the app. When it seems to disagree but not plainly, or when Save
  * would write a decision at a place the rebase had to guess, the hunk leaves
  * the page as stale instead (C.52).
+ *
+ * Only the body of the new text is searched: no hunk, whatever its source,
+ * is placed before `bodyStart`, in the frontmatter or at the line break that
+ * closes it (`files.20`). The guard then runs as when a review is made (4.3
+ * steps 7 and 8): each model suggestion still undecided is screened in its
+ * new place before overlaps are resolved, and the touching rule runs within
+ * the overlap pass, so a change on disk that puts one into syntax, or right
+ * where another ends, keeps it out of the text (`files.20`).
  */
 export function rebaseReview(
   review: Review,
@@ -58,13 +92,18 @@ export function rebaseReview(
   const opts = { ...DEFAULTS, ...options };
   const oldText = review.base.text;
   const newText = nextBase.text;
+  const body = bodyStart(newText);
   const oldParagraphs = splitParagraphs(oldText);
   const newParagraphs = splitParagraphs(newText);
 
   const present = new Set(review.hunks.map((h) => h.id));
 
-  let adopted = 0;
+  const adopted: string[] = [];
   const moved: Hunk[] = review.hunks.map((hunk) => {
+    /* A suggestion the guard kept out of the text stays out (files.7, 11.3 k):
+       found again, it would be back on the page, the syntax it would change
+       and all. */
+    if (hunk.keptOut !== undefined) return hunk;
     /* A suggestion the author's own edit swallowed stays off the page. Its words
        often still exist inside the edit that replaced them, so re-anchoring it
        would put two hunks over the same span and undo a decision the author
@@ -72,12 +111,12 @@ export function rebaseReview(
     if (hunk.supersededBy && present.has(hunk.supersededBy)) {
       return { ...hunk, anchor: 'stale', start: 0, end: 0 };
     }
-    const found = locate(oldText, newText, hunk, opts);
+    const found = locate(oldText, newText, body, hunk, opts);
     if (!found) {
       return { ...hunk, anchor: 'stale', start: 0, end: 0 };
     }
     const status = decisionOn(hunk, found.side);
-    if (status !== hunk.status) adopted += 1;
+    if (status !== hunk.status) adopted.push(hunk.id);
     return {
       ...hunk,
       start: found.start,
@@ -89,7 +128,7 @@ export function rebaseReview(
     };
   });
 
-  const hunks = resolveOverlaps(moved);
+  const hunks = resolveOverlaps(screenModelHunks(newText, moved), touchingRule(newText));
 
   let orphanedComments = 0;
   const comments: ReviewComment[] = review.comments.map((comment) => {
@@ -98,7 +137,17 @@ export function rebaseReview(
     return next;
   });
 
-  const stale = hunks.filter((h) => h.anchor === 'stale').length;
+  const was = new Map(review.hunks.map((h) => [h.id, h]));
+  let stale = 0;
+  const newlyStale: string[] = [];
+  const keptOut: string[] = [];
+  for (const hunk of hunks) {
+    if (hunk.anchor !== 'stale') continue;
+    stale += 1;
+    const before = was.get(hunk.id);
+    if (hunk.keptOut !== undefined && before?.keptOut === undefined) keptOut.push(hunk.id);
+    else if (before !== undefined && before.anchor !== 'stale') newlyStale.push(hunk.id);
+  }
 
   return {
     review: {
@@ -108,7 +157,15 @@ export function rebaseReview(
       hunks,
       comments
     },
-    stats: { anchored: hunks.length - stale, stale, adopted, orphanedComments }
+    stats: {
+      anchored: hunks.length - stale,
+      stale,
+      newlyStale: newlyStale.length,
+      keptOut: keptOut.length,
+      adopted: adopted.length,
+      orphanedComments
+    },
+    changes: { newlyStale, keptOut, adopted }
   };
 }
 
@@ -192,6 +249,13 @@ function betterCandidate(a: Candidate, b: Candidate): number {
  * made or undone: that is how a saved deletion of one word of a doubled
  * "the the" came back as a suggestion to delete the "the" that remained, or
  * another "the" nearby (apply.23).
+ *
+ * A hunk already off the page never counts: it has no place in the old text,
+ * so nothing shows that its other side, wherever it stands, is the change
+ * made or undone there. It comes back only on its own side's words, with its
+ * decision as it was (the `files.20` review): a model's "teh river" that was
+ * never found was taken as made once "the river" stood once in the body, and
+ * dismissed, Save would have written "teh river", which the chapter never held.
  */
 function plainlyOnDisk(
   c: Candidate,
@@ -201,6 +265,7 @@ function plainlyOnDisk(
   expected: string,
   other: string
 ): boolean {
+  if (hunk.anchor === 'stale') return false;
   if (c.place) {
     if (c.before === CONTEXT_CHARS || c.after === CONTEXT_CHARS) return true;
     const before = hunk.start < PINNED || wordsBefore(oldText, hunk.start, newText, c.start) >= PINNED;
@@ -216,7 +281,20 @@ function plainlyOnDisk(
   return c.siblings === 1 && expected.length > 0;
 }
 
-function locate(oldText: string, newText: string, hunk: Hunk, opts: typeof DEFAULTS): Found | null {
+/**
+ * Where a hunk goes in the new text, or null when it leaves the page. Nothing
+ * before `body` (`bodyStart` of the new text) is looked at: no occurrence of
+ * the hunk's words, no place found by its surroundings and no copy weighed
+ * against one starts there, and the fuzzy search reads the body alone, so no
+ * hunk of any source is placed in the frontmatter (`files.20`).
+ */
+function locate(
+  oldText: string,
+  newText: string,
+  body: number,
+  hunk: Hunk,
+  opts: typeof DEFAULTS
+): Found | null {
   /* A hunk already off the page has no place in the old text (its offsets are
      0), and a side that holds no text is found only by what surrounds its
      place, so a deletion or an insertion that went stale stays stale rather
@@ -230,10 +308,11 @@ function locate(oldText: string, newText: string, hunk: Hunk, opts: typeof DEFAU
   const { pool, unclear } = settleCopies(
     oldText,
     newText,
+    body,
     hunk,
     expected,
-    candidates(oldText, newText, hunk, expectedSide, expected, true, opts),
-    candidates(oldText, newText, hunk, otherSide, other, false, opts).map((c) => ({
+    candidates(oldText, newText, body, hunk, expectedSide, expected, true, opts),
+    candidates(oldText, newText, body, hunk, otherSide, other, false, opts).map((c) => ({
       ...c,
       plain: plainlyOnDisk(c, oldText, newText, hunk, expected, other)
     }))
@@ -274,9 +353,9 @@ function locate(oldText: string, newText: string, hunk: Hunk, opts: typeof DEFAU
      words into the middle of another ("alwaysvery  fine"), so a deletion or
      an insertion with nothing found exactly leaves the page instead. */
   if (expected.length > 0) {
-    const match = fuzzyFind(newText, expected, hunk.start);
+    const match = fuzzyFind(newText.slice(body), expected, hunk.start - body);
     if (match && match.ratio <= opts.maxDistanceRatio) {
-      return { start: match.start, end: match.end, side: expectedSide, anchor: 'fuzzy' };
+      return { start: body + match.start, end: body + match.end, side: expectedSide, anchor: 'fuzzy' };
     }
   }
 
@@ -350,6 +429,7 @@ function placedPlainly(
 function settleCopies(
   oldText: string,
   newText: string,
+  body: number,
   hunk: Hunk,
   words: string,
   own: Candidate[],
@@ -362,7 +442,7 @@ function settleCopies(
   const kept = others.filter((c) => {
     if (!c.place) return true;
     const at = c.start;
-    const near = copiesNear(newText, at, words).map((start) => {
+    const near = copiesNear(newText, body, at, words).map((start) => {
       const end = start + words.length;
       if (end === at) {
         return {
@@ -416,9 +496,13 @@ function settleCopies(
   return { pool: [...own.filter((c) => !copies.has(c.start)), ...kept], unclear };
 }
 
-/** Where `words` stand in the new text, whole, within `CONTEXT_CHARS` of a place either side. */
-function copiesNear(newText: string, at: number, words: string): number[] {
-  const from = Math.max(0, at - CONTEXT_CHARS - words.length);
+/**
+ * Where `words` stand in the new text, whole, within `CONTEXT_CHARS` of a
+ * place either side, and in the body (from `body` on): a copy in the
+ * frontmatter can never be the hunk's own words.
+ */
+function copiesNear(newText: string, body: number, at: number, words: string): number[] {
+  const from = Math.max(body, at - CONTEXT_CHARS - words.length);
   const window = newText.slice(from, at + CONTEXT_CHARS + words.length);
   return occurrences(window, words)
     .map((i) => from + i)
@@ -452,6 +536,7 @@ function twinned(oldText: string, hunk: Hunk, words: string): boolean {
 function candidates(
   oldText: string,
   newText: string,
+  body: number,
   hunk: Hunk,
   side: BaseSide,
   text: string,
@@ -459,20 +544,25 @@ function candidates(
   opts: typeof DEFAULTS
 ): Candidate[] {
   return text.length > 0
-    ? wordCandidates(oldText, newText, hunk, side, text, own)
-    : placeCandidates(oldText, newText, hunk, side, own, opts);
+    ? wordCandidates(oldText, newText, body, hunk, side, text, own)
+    : placeCandidates(oldText, newText, body, hunk, side, own, opts);
 }
 
-/** Every place `needle` could sit in the new text, scored for ranking. */
+/**
+ * Every place `needle` could sit in the body of the new text (from `body`
+ * on), scored for ranking. A copy in the frontmatter is not counted among
+ * its `siblings` either.
+ */
 function wordCandidates(
   oldText: string,
   newText: string,
+  body: number,
   hunk: Hunk,
   side: BaseSide,
   needle: string,
   own: boolean
 ): Candidate[] {
-  const { offsets, clean } = cleanOccurrences(newText, needle);
+  const { offsets, clean } = cleanOccurrences(newText, needle, body);
   // Only the nearest handful matter; a far-away duplicate rarely wins, and
   // scoring every occurrence of a common word would be wasteful.
   return nearestOf(offsets, hunk.start).map((start) => ({
@@ -497,7 +587,8 @@ function wordCandidates(
  * quarter of that, then either side alone at those widths, so that an edit
  * right next to the place still leaves one side to find it by. The first that
  * occurs in the new text, other than inside a word, gives the places, nearest
- * to the old offset first.
+ * to the old offset first. A place before `body` is no find either: the
+ * text around it may start in the frontmatter, but the place may not.
  * Each is scored like a word, so the place the words were taken out of, whose
  * surroundings agree on both sides, outranks the twin of a doubled word, which
  * agrees on one side at most.
@@ -505,6 +596,7 @@ function wordCandidates(
 function placeCandidates(
   oldText: string,
   newText: string,
+  body: number,
   hunk: Hunk,
   side: BaseSide,
   own: boolean,
@@ -513,7 +605,7 @@ function placeCandidates(
   for (const { needle, offset } of contextNeedles(oldText, hunk, opts.contextChars)) {
     // Deletions and insertions are whole words, so a place inside a word is no find.
     const places = [...new Set(occurrences(newText, needle).map((at) => at + offset))].filter(
-      (at) => !insideWord(newText, at)
+      (at) => at >= body && !insideWord(newText, at)
     );
     if (places.length === 0) continue;
     return nearestOf(places, hunk.start).map((at) => ({

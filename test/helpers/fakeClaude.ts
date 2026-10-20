@@ -84,6 +84,36 @@ function rateLimitInfo(name: string): unknown {
  */
 let withSchema = true;
 
+/*
+ * A reply that ran out of room (files.10), in the shapes Claude Code 2.1.302
+ * sends, read from its bundled code (PLAN C.77). A reply cut off at the output
+ * limit streams a `message_delta` whose `delta.stop_reason` is `max_tokens`;
+ * Claude Code then tries to resume it, and once those attempts are used up it
+ * sends an assistant message whose `error` and `api_error` are
+ * `max_output_tokens`, with the text below, which the error result repeats. A
+ * full context window comes with the same error and its own text; a chapter
+ * too long to send is "Prompt is too long", an `invalid_request`.
+ * FAKE_CLAUDE_STOPS, a comma-separated list, plays a `message_delta` with each
+ * stop reason before any scenario's result, as replies cut off and resumed.
+ */
+const OUTPUT_LIMIT_TEXT =
+  "API Error: Claude's response exceeded the 32000 output token maximum. To configure this behavior, set the CLAUDE_CODE_MAX_OUTPUT_TOKENS environment variable.";
+const CONTEXT_LIMIT_TEXT = 'API Error: The model has reached its context window limit.';
+const PROMPT_TOO_LONG_TEXT = 'Prompt is too long';
+
+/** The assistant message that reports an API error, as 2.1.302 sends it. */
+function apiErrorMessage(error: string, text: string, apiError?: string): unknown {
+  return {
+    type: 'assistant',
+    error,
+    is_api_error_message: true,
+    ...(apiError ? { api_error: apiError } : {}),
+    message: { content: [{ type: 'text', text }] },
+    parent_tool_use_id: null,
+    session_id: 'sess-1'
+  };
+}
+
 function play(name: string): void {
   out({
     type: 'system',
@@ -95,6 +125,16 @@ function play(name: string): void {
   out({ type: 'stream_event', event: { type: 'content_block_start' } });
   out({ type: 'stream_event', event: { type: 'message_delta', usage: { output_tokens: 42 } } });
   out({ type: 'rate_limit_event', rate_limit_info: rateLimitInfo(name), uuid: 'rl-1', session_id: 'sess-1' });
+  for (const stop of (process.env['FAKE_CLAUDE_STOPS'] ?? '').split(',').filter(Boolean)) {
+    out({
+      type: 'stream_event',
+      event: {
+        type: 'message_delta',
+        delta: { stop_reason: stop, stop_sequence: null },
+        usage: { output_tokens: 32000 }
+      }
+    });
+  }
   const base = { type: 'result', duration_ms: 1234, session_id: 'sess-1', total_cost_usd: 0.0123 };
   switch (name) {
     case 'success':
@@ -174,6 +214,65 @@ function play(name: string): void {
         modelUsage: {}
       });
       break;
+    case 'output-limit':
+      // The attempts to resume a reply cut off at the limit are used up.
+      out({
+        type: 'stream_event',
+        event: {
+          type: 'message_delta',
+          delta: { stop_reason: 'max_tokens', stop_sequence: null },
+          usage: { output_tokens: 32000 }
+        }
+      });
+      out(apiErrorMessage('max_output_tokens', OUTPUT_LIMIT_TEXT, 'max_output_tokens'));
+      out({
+        ...base,
+        subtype: 'success',
+        is_error: true,
+        result: OUTPUT_LIMIT_TEXT,
+        api_error: 'max_output_tokens',
+        modelUsage: {}
+      });
+      break;
+    case 'context-limit':
+      out(apiErrorMessage('max_output_tokens', CONTEXT_LIMIT_TEXT, 'max_output_tokens'));
+      out({ ...base, subtype: 'success', is_error: true, result: CONTEXT_LIMIT_TEXT, modelUsage: {} });
+      break;
+    case 'prompt-too-long':
+      out(apiErrorMessage('invalid_request', PROMPT_TOO_LONG_TEXT));
+      out({ ...base, subtype: 'success', is_error: true, result: PROMPT_TOO_LONG_TEXT, modelUsage: {} });
+      break;
+    case 'max-turns':
+      out({
+        ...base,
+        subtype: 'error_max_turns',
+        is_error: true,
+        errors: ['Reached maximum number of turns (3)'],
+        modelUsage: {}
+      });
+      break;
+    case 'schema-retries':
+      out({
+        ...base,
+        subtype: 'error_max_structured_output_retries',
+        is_error: true,
+        errors: ['Failed to provide valid structured output after 5 attempts'],
+        modelUsage: {}
+      });
+      break;
+    case 'no-output': {
+      // A success with no structured output; FAKE_CLAUDE_RESULT_STOP gives its stop_reason, `none` null.
+      const stop = process.env['FAKE_CLAUDE_RESULT_STOP'] ?? 'end_turn';
+      out({
+        ...base,
+        subtype: 'success',
+        is_error: false,
+        result: '',
+        stop_reason: stop === 'none' ? null : stop,
+        modelUsage: { 'claude-haiku-4-5-20251001': { inputTokens: 900, outputTokens: 32000 } }
+      });
+      break;
+    }
     case 'ends-early':
       process.exit(0);
       break;

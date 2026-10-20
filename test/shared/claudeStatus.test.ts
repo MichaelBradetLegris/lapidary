@@ -10,6 +10,7 @@ import {
   proPlanNote,
   proPreselection
 } from '../../src/shared/ai/claudeModels';
+import { replyLimitMessage } from '../../src/shared/ai/replyLimit';
 import { APP_NAME } from '../../src/shared/branding';
 import { normalizeSettings } from '../../src/shared/settings';
 import { welcomeAgainPatch, welcomeShown } from '../../src/shared/ui/welcome';
@@ -19,6 +20,7 @@ import {
   MIN_CLAUDE_CODE,
   classifyClaude,
   classifyClaudeFailure,
+  claudeReplyLimit,
   parseAuthStatus,
   RECOMMENDED_CLAUDE_CODE,
   claudeUpdateAdvice,
@@ -421,8 +423,9 @@ describe('classifyClaudeFailure', () => {
     expect(classifyClaudeFailure({ assistantError: 'model_not_found' }).message).toBe(
       'That model is not available on your plan. Pick another in Settings.'
     );
+    // files.10: a reply that ran out of room says why and what helps (replyLimit.test.ts).
     expect(classifyClaudeFailure({ assistantError: 'max_output_tokens' }).message).toBe(
-      'Claude hit its output limit. Try a shorter chapter.'
+      replyLimitMessage('output', { who: 'Claude' })
     );
     expect(classifyClaudeFailure({ assistantError: 'something_new' }).message).toBe(
       'Claude reported an error: something_new'
@@ -477,5 +480,85 @@ describe('classifyClaudeFailure', () => {
       message: 'Claude reported: first line',
       detail: 'first line\nsecond line'
     });
+  });
+});
+
+/* files.10: a reply that ran out of room, in Claude Code 2.1.302's words
+   (PLAN C.77). The runs themselves are in test/main/claudeCli.test.ts. */
+describe('a Claude reply that runs out of room', () => {
+  const OUTPUT =
+    "API Error: Claude's response exceeded the 64000 output token maximum. To configure this behavior, set the CLAUDE_CODE_MAX_OUTPUT_TOKENS environment variable.";
+  const THINKING = `${OUTPUT} The last attempt reached the limit while still thinking. Lower the effort level to leave room for a reply.`;
+  const CONTEXT = 'API Error: The model has reached its context window limit.';
+  const facts = { words: 41_000, effort: 'medium' as const };
+
+  it.each([
+    [{ text: OUTPUT }, { limit: 'output', maxTokens: 64_000 }],
+    [{ text: THINKING }, { limit: 'output', maxTokens: 64_000 }],
+    [{ assistantError: 'max_output_tokens' }, { limit: 'output' }],
+    [{ apiError: 'max_output_tokens' }, { limit: 'output' }],
+    [{ assistantError: 'max_output_tokens', text: CONTEXT }, { limit: 'context' }],
+    [{ stopReason: 'model_context_window_exceeded' }, { limit: 'context' }],
+    [{ assistantError: 'invalid_request', text: 'Prompt is too long' }, { limit: 'input' }],
+    [{ text: 'Input is too long for requested model.' }, { limit: 'input' }],
+    [{ stopReason: 'max_tokens' }, null],
+    [{ assistantError: 'rate_limit' }, null],
+    [{ text: 'Reached maximum number of turns (3)' }, null]
+  ] as const)('reads %j as %j', (input, expected) => {
+    expect(claudeReplyLimit(input)).toEqual(expected);
+  });
+
+  it('words each limit with the chapter and the effort, and keeps Claude Code s words in detail', () => {
+    expect(classifyClaudeFailure({ text: OUTPUT, limitFacts: facts })).toEqual({
+      code: 'claude-failed',
+      message: replyLimitMessage('output', { who: 'Claude', maxTokens: 64_000, ...facts }),
+      detail: OUTPUT
+    });
+    expect(
+      classifyClaudeFailure({ assistantError: 'max_output_tokens', text: CONTEXT, limitFacts: facts })
+    ).toEqual({
+      code: 'claude-failed',
+      message: replyLimitMessage('context', { who: 'Claude', ...facts }),
+      detail: CONTEXT
+    });
+    expect(classifyClaudeFailure({ text: 'Prompt is too long', limitFacts: facts }).message).toBe(
+      replyLimitMessage('input', { who: 'Claude', ...facts })
+    );
+  });
+
+  it('puts a usage limit and an ended sign-in first, and the output limit before the assistant error and the text rules', () => {
+    expect(
+      classifyClaudeFailure({ apiError: 'max_output_tokens', text: "You've hit your limit · resets 3pm" })
+        .code
+    ).toBe('claude-usage-limit');
+    expect(
+      classifyClaudeFailure({ apiError: 'max_output_tokens', text: 'OAuth token has expired' }).code
+    ).toBe('claude-login-expired');
+    expect(
+      classifyClaudeFailure({ assistantError: 'rate_limit', apiError: 'max_output_tokens' }).message
+    ).toBe(replyLimitMessage('output', { who: 'Claude' }));
+  });
+
+  it('reads a last reply stopped at max_tokens after the assistant error and the text rules, before the subtype', () => {
+    const limit = replyLimitMessage('output', { who: 'Claude', ...facts });
+    expect(
+      classifyClaudeFailure({ subtype: 'error_max_turns', stopReason: 'max_tokens', limitFacts: facts })
+        .message
+    ).toBe(limit);
+    expect(
+      classifyClaudeFailure({ subtype: 'error_max_structured_output_retries', stopReason: 'max_tokens' })
+    ).toMatchObject({ code: 'claude-failed', message: replyLimitMessage('output', { who: 'Claude' }) });
+    expect(classifyClaudeFailure({ text: 'some new failure', stopReason: 'max_tokens' }).message).toBe(
+      replyLimitMessage('output', { who: 'Claude' })
+    );
+    expect(classifyClaudeFailure({ assistantError: 'rate_limit', stopReason: 'max_tokens' }).code).toBe(
+      'claude-rate-limit'
+    );
+    expect(
+      classifyClaudeFailure({ text: 'Not logged in · Please run /login', stopReason: 'max_tokens' }).code
+    ).toBe('claude-not-signed-in');
+    expect(classifyClaudeFailure({ subtype: 'error_max_turns', stopReason: 'end_turn' }).message).toBe(
+      'Claude ran out of turns before producing a result.'
+    );
   });
 });

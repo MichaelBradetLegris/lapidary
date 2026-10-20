@@ -87,6 +87,34 @@ describe('listChapters', () => {
     expect(files.map((f) => f.relativePath)).toEqual(['Chapter 1.md']);
   });
 
+  /* files.11: an Excalidraw drawing is Markdown that holds a drawing, not
+     prose, so it is not a chapter; a sync tool's conflict copy is one, and is
+     listed as any chapter is (the list marks it). Neither file is touched. */
+  it('skips Excalidraw drawings, in any case, and lists conflict copies and look-alikes', async () => {
+    const drawings = [
+      await put('Drawing 2026-10-19 12.00.00.excalidraw.md', '---\nexcalidraw-plugin: parsed\n---\n'),
+      await put('maps/The Mill.Excalidraw.MD', 'x')
+    ];
+    await put('Chapter 1.md', 'a');
+    await put("Chapter 1 (Jane Doe's conflicted copy 2026-10-19).md", 'b');
+    await put('Chapter 1.sync-conflict-20261019-153045-ABCDEFG.md', 'c');
+    await put('Chapter 1 (Conflicted copy MyMacBook2 202611281430).md', 'd');
+    await put('Notes on excalidraw.md', 'e');
+    await put('excalidraw.md', 'f');
+    await put('Sketch.excalidraw.txt', 'g');
+    const files = await listChapters(root, null);
+    expect(files.map((f) => f.relativePath)).toEqual([
+      'Chapter 1 (Conflicted copy MyMacBook2 202611281430).md',
+      "Chapter 1 (Jane Doe's conflicted copy 2026-10-19).md",
+      'Chapter 1.md',
+      'Chapter 1.sync-conflict-20261019-153045-ABCDEFG.md',
+      'excalidraw.md',
+      'Notes on excalidraw.md',
+      'Sketch.excalidraw.txt'
+    ]);
+    for (const drawing of drawings) await expect(fs.stat(drawing)).resolves.toBeTruthy();
+  });
+
   it('skips a reviews folder nested inside the manuscript folder', async () => {
     await put('Chapter 1.md', 'a');
     await put('reviews/chapter-1/x.md', 'x');

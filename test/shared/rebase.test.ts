@@ -10,6 +10,7 @@ import { insideWord } from '../../src/shared/diff/fuzzy';
 import { rebaseReview } from '../../src/shared/diff/rebase';
 import { createDiffReview, createReview } from '../../src/shared/review';
 import { normalizeText } from '../../src/shared/text/eol';
+import { bodyStart } from '../../src/shared/text/obsidian';
 import type { Hunk, HunkStatus, Review, ReviewBase } from '../../src/shared/types';
 
 const ORIGINAL = [
@@ -884,5 +885,178 @@ describe('no place by a guess (apply.23 review)', () => {
     const text = ewes.replace('were always fine. It', 'were quite good. It');
     const { review: next } = rebaseOnto(reviewOn(ewes, [hunkAt(point, '', 'very ', 'pending', 'i1')]), text);
     expect(next.hunks[0]?.anchor).toBe('stale');
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* files.20: nothing is placed before the body                         */
+/* ------------------------------------------------------------------ */
+
+describe('the body only (files.20)', () => {
+  const sources: Array<Pick<Hunk, 'source' | 'status' | 'edited'>> = [
+    { source: 'diff', status: 'pending' },
+    { source: 'diff', status: 'accepted' },
+    { source: 'manual', status: 'accepted' },
+    { source: 'claude', status: 'pending' },
+    { source: 'claude', status: 'accepted', edited: true }
+  ];
+
+  it('never places a hunk of any source on its words where only the frontmatter still has them', () => {
+    const body = 'Mara walked to teh mill at dusk.\n\nRain fell on a roof.';
+    const later = 'Mara walked to a mill at dusk.\n\nRain fell on a roof.';
+    for (const kind of sources) {
+      // In the frontmatter, the words are not the chapter's: the hunk leaves the page.
+      const front = '---\naliases: [teh mill]\n---\n\n';
+      const text = front + body;
+      const hunk = { ...hunkAt(text.indexOf('teh mill at'), 'teh', 'the', kind.status), ...kind };
+      const { review: next, stats } = rebaseOnto(reviewOn(text, [hunk]), front + later);
+      expect(next.hunks[0], kind.source).toMatchObject({ anchor: 'stale', start: 0, end: 0 });
+      expect(stats).toMatchObject({ anchored: 0, newlyStale: 1 });
+      expect(composeReview(next)).toBe(front + later);
+      // In a body paragraph, the same words are found.
+      const lead = 'aliases: [teh mill]\n\n';
+      const plain = { ...hunkAt((lead + body).indexOf('teh mill at'), 'teh', 'the', kind.status), ...kind };
+      const kept = rebaseOnto(reviewOn(lead + body, [plain]), lead + later).review.hunks[0];
+      expect(kept, kind.source).toMatchObject({ start: lead.indexOf('teh'), end: lead.indexOf('teh') + 3 });
+    }
+  });
+
+  it('never places a deletion or an insertion by surroundings that only the frontmatter still has', () => {
+    const body = 'It was late, and the river rose in the night.';
+    const later = 'It was late, and the sea rose in the dawn.';
+    const places = (summary: string): Hunk | undefined => {
+      const front = `---\nsummary: ${summary}\n---\n\n`;
+      const point = front.length + body.indexOf('night');
+      const review = reviewOn(front + body, [hunkAt(point, '', 'dark ', 'pending', 'i1')]);
+      return rebaseOnto(review, front + later).review.hunks[0];
+    };
+    // The frontmatter holds the words around the place, which the body no longer does.
+    const tempted = places('the river rose in the night');
+    const front = '---\nsummary: the river rose in the night\n---\n\n';
+    expect(tempted?.anchor).not.toBe('stale');
+    expect(tempted?.start).toBeGreaterThanOrEqual(front.length);
+    // Just where it goes when the frontmatter holds other words, as many.
+    expect(tempted?.start).toBe(places('a flood came over the hills')?.start);
+  });
+
+  it('searches the body alone for words changed a little, past a copy in the frontmatter', () => {
+    const front = '---\nsummary: the river had begun to climb the steps\n---\n\n';
+    const body = 'It was the third night of rain, and the river had begun to climb the steps.';
+    const at = front.length + body.indexOf('had begun');
+    const review = reviewOn(front + body, [hunkAt(at, 'had begun to climb', 'began climbing', 'pending')]);
+    const later = front + body.replace('had begun to climb', 'had begun to clamb');
+    const { review: next } = rebaseOnto(review, later);
+    expect(next.hunks[0]).toMatchObject({ anchor: 'fuzzy', start: at });
+  });
+
+  it('weighs no copy of the words in the frontmatter against a place in the body', () => {
+    // "the" deleted by hand, and "and" made "but": the copy in the frontmatter reads
+    // as the old text before the deletion did, and would take the place's claim away.
+    const front = '---\nsummary: and the river rose\n---\n';
+    const text = `${front}It was late and the river rose at dusk.`;
+    const later = `${front}It was late but river rose at dusk.`;
+    const hunk = hunkAt(text.indexOf('the river rose at'), 'the ', '', 'pending');
+    const { review: next, stats } = rebaseOnto(reviewOn(text, [hunk]), later);
+    const place = later.indexOf('river rose at');
+    expect(next.hunks[0]).toMatchObject({
+      status: 'accepted',
+      baseSide: 'replacement',
+      start: place,
+      end: place
+    });
+    expect(stats.adopted).toBe(1);
+  });
+
+  it('counts only the body in finding the only such words in the file', () => {
+    // "colour" made "color" by hand, with the words either side changed too.
+    const front = '---\ntags: [color]\n---\n\n';
+    const text = `${front}The grey colour of the sky.`;
+    const later = `${front}A pale color in the sky.`;
+    const hunk = hunkAt(text.indexOf('colour'), 'colour', 'color', 'pending');
+    const { review: next } = rebaseOnto(reviewOn(text, [hunk]), later);
+    expect(next.hunks[0]).toMatchObject({
+      status: 'accepted',
+      baseSide: 'replacement',
+      start: later.indexOf('color in'),
+      end: later.indexOf('color in') + 'color'.length
+    });
+  });
+
+  it('never takes a suggestion already off the page as made, with a copy of its words in the frontmatter or without', () => {
+    // A model's "teh river" that was never found; then the author types "the river" in the body (the files.20 review).
+    for (const front of ['', '---\nsummary: the river rose\n---\n\n']) {
+      const text = `${front}Rain fell on the roof.`;
+      const lost: Hunk = {
+        ...hunkAt(0, 'teh river', 'the river', 'pending', 'c1'),
+        end: 0,
+        anchor: 'stale',
+        source: 'claude'
+      };
+      const later = `${front}Rain fell on the river.`;
+      const { review: next, stats } = rebaseOnto(reviewOn(text, [lost]), later);
+      expect(next.hunks[0], front).toMatchObject({
+        anchor: 'stale',
+        status: 'pending',
+        baseSide: 'original',
+        start: 0,
+        end: 0
+      });
+      expect(stats, front).toMatchObject({ anchored: 0, adopted: 0, newlyStale: 0 });
+      // Dismissed, it writes nothing: "teh river" was never in the chapter.
+      const dismissed = { ...next, hunks: next.hunks.map((h) => ({ ...h, status: 'dismissed' as const })) };
+      expect(composeReview(dismissed)).toBe(later);
+      // On its own words it comes back, its decision as it was.
+      const typed = `${front}Rain fell on teh river.`;
+      const back = rebaseOnto(reviewOn(text, [lost]), typed).review.hunks[0];
+      expect(back, front).toMatchObject({
+        anchor: 'exact',
+        status: 'pending',
+        baseSide: 'original',
+        start: typed.indexOf('teh river')
+      });
+    }
+    // Nor is a saved change off the page turned back into a suggestion where its old words now stand.
+    const text = 'Rain fell on the roof.';
+    const saved: Hunk = {
+      ...hunkAt(0, 'colour', 'color', 'accepted', 'c2'),
+      end: 0,
+      baseSide: 'replacement',
+      anchor: 'stale'
+    };
+    const { review: next, stats } = rebaseOnto(reviewOn(text, [saved]), 'Rain of a grey colour fell.');
+    expect(next.hunks[0]).toMatchObject({ anchor: 'stale', status: 'accepted', baseSide: 'replacement' });
+    expect(stats.adopted).toBe(0);
+  });
+
+  it('places a hunk that starts right at the start of the body, where it follows the closing line at once', () => {
+    // The usual layout in Obsidian: the body on the line after the closing "---" (the files.20 review).
+    const text = '---\ntitle: x\n---\nTeh river rose in the night.\n\nSecond.';
+    const body = bodyStart(text);
+    expect(body).toBe('---\ntitle: x\n---\n'.length);
+    const later = `${text}\n\nA paragraph added.`;
+    for (const status of ['pending', 'accepted'] as const) {
+      const word = rebaseOnto(reviewOn(text, [hunkAt(body, 'Teh', 'The', status)]), later).review.hunks[0];
+      expect(word, status).toMatchObject({ anchor: 'exact', status, start: body, end: body + 3 });
+      const insertion = hunkAt(body, '', 'Late that year, ', status, 'i1');
+      const top = rebaseOnto(reviewOn(text, [insertion]), later).review.hunks[0];
+      expect(top, status).toMatchObject({ anchor: 'exact', status, start: body, end: body });
+    }
+    // Words changed a little, found by the fuzzy search from the start of the body.
+    const phrase = hunkAt(body, 'Teh river rose in', 'The river rose in', 'pending');
+    const changed = later.replace('Teh river rose in', 'Teh rivers rose in');
+    const fuzzy = rebaseOnto(reviewOn(text, [phrase]), changed).review.hunks[0];
+    expect(fuzzy).toMatchObject({ anchor: 'fuzzy', start: body, end: body + 'Teh rivers rose in'.length });
+  });
+
+  it('never places a hunk at the line break that closes the frontmatter', () => {
+    // As the paragraph box made one before files.22, where the body starts on the next line; a review saved
+    // then may still hold one, though it now loads with it off the page (unanchorOutsideBody).
+    const text = '---\na: 1\n---\nFirst words.\n\nSecond.';
+    const brk = text.indexOf('\nFirst');
+    const hunk = { ...hunkAt(brk, '\n', '', 'accepted'), source: 'manual' as const };
+    const later = `${text}\n\nThird.`;
+    const { review: next } = rebaseOnto(reviewOn(text, [hunk]), later);
+    expect(next.hunks[0]).toMatchObject({ anchor: 'stale', start: 0, end: 0 });
+    expect(composeReview(next)).toBe(later);
   });
 });

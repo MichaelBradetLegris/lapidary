@@ -306,6 +306,81 @@ describe('planning a paragraph edit', () => {
   });
 });
 
+describe('the box on the first paragraph, where the body follows the closing --- at once (files.22)', () => {
+  const FRONT = '---\ntitle: One\ntags: [draft]\n---\n';
+  const CHAPTER = `${FRONT}${BASE}`;
+  const paragraphs = splitParagraphs(CHAPTER);
+  const span = blockSpanFor(CHAPTER, paragraphs, [], 0);
+  if (!span) throw new Error('fixture');
+  const box = liveTextIn(CHAPTER, [], span);
+
+  it('opens on the paragraph s words, not on the line break before them', () => {
+    expect(span).toMatchObject({ start: FRONT.length, end: FRONT.length + 40, paragraphs: [0] });
+    expect(box).toBe('Tilting his head aside, the man watched.');
+  });
+
+  it('Done with nothing typed changes nothing, nor with line breaks added at either end', () => {
+    for (const text of [box, `\n${box}`, `\n\n${box}\n`]) {
+      expect(
+        planBlockEdit({ base: CHAPTER, paragraphs, hunks: [], span, text }),
+        JSON.stringify(text)
+      ).toEqual({
+        kind: 'noop'
+      });
+    }
+  });
+
+  it('a word typed changes that word, and the frontmatter reads as it did', () => {
+    const { plan, hunks } = edit([], span, box.replace('man', 'boy'), ['m1'], CHAPTER);
+    expect(plan.added).toEqual([
+      expect.objectContaining({ id: 'm1', start: FRONT.length + 28, original: 'man', replacement: 'boy' })
+    ]);
+    expect(composeText(CHAPTER, hunks)).toBe(`${FRONT}${BASE.replace('man', 'boy')}`);
+    // The first words changed: the change starts at the body, not at the line break before it.
+    const first = edit([], span, box.replace('Tilting', 'Turning'), ['m2'], CHAPTER);
+    expect(first.plan.added[0]).toMatchObject({
+      start: FRONT.length,
+      original: 'Tilting',
+      replacement: 'Turning'
+    });
+    expect(composeText(CHAPTER, first.hunks).startsWith(`${FRONT}Turning his head`)).toBe(true);
+  });
+
+  it('a paragraph typed at the top goes in before the first words, after the frontmatter', () => {
+    const { plan, hunks } = edit([], span, `A new opening.\n\n${box}`, ['m1'], CHAPTER);
+    expect(plan.added).toEqual([
+      expect.objectContaining({ start: FRONT.length, end: FRONT.length, replacement: 'A new opening.\n\n' })
+    ]);
+    expect(composeText(CHAPTER, hunks)).toBe(`${FRONT}A new opening.\n\n${BASE}`);
+  });
+
+  it('emptying the box deletes the paragraph and the blank line after it, and leaves the line break', () => {
+    const { hunks } = edit(
+      [claudeHunk({ start: FRONT.length, end: FRONT.length + 7 })],
+      span,
+      '',
+      ['m1'],
+      CHAPTER
+    );
+    expect(composeText(CHAPTER, hunks)).toBe(`${FRONT}She said nothing at all.`);
+    const alone = `${FRONT}Only words.`;
+    const only = blockSpanFor(alone, splitParagraphs(alone), [], 0);
+    if (!only) throw new Error('fixture');
+    expect(composeText(alone, edit([], only, '', ['m2'], alone).hunks)).toBe(FRONT);
+  });
+
+  it('the last paragraph of a text that ends with a blank line closes with nothing done too', () => {
+    const text = `${BASE}\n`;
+    const last = blockSpanFor(text, splitParagraphs(text), [], 1);
+    if (!last) throw new Error('fixture');
+    const words = liveTextIn(text, [], last);
+    expect(words).toBe('She said nothing at all.');
+    expect(
+      planBlockEdit({ base: text, paragraphs: splitParagraphs(text), hunks: [], span: last, text: words })
+    ).toEqual({ kind: 'noop' });
+  });
+});
+
 describe('editing a suggestion in place', () => {
   it('keeps source, category and reason, and records that the words are the author s', () => {
     const next = editSuggestion(BASE, claudeHunk(), 'Tilting his head', true);

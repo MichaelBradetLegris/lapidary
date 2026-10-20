@@ -6,10 +6,34 @@ import {
   findOverlaps,
   unsavedDecisionCount
 } from '../../src/shared/diff/compose';
+import { anchorChanges, type ChangeInput } from '../../src/shared/diff/anchor';
 import { insideWord } from '../../src/shared/diff/fuzzy';
+import { isGuarded, screenModelHunks } from '../../src/shared/diff/protect';
 import { rebaseReview } from '../../src/shared/diff/rebase';
-import { editSuggestion } from '../../src/shared/edit';
-import { createReview } from '../../src/shared/review';
+import { diffToHunks } from '../../src/shared/diff/wordDiff';
+import {
+  applyBlockEdit,
+  blockSpanFor,
+  editSuggestion,
+  liveTextIn,
+  normalizeDraft,
+  planBlockEdit
+} from '../../src/shared/edit';
+import { buildRenderBlocks } from '../../src/shared/render';
+import {
+  createAiReview,
+  createReview,
+  guardLoadedReview,
+  remapAfterCommit,
+  unanchorOutsideBody
+} from '../../src/shared/review';
+import { bodyStart, syntaxSignature } from '../../src/shared/text/obsidian';
+import {
+  bodyParagraphs,
+  frontmatterRange,
+  splitParagraphs,
+  type Paragraph
+} from '../../src/shared/text/paragraphs';
 import type { Hunk, HunkSource, HunkStatus, Review, ReviewBase } from '../../src/shared/types';
 
 interface PieceSpec {
@@ -927,5 +951,934 @@ describe('deletions and insertions whose words stay (apply.23 review)', () => {
       ),
       { numRuns: 500 }
     );
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* files.20: kept out, and out of the frontmatter, through a rebase    */
+/* ------------------------------------------------------------------ */
+
+describe('kept out, and out of the frontmatter, through a rebase (files.20)', () => {
+  const sourcesArb = fc.array(fc.constantFrom<HunkSource>('diff', 'manual', 'claude'), {
+    minLength: 1,
+    maxLength: 6
+  });
+
+  /**
+   * Where the body goes after a frontmatter: after a blank line, or on the
+   * line right after the closing `---`, as Obsidian writes it, so that the
+   * body, and a hunk at its very start, begins at `bodyStart` (the `files.20`
+   * review).
+   */
+  type FrontLayout = 'none' | 'blank' | 'tight';
+
+  /**
+   * A chapter of apply.23's pieces, with the hunks' sources mixed, a few
+   * suggestions kept out of the text on words it holds, and, when asked, a
+   * frontmatter that holds the whole body again on one line: a rebase that
+   * read the frontmatter would find every hunk's words, and most of the text
+   * around them, there too.
+   */
+  function frontedChapter(
+    pieces: readonly Piece[],
+    sources: readonly HunkSource[],
+    kept: readonly number[],
+    layout: FrontLayout
+  ): { base: string; hunks: Hunk[]; keptOut: Hunk[] } {
+    const built = buildChapter(pieces);
+    const front =
+      layout === 'none'
+        ? ''
+        : `---\ntitle: ${built.base.replace(/\n+/g, ' ')}\n---\n${layout === 'blank' ? '\n' : ''}`;
+    const words = [...built.base.matchAll(/w\d+/g)].map((m) => m[0]);
+    const keptOut = kept.flatMap((k, i): Hunk[] => {
+      const word = words[k % words.length];
+      return word === undefined
+        ? []
+        : [
+            {
+              id: `k${i}`,
+              start: 0,
+              end: 0,
+              baseSide: 'original',
+              original: word,
+              replacement: `[[${word}]]`,
+              paragraph: 0,
+              category: 'grammar',
+              reason: 'The model said so.',
+              source: 'claude',
+              status: 'pending',
+              anchor: 'stale',
+              keptOut: 'markup'
+            }
+          ];
+    });
+    const hunks = built.hunks.map((h, i) => ({
+      ...h,
+      start: h.start + front.length,
+      end: h.end + front.length,
+      source: sources[i % sources.length] ?? 'diff'
+    }));
+    return { base: front + built.base, hunks: [...hunks, ...keptOut], keptOut };
+  }
+
+  /**
+   * The words a hunk on the page holds on its base side replaced by a new
+   * one ("y3"), or, for a hunk that holds none, the word either side of its
+   * place, in the body: the body then has them no more, and the frontmatter,
+   * its closing `---` included, still may.
+   */
+  function strike(text: string, hunk: Hunk, fresh: string): string {
+    if (hunk.start < hunk.end) return text.slice(0, hunk.start) + fresh + text.slice(hunk.end);
+    const before = /\S+\s*$/.exec(text.slice(bodyStart(text), hunk.start));
+    const after = /^\s*\S+/.exec(text.slice(hunk.start));
+    const from = before ? hunk.start - before[0].length : hunk.start;
+    const to = after ? hunk.start + after[0].length : hunk.start;
+    return `${text.slice(0, from)}${fresh}a ${fresh}b${text.slice(to)}`;
+  }
+
+  it('a kept-out suggestion stays kept out and in place, and no hunk of any source is placed before the body, through rounds of edits', () => {
+    // Rounds in which words of a hunk on the page were left in the frontmatter and nowhere else.
+    let tempted = 0;
+    // Chapters with a hunk at the very start of a body that follows the closing line at once.
+    let atBody = 0;
+    fc.assert(
+      fc.property(
+        piecesArb,
+        sourcesArb,
+        fc.array(fc.nat(), { minLength: 1, maxLength: 4 }),
+        fc.constantFrom<FrontLayout>('blank', 'tight', 'tight', 'none'),
+        fc.array(
+          fc.record({
+            strike: fc.option(fc.nat(), { nil: null }),
+            edits: fc.array(editArb(anyWord, ALL_OPS), { maxLength: 4 })
+          }),
+          { minLength: 1, maxLength: 3 }
+        ),
+        (pieces, sources, kept, layout, rounds) => {
+          const chapter = frontedChapter(pieces, sources, kept, layout);
+          let review = reviewOf(chapter.base, chapter.hunks);
+          let text = chapter.base;
+          // Onto the text it already has, a rebase finds every hunk on the page on its own words or place,
+          // where it was, at the very start of the body included (the files.20 review).
+          const start = bodyStart(text);
+          if (start > 0 && review.hunks.some((h) => h.anchor !== 'stale' && h.start === start)) atBody += 1;
+          const same = rebaseReview(review, nextBase(text)).review;
+          for (const h of review.hunks) {
+            if (h.anchor === 'stale') continue;
+            const now = same.hunks.find((s) => s.id === h.id);
+            expect(['exact', 'ambiguous'], JSON.stringify({ text, h, now })).toContain(now?.anchor);
+            expect(now).toMatchObject({ start: h.start, end: h.end, status: h.status, baseSide: h.baseSide });
+          }
+          for (const [round, change] of rounds.entries()) {
+            // Another editor changes the body, the words of one hunk among them; the frontmatter stays as it was.
+            const onPage = review.hunks.filter((h) => h.anchor !== 'stale');
+            const target = change.strike === null ? undefined : onPage[change.strike % onPage.length];
+            if (target) text = strike(text, target, `y${round}`);
+            const body = bodyStart(text);
+            text = text.slice(0, body) + applyEdits(text.slice(body), change.edits).text;
+            const words = onPage
+              .map((h) => (h.baseSide === 'original' ? h.original : h.replacement))
+              .filter((w) => w.length > 0);
+            if (words.some((w) => text.slice(0, body).includes(w) && !text.includes(w, body))) tempted += 1;
+
+            const { review: next, stats, changes } = rebaseReview(review, nextBase(text));
+            for (const h of next.hunks) {
+              if (h.anchor !== 'stale')
+                expect(h.start, JSON.stringify({ text, h })).toBeGreaterThanOrEqual(body);
+            }
+            for (const was of chapter.keptOut) expect(next.hunks.find((h) => h.id === was.id)).toEqual(was);
+            // What the cards count: those the rebase took off the page, and those it kept out.
+            const before = new Map(review.hunks.map((h) => [h.id, h]));
+            const off = next.hunks.filter((h) => h.anchor === 'stale');
+            const newly = off.filter(
+              (h) => h.keptOut !== undefined && before.get(h.id)?.keptOut === undefined
+            );
+            const lost = off.filter((h) => h.keptOut === undefined && before.get(h.id)?.anchor !== 'stale');
+            expect(stats.stale).toBe(off.length);
+            expect(stats.keptOut).toBe(newly.length);
+            expect(stats.newlyStale).toBe(lost.length);
+            // And the hunks behind them, which the reload card reads (the files.20 review).
+            expect(changes.keptOut).toEqual(newly.map((h) => h.id));
+            expect(changes.newlyStale).toEqual(lost.map((h) => h.id));
+            expect(changes.adopted).toHaveLength(stats.adopted);
+            expect(
+              changes.adopted.every(
+                (id) => next.hunks.find((h) => h.id === id)?.status !== before.get(id)?.status
+              )
+            ).toBe(true);
+            // A rebased review loads as it is: the guard has run on it.
+            expect(guardLoadedReview(next)).toBe(next);
+            review = next;
+          }
+        }
+      ),
+      { numRuns: 500 }
+    );
+    expect(tempted).toBeGreaterThan(100);
+    expect(atBody).toBeGreaterThan(25);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* files.7: the guard on model suggestions                             */
+/* ------------------------------------------------------------------ */
+
+describe('the guard on model suggestions (files.7)', () => {
+  /* Chapters of prose lines and Obsidian syntax, built as obsidian.test.ts
+     builds them, with frontmatter or without. */
+  const WORDS = ['rain', 'night', 'river', 'Mara', 'lamp', 'stone', 'quiet', 'door'];
+  const MARKS = [
+    '[[Chapter 2]]',
+    '[[Chapter 2|the flood chapter]]',
+    '![[map.png]]',
+    '[the mill](https://example.com/mill)',
+    '![a map](map.png)',
+    '[^1]',
+    '^[a note on the river]',
+    '#draft',
+    '(#draft)',
+    '\\#draft',
+    '`code`',
+    '%%a private note%%',
+    '<!-- a note -->',
+    '$$x^2$$',
+    '<span class="aside">',
+    '</span>',
+    'https://example.com/a',
+    '#1984',
+    'Room #4',
+    '$5 and $10',
+    '*em*',
+    '==hi==',
+    '<Where are you?>',
+    '-',
+    '--',
+    '%',
+    '|',
+    // A comment opener nothing may close, and arrows a suggestion could make into its closer.
+    '<!--',
+    '->',
+    '- >'
+  ];
+  const OPENINGS = ['', '', '', '> ', '## ', '> [!note] ', '[^2]: ', '- ', '- - ', '1. ', '\t', '    '];
+  const ENDINGS = ['', '', ' ^mill-1'];
+  const BLOCKS = [
+    '---',
+    '---\nThree days later.\n---',
+    '* * *',
+    '```\nlet x = 1;\n```',
+    '~~~\ncode\n~~~',
+    // Fences that hold a blank line: read alone, the closing fence opens one (the files.7 review).
+    '```\nlet x = 1;\n\nlet y = 2;\n```',
+    '~~~\ncode\n\nmore\n~~~',
+    // A fence line alone, and fence lines with words after the run, which close nothing until they go.
+    '```',
+    '~~~ The end',
+    '```js\nlet z = 3;',
+    '%%\nnote\n\nmore\n%%',
+    '$$\nx\n$$'
+  ];
+  const proseLine = fc
+    .tuple(
+      fc.constantFrom(...OPENINGS),
+      fc.array(
+        fc.oneof(
+          { weight: 2, arbitrary: fc.constantFrom(...WORDS) },
+          { weight: 1, arbitrary: fc.constantFrom(...MARKS) }
+        ),
+        { minLength: 1, maxLength: 8 }
+      ),
+      fc.constantFrom(...ENDINGS)
+    )
+    .map(([opening, tokens, ending]) => `${opening}${tokens.join(' ')}${ending}`);
+  const line = fc.oneof(
+    { weight: 4, arbitrary: proseLine },
+    { weight: 1, arbitrary: fc.constantFrom(...BLOCKS) }
+  );
+  const chapterArb = fc
+    .tuple(fc.boolean(), fc.array(fc.tuple(line, fc.boolean()), { minLength: 1, maxLength: 12 }))
+    .map(
+      ([front, lines]) =>
+        (front ? '---\ntitle: The Mill\n---\n' : '') +
+        lines.map(([text, blank], k) => (k === 0 ? '' : blank ? '\n\n' : '\n') + text).join('')
+    );
+
+  /* A model's change: a stretch of one paragraph with part of it replaced by
+     a word, punctuation or nothing, as a copyedit would, or by something
+     that is syntax or makes it, with or without a markup character. */
+  const PROSE_TOKENS = [
+    '',
+    'rain',
+    'Mara',
+    'the ',
+    ' ',
+    ',',
+    '.',
+    "'",
+    'x',
+    '1',
+    ':',
+    '(',
+    ')',
+    '!',
+    '-',
+    '*',
+    '_'
+  ];
+  const SYNTAX_TOKENS = [
+    '--',
+    '---',
+    '=',
+    '\\',
+    '/',
+    'http',
+    's://example.com',
+    'https://example.com',
+    '    ',
+    '\t',
+    '#',
+    '[',
+    ']',
+    '[[',
+    ']]',
+    '%',
+    '%%',
+    '$',
+    '^',
+    '<',
+    '>',
+    '|',
+    '~',
+    '`',
+    '\n',
+    '\n\n',
+    '> ',
+    '# '
+  ];
+  const pickArb = fc.record({
+    paragraph: fc.nat(),
+    from: fc.nat(),
+    length: fc.nat(),
+    at: fc.nat(),
+    cut: fc.nat(),
+    token: fc.oneof(
+      { weight: 3, arbitrary: fc.constantFrom(...PROSE_TOKENS) },
+      { weight: 2, arbitrary: fc.constantFrom(...SYNTAX_TOKENS) }
+    )
+  });
+  type Pick = typeof pickArb extends fc.Arbitrary<infer T> ? T : never;
+
+  /** The changes a model might send for `text`, made from the picks. */
+  function changesFor(text: string, picks: readonly Pick[]): ChangeInput[] {
+    const body = bodyParagraphs(splitParagraphs(text));
+    return picks.flatMap((pick) => {
+      const paragraph = body[pick.paragraph % body.length];
+      if (!paragraph) return [];
+      const from = pick.from % paragraph.text.length;
+      const before = paragraph.text.slice(from, from + 1 + (pick.length % 16));
+      const at = pick.at % (before.length + 1);
+      const cut = at + (pick.cut % (before.length - at + 1));
+      const after = before.slice(0, at) + pick.token + before.slice(cut);
+      return after === before
+        ? []
+        : [{ paragraph: paragraph.index, before, after, category: 'grammar' as const }];
+    });
+  }
+
+  /**
+   * Every model hunk left on the page, applied alone, keeps the chapter's
+   * syntax, its frontmatter and its paragraph count; every one kept out is
+   * at offset 0; and no two left on the page touch. Gives the counts of both.
+   */
+  function keepsTheSyntax(text: string, hunks: readonly Hunk[]): { onPage: number; keptOut: number } {
+    const signature = syntaxSignature(text);
+    const front = bodyStart(text);
+    const count = splitParagraphs(text).length;
+    let onPage = 0;
+    let keptOut = 0;
+    for (const hunk of hunks) {
+      if (hunk.source !== 'claude') continue;
+      if (hunk.anchor === 'stale') {
+        if (hunk.keptOut !== undefined) {
+          expect([hunk.start, hunk.end]).toEqual([0, 0]);
+          keptOut += 1;
+        }
+        continue;
+      }
+      const after = composeText(text, [{ ...hunk, status: 'accepted' }]);
+      expect(syntaxSignature(after), JSON.stringify({ text, hunk })).toBe(signature);
+      expect(bodyStart(after)).toBe(front);
+      expect(after.slice(0, front)).toBe(text.slice(0, front));
+      expect(splitParagraphs(after).length).toBe(count);
+      onPage += 1;
+    }
+    const page = hunks.filter((h) => h.anchor !== 'stale').sort((a, b) => a.start - b.start || a.end - b.end);
+    for (let i = 1; i < page.length; i += 1) expect(page[i]?.start).not.toBe(page[i - 1]?.end);
+    return { onPage, keptOut };
+  }
+
+  it('each model suggestion left on the page, applied alone, keeps the syntax, the frontmatter and the paragraph count', () => {
+    let onPage = 0;
+    let keptOut = 0;
+    fc.assert(
+      fc.property(chapterArb, fc.array(pickArb, { minLength: 1, maxLength: 12 }), (text, picks) => {
+        const review = createAiReview({
+          sourcePath: 'C:/vault/Chapter.md',
+          base: { text, hash: 'h', eol: 'lf', bom: false, trailingNewline: true },
+          changes: changesFor(text, picks),
+          comments: [],
+          generator: { kind: 'claude', provider: 'claude' }
+        });
+        const counts = keepsTheSyntax(text, review.hunks);
+        onPage += counts.onPage;
+        keptOut += counts.keptOut;
+        // Loaded again, a review the guard made is the same review.
+        expect(guardLoadedReview(review)).toBe(review);
+      }),
+      { numRuns: 1000 }
+    );
+    expect(onPage).toBeGreaterThan(1000);
+    expect(keptOut).toBeGreaterThan(1000);
+  });
+
+  it('so does each one left on the page of a review made before the guard, once it is loaded', () => {
+    let onPage = 0;
+    fc.assert(
+      fc.property(chapterArb, fc.array(pickArb, { minLength: 1, maxLength: 12 }), (text, picks) => {
+        const hunks = anchorChanges(text, splitParagraphs(text), changesFor(text, picks), {
+          source: 'claude'
+        });
+        const loaded = guardLoadedReview(reviewOf(text, hunks));
+        onPage += keepsTheSyntax(text, loaded.hunks).onPage;
+        expect(guardLoadedReview(loaded)).toBe(loaded);
+      }),
+      { numRuns: 500 }
+    );
+    expect(onPage).toBeGreaterThan(500);
+  });
+
+  /* Short chapters of fence, comment and maths lines, with and without words
+     after them, so that one often opens in one paragraph and closes, or could
+     close, in another, and one edit at any place: what a paragraph read alone
+     does not show (the files.7 review). */
+  const PAIRING_LINES = [
+    '```',
+    '~~~',
+    '```js',
+    '~~~ The end',
+    '<!--',
+    '-->',
+    '- >',
+    '->',
+    '%%',
+    '$$',
+    'Rain fell.',
+    'Sun came out.'
+  ];
+  const pairingArb = fc
+    .array(fc.tuple(fc.constantFrom(...PAIRING_LINES), fc.boolean()), { minLength: 2, maxLength: 10 })
+    .map((lines) => lines.map(([text, blank], k) => (k === 0 ? '' : blank ? '\n\n' : '\n') + text).join(''));
+
+  it('so does one in a chapter whose code, comments and maths open in one paragraph and close in another', () => {
+    let onPage = 0;
+    let keptOut = 0;
+    fc.assert(
+      fc.property(
+        pairingArb,
+        fc.nat(),
+        fc.nat({ max: 12 }),
+        fc.constantFrom('', ' ', '  ', '-', '.', 'x', ' x', 'js'),
+        (text, at, length, replacement) => {
+          const start = at % (text.length + 1);
+          const end = Math.min(text.length, start + length);
+          const original = text.slice(start, end);
+          if (original === replacement) return;
+          const hunk: Hunk = {
+            id: 'h1',
+            start,
+            end,
+            baseSide: 'original',
+            original,
+            replacement,
+            paragraph: 0,
+            source: 'claude',
+            status: 'pending',
+            anchor: 'exact'
+          };
+          const [out] = screenModelHunks(text, [hunk]);
+          if (out?.keptOut !== undefined) {
+            keptOut += 1;
+            return;
+          }
+          onPage += 1;
+          const after = composeText(text, [{ ...hunk, status: 'accepted' }]);
+          expect(syntaxSignature(after), JSON.stringify({ text, hunk })).toBe(syntaxSignature(text));
+          expect(splitParagraphs(after).length).toBe(splitParagraphs(text).length);
+        }
+      ),
+      { numRuns: 3000 }
+    );
+    expect(onPage).toBeGreaterThan(300);
+    expect(keptOut).toBeGreaterThan(300);
+  });
+
+  /* Another editor's words, syntax among them: a link's brackets, a tag, a
+     heading's #, a code span's backtick, a comment's %%, a rule, a quote. */
+  const typedArb = fc.option(
+    fc.constantFrom(
+      'the',
+      'Mara',
+      '#',
+      '#late',
+      '[[',
+      ']]',
+      '`',
+      '%%',
+      '---',
+      '>',
+      'https://example.com',
+      ','
+    ),
+    { nil: null }
+  );
+  /* What another editor puts round a suggestion's words: syntax, or not
+     (emphasis and brackets are prose here); and, for `join`, the text between
+     it and the hunk before it taken out, so the two touch. */
+  const WRAPS: ReadonlyArray<readonly [string, string]> = [
+    ['[[', ']]'],
+    ['`', '`'],
+    ['%%', '%%'],
+    ['#', ''],
+    ['', '#x'],
+    ['[', '](https://example.com)'],
+    ['*', '*'],
+    ['(', ')']
+  ];
+  const wrapArb = fc.record({
+    hunk: fc.nat(),
+    wrap: fc.oneof(fc.constantFrom(...WRAPS), fc.constant('join' as const))
+  });
+
+  /** `text` with each wrap made round the hunk it picks among those on the page, last place first. */
+  function wrapped(
+    text: string,
+    hunks: readonly Hunk[],
+    wraps: ReadonlyArray<typeof wrapArb extends fc.Arbitrary<infer T> ? T : never>
+  ): string {
+    const page = hunks.filter((h) => h.anchor !== 'stale').sort((a, b) => a.start - b.start || a.end - b.end);
+    const cuts: Array<{ from: number; to: number; insert: string }> = [];
+    for (const { hunk, wrap } of wraps) {
+      const i = hunk % Math.max(1, page.length);
+      const h = page[i];
+      if (!h) continue;
+      if (wrap === 'join') {
+        const previous = page[i - 1];
+        if (previous && previous.end < h.start) cuts.push({ from: previous.end, to: h.start, insert: '' });
+        continue;
+      }
+      cuts.push({ from: h.end, to: h.end, insert: wrap[1] }, { from: h.start, to: h.start, insert: wrap[0] });
+    }
+    let out = text;
+    let last = Infinity;
+    for (const cut of cuts.sort((a, b) => b.from - a.from || b.to - a.to)) {
+      if (cut.to > last) continue;
+      out = out.slice(0, cut.from) + cut.insert + out.slice(cut.to);
+      last = cut.from;
+    }
+    return out;
+  }
+
+  it('so does each one left on the page after a change on disk, and the review the rebase gives loads as it is (files.20)', () => {
+    let onPage = 0;
+    let keptOut = 0;
+    fc.assert(
+      fc.property(
+        chapterArb,
+        fc.array(pickArb, { minLength: 1, maxLength: 12 }),
+        fc.array(wrapArb, { maxLength: 3 }),
+        fc.array(editArb(typedArb, ALL_OPS), { maxLength: 4 }),
+        (text, picks, wraps, edits) => {
+          const review = createAiReview({
+            sourcePath: 'C:/vault/Chapter.md',
+            base: { text, hash: 'h', eol: 'lf', bom: false, trailingNewline: true },
+            changes: changesFor(text, picks),
+            comments: [],
+            generator: { kind: 'claude', provider: 'claude' }
+          });
+          const later = applyEdits(wrapped(text, review.hunks, wraps), edits).text;
+          const { review: moved, stats } = rebaseReview(review, nextBase(later));
+          keptOut += stats.keptOut;
+          // What the guard screens: each one left on the page keeps the syntax, and touches no hunk before it.
+          const signature = syntaxSignature(later);
+          const front = bodyStart(later);
+          const count = splitParagraphs(later).length;
+          const page = moved.hunks
+            .filter((h) => h.anchor !== 'stale')
+            .sort((a, b) => a.start - b.start || a.end - b.end);
+          page.forEach((hunk, i) => {
+            if (!isGuarded(hunk)) return;
+            const after = composeText(later, [{ ...hunk, status: 'accepted' }]);
+            expect(syntaxSignature(after), JSON.stringify({ later, hunk })).toBe(signature);
+            expect(after.slice(0, front)).toBe(later.slice(0, front));
+            expect(splitParagraphs(after).length).toBe(count);
+            expect(hunk.start).not.toBe(page[i - 1]?.end);
+            onPage += 1;
+          });
+          for (const hunk of moved.hunks) {
+            if (hunk.keptOut !== undefined)
+              expect([hunk.anchor, hunk.start, hunk.end]).toEqual(['stale', 0, 0]);
+          }
+          expect(guardLoadedReview(moved)).toBe(moved);
+        }
+      ),
+      { numRuns: 1000 }
+    );
+    expect(onPage).toBeGreaterThan(1000);
+    expect(keptOut).toBeGreaterThan(100);
+  });
+});
+
+describe('no hunk before the body (files.22)', () => {
+  /**
+   * The layouts a chapter's start takes: no frontmatter; a text that starts
+   * with a blank line; a frontmatter with the body on the line after its
+   * closing `---`, as Obsidian writes it; one with a blank line between, or
+   * two, one of them holding a space; and one whose closing line carries
+   * spaces.
+   */
+  const FRONTS = [
+    '',
+    '\n',
+    '---\ntitle: x\n---\n',
+    '---\ntitle: x\n---\n\n',
+    '---\ntitle: x\n---\n \n\n',
+    '---\ntitle: x\ntags: [a]\n---  \n'
+  ];
+  /** How the text ends: at the last words, or with a blank line or two, one holding a space. */
+  const TAILS = ['', '\n', '\n \n'];
+
+  /** The body paragraphs' words, as the page and the prompt read them. */
+  const bodyOf = (text: string): string[] => bodyParagraphs(splitParagraphs(text)).map((p) => p.text);
+
+  /** Every hunk on the page is drawn in a block of the body, never left out or in the frontmatter's. */
+  function drawn(text: string, hunks: readonly Hunk[]): boolean {
+    const ids = new Set(
+      buildRenderBlocks(text, splitParagraphs(text), hunks)
+        .filter((block) => !block.isFrontmatter)
+        .flatMap((block) => block.segments.flatMap((s) => (s.kind === 'hunk' ? [s.hunk.id] : [])))
+    );
+    return hunks.every((h) => h.anchor === 'stale' || ids.has(h.id));
+  }
+
+  /** The text before the body, and the frontmatter as Obsidian reads it, are as they were. */
+  function frontKept(before: string, after: string): void {
+    const at = bodyStart(before);
+    expect(after.slice(0, at)).toBe(before.slice(0, at));
+    expect(frontmatterRange(after)).toEqual(frontmatterRange(before));
+  }
+
+  /**
+   * Save to chapter, as `savedReview` folds the decisions in, then the review
+   * opened again as `reviews.ts` loads it: every hunk stays on the page with
+   * its decision, the page draws each where the body has a paragraph, and the
+   * load step moves none (the `files.22` review). Gives the saved text and hunks.
+   */
+  function savedAndOpened(base: string, hunks: readonly Hunk[]): { text: string; hunks: Hunk[] } {
+    const committed = commitDecisions(base, hunks);
+    const after = remapAfterCommit(base, hunks, committed, []).hunks;
+    expect(after.map((h) => [h.id, h.status, h.anchor])).toEqual(
+      hunks.map((h) => [h.id, h.status, h.anchor])
+    );
+    if (bodyOf(committed.text).length > 0) expect(drawn(committed.text, after)).toBe(true);
+    const reopened = reviewOf(committed.text, after);
+    expect(unanchorOutsideBody(reopened)).toBe(reopened);
+    expect(composeText(committed.text, after)).toBe(committed.text);
+    return { text: committed.text, hunks: after };
+  }
+
+  type Typing = 'nothing' | 'words' | 'top' | 'end' | 'breaks' | 'empty';
+
+  it('the paragraph box makes no hunk before the body, and Done with nothing typed makes none at all', () => {
+    const counts: Record<Typing, number> = { nothing: 0, words: 0, top: 0, end: 0, breaks: 0, empty: 0 };
+    let first = 0;
+    fc.assert(
+      fc.property(
+        fc.record({
+          front: fc.constantFrom(...FRONTS),
+          tail: fc.constantFrom(...TAILS),
+          specs: fc.array(specArb, { minLength: 1, maxLength: 6 }),
+          saved: fc.boolean(),
+          which: fc.nat(),
+          typing: fc.constantFrom<Typing>('nothing', 'words', 'top', 'end', 'breaks', 'empty'),
+          words: fc.array(fc.nat({ max: 20 }), { minLength: 1, maxLength: 3 })
+        }),
+        ({ front, tail, specs, saved, which, typing, words }) => {
+          const built = buildCase(specs);
+          const shifted = built.hunks.map((h) => ({
+            ...h,
+            start: h.start + front.length,
+            end: h.end + front.length
+          }));
+          const made = { text: `${front}${built.base}${tail}`, hunks: shifted };
+          const { text: base, hunks } = saved ? commitDecisions(made.text, made.hunks) : made;
+          const paragraphs = splitParagraphs(base);
+          const body = bodyParagraphs(paragraphs);
+          const target = body[which % body.length];
+          if (!target) throw new Error('a chapter with no body paragraph');
+          if (target.index === 0) first += 1;
+          const span = blockSpanFor(base, paragraphs, hunks, target.index);
+          if (!span) throw new Error('no block for a body paragraph');
+          const live = liveTextIn(base, hunks, span);
+          expect(live).not.toMatch(/^\n|\n$/);
+
+          const pieces = live.split(' ');
+          for (const k of words) pieces[k % pieces.length] = `new${k}`;
+          const typed = {
+            nothing: live,
+            words: pieces.join(' '),
+            top: `Added words here.\n\n${live}`,
+            end: `${live}\n\nAdded words here.`,
+            breaks: `\n\n${live}\n`,
+            empty: ''
+          }[typing];
+          counts[typing] += 1;
+
+          const plan = planBlockEdit({ base, paragraphs, hunks, span, text: typed });
+          if (normalizeDraft(typed) === live) {
+            expect(plan).toEqual({ kind: 'noop' });
+            return;
+          }
+          if (plan.kind !== 'edit') throw new Error('expected an edit');
+          const at = bodyStart(base);
+          for (const added of plan.added) {
+            expect(added.start, JSON.stringify({ base, typed })).toBeGreaterThanOrEqual(at);
+            expect(base.slice(added.start, added.end)).toBe(added.original);
+          }
+          const next = applyBlockEdit(hunks, plan);
+          const composed = composeText(base, next);
+          frontKept(base, composed);
+          // Nothing before the box changes either, but for the blank line an emptied last paragraph takes
+          // with it, and what is typed at its top goes in there.
+          if (typing !== 'empty') {
+            const prefix = composeText(
+              base.slice(0, span.start),
+              hunks.filter((h) => h.start < span.start)
+            );
+            expect(composed.startsWith(prefix)).toBe(true);
+            if (typing === 'top') expect(composed.slice(prefix.length)).toMatch(/^Added words here\.\n\n/);
+          }
+          expect(drawn(base, next)).toBe(true);
+          savedAndOpened(base, next);
+        }
+      ),
+      { numRuns: 1000 }
+    );
+    for (const typing of Object.keys(counts) as Typing[]) expect(counts[typing], typing).toBeGreaterThan(100);
+    expect(first).toBeGreaterThan(300);
+  });
+
+  /**
+   * The paragraphs as `splitParagraphs` gave them before `files.22`: a single
+   * line break at either end of the body was part of the paragraph beside it.
+   */
+  function splitBeforeFiles22(text: string): Paragraph[] {
+    const fm = frontmatterRange(text);
+    const out: Paragraph[] = fm
+      ? [{ index: -1, start: 0, end: fm.end, text: text.slice(0, fm.end), isFrontmatter: true }]
+      : [];
+    const cursor = fm?.end ?? 0;
+    const rest = text.slice(cursor);
+    let last = 0;
+    const push = (start: number, end: number): void => {
+      const raw = rest.slice(start, end);
+      if (raw.trim().length === 0) return;
+      out.push({
+        index: out.length - (fm ? 1 : 0),
+        start: cursor + start,
+        end: cursor + end,
+        text: raw,
+        isFrontmatter: false
+      });
+    };
+    for (const match of rest.matchAll(/\n(?:[ \t]*\n)+/g)) {
+      push(last, match.index);
+      last = match.index + match[0].length;
+    }
+    push(last, rest.length);
+    return out;
+  }
+
+  it('a review the paragraph box made before files.22 opens with every hunk on the page drawn, and a box opened again overlaps none (the files.22 review)', () => {
+    let off = 0;
+    fc.assert(
+      fc.property(
+        fc.record({
+          front: fc.constantFrom(...FRONTS),
+          tail: fc.constantFrom(...TAILS),
+          specs: fc.array(specArb, { minLength: 1, maxLength: 6 }),
+          which: fc.nat(),
+          again: fc.nat(),
+          typing: fc.constantFrom<Typing>('nothing', 'words', 'top', 'end', 'breaks', 'empty'),
+          words: fc.array(fc.nat({ max: 20 }), { minLength: 1, maxLength: 3 })
+        }),
+        ({ front, tail, specs, which, again, typing, words }) => {
+          const built = buildCase(specs);
+          const base = `${front}${built.base}${tail}`;
+          const hunks = built.hunks.map((h) => ({
+            ...h,
+            start: h.start + front.length,
+            end: h.end + front.length
+          }));
+          // The box as it was: opened on the paragraph as the split before files.22 gave it.
+          const old = splitBeforeFiles22(base);
+          const oldBody = bodyParagraphs(old);
+          const target = oldBody[which % oldBody.length];
+          if (!target) throw new Error('a chapter with no body paragraph');
+          const span = blockSpanFor(base, old, hunks, target.index);
+          if (!span) throw new Error('no block for a body paragraph');
+          const live = liveTextIn(base, hunks, span);
+          const pieces = live.split(' ');
+          for (const k of words) pieces[k % pieces.length] = `new${k}`;
+          const typed = {
+            nothing: live,
+            words: pieces.join(' '),
+            top: `Added words here.\n\n${live}`,
+            end: `${live}\n\nAdded words here.`,
+            breaks: `\n\n${live}\n`,
+            empty: ''
+          }[typing];
+          const plan = planBlockEdit({ base, paragraphs: old, hunks, span, text: typed });
+          const made = plan.kind === 'edit' ? applyBlockEdit(hunks, plan) : hunks;
+
+          const loaded = unanchorOutsideBody(reviewOf(base, made));
+          if (loaded.hunks.some((h, i) => h !== made[i])) off += 1;
+          // Each hunk stays as it was or goes off the page at offset 0, its words and decision kept.
+          loaded.hunks.forEach((h, i) => {
+            const was = made[i];
+            if (h !== was) expect(h).toEqual({ ...was, anchor: 'stale', start: 0, end: 0 });
+          });
+          expect(drawn(base, loaded.hunks)).toBe(true);
+          expect(unanchorOutsideBody(loaded)).toBe(loaded);
+
+          // A box opened again on any paragraph, a word typed: no hunk overlaps another, and each is drawn.
+          const paragraphs = splitParagraphs(base);
+          const body = bodyParagraphs(paragraphs);
+          const next = body[again % body.length];
+          if (!next) throw new Error('a chapter with no body paragraph');
+          const span2 = blockSpanFor(base, paragraphs, loaded.hunks, next.index);
+          if (!span2) throw new Error('no block for a body paragraph');
+          const live2 = liveTextIn(base, loaded.hunks, span2);
+          const plan2 = planBlockEdit({
+            base,
+            paragraphs,
+            hunks: loaded.hunks,
+            span: span2,
+            text: `Then ${live2}?`
+          });
+          if (plan2.kind !== 'edit') throw new Error('expected an edit');
+          const after = applyBlockEdit(loaded.hunks, plan2);
+          expect(findOverlaps(after)).toEqual([]);
+          expect(drawn(base, after)).toBe(true);
+        }
+      ),
+      { numRuns: 1000 }
+    );
+    expect(off).toBeGreaterThan(250);
+  });
+
+  const WORDS = ['rain', 'mill', 'Mara', 'river', 'the', 'fell'];
+  const paragraphArb = fc
+    .array(fc.constantFrom(...WORDS), { minLength: 1, maxLength: 5 })
+    .map((words) => `${words.join(' ')}.`);
+  type Fate = 'keep' | 'change' | 'drop';
+
+  it('the full-text diff makes no hunk before the body, and puts a paragraph added at the top before the first one', () => {
+    let atTop = 0;
+    let layoutOnly = 0;
+    let moved = 0;
+    let empty = 0;
+    fc.assert(
+      fc.property(
+        fc.record({
+          front: fc.constantFrom(...FRONTS),
+          frontC: fc.constantFrom(...FRONTS),
+          tail: fc.constantFrom(...TAILS),
+          tailC: fc.constantFrom(...TAILS),
+          /** the final newline normalizeText keeps apart, taken off the original text */
+          strip: fc.boolean(),
+          separator: fc.constantFrom('\n\n', '\n\n\n', '\n \n'),
+          paragraphs: fc.array(paragraphArb, { maxLength: 5 }),
+          fates: fc.array(fc.constantFrom<Fate>('keep', 'keep', 'change', 'drop'), {
+            minLength: 5,
+            maxLength: 5
+          }),
+          inserts: fc.array(fc.record({ at: fc.nat({ max: 6 }), text: paragraphArb }), { maxLength: 3 }),
+          decisions: fc.array(fc.constantFrom<HunkStatus>('pending', 'accepted', 'dismissed'), {
+            maxLength: 12
+          })
+        }),
+        ({ front, frontC, tail, tailC, strip, separator, paragraphs, fates, inserts, decisions }) => {
+          let original = `${front}${paragraphs.join(separator)}${tail}`;
+          if (strip) original = original.replace(/\n$/, '');
+          const kept = paragraphs.flatMap((p, i): string[] => {
+            const fate = fates[i] ?? 'keep';
+            if (fate === 'drop') return [];
+            return [fate === 'change' ? `Then ${p}` : p];
+          });
+          for (const insert of inserts)
+            kept.splice(Math.min(insert.at, kept.length), 0, `New ${insert.text}`);
+          if (inserts.some((insert) => insert.at === 0)) atTop += 1;
+          const corrected = `${frontC}${kept.join('\n\n')}${tailC}`;
+          if (bodyOf(original).length === 0) empty += 1;
+
+          const hunks = diffToHunks(original, corrected);
+          const at = bodyStart(original);
+          for (const hunk of hunks) {
+            expect(hunk.start, JSON.stringify({ original, corrected })).toBeGreaterThanOrEqual(at);
+            expect(original.slice(hunk.start, hunk.end)).toBe(hunk.original);
+          }
+          if (bodyOf(original).length > 0) expect(drawn(original, hunks)).toBe(true);
+          if (JSON.stringify(bodyOf(original)) === JSON.stringify(bodyOf(corrected))) {
+            expect(hunks).toEqual([]);
+            if (original !== corrected) layoutOnly += 1;
+          }
+
+          // Accepted, every hunk gives the corrected body; decided anyhow, the frontmatter stays as it is.
+          const all = composeText(
+            original,
+            hunks.map((h) => ({ ...h, status: 'accepted' as const }))
+          );
+          expect(bodyOf(all)).toEqual(bodyOf(corrected));
+          frontKept(original, all);
+          const decided = hunks.map((h, i) => ({ ...h, status: decisions[i] ?? h.status }));
+          const some = composeText(original, decided);
+          frontKept(original, some);
+
+          // Saved and opened again, each stays on the page where it is drawn; every decision turned
+          // afterwards still gives the corrected body, or the original one, with the frontmatter as it was
+          // (the files.22 review).
+          const saved = savedAndOpened(original, decided);
+          const folded = commitDecisions(original, decided).hunks;
+          if (saved.hunks.some((h, i) => h.start !== folded[i]?.start)) moved += 1;
+          for (const [status, body] of [
+            ['accepted', bodyOf(corrected)],
+            ['dismissed', bodyOf(original)]
+          ] as const) {
+            const turned = composeText(
+              saved.text,
+              saved.hunks.map((h) => ({ ...h, status }))
+            );
+            expect(bodyOf(turned)).toEqual(body);
+            frontKept(saved.text, turned);
+          }
+        }
+      ),
+      { numRuns: 1000 }
+    );
+    expect(atTop).toBeGreaterThan(100);
+    expect(layoutOnly).toBeGreaterThan(20);
+    expect(empty).toBeGreaterThan(50);
+    expect(moved).toBeGreaterThan(10);
   });
 });

@@ -7,6 +7,7 @@
 
 import { APP_NAME } from '../branding';
 import type { ErrorCode } from '../types';
+import { replyLimitMessage, type ReplyLimit, type ReplyLimitFacts } from './replyLimit';
 
 /**
  * The oldest Claude Code the app is known to work with: every flag in
@@ -285,6 +286,15 @@ export interface ClaudeFailureInput {
   subtype?: string;
   /** the result text, the end of stderr, or a thrown message */
   text?: string;
+  /**
+   * the result's `api_error`, the typed kind Claude Code 2.1.302 gives the
+   * API error that ended the run, such as `max_output_tokens`
+   */
+  apiError?: string;
+  /** why the model's last reply stopped, such as `max_tokens` (files.10) */
+  stopReason?: string;
+  /** the chapter's words and the review's effort, for a reply that ran out of room (files.10) */
+  limitFacts?: Pick<ReplyLimitFacts, 'words' | 'effort'>;
 }
 
 export interface ClaudeFailure {
@@ -324,7 +334,7 @@ const ASSISTANT_ERRORS: Readonly<Record<string, [ErrorCode, string]>> = {
   account_on_hold: ['claude-billing', BILLING_MESSAGE],
   verification_required: ['claude-billing', BILLING_MESSAGE],
   model_not_found: ['claude-failed', 'That model is not available on your plan. Pick another in Settings.'],
-  max_output_tokens: ['claude-failed', 'Claude hit its output limit. Try a shorter chapter.'],
+  // max_output_tokens is a reply that ran out of room, worded by `claudeReplyLimit` (files.10).
   server_error: ['claude-failed', 'Claude had a server error. Try again in a few minutes.']
 };
 
@@ -361,12 +371,50 @@ const SUBTYPES: Readonly<Record<string, [ErrorCode, string]>> = {
 
 const EXPIRED = /login expired|session expired|token (has )?expired|token revoked/i;
 
+/*
+ * A reply that ran out of room, in Claude Code 2.1.302's words (read from its
+ * bundled code, C.77). A reply cut off at the output limit, once Claude Code's
+ * own attempts to resume it are used up, ends the run with an assistant
+ * message whose `error` and `api_error` are `max_output_tokens` and whose text,
+ * which the result repeats, reads "API Error: Claude's response exceeded the
+ * 32000 output token maximum. ..."; a full context window comes with the same
+ * error and "API Error: The model has reached its context window limit.";
+ * a chapter too long to send at all is "Prompt is too long".
+ */
+const OUTPUT_MAXIMUM = /exceeded the (\d+) output token maximum/i;
+const CONTEXT_WINDOW = /reached its context window limit/i;
+const PROMPT_TOO_LONG = /prompt is too long|input is too long for requested model/i;
+
+/**
+ * Whether a failed run ran out of room, and which room, from what Claude Code
+ * said outright: its text first, which tells a full context window from an
+ * output limit that share one error, then the error itself. A reply that
+ * merely stopped at `max_tokens` is weaker evidence and is read later, by
+ * `classifyClaudeFailure`. Null when none of them says so.
+ */
+export function claudeReplyLimit(
+  input: ClaudeFailureInput
+): { limit: ReplyLimit; maxTokens?: number } | null {
+  const text = input.text ?? '';
+  if (PROMPT_TOO_LONG.test(text)) return { limit: 'input' };
+  if (CONTEXT_WINDOW.test(text) || input.stopReason === 'model_context_window_exceeded') {
+    return { limit: 'context' };
+  }
+  const maximum = OUTPUT_MAXIMUM.exec(text);
+  if (maximum) return { limit: 'output', maxTokens: Number(maximum[1]) };
+  if (input.assistantError === 'max_output_tokens' || input.apiError === 'max_output_tokens') {
+    return { limit: 'output' };
+  }
+  return null;
+}
+
 /**
  * What went wrong with a Claude run, first match (PLAN 11.3 f): the start-up
- * reason, a usage limit, an expired sign-in, the assistant error, the text,
- * the subtype, else a plain failure. A refusal is the caller's to handle
- * first. Claude Code's own words stay in `detail` whenever the message is the
- * app's.
+ * reason, a usage limit, an expired sign-in, a reply that ran out of room
+ * (`claudeReplyLimit`), the assistant error, the text, a last reply that
+ * stopped at the output limit, the subtype, else a plain failure. A refusal
+ * is the caller's to handle first. Claude Code's own words stay in `detail`
+ * whenever the message is the app's.
  */
 export function classifyClaudeFailure(input: ClaudeFailureInput): ClaudeFailure {
   const text = input.text?.trim() ?? '';
@@ -375,16 +423,26 @@ export function classifyClaudeFailure(input: ClaudeFailureInput): ClaudeFailure 
     message,
     ...(text && text !== message ? { detail: text } : {})
   });
+  const outOfRoom = (limit: ReplyLimit, maxTokens?: number): ClaudeFailure =>
+    ours(
+      'claude-failed',
+      replyLimitMessage(limit, { ...input.limitFacts, who: 'Claude', ...(maxTokens ? { maxTokens } : {}) })
+    );
 
   const startup = input.startupReason ? STARTUP_REASONS[input.startupReason] : undefined;
   if (startup) return ours(...startup);
   if (text && isUsageLimit(text)) return { code: 'claude-usage-limit', message: text };
   if (EXPIRED.test(text)) return ours('claude-login-expired', LOGIN_EXPIRED_MESSAGE);
+  const limit = claudeReplyLimit(input);
+  if (limit) return outOfRoom(limit.limit, limit.maxTokens);
   const assistant = input.assistantError ? ASSISTANT_ERRORS[input.assistantError] : undefined;
   if (assistant) return ours(...assistant);
   for (const [pattern, code, message] of TEXT_RULES) {
     if (pattern.test(text)) return ours(code, message);
   }
+  // A run that ran out of turns or schema retries after a reply cut off at the
+  // limit failed because of the limit (files.10).
+  if (input.stopReason === 'max_tokens') return outOfRoom('output');
   const subtype = input.subtype ? SUBTYPES[input.subtype] : undefined;
   if (subtype) return ours(...subtype);
   if (input.assistantError) return ours('claude-failed', `Claude reported an error: ${input.assistantError}`);
