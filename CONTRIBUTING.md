@@ -108,7 +108,7 @@ samples/           a small manuscript to try the app on
 6. Claude Code runs with no built-in tools, no user settings, never `--bare`, never the vault as its working directory, and never a changed client identity.
 7. PLAN.md is the source of truth: a design change edits it in the same commit.
 8. Every user-visible change adds a line to CHANGELOG.md in the same commit (below).
-9. The log records what happened, never content: a log call takes scalar fields, and an error goes in only through `loggableErrorFields`.
+9. The log records what happened, never content: a log call takes scalar fields, and an error goes in only through `loggableErrorFields`. That keeps an app error's message, so a `fail` message never quotes chapter text, a prompt, the guidelines or a reply; such text goes in `detail`, which is never logged.
 
 ## Testing without a key
 
