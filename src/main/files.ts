@@ -116,9 +116,12 @@ export function manuscriptFolderName(folder: string): string {
 }
 
 /**
- * Every `.md` and `.txt` under `folder`, skipping dot-folders, the reviews
- * folder, Excalidraw drawings (`*.excalidraw.md`, files.11) and any files
- * named in `excludeFiles` (the guidelines file is not a chapter). A sync
+ * Every `.md` and `.txt` under `folder`, skipping dot-files and dot-folders,
+ * folders named in `SKIP_DIRS`, the reviews folder, Excalidraw drawings
+ * (`*.excalidraw.md`, files.11), any files named in `excludeFiles` (the
+ * guidelines file is not a chapter), and symbolic links and junctions, which
+ * are neither a plain file nor a folder to `readdir` (PLAN 6.1). The welcome
+ * guide's folder line names the ones an author meets (`FOLDER_LISTS`). A sync
  * tool's conflict copy is listed like any other chapter; the list marks it
  * (`conflictCopyLabel`). A subfolder that cannot be read is skipped; the manuscript folder
  * itself must be, or the list would say it holds no chapters, so a read the

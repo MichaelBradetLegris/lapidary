@@ -232,7 +232,6 @@ describe('2. Choose your manuscript folder', () => {
       expect(facts).toHaveLength(4);
       // What the app lists.
       expect(facts[0]).toBe(FOLDER_LISTS);
-      expect(FOLDER_LISTS).toContain('.md and .txt');
       // That it changes a chapter only on Save to chapter.
       expect(facts[1]).toBe(FOLDER_SAVES);
       expect(FOLDER_SAVES).toContain('only when you press Save to chapter');
@@ -241,6 +240,14 @@ describe('2. Choose your manuscript folder', () => {
       // Where reviews live.
       expect(facts[3]).toMatch(/^Reviews are kept in /);
     }
+  });
+
+  it('says what the chapter list leaves out that an author meets, never that every file is listed (files.23)', () => {
+    expect(FOLDER_LISTS).toBe(
+      `${APP_NAME} lists the .md and .txt files in the folder and its subfolders as chapters, leaving out a few, among them the guidelines file, Excalidraw drawings and anything whose name starts with a dot, such as Obsidian's .obsidian and .trash folders.`
+    );
+    // listChapters leaves out more than the line names (PLAN 6.1), so the line may not claim all.
+    expect(FOLDER_LISTS).not.toMatch(/\bevery\b|\ball\b/i);
   });
 
   it('is to do with no folder, with Choose folder in blue, and done with one, naming it', () => {

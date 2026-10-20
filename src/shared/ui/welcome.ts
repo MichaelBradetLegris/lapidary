@@ -223,7 +223,13 @@ export const FOLDER_STEP_TITLE = 'Choose your manuscript folder';
 export const FOLDER_STEP_TEXT =
   'The folder that holds your chapters: your Obsidian vault, or a folder inside it.';
 
-export const FOLDER_LISTS = `${APP_NAME} lists every .md and .txt file in the folder and its subfolders as a chapter, leaving out folders whose names start with a dot, such as Obsidian's .obsidian.`;
+/**
+ * What the chapter list holds, in one sentence. `listChapters` leaves out more
+ * than this names (PLAN 6.1: folders named node_modules, out or dist, the
+ * reviews folder when it lies inside, links and junctions), so it never says
+ * every file is listed; it names what an author meets in a vault (files.23).
+ */
+export const FOLDER_LISTS = `${APP_NAME} lists the .md and .txt files in the folder and its subfolders as chapters, leaving out a few, among them the guidelines file, Excalidraw drawings and anything whose name starts with a dot, such as Obsidian's .obsidian and .trash folders.`;
 
 export const FOLDER_SAVES = `It changes a chapter file only when you press Save to chapter, and first copies the version it replaces into a backup in ${APP_NAME}'s own data folder.`;
 

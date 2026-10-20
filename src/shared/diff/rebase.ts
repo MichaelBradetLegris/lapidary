@@ -46,15 +46,20 @@ export interface RebaseResult {
   changes: RebaseChanges;
 }
 
+/**
+ * There is no search window round the old offset: every occurrence of a side's
+ * words in the body is a candidate, and the `NEAREST` to the old offset are
+ * scored (4.5). A `window` option, declared here until `files.23` and read by
+ * nothing, was removed.
+ */
 export interface RebaseOptions {
-  /** how far either side of the old offset to look before widening the search */
-  window?: number;
   /** characters of surrounding text used to re-anchor a zero-length hunk */
   contextChars?: number;
+  /** reject a fuzzy match whose edit distance ratio exceeds this */
   maxDistanceRatio?: number;
 }
 
-const DEFAULTS = { window: 400, contextChars: 48, maxDistanceRatio: 0.2 };
+const DEFAULTS = { contextChars: 48, maxDistanceRatio: 0.2 };
 
 interface Found {
   start: number;
