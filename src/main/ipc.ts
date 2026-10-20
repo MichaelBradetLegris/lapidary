@@ -24,7 +24,7 @@ import {
   setAsideFolderFor
 } from './drafts';
 import { fail } from './errors';
-import { beginRequest, cancelRequest, endRequest, providers } from './providers';
+import { beginRequest, cancelRequest, endRequest, noteTest, providers } from './providers';
 import { testConnection } from './providers/connectionTest';
 import { registerController } from './providers/controllers';
 import { clearOpenAiKey, openAiKeyStatus, storeOpenAiKey } from './secrets';
@@ -275,9 +275,11 @@ function registerAiHandlers(): void {
 
   /* Test the connection (setup.8): one very small request, only when the
      author presses the button. A failed test is an answer, not an error, and
-     the log keeps only its outcome, never what the provider said. */
+     the log keeps only its outcome, never what the provider said. The
+     answer moves the last failure, as the page's does (noteTest). */
   handle('ai:test', async ({ provider }) => {
     const result = await testConnection(providers().get(provider), { track: registerController });
+    noteTest(provider, result);
     log('info', 'ai.test', {
       provider,
       ok: result.ok,

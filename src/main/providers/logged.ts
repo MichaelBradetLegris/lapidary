@@ -1,16 +1,16 @@
 import { loggableErrorFields, type FieldValue } from '../../shared/diagnostics/redact';
-import type { ModelInfo, RateLimitInfo, ReviewRequest, RuntimeStatus } from '../../shared/ipc';
+import type {
+  ConnectionTestResult,
+  ModelInfo,
+  RateLimitInfo,
+  ReviewRequest,
+  RuntimeStatus
+} from '../../shared/ipc';
 import { chapterStats } from '../../shared/text/stats';
-import { failureSetupEvent, nextLastFailure, type LastFailure } from '../../shared/ui/setup';
+import { failureSetupEvent, nextLastFailure, testSetupEvent, type LastFailure } from '../../shared/ui/setup';
 import { toAppError } from '../errors';
 import type { Logger } from '../log';
-import type {
-  ProviderHooks,
-  ProviderResult,
-  ProviderTestHooks,
-  ProviderTestResult,
-  ReviewProvider
-} from './types';
+import type { ProviderHooks, ProviderResult, ReviewProvider } from './types';
 
 /**
  * A provider whose calls are logged (PLAN 11.3 m, hardening.3b), and which
@@ -35,9 +35,15 @@ import type {
  * A failed runtime check or model list is logged once, by the IPC envelope
  * (`ipc.failed`, ipcEnvelope.ts); a review's failure is logged here instead.
  *
- * The last failure follows the renderer's (`nextLastFailure`, setup.5): set
- * by a review or connection test that fails, cleared by one that goes
- * through, and read against each runtime check. Electron-free.
+ * The last runtime and the last failure move as the renderer's do (useAi.ts,
+ * `nextLastFailure`, setup.5), from what the page is told: a review's failure
+ * as the envelope words it, a connection test from the answer
+ * `testConnection` gives (`noteTest`, called by the `ai:test` handler: inside
+ * the provider a test that runs out of time ends as cancelled, and one that
+ * throws something unforeseen as `unknown`, where the page is told the test
+ * failed), and a check that throws as the error status the page puts in its
+ * place. The renderer keeps Claude's only; this keeps one for each provider.
+ * Electron-free.
  */
 
 export interface LoggedProvider extends ReviewProvider {
@@ -45,6 +51,12 @@ export interface LoggedProvider extends ReviewProvider {
   lastRuntime(): RuntimeStatus | null;
   /** the last failure that says something about setup, or null */
   lastFailure(): LastFailure | null;
+  /**
+   * A connection test of this provider finished with `result`, the answer
+   * `testConnection` gave the page: move the last failure as the renderer
+   * does (`testSetupEvent`), and keep the test's usage notice.
+   */
+  noteTest(result: ConnectionTestResult): void;
 }
 
 export interface LoggingDeps {
@@ -90,9 +102,18 @@ export function reviewRequestFields(request: ReviewRequest): Record<string, Fiel
 }
 
 /**
+ * Claude Code's input figures for one model: `inputTokens` counts only the
+ * part of the prompt that was not cached, and the cached part, most of a
+ * review's prompt, comes apart as read from and written to the cache.
+ */
+const CLAUDE_INPUT_FIELDS = ['inputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens'] as const;
+
+/**
  * Token counts from a reply's usage, in either provider's shape: OpenAI's
  * `input_tokens` and `output_tokens`, or Claude Code's `modelUsage`, whose
- * figures per model are added up. Nothing when neither is there.
+ * figures per model are added up. `inputTokens` is the whole prompt, cached
+ * or not, for both: OpenAI's `input_tokens` already holds its cached tokens,
+ * and Claude Code's cached ones are added in. Nothing when neither is there.
  */
 export function tokenFields(usage: unknown): Record<string, number> {
   if (typeof usage !== 'object' || usage === null) return {};
@@ -106,9 +127,12 @@ export function tokenFields(usage: unknown): Record<string, number> {
   for (const value of Object.values(top)) {
     if (typeof value !== 'object' || value === null) continue;
     const model = value as Record<string, unknown>;
-    if (typeof model['inputTokens'] === 'number') {
-      inputTokens += model['inputTokens'];
-      found = true;
+    for (const field of CLAUDE_INPUT_FIELDS) {
+      const count = model[field];
+      if (typeof count === 'number') {
+        inputTokens += count;
+        found = true;
+      }
     }
     if (typeof model['outputTokens'] === 'number') {
       outputTokens += model['outputTokens'];
@@ -136,7 +160,7 @@ export function withLogging(provider: ReviewProvider, deps: LoggingDeps): Logged
   const now = deps.now ?? Date.now;
   let lastRuntime: RuntimeStatus | null = null;
   let lastFailure: LastFailure | null = null;
-  // The last usage notice, read with a failure as the review's card reads it (setup.9).
+  // The last usage notice, read with a review's failure as the review's card reads it (setup.9).
   let lastRateLimit: RateLimitInfo | null = null;
 
   const noteRateLimit =
@@ -146,26 +170,23 @@ export function withLogging(provider: ReviewProvider, deps: LoggingDeps): Logged
       forward?.(info);
     };
 
-  /** A review or connection test went through. */
-  function succeeded(): void {
-    lastFailure = nextLastFailure(lastFailure, { type: 'success' });
-  }
-
-  /** A review or connection test failed; a cancel says nothing. */
-  function failed(err: unknown): void {
-    const error = toAppError(err);
-    if (error.code === 'cancelled') return;
-    lastFailure = nextLastFailure(
-      lastFailure,
-      failureSetupEvent(error.code, error.message, lastRateLimit, lastRuntime)
-    );
+  /** A runtime check finished, or threw and stands as the error status the page shows for it. */
+  function checked(status: RuntimeStatus): void {
+    lastRuntime = status;
+    lastFailure = nextLastFailure(lastFailure, { type: 'check', runtime: status });
   }
 
   async function runtime(): Promise<RuntimeStatus> {
     const started = now();
-    const status = await provider.runtime();
-    lastRuntime = status;
-    lastFailure = nextLastFailure(lastFailure, { type: 'check', runtime: status });
+    let status: RuntimeStatus;
+    try {
+      status = await provider.runtime();
+    } catch (err) {
+      // useAi's check puts this in place of a status; the envelope logs the failure.
+      checked({ provider: provider.id, state: 'error', message: toAppError(err).message });
+      throw err;
+    }
+    checked(status);
     log('info', 'ai.runtime', { ...runtimeFields(status), durationMs: now() - started });
     return status;
   }
@@ -190,34 +211,33 @@ export function withLogging(provider: ReviewProvider, deps: LoggingDeps): Logged
         ...reviewResultFields(result),
         durationMs: now() - started
       });
-      succeeded();
+      lastFailure = nextLastFailure(lastFailure, { type: 'success' });
       return result;
     } catch (err) {
-      const cancelled = toAppError(err).code === 'cancelled';
+      // As the envelope words it for the page; a cancel says nothing about setup.
+      const error = toAppError(err);
+      const cancelled = error.code === 'cancelled';
       log(cancelled ? 'info' : 'warn', 'ai.review.failed', {
         provider: provider.id,
         ...loggableErrorFields(err),
         durationMs: now() - started
       });
-      failed(err);
+      if (!cancelled) {
+        lastFailure = nextLastFailure(
+          lastFailure,
+          failureSetupEvent(error.code, error.message, lastRateLimit, lastRuntime)
+        );
+      }
       throw err;
     }
   }
 
-  // The test's outcome is logged as `ai.test` by its handler (ipc.ts); here it only moves the last failure.
-  const inner = provider.test?.bind(provider);
-  const test = inner
-    ? async (hooks: ProviderTestHooks): Promise<ProviderTestResult> => {
-        try {
-          const result = await inner({ ...hooks, onRateLimit: noteRateLimit(hooks.onRateLimit) });
-          succeeded();
-          return result;
-        } catch (err) {
-          failed(err);
-          throw err;
-        }
-      }
-    : undefined;
+  // The test's outcome is logged as `ai.test` by its handler (ipc.ts), which also calls this.
+  function noteTest(result: ConnectionTestResult): void {
+    if (result.rateLimit) lastRateLimit = result.rateLimit;
+    const event = testSetupEvent(result, lastRuntime);
+    if (event) lastFailure = nextLastFailure(lastFailure, event);
+  }
 
   return {
     id: provider.id,
@@ -225,8 +245,9 @@ export function withLogging(provider: ReviewProvider, deps: LoggingDeps): Logged
     runtime,
     models,
     review,
-    ...(test ? { test } : {}),
+    ...(provider.test ? { test: provider.test.bind(provider) } : {}),
     lastRuntime: () => lastRuntime,
-    lastFailure: () => lastFailure
+    lastFailure: () => lastFailure,
+    noteTest
   };
 }

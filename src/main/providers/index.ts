@@ -1,5 +1,5 @@
 import { app, safeStorage } from 'electron';
-import type { RuntimeStatus } from '../../shared/ipc';
+import type { ConnectionTestResult, RuntimeStatus } from '../../shared/ipc';
 import type { Provider } from '../../shared/types';
 import type { LastFailure } from '../../shared/ui/setup';
 import { log } from '../log';
@@ -53,6 +53,16 @@ export function lastFailure(id: Provider): LastFailure | null {
       .find((provider) => provider.id === id)
       ?.lastFailure() ?? null
   );
+}
+
+/**
+ * A connection test of `id` answered the page with `result` (`testConnection`):
+ * its last failure moves as the renderer's does (`LoggedProvider.noteTest`).
+ */
+export function noteTest(id: Provider, result: ConnectionTestResult): void {
+  loggedProviders()
+    .find((provider) => provider.id === id)
+    ?.noteTest(result);
 }
 
 /* In-flight reviews, so Cancel can reach whichever provider is running. Each

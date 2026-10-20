@@ -202,8 +202,9 @@ describe('Test the connection, from the button to main and back (setup.8)', () =
 
   it('is answered in main by testConnection, with its controller tracked so quitting ends it', () => {
     const main = withoutComments(readFileSync(path.join(RENDERER, '../main/ipc.ts'), 'utf8'));
+    // Main's last failure moves with the answer the page gets (hardening.3b review).
     expect(main).toContain(
-      "handle('ai:test', async ({ provider }) => {\n    const result = await testConnection(providers().get(provider), { track: registerController });"
+      "handle('ai:test', async ({ provider }) => {\n    const result = await testConnection(providers().get(provider), { track: registerController });\n    noteTest(provider, result);"
     );
     const claude = withoutComments(readFileSync(path.join(RENDERER, '../main/providers/claude.ts'), 'utf8'));
     // The same Claude Code, flags, environment and folder as a review (CLAUDE.md rule 6).
