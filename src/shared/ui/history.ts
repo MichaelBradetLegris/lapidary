@@ -18,10 +18,11 @@ import { PROVIDER_NAMES, type Review } from '../types';
 import { unsavedPhrase } from './save';
 
 /**
- * A review's date as History shows it: the computer's own date and time
- * format, or the stored text when it is not a readable time. The review
- * selector (`reviewPicker`) and the questions that name a review by its date
- * use the same words, so the author can find the one they mean in History.
+ * A review's date as History shows it: the date and time format of the page's
+ * locale, which a packaged build makes en-US on every system (C.90), or the
+ * stored text when it is not a readable time. The review selector
+ * (`reviewPicker`) and the questions that name a review by its date use the
+ * same words, so the author can find the one they mean in History.
  */
 export function historyWhen(iso: string): string {
   const date = new Date(iso);

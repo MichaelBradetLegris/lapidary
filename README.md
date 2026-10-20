@@ -34,7 +34,7 @@ There is no released installer yet. Until there is, build one yourself:
 
    Type `npm.cmd`, not `npm`: Windows blocks PowerShell scripts by default, and plain `npm` would start one. The commands need an internet connection and take a few minutes. npm prints several warnings about deprecated packages and install scripts; these are expected. The build worked if no line starts with `npm error`.
 
-5. Open the `dist` folder inside it. Double-click `Lapidary-<version>-x64.exe` and follow its steps to install the app; it adds a Start menu entry and a desktop shortcut. Or run `Lapidary-<version>-portable.exe`, which needs no installing. These builds are not code-signed, so if Windows says it protected your PC, click **More info**, then **Run anyway**.
+5. Open the `dist` folder inside it and double-click `Lapidary-Setup-<version>.exe`. It installs the app for your Windows account without asking anything, adds a Start menu entry and a desktop shortcut, and starts the app. These builds are not code-signed, so if Windows says it protected your PC, click **More info**, then **Run anyway**.
 
 To update later, get the newest source the same way, run the two commands again and run the new installer.
 
