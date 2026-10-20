@@ -339,9 +339,9 @@ describe('a settings.json that could not be read (hardening.15)', () => {
       logger: log.logger
     });
     const read = await store.loadChecked();
-    expect(read).toEqual({ settings: DEFAULT_SETTINGS, readFailed: true });
+    expect(read).toEqual({ settings: DEFAULT_SETTINGS, readFailed: true, reason: 'refused' });
     const answer = settingsAnswer(read);
-    expect(answer).toEqual({ readFailed: true, settings: null });
+    expect(answer).toEqual({ readFailed: true, reason: 'refused', settings: null });
     expect(JSON.stringify(answer)).not.toMatch(/EBUSY|busy|locked|Novel/);
     expect(log.seen).toEqual(['warn settings.read-failed code=EBUSY']);
     expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(AUTHOR);
@@ -384,7 +384,7 @@ describe('a settings.json that could not be read (hardening.15)', () => {
         return Promise.resolve();
       }
     });
-    expect((await store.loadChecked()).readFailed).toBe(true);
+    expect(await store.loadChecked()).toMatchObject({ readFailed: true, reason: 'refused' });
     locked = false;
     const read = await store.loadChecked();
     expect(read.readFailed).toBe(false);
@@ -423,7 +423,10 @@ describe('a settings.json that could not be read (hardening.15)', () => {
       }
     });
 
-    expect(await store.loadChecked()).toEqual({ settings: DEFAULT_SETTINGS, readFailed: true });
+    const read = await store.loadChecked();
+    expect(read).toEqual({ settings: DEFAULT_SETTINGS, readFailed: true, reason: 'no-copy' });
+    // The page is told which, so its card says the file is damaged, not held (the hardening.15 review).
+    expect(settingsAnswer(read)).toEqual({ readFailed: true, reason: 'no-copy', settings: null });
     // Not cached: the next load reads the file and tries the copy again.
     expect(await store.load()).toEqual(DEFAULT_SETTINGS);
     expect(copies).toBe(2);
@@ -486,7 +489,11 @@ describe('a settings.json that could not be read (hardening.15)', () => {
       }
     });
 
-    expect(await store.loadChecked()).toEqual({ settings: DEFAULT_SETTINGS, readFailed: true });
+    expect(await store.loadChecked()).toEqual({
+      settings: DEFAULT_SETTINGS,
+      readFailed: true,
+      reason: 'no-copy'
+    });
     expect(log.seen).toEqual(['warn settings.unreadable kept=none code=EEXIST names=20']);
     await expect(store.save({ model: 'sonnet' })).rejects.toMatchObject({ code: 'io' });
     expect(writes).toBe(0);

@@ -1052,23 +1052,35 @@ export function App(): React.JSX.Element {
   });
 
   /* settings.json could not be read (hardening.15, C.86): one card says so,
-     with Try again, in place of everything else, the toolbar and the status
-     bar too, whose buttons lead to Settings, Setup and the rest, none of which
-     has settings to work from. The notification cards stay, for a Try again
-     whose request fails, and so does the question, for a close. A read that
-     works puts the settings in the store, and the page is drawn as usual. */
+     in the words for the reason main gave, with Try again, in place of
+     everything else, the toolbar and the status bar too, whose buttons lead to
+     Settings, Setup and the rest, none of which has settings to work from. The
+     notification cards stay, for a Try again whose request fails, and so does
+     the question, for a close. Diagnostics, which needs no settings, opens
+     over the card from its own Show diagnostics or a card's, and the page is
+     inert only under what this layout draws: under the whole list of dialogs
+     it went inert with nothing over it and could not be left (the
+     hardening.15 review). A read that works puts the settings in the store,
+     and the page is drawn as usual. */
   if (settingsReadFailed && settings === null) {
+    const cardInert = shellInert({ dialog: diagnosticsDialog !== null, question: questionOpen });
     return (
       <div className="app-shell">
-        <div className="app-shell__page" inert={inert.page}>
+        <div className="app-shell__page" inert={cardInert.page}>
           <div className="body body--single">
             <NotificationCards onAction={onCardAction} />
             <SettingsUnreadable
+              reason={settingsReadFailed}
               trying={settingsTrying}
               failedAgain={settingsFailedAgain}
               onTryAgain={() => loadSettings(true)}
+              onShowFile={() => void call('shell:reveal', { target: 'settings' }).catch(fail)}
+              onShowDiagnostics={() => setDiagnosticsOpen('show')}
             />
           </div>
+        </div>
+        <div className="app-shell__dialogs" inert={cardInert.dialogs}>
+          {diagnosticsDialog}
         </div>
         <ConfirmDialog />
       </div>

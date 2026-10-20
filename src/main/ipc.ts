@@ -78,7 +78,7 @@ import {
   saveReview
 } from './reviews';
 import { loadSettings, loadSettingsChecked, saveSettings } from './settings';
-import { settingsAnswer } from './settingsStore';
+import { SETTINGS_FILE, settingsAnswer } from './settingsStore';
 import { applyTheme } from './theme';
 import { createManuscriptWatcher, listAndWatch } from './watcher';
 import { applyZoom, changeZoom } from './zoom';
@@ -547,7 +547,13 @@ function registerFileHandlers(): void {
       return { path: text };
     }
     let file: string | null;
-    if (target === 'data' || target === 'logs' || target === 'backups' || target === 'drafts') {
+    if (
+      target === 'data' ||
+      target === 'settings' ||
+      target === 'logs' ||
+      target === 'backups' ||
+      target === 'drafts'
+    ) {
       file = await userDataTarget(target);
     } else {
       const settings = await loadSettings();
@@ -565,11 +571,17 @@ function registerFileHandlers(): void {
  * The userData places "show in folder" can open, created on demand so the
  * author never lands on a missing folder (setup.7a). `backups` here is the
  * root, for Settings; a chapter's own backup folder is shown from its path
- * (`chapterBackups`, apply.11).
+ * (`chapterBackups`, apply.11). `settings` is settings.json itself, for the
+ * card shown while it cannot be read, or the data folder once the author has
+ * moved the file away (hardening.15).
  */
-async function userDataTarget(target: 'data' | 'logs' | 'backups' | 'drafts'): Promise<string> {
+async function userDataTarget(target: 'data' | 'settings' | 'logs' | 'backups' | 'drafts'): Promise<string> {
   const root = app.getPath('userData');
   if (target === 'data') return root;
+  if (target === 'settings') {
+    const file = path.join(root, SETTINGS_FILE);
+    return existsSync(file) ? file : root;
+  }
   const folder =
     target === 'logs'
       ? path.join(root, 'logs')

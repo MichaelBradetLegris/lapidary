@@ -1,7 +1,7 @@
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { APP_NAME } from '../shared/branding';
-import type { SettingsAnswer } from '../shared/ipc';
+import type { SettingsAnswer, SettingsReadFailure } from '../shared/ipc';
 import { hasNul, isAbsolutePath } from '../shared/paths';
 import { droppedPathSetting, normalizeSettings, type PathSettingKey } from '../shared/settings';
 import type { Settings } from '../shared/types';
@@ -26,8 +26,10 @@ import type { LogLevel } from './log';
  *   then the defaults are used but NOT cached. A save then reads again and
  *   refuses to write if it still cannot, leaving the file as it was.
  *
- * `loadChecked` says when a read failed, and `settingsAnswer` turns that into
- * `settings:get`'s answer, which then hands the page no settings at all: a
+ * `loadChecked` says when a read failed, and why: `refused` for a read error,
+ * `no-copy` for unparseable JSON with no copy made. `settingsAnswer` turns
+ * that into `settings:get`'s answer, which then hands the page no settings at
+ * all, only that fixed reason, never the error: a
  * page holding the defaults would show the welcome guide and write lists
  * built from them, which a save then puts over the file once it can be read
  * (hardening.15, PLAN C.86).
@@ -51,16 +53,15 @@ export interface SettingsStoreDeps {
   now?: () => Date;
 }
 
-/** What a load found: the settings, and whether settings.json could not be read. */
-export interface SettingsRead {
-  /** the settings in use; the defaults, not cached, when `readFailed` */
-  settings: Settings;
-  /**
-   * settings.json is there but could not be read, or is not JSON and could
-   * not be copied aside, so a save would be refused
-   */
-  readFailed: boolean;
-}
+/**
+ * What a load found: the settings in use, the defaults, not cached, when
+ * `readFailed`; and whether settings.json could not be read, with why: the
+ * read was `refused`, or the file is not JSON and could not be copied aside
+ * (`no-copy`). Either way a save would be refused.
+ */
+export type SettingsRead =
+  | { settings: Settings; readFailed: false }
+  | { settings: Settings; readFailed: true; reason: SettingsReadFailure };
 
 export interface SettingsStore {
   load(): Promise<Settings>;
@@ -97,11 +98,12 @@ function stamp(date: Date): string {
 
 /**
  * `settings:get`'s answer for a load (hardening.15): the settings, or, when
- * settings.json could not be read, none, only the flag, never the error.
+ * settings.json could not be read, none, only the flag and its fixed reason,
+ * never the error.
  */
 export function settingsAnswer(read: SettingsRead): SettingsAnswer {
   return read.readFailed
-    ? { readFailed: true, settings: null }
+    ? { readFailed: true, reason: read.reason, settings: null }
     : { readFailed: false, settings: read.settings };
 }
 
@@ -210,12 +212,13 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
       case 'corrupt':
         // With no copy kept, as a read that failed: nothing cached, so the
         // next load tries again and a save is refused (hardening.15).
-        if (!(await setAside())) return { settings: normalizeSettings({}), readFailed: true };
+        if (!(await setAside()))
+          return { settings: normalizeSettings({}), readFailed: true, reason: 'no-copy' };
         cached = normalizeSettings({});
         return { settings: cached, readFailed: false };
       case 'unreadable':
         logger('warn', 'settings.read-failed', { code: outcome.code });
-        return { settings: normalizeSettings({}), readFailed: true };
+        return { settings: normalizeSettings({}), readFailed: true, reason: 'refused' };
     }
   }
 

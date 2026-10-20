@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { SettingsAnswer } from '../../shared/ipc';
+import type { SettingsAnswer, SettingsReadFailure } from '../../shared/ipc';
 import { useApp } from './store';
 
 /*
@@ -7,7 +7,8 @@ import { useApp } from './store';
  *
  * While settings.json cannot be read, because another program holds it open
  * or it is not JSON and no copy of it can be made, `settings:get` answers
- * with no settings and `readFailed`. The store then keeps no settings, so the
+ * with no settings, `readFailed` and which of the two it is, for the card's
+ * words (`settingsUnreadableCard`). The store then keeps no settings, so the
  * welcome guide, which shows only once settings are in, stays away; the Pro
  * preselection, a hint put away, the split and Show the welcome guide again
  * all write nothing without settings; and App shows the card that says the
@@ -26,8 +27,11 @@ export interface SettingsReadIo {
 }
 
 export interface SettingsReadState {
-  /** main said settings.json could not be read, and no read has worked since */
-  failed: boolean;
+  /**
+   * why main said settings.json could not be read, at its latest answer, or
+   * null before the first answer and once a read has worked
+   */
+  failed: SettingsReadFailure | null;
   /** a Try again is reading the file */
   trying: boolean;
   /** the last Try again found the file still unreadable */
@@ -35,7 +39,7 @@ export interface SettingsReadState {
 }
 
 export const useSettingsRead = create<SettingsReadState>(() => ({
-  failed: false,
+  failed: null,
   trying: false,
   failedAgain: false
 }));
@@ -52,11 +56,11 @@ export async function readSettings(io: SettingsReadIo, again = false): Promise<b
   try {
     const answer = await io.getSettings();
     if (answer.readFailed) {
-      useSettingsRead.setState({ failed: true, failedAgain: again });
+      useSettingsRead.setState({ failed: answer.reason, failedAgain: again });
       return false;
     }
     useApp.getState().setSettings(answer.settings);
-    useSettingsRead.setState({ failed: false, failedAgain: false });
+    useSettingsRead.setState({ failed: null, failedAgain: false });
     return true;
   } finally {
     if (again) useSettingsRead.setState({ trying: false });

@@ -1161,7 +1161,10 @@ describe('the wiring (apply.9)', () => {
     for (const layout of layouts) {
       // The main layout's page is inert under a dialog too, and under a
       // question through `shellInert` (ui.4, test/shared/dialog.test.ts).
-      expect(layout).toMatch(/<div className="app-shell__page" inert=\{(questionOpen|inert\.page)\}>/);
+      // The card's layout takes it only from what it draws (hardening.15 review).
+      expect(layout).toMatch(
+        /<div className="app-shell__page" inert=\{(questionOpen|inert\.page|cardInert\.page)\}>/
+      );
       expect(layout.match(/<ConfirmDialog \/>/g)).toHaveLength(1);
       expect(layout).toMatch(/<ConfirmDialog \/>\s*<\/div>\s*$/);
     }

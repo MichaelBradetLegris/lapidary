@@ -1,10 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SETTINGS_FILE, createSettingsStore, settingsAnswer } from '../../src/main/settingsStore';
 import { PRO_PRESELECT_HINT, proPreselection } from '../../src/shared/ai/claudeModels';
-import type { Settings } from '../../src/shared/types';
+import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
 import { SAVE_HINT_ID } from '../../src/shared/ui/saveHint';
 import { welcomeShown } from '../../src/shared/ui/welcome';
 import { createHints } from '../../src/renderer/state/hints';
@@ -43,7 +43,7 @@ afterEach(() => {
 
 beforeEach(() => {
   useApp.setState({ settings: null, welcomeClosed: false });
-  useSettingsRead.setState({ failed: false, trying: false, failedAgain: false });
+  useSettingsRead.setState({ failed: null, trying: false, failedAgain: false });
 });
 
 function busy(): Error {
@@ -98,7 +98,7 @@ describe('while settings.json cannot be read (hardening.15)', () => {
     const m = main();
     expect(await readSettings(m.io)).toBe(false);
     expect(state().settings).toBeNull();
-    expect(useSettingsRead.getState()).toEqual({ failed: true, trying: false, failedAgain: false });
+    expect(useSettingsRead.getState()).toEqual({ failed: 'refused', trying: false, failedAgain: false });
     expect(welcomeShown(state().settings, state().welcomeClosed)).toBe(false);
     expect(m.bytes()).toBe(AUTHOR);
   });
@@ -126,14 +126,14 @@ describe('while settings.json cannot be read (hardening.15)', () => {
     const again = readSettings(m.io, true);
     expect(useSettingsRead.getState().trying).toBe(true);
     expect(await again).toBe(false);
-    expect(useSettingsRead.getState()).toEqual({ failed: true, trying: false, failedAgain: true });
+    expect(useSettingsRead.getState()).toEqual({ failed: 'refused', trying: false, failedAgain: true });
     expect(state().settings).toBeNull();
   });
 
   it('the first read, even twice as StrictMode runs the effect, never says "still"', async () => {
     const m = main();
     await Promise.all([readSettings(m.io), readSettings(m.io)]);
-    expect(useSettingsRead.getState()).toEqual({ failed: true, trying: false, failedAgain: false });
+    expect(useSettingsRead.getState()).toEqual({ failed: 'refused', trying: false, failedAgain: false });
   });
 
   it("once it can be read, Try again gives the page the author's settings, and nothing is written", async () => {
@@ -142,7 +142,7 @@ describe('while settings.json cannot be read (hardening.15)', () => {
     await readSettings(m.io, true);
     m.hold(false);
     expect(await readSettings(m.io, true)).toBe(true);
-    expect(useSettingsRead.getState()).toEqual({ failed: false, trying: false, failedAgain: false });
+    expect(useSettingsRead.getState()).toEqual({ failed: null, trying: false, failedAgain: false });
     const settings = state().settings!;
     expect(settings).toMatchObject({
       manuscriptFolder: 'C:\\Novel', // check-public: allow
@@ -178,7 +178,7 @@ describe('while settings.json cannot be read (hardening.15)', () => {
     m.hold(false);
     expect(await readSettings(m.io)).toBe(true);
     expect(state().settings?.model).toBe('opus');
-    expect(useSettingsRead.getState().failed).toBe(false);
+    expect(useSettingsRead.getState().failed).toBeNull();
   });
 
   it('a request that fails changes nothing, and lets Try again be pressed again', async () => {
@@ -186,8 +186,79 @@ describe('while settings.json cannot be read (hardening.15)', () => {
     await readSettings(m.io);
     const failing: SettingsReadIo = { getSettings: () => Promise.reject(new Error('no answer')) };
     await expect(readSettings(failing, true)).rejects.toThrow('no answer');
-    expect(useSettingsRead.getState()).toEqual({ failed: true, trying: false, failedAgain: false });
+    expect(useSettingsRead.getState()).toEqual({ failed: 'refused', trying: false, failedAgain: false });
     expect(state().settings).toBeNull();
+  });
+});
+
+/* The hardening.15 review: a settings.json that is not JSON and cannot be
+   copied aside showed the card for a held file, whose advice, close the
+   program holding it, never ends the card. Main now says which it is. */
+describe('a settings.json that is not JSON, with no copy made (hardening.15 review)', () => {
+  const DAMAGED = '{ "model": "opus", "manuscriptFolder": broken \n';
+
+  function damagedMain(): {
+    dir: string;
+    io: SettingsReadIo;
+    hold: (on: boolean) => void;
+    copies: (on: boolean) => void;
+    bytes: () => string;
+  } {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'lapidary-settings-damaged-'));
+    dirs.push(dir);
+    const file = path.join(dir, SETTINGS_FILE);
+    writeFileSync(file, DAMAGED);
+    let held = false;
+    let copying = false;
+    const store = createSettingsStore({
+      dir,
+      sleep: () => Promise.resolve(),
+      now: () => new Date(2026, 9, 20, 18, 48, 17),
+      readFile: (f) => (held ? Promise.reject(busy()) : Promise.resolve(readFileSync(f, 'utf8'))),
+      copyFile: (from, to, mode) => {
+        if (!copying) return Promise.reject(Object.assign(new Error('EACCES'), { code: 'EACCES' }));
+        copyFileSync(from, to, mode);
+        return Promise.resolve();
+      }
+    });
+    return {
+      dir,
+      io: { getSettings: async () => settingsAnswer(await store.loadChecked()) },
+      hold: (on) => {
+        held = on;
+      },
+      copies: (on) => {
+        copying = on;
+      },
+      bytes: () => readFileSync(file, 'utf8')
+    };
+  }
+
+  it('the page is told the file is damaged, not held, and holds no settings', async () => {
+    const m = damagedMain();
+    expect(await readSettings(m.io)).toBe(false);
+    expect(useSettingsRead.getState()).toEqual({ failed: 'no-copy', trying: false, failedAgain: false });
+    expect(state().settings).toBeNull();
+    expect(welcomeShown(state().settings, state().welcomeClosed)).toBe(false);
+    expect(m.bytes()).toBe(DAMAGED);
+  });
+
+  it('Try again follows the newest reason: held, then damaged, then read once a copy can be made', async () => {
+    const m = damagedMain();
+    m.hold(true);
+    await readSettings(m.io);
+    expect(useSettingsRead.getState().failed).toBe('refused');
+    m.hold(false);
+    expect(await readSettings(m.io, true)).toBe(false);
+    expect(useSettingsRead.getState()).toEqual({ failed: 'no-copy', trying: false, failedAgain: true });
+    expect(readdirSync(m.dir)).toEqual([SETTINGS_FILE]);
+    // Once the copy can be made, the file is set aside and the app starts afresh.
+    m.copies(true);
+    expect(await readSettings(m.io, true)).toBe(true);
+    expect(useSettingsRead.getState()).toEqual({ failed: null, trying: false, failedAgain: false });
+    expect(state().settings).toEqual(DEFAULT_SETTINGS);
+    expect(readFileSync(path.join(m.dir, `${SETTINGS_FILE}.corrupt-20261020184817`), 'utf8')).toBe(DAMAGED);
+    expect(m.bytes()).toBe(DAMAGED);
   });
 });
 
@@ -216,11 +287,50 @@ describe("App's and main's wiring (hardening.15)", () => {
     expect(card).toBeLessThan(APP.indexOf('if (singleScreen) {'));
     const layout = APP.slice(card, APP.indexOf('if (singleScreen) {'));
     expect(layout).toMatch(
-      /<SettingsUnreadable\s+trying=\{settingsTrying\}\s+failedAgain=\{settingsFailedAgain\}\s+onTryAgain=/
+      /<SettingsUnreadable\s+reason=\{settingsReadFailed\}\s+trying=\{settingsTrying\}\s+failedAgain=\{settingsFailedAgain\}\s+onTryAgain=/
     );
-    for (const absent of ['<Toolbar', '{toolbar}', '<StatusBar', '<WelcomeScreen', '<FileList', 'Dialog}']) {
+    for (const absent of [
+      '<Toolbar',
+      '{toolbar}',
+      '<StatusBar',
+      '<WelcomeScreen',
+      '<FileList',
+      '{newChapterDialog}',
+      '{manualReviewDialog}',
+      '{reviewDialog}',
+      '{settingsDialog}'
+    ]) {
       expect(layout).not.toContain(absent);
     }
+  });
+
+  it('draws Diagnostics over the card, and makes the page inert only under what it draws (hardening.15 review)', () => {
+    // A card's Show diagnostics, from the page's own error card or main's,
+    // made the page inert under the whole list of dialogs while none was drawn
+    // here: Try again and the cards went inert with nothing over them, and
+    // Escape did nothing.
+    const card = APP.indexOf('if (settingsReadFailed && settings === null) {');
+    const layout = APP.slice(card, APP.indexOf('if (singleScreen) {'));
+    expect(layout).toMatch(
+      /const cardInert = shellInert\(\{ dialog: diagnosticsDialog !== null, question: questionOpen \}\);/
+    );
+    expect(layout).toContain('<div className="app-shell__page" inert={cardInert.page}>');
+    expect(layout).not.toContain('inert.page');
+    expect(layout).toMatch(
+      /<\/div>\s*<div className="app-shell__dialogs" inert=\{cardInert\.dialogs\}>\s*\{diagnosticsDialog\}\s*<\/div>\s*<ConfirmDialog \/>\s*<\/div>\s*\);\s*\}\s*$/
+    );
+    // The card's own buttons: the file in its folder, and Diagnostics.
+    expect(layout).toContain(
+      "onShowFile={() => void call('shell:reveal', { target: 'settings' }).catch(fail)}"
+    );
+    expect(layout).toContain("onShowDiagnostics={() => setDiagnosticsOpen('show')}");
+  });
+
+  it("main shows settings.json for the card's Show in folder, or the data folder once the file is gone", () => {
+    expect(IPC).toMatch(
+      /if \(target === 'settings'\) \{\s*const file = path\.join\(root, SETTINGS_FILE\);\s*return existsSync\(file\) \? file : root;\s*\}/
+    );
+    expect(IPC).toMatch(/target === 'data' \|\|\s*target === 'settings' \|\|/);
   });
 
   it('makes the Pro preselection only with settings in', () => {

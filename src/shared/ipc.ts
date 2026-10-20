@@ -16,13 +16,25 @@ export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: AppError
 /* ------------------------------------------------------------------ */
 
 /**
+ * Why settings.json could not be read (hardening.15, PLAN C.86), a fixed word
+ * and never the error: `refused`, the read itself failed twice, as when
+ * another program holds the file open; `no-copy`, the file is not JSON and no
+ * copy of it could be made before starting afresh. The card the page shows
+ * then gives each its own advice (`settingsUnreadableCard`).
+ */
+export type SettingsReadFailure = 'refused' | 'no-copy';
+
+/**
  * `settings:get`'s answer (hardening.15, PLAN C.86): the settings as main read
  * them, or, while settings.json is there but cannot be read, or is not JSON
- * and cannot be copied aside, no settings and `readFailed`, never the error.
- * Handed the defaults, the page would show the welcome guide and write lists
- * built from them over the author's once the file could be read.
+ * and cannot be copied aside, no settings and `readFailed` with the `reason`,
+ * never the error. Handed the defaults, the page would show the welcome guide
+ * and write lists built from them over the author's once the file could be
+ * read.
  */
-export type SettingsAnswer = { readFailed: false; settings: Settings } | { readFailed: true; settings: null };
+export type SettingsAnswer =
+  | { readFailed: false; settings: Settings }
+  | { readFailed: true; reason: SettingsReadFailure; settings: null };
 
 export interface ChapterFile {
   path: string;
@@ -403,17 +415,20 @@ export interface EffectivePaths {
 
 /**
  * The only places the renderer may ask the shell to open or reveal: what "show
- * in folder" can point at. The last four live under userData and are created
- * on demand: `data` is the folder itself, `logs` selects main.log, `backups`
+ * in folder" can point at. The last five live under userData, the folders
+ * created on demand: `data` is the folder itself, `settings` selects
+ * settings.json, or the data folder once the file is gone (the card shown
+ * while it cannot be read, hardening.15), `logs` selects main.log, `backups`
  * the backups root, and `drafts` the folder of set-aside paragraph text
- * (setup.7a), or, given the `name` of one set-aside file, that file, opened in
- * the computer's app for .txt files (apply.16). Given a chapter's
- * `sourcePath`, `backups` opens that chapter's own backup folder instead, with
- * the newest backup selected: main works the folder out from the path and
- * refuses one outside the backups root, and a chapter with no backups yet is
- * answered `not-found` (apply.11).
+ * (setup.7a), or, given the `name` of one set-aside file, that file, opened
+ * in the computer's app for .txt files (apply.16). Given a chapter's
+ * `sourcePath`, `backups` opens that chapter's own backup folder instead,
+ * with the newest backup selected: main works the folder out from the path
+ * and refuses one outside the backups root, and a chapter with no backups yet
+ * is answered `not-found` (apply.11).
  */
-export type RevealTarget = 'manuscript' | 'reviews' | 'guidelines' | 'data' | 'logs' | 'backups' | 'drafts';
+export type RevealTarget =
+  'manuscript' | 'reviews' | 'guidelines' | 'data' | 'settings' | 'logs' | 'backups' | 'drafts';
 
 /**
  * One paragraph box as it is kept on disk (apply.16, PLAN 11.3 j): the
