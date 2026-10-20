@@ -326,7 +326,7 @@ describe('starting once the folder can be read (files.21)', () => {
     expect(sent).toEqual([]);
   });
 
-  it('watches the folder just read when it is another, forgetting the old one', async () => {
+  it('never moves to another folder, so a list read that ends after Settings changed folder changes nothing', async () => {
     const folders: string[] = [];
     const watcher = make({
       watch: (folder) => {
@@ -334,17 +334,127 @@ describe('starting once the folder can be read (files.21)', () => {
         return (fake = new FakeChokidar());
       }
     });
-    watcher.start('C:/Novel');
-    const first = fake;
-    files.set('D:/Other/Ch 1.md', 'same');
-    watcher.rememberHash('D:/Other/Ch 1.md', hashBytes(Buffer.from('same')));
-    watcher.ensure('D:/Other');
-    expect(folders).toEqual(['C:/Novel', 'D:/Other']);
-    expect(first.closed).toBe(true);
+    watcher.start('C:/Old');
+    // The old folder's read is still going when Settings chooses another.
+    let finishOld: (list: string[]) => void = () => undefined;
+    const old = listAndWatch(
+      watcher,
+      'C:/Old',
+      () => new Promise<string[]>((resolve) => (finishOld = resolve))
+    );
+    watcher.start('D:/New');
+    const current = fake;
+    await listAndWatch(watcher, 'D:/New', () => Promise.resolve(['D:/New/Ch 1.md']));
+    finishOld(['C:/Old/Ch 1.md']);
+    await old;
+    expect(folders).toEqual(['C:/Old', 'D:/New']);
+    expect(fake).toBe(current);
+    expect(current.closed).toBe(false);
+    expect(watcher.watching()).toBe(true);
     expect(told).toEqual([true]);
-    fake.emit('change', 'D:/Other/Ch 1.md');
+    // The new folder is still the one watched.
+    files.set('D:/New/Ch 1.md', 'from Obsidian');
+    current.emit('change', 'D:/New/Ch 1.md');
     await settle();
     expect(sent).toHaveLength(1);
+
+    // Nor when the new folder's own start failed: that read is not of it.
+    current.emit('error', busy('D:/New'));
+    watcher.ensure('C:/Old');
+    expect(folders).toEqual(['C:/Old', 'D:/New']);
+    expect(watcher.watching()).toBe(false);
+    // Nor after Settings chose no folder.
+    watcher.start(null);
+    watcher.ensure('D:/New');
+    expect(folders).toEqual(['C:/Old', 'D:/New']);
+    expect(watcher.watching()).toBe(false);
+    expect(told).toEqual([true, false]);
+  });
+
+  it('reports, once ready, a change made while nothing watched to a chapter it loaded', async () => {
+    const watcher = make();
+    watcher.start('C:/Novel');
+    fake.emit('error', busy('C:/Novel'));
+    // The chapter was opened while nothing watched the folder, then edited in Obsidian.
+    files.set('C:/Novel/Ch 1.md', 'loaded');
+    watcher.rememberHash('C:/Novel/Ch 1.md', hashBytes(Buffer.from('loaded')));
+    files.set('C:/Novel/Ch 1.md', 'edited in Obsidian');
+    watcher.ensure('C:/Novel');
+    await settle();
+    // chokidar is not ready yet: nothing has been read again.
+    expect(sent).toEqual([]);
+    fake.emit('ready');
+    await settle();
+    // Reported once, under the path the app gave, as a change chokidar saw would be.
+    const report: [string, unknown] = [
+      'file:changed',
+      { path: 'C:/Novel/Ch 1.md', hash: hashBytes(Buffer.from('edited in Obsidian')), kind: 'change' }
+    ];
+    expect(sent).toEqual([report]);
+    // chokidar seeing the same bytes after that says nothing more.
+    fake.emit('change', 'C:/Novel/Ch 1.md');
+    await settle();
+    expect(sent).toEqual([report]);
+  });
+
+  it('reports nothing once ready for a chapter whose bytes are the ones it loaded', async () => {
+    const watcher = make();
+    watcher.start('C:/Novel');
+    fake.emit('error', busy('C:/Novel'));
+    files.set('C:/Novel/Ch 1.md', 'loaded');
+    watcher.rememberHash('C:/Novel/Ch 1.md', hashBytes(Buffer.from('loaded')));
+    watcher.ensure('C:/Novel');
+    fake.emit('ready');
+    await vi.advanceTimersByTimeAsync(INVALIDATE_DEBOUNCE_MS * 2);
+    expect(sent).toEqual([]);
+    expect(logged.map(([, event]) => event)).toEqual([
+      'watcher.start',
+      'watcher.error',
+      'watcher.start',
+      'watcher.ready'
+    ]);
+  });
+
+  it('reports, once ready, a chapter it loaded that was deleted while nothing watched', async () => {
+    const watcher = make();
+    watcher.start('C:/Novel');
+    fake.emit('error', busy('C:/Novel'));
+    files.set('C:/Novel/Ch 1.md', 'loaded');
+    watcher.rememberHash('C:/Novel/Ch 1.md', hashBytes(Buffer.from('loaded')));
+    files.delete('C:/Novel/Ch 1.md');
+    watcher.ensure('C:/Novel');
+    fake.emit('ready');
+    await settle();
+    expect(sent).toEqual([['file:changed', { path: 'C:/Novel/Ch 1.md', hash: '', kind: 'unlink' }]]);
+    await vi.advanceTimersByTimeAsync(INVALIDATE_DEBOUNCE_MS);
+    expect(sent.slice(1)).toEqual([['files:invalidated', { folder: 'C:/Novel' }]]);
+    // Forgotten: the file coming back is a change.
+    files.set('C:/Novel/Ch 1.md', 'loaded');
+    fake.emit('add', 'C:/Novel/Ch 1.md');
+    await settle();
+    expect(sent.slice(2)).toEqual([
+      ['file:changed', { path: 'C:/Novel/Ch 1.md', hash: hashBytes(Buffer.from('loaded')), kind: 'change' }]
+    ]);
+  });
+
+  it('reports nothing it read again once that watcher was replaced or stopped', async () => {
+    let finishRead: () => void = () => undefined;
+    const watcher = make({
+      readFile: (file) =>
+        new Promise((resolve) => {
+          finishRead = () => resolve(Buffer.from(files.get(file) ?? ''));
+        })
+    });
+    watcher.start('C:/Novel');
+    fake.emit('error', busy('C:/Novel'));
+    files.set('C:/Novel/Ch 1.md', 'edited in Obsidian');
+    watcher.rememberHash('C:/Novel/Ch 1.md', hashBytes(Buffer.from('loaded')));
+    watcher.ensure('C:/Novel');
+    fake.emit('ready');
+    watcher.stop();
+    finishRead();
+    await settle();
+    expect(sent).toEqual([]);
   });
 
   it('tells the page when it stops, and says nothing when there was nothing to stop', () => {

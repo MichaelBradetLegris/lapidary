@@ -31,8 +31,11 @@ export interface ManuscriptWatcher {
    */
   start(folder: string | null): void;
   /**
-   * The folder was just read: watch it unless a watcher on it is starting or
-   * running (files.21). A watcher whose start the folder refused starts again.
+   * The folder was just read: when it is the folder `start` was last given
+   * and its start failed, start it again (files.21). Anything else changes
+   * nothing, so a list read of another folder that ends after Settings
+   * changed folder, or chose none, never moves the watcher (the files.21
+   * review).
    */
   ensure(folder: string): void;
   /** true while a watcher on the folder is starting or running; false with none, or after its start failed */
@@ -60,8 +63,11 @@ type WatchState = 'idle' | 'starting' | 'running' | 'failed';
  * A folder another program holds when the watcher starts makes chokidar
  * report one error for the folder itself and never get ready, and it does
  * not try again once the folder is free. That watcher is closed, the page is
- * told (`files:watching-changed`), and the next list read that works starts
- * another (`ensure`, files.21).
+ * told (`files:watching-changed`), and the next list read of that folder
+ * that works starts another (`ensure`, files.21). chokidar reports nothing
+ * that happened before it was ready, so once it is, every file whose hash is
+ * kept is read again, and one changed or gone while nothing watched is
+ * reported as chokidar would have (`catchUp`, the files.21 review).
  */
 export function createWatcher(deps: WatcherDeps): ManuscriptWatcher {
   let handle: WatchHandle | null = null;
@@ -72,11 +78,13 @@ export function createWatcher(deps: WatcherDeps): ManuscriptWatcher {
   let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
-   * Hashes this process is responsible for. A watcher event whose hash is
-   * already in here is our own save echoing back, or the very file we just
-   * loaded, and is dropped rather than shown to the author as an external change.
+   * Hashes this process is responsible for, by `pathKey`, each with the path
+   * it was given, which `catchUp` reads and reports. A watcher event whose
+   * hash is already in here is our own save echoing back, or the very file we
+   * just loaded, and is dropped rather than shown to the author as an
+   * external change.
    */
-  const known = new Map<string, string>();
+  const known = new Map<string, { file: string; hash: string }>();
   const keyOf = (file: string): string => pathKey(path.resolve(file), deps.ci);
 
   const watching = (): boolean => state === 'starting' || state === 'running';
@@ -97,6 +105,21 @@ export function createWatcher(deps: WatcherDeps): ManuscriptWatcher {
     }, INVALIDATE_DEBOUNCE_MS);
   }
 
+  /** Report these bytes of `file` as a change, unless they are the ones kept for it. */
+  function report(file: string, hash: string): void {
+    const key = keyOf(file);
+    if (known.get(key)?.hash === hash) return;
+    known.set(key, { file, hash });
+    deps.broadcast('file:changed', { path: file, hash, kind: 'change' });
+  }
+
+  /** A chapter deleted, renamed or moved: the page is told, and the list is read again. */
+  function gone(file: string, folder: string): void {
+    known.delete(keyOf(file));
+    deps.broadcast('file:changed', { path: file, hash: '', kind: 'unlink' });
+    invalidate(folder);
+  }
+
   async function changed(file: string): Promise<void> {
     let hash: string;
     try {
@@ -106,10 +129,34 @@ export function createWatcher(deps: WatcherDeps): ManuscriptWatcher {
       deps.log('debug', 'watcher.read-failed', { file, code: (err as NodeJS.ErrnoException).code });
       return;
     }
-    const key = keyOf(file);
-    if (known.get(key) === hash) return;
-    known.set(key, hash);
-    deps.broadcast('file:changed', { path: file, hash, kind: 'change' });
+    report(file, hash);
+  }
+
+  /**
+   * Once `watcher` is ready, read again every file whose hash is kept, and
+   * report one whose bytes changed, or that is gone, while nothing watched it
+   * (the files.21 review). chokidar starts with `ignoreInitial` and says
+   * nothing of what happened before it was ready, so an edit made in Obsidian
+   * to the open chapter while the folder refused the start would otherwise
+   * never reach the page. Bytes that are the ones kept say nothing, and
+   * nothing is reported once `watcher` has been closed or replaced.
+   */
+  async function catchUp(watcher: WatchHandle, folder: string): Promise<void> {
+    await Promise.all(
+      [...known.values()].map(async ({ file }) => {
+        let hash: string;
+        try {
+          hash = hashBytes(await deps.readFile(file));
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (handle !== watcher) return;
+          if (code === 'ENOENT' || code === 'ENOTDIR') gone(file, folder);
+          else deps.log('debug', 'watcher.read-failed', { file, code });
+          return;
+        }
+        if (handle === watcher) report(file, hash);
+      })
+    );
   }
 
   /** Close the chokidar watcher, if there is one, and drop its pending refresh. */
@@ -154,6 +201,7 @@ export function createWatcher(deps: WatcherDeps): ManuscriptWatcher {
     on('ready', () => {
       state = 'running';
       deps.log('debug', 'watcher.ready', { folder });
+      void catchUp(watcher, folder);
     });
     on('change', (value) => {
       const file = asPath(value);
@@ -169,10 +217,7 @@ export function createWatcher(deps: WatcherDeps): ManuscriptWatcher {
     });
     on('unlink', (value) => {
       const file = asPath(value);
-      if (!file || !isChapterFile(file)) return;
-      known.delete(keyOf(file));
-      deps.broadcast('file:changed', { path: file, hash: '', kind: 'unlink' });
-      invalidate(folder);
+      if (file && isChapterFile(file)) gone(file, folder);
     });
     on('addDir', () => invalidate(folder));
     on('unlinkDir', () => invalidate(folder));
@@ -207,9 +252,11 @@ export function createWatcher(deps: WatcherDeps): ManuscriptWatcher {
   }
 
   function ensure(folder: string): void {
-    if (watchedFolder === folder && watching()) return;
-    // The same folder keeps the hashes of what was loaded and saved meanwhile.
-    if (watchedFolder !== folder) known.clear();
+    // Only the folder Settings holds is started again, and only once its
+    // start has failed: a read of another folder may end after Settings
+    // changed folder, or chose none (the files.21 review). The hashes of what
+    // was loaded and saved meanwhile are kept, for `catchUp`.
+    if (folder !== watchedFolder || watching()) return;
     begin(folder);
     tell();
   }
@@ -227,7 +274,7 @@ export function createWatcher(deps: WatcherDeps): ManuscriptWatcher {
     ensure,
     watching,
     stop,
-    rememberHash: (file, hash) => void known.set(keyOf(file), hash),
+    rememberHash: (file, hash) => void known.set(keyOf(file), { file, hash }),
     forgetHash: (file) => void known.delete(keyOf(file))
   };
 }
@@ -236,8 +283,9 @@ export function createWatcher(deps: WatcherDeps): ManuscriptWatcher {
  * Read the chapter list and, once that has worked, make sure the folder is
  * watched (files.21): the folder could be read just now, so a watcher whose
  * start it refused, as when another program held it at start-up, starts
- * again. A read that fails starts nothing. `files:list` and `reviews:index`
- * read the list through this.
+ * again. A read that fails starts nothing, and so does a read of a folder
+ * Settings no longer holds (`ensure`). `files:list` and `reviews:index` read
+ * the list through this.
  */
 export async function listAndWatch<T>(
   watcher: Pick<ManuscriptWatcher, 'ensure'>,

@@ -2,7 +2,7 @@ import { closeSync, constants, openSync, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { listChapters } from '../../src/main/files';
+import { hashBytes, listChapters } from '../../src/main/files';
 import { log } from '../../src/main/log';
 import { createManuscriptWatcher, listAndWatch, type ManuscriptWatcher } from '../../src/main/watcher';
 
@@ -146,6 +146,39 @@ describe('a manuscript folder held when the watcher starts (files.21)', () => {
       expect(error?.[0]).toBe('warn');
       expect(error?.[2]).toMatchObject({ folder: root, code: 'EBUSY', stopped: true });
       expect(told).toEqual([true, false, true]);
+    }
+  );
+
+  it.runIf(process.platform === 'win32')(
+    'reports, once Try again has started it, a chapter opened and then edited outside while the folder was held',
+    async () => {
+      const file = path.join(root, 'Chapter 1.md');
+      await fs.writeFile(file, 'one\n');
+      const read = (folder: string) => listChapters(folder, null);
+
+      const held = openSync(root, constants.O_RDONLY | NO_SHARING);
+      try {
+        watcher.start(root);
+        await vi.waitFor(() => expect(watcher.watching()).toBe(false), { timeout: 5000, interval: 50 });
+        // A file in a held folder can still be read and written. The chapter
+        // is opened (files:read remembers its hash), then edited in Obsidian.
+        watcher.rememberHash(file, hashBytes(await fs.readFile(file)));
+        await fs.writeFile(file, 'one\n\ntwo\n');
+      } finally {
+        closeSync(held);
+      }
+
+      // chokidar starts with ignoreInitial, so only the read on ready sees the edit.
+      await listAndWatch(watcher, root, read);
+      await vi.waitFor(() => expect(kinds(file)).toEqual(['change']), { timeout: 5000, interval: 50 });
+      expect(sent.find(([channel]) => channel === 'file:changed')?.[1]).toEqual({
+        path: file,
+        hash: hashBytes(Buffer.from('one\n\ntwo\n')),
+        kind: 'change'
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      expect(kinds(file)).toEqual(['change']);
+      expect(logged()).toEqual(['watcher.start', 'watcher.error', 'watcher.start', 'watcher.ready']);
     }
   );
 });
