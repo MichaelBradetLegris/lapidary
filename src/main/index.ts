@@ -21,15 +21,17 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
 
 /**
- * The window and taskbar icon (src/main/windowIcon.ts): none when packaged,
- * where Windows uses the executable's own, and icon.ico from the repository
- * in a dev run, so `npm run dev` shows the real icon rather than Electron's.
+ * The window's icon (src/main/windowIcon.ts): on Windows icon.ico, beside the
+ * asar when packaged and from the repository in a dev run, so the title bar
+ * gets the frame drawn for its size and `npm run dev` shows the real icon
+ * rather than Electron's.
  */
 function iconPath(): string | undefined {
   return windowIconPath({
     platform: process.platform,
     packaged: app.isPackaged,
     roots: [app.getAppPath(), path.join(dirname, '..', '..')],
+    resourcesPath: process.resourcesPath,
     exists: existsSync
   });
 }

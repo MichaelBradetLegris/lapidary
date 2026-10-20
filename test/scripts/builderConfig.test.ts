@@ -14,7 +14,8 @@ import { APP_ID, APP_NAME, APP_REPOSITORY } from '../../src/shared/branding';
  * and en-GB locale files, the second so that a Windows in British English keeps
  * day-first dates and a British spelling check (C.90). opensource.5 added the
  * third-party notices and the licence beside the asar. brand.5 took the icon
- * files out of the package: the window uses the executable's icon (C.92).
+ * PNGs out of the package and put icon.ico beside the asar, for the window
+ * (C.92).
  */
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -67,12 +68,15 @@ describe('electron-builder config (release.4)', () => {
     });
   });
 
-  it('gives the executable icon.ico and packs no icon file of its own', () => {
-    // brand.5: a packaged window has no icon option and takes the executable's
-    // (src/main/windowIcon.ts), so nothing reads an icon file from the package.
+  it('gives the executable icon.ico, puts the same file beside the asar, and packs no icon into it', () => {
+    // brand.5: the packaged window loads resources/icon.ico
+    // (src/main/windowIcon.ts), and no icon file goes into the asar.
     expect(builder.win?.icon).toBe('resources/icon/icon.ico');
     expect(JSON.stringify(builder.files)).not.toMatch(/icon/);
-    expect(JSON.stringify(builder.extraResources)).not.toMatch(/icon/);
+    const icons = (builder.extraResources as { from: string; to: string }[]).filter((entry) =>
+      /icon/.test(`${entry.from} ${entry.to}`)
+    );
+    expect(icons).toEqual([{ from: 'resources/icon/icon.ico', to: 'icon.ico' }]);
   });
 
   it('unpacks nothing from the asar and keeps only the en-US and en-GB locale files', () => {
@@ -85,7 +89,8 @@ describe('electron-builder config (release.4)', () => {
     expect(builder.extraResources).toEqual([
       { from: 'resources/GUIDELINES.default.md', to: 'GUIDELINES.default.md' },
       { from: 'out/THIRD_PARTY_NOTICES.txt', to: 'THIRD_PARTY_NOTICES.txt' },
-      { from: 'LICENSE', to: 'LICENSE.txt' }
+      { from: 'LICENSE', to: 'LICENSE.txt' },
+      { from: 'resources/icon/icon.ico', to: 'icon.ico' }
     ]);
     expect(builder.files).toEqual([
       'out/**/*',

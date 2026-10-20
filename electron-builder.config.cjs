@@ -49,8 +49,7 @@ module.exports = {
   // dependency tree. electron-builder drops devDependencies on its own. The
   // notices and each build's record of its bundled packages stay out of the
   // asar: the notices go beside it instead, below. No icon file goes in
-  // either: the window takes the executable's own icon, which comes from
-  // win.icon (src/main/windowIcon.ts, C.92).
+  // either: the window's icon.ico goes beside it too.
   files: [
     'out/**/*',
     '!out/THIRD_PARTY_NOTICES.txt',
@@ -66,7 +65,12 @@ module.exports = {
     // and the app's own licence. Beside the asar, so that the About dialog can
     // open them as plain files (release.9).
     { from: 'out/THIRD_PARTY_NOTICES.txt', to: 'THIRD_PARTY_NOTICES.txt' },
-    { from: 'LICENSE', to: 'LICENSE.txt' }
+    { from: 'LICENSE', to: 'LICENSE.txt' },
+    // The window's icon (src/main/windowIcon.ts, PLAN C.92). At 100% display
+    // scaling Electron loads its 16 px frame for the title bar and its 32 px
+    // frame for the large icon. A window given no icon would show the
+    // executable's icon, loaded at 32 px only, shrunk to 16 px in the title bar.
+    { from: 'resources/icon/icon.ico', to: 'icon.ico' }
   ],
   // Only en-US.pak, the locale Chromium falls back on, and en-GB.pak; the
   // other 53 locale files are 47.2 MiB. Chromium takes the page's locale from
@@ -88,7 +92,8 @@ module.exports = {
   publish: [{ provider: 'github', owner, repo, releaseType: 'draft' }],
   win: {
     // Embedded in the executable with all 14 frames (scripts/make-icons.py),
-    // and also the installer's and the uninstaller's icon.
+    // for File Explorer, the Start menu and the shortcuts, and also the
+    // installer's and the uninstaller's icon.
     icon: 'resources/icon/icon.ico',
     target: [{ target: 'nsis', arch: ['x64'] }]
   },

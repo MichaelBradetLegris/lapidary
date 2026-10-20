@@ -13,9 +13,9 @@
  *   under /samples, /test, /src, /dist or /.dev-userdata.
  * - No @anthropic-ai package, and no file named claude.exe or claude, in the
  *   asar or anywhere on disk in the unpacked app (PLAN 11.1, C.87).
- * - resources/ holds THIRD_PARTY_NOTICES.txt, LICENSE.txt and
- *   GUIDELINES.default.md, and the notices name every package in the asar's
- *   node_modules at the version found there.
+ * - resources/ holds THIRD_PARTY_NOTICES.txt, LICENSE.txt,
+ *   GUIDELINES.default.md and the window's icon.ico, and the notices name
+ *   every package in the asar's node_modules at the version found there.
  * - With --installer: resources/app-update.yml names the GitHub repository from
  *   src/shared/branding.ts, with no publisherName unless the environment sets
  *   EXPECT_SIGNED (then it must have one); dist/latest.yml names this version,
@@ -146,7 +146,8 @@ export const REQUIRED_IN_ASAR: readonly string[] = ['/out/main/index.js', '/pack
 export const REQUIRED_RESOURCES: readonly string[] = [
   'THIRD_PARTY_NOTICES.txt',
   'LICENSE.txt',
-  'GUIDELINES.default.md'
+  'GUIDELINES.default.md',
+  'icon.ico'
 ];
 
 /** Whether a path, with forward slashes, belongs to an Anthropic package or is a Claude Code binary. */

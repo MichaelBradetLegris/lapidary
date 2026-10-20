@@ -57,10 +57,10 @@ OUT = ROOT / "resources" / "icon"
 PREVIEW = ROOT / "dist" / "icon-preview"
 
 # The frames of icon.ico, which electron-builder embeds in the executable and
-# the dev window loads (src/main/windowIcon.ts): the small and large icon sizes
-# at 100%, 125%, 150% and 200% display scaling (175% asks for 28 and 56, which
-# Windows scales from another frame), the sizes between and the shell's
-# larger views.
+# copies beside the asar, and which the window loads (src/main/windowIcon.ts):
+# the small and large icon sizes at 100%, 125%, 150% and 200% display scaling
+# (175% asks for 28 and 56, 250% for 80 and 350% for 56 and 112, which Windows
+# scales from another frame), the sizes between and the shell's larger views.
 ICO_SIZES = [16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 96, 128, 256]
 # Each frame as a PNG of its own, and the two sizes an .ico cannot hold.
 # icon.png is the 1024 render again, the name electron-builder looks for.

@@ -120,6 +120,8 @@ const NOTICES = renderNotices('Example', VERSION, [
 ]);
 
 const INSTALLER_BYTES = Buffer.from('an installer, as far as this test is concerned');
+// An .ico header with no frames: the verifier checks only that the file is there and not empty.
+const ICO_HEADER = Buffer.from([0, 0, 1, 0, 0, 0]);
 
 const temps: string[] = [];
 
@@ -149,6 +151,7 @@ function fakeDist(asar: Record<string, AsarContent> = ASAR): FakeDist {
   writeFileSync(path.join(resources, 'THIRD_PARTY_NOTICES.txt'), NOTICES);
   writeFileSync(path.join(resources, 'LICENSE.txt'), 'MIT License\n');
   writeFileSync(path.join(resources, 'GUIDELINES.default.md'), '# Guidelines\n');
+  writeFileSync(path.join(resources, 'icon.ico'), ICO_HEADER);
   writeFileSync(
     path.join(resources, 'app-update.yml'),
     `owner: ${OWNER}\nrepo: ${REPO}\nprovider: github\nreleaseType: draft\nupdaterCacheDirName: manuscript-review-updater\n`
@@ -369,6 +372,16 @@ describe('the checks', () => {
       'resources/LICENSE.txt is empty',
       'resources/GUIDELINES.default.md is missing'
     ]);
+  });
+
+  it("fails a package without the window's icon beside the asar, or with an empty one", () => {
+    // brand.5: the packaged window loads resources/icon.ico (PLAN C.92).
+    const missing = fakeDist();
+    rmSync(path.join(missing.resources, 'icon.ico'));
+    expect(problems(missing.options)).toEqual(['resources/icon.ico is missing']);
+    const empty = fakeDist();
+    writeFileSync(path.join(empty.resources, 'icon.ico'), '');
+    expect(problems(empty.options)).toEqual(['resources/icon.ico is empty']);
   });
 
   it('fails notices that leave out a package the asar holds, or name another version', () => {
