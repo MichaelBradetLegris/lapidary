@@ -99,13 +99,72 @@ export function usableModels(models: readonly OpenAiModel[]): OpenAiModel[] {
 }
 
 /**
- * What the dialog should select when the author has not chosen: the newest
- * `gpt-5*`, falling back to the newest text model of any family.
+ * Models that are never the default (hardening.10), though they stay in the
+ * list for an author who picks one: a `-pro` model costs several times as much
+ * and is slow to answer, a `-codex` model is tuned for writing code, a
+ * `-deep-research` model expects web search, which a review does not offer
+ * (`isTextModel` already leaves those out, as search models), and a `-chat`
+ * model or a `chat-latest` alias is the model ChatGPT runs, which moves
+ * without notice.
+ */
+export const NOT_DEFAULT_MODEL = /-(pro|codex|deep-research|chat)(-|$)|chat-latest/i;
+
+/** The date a snapshot's id ends with, as in `gpt-5-2025-08-07`. */
+const SNAPSHOT_DATE = /-\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The order the default is looked for in, each tier newest first, an id
+ * matched without its snapshot date: a full gpt-5 (`gpt-5`, `gpt-5.5`), then a
+ * gpt-5 mini, then a gpt-5 nano, then any other gpt-5; with no gpt-5 at all,
+ * as for a project limited to older models, a model of another family that is
+ * neither a mini nor a nano, then a mini, then a nano. A copyedit wants the
+ * largest model that is not one of the kinds `NOT_DEFAULT_MODEL` names.
+ */
+const DEFAULT_TIERS: readonly RegExp[] = [
+  /^gpt-5(\.\d+)?$/i,
+  /^gpt-5(\.\d+)?-mini$/i,
+  /^gpt-5(\.\d+)?-nano$/i,
+  /^gpt-5/i,
+  /^(?!.*-(mini|nano)$)/i,
+  /^(?!.*-nano$)/i,
+  /^/
+];
+
+/**
+ * What the dialog should select when the author has not chosen, and what main
+ * sends for an empty model setting (hardening.10): the newest full gpt-5, else
+ * the newest gpt-5 mini, else nano, else the first tier of `DEFAULT_TIERS`
+ * that has a model, never one `NOT_DEFAULT_MODEL` names. A dated snapshot
+ * gives way to its undated alias when the list has both, so the default
+ * follows the alias as OpenAI moves it. Null when no model qualifies.
  */
 export function defaultOpenAiModel(models: readonly OpenAiModel[]): string | null {
-  const usable = usableModels(models);
-  const five = usable.find((model) => model.id.startsWith('gpt-5'));
-  return (five ?? usable[0])?.id ?? null;
+  const candidates = usableModels(models).filter((model) => !NOT_DEFAULT_MODEL.test(model.id));
+  const undated = (id: string): string => id.replace(SNAPSHOT_DATE, '');
+  for (const tier of DEFAULT_TIERS) {
+    const newest = candidates.find((model) => tier.test(undated(model.id)));
+    if (!newest) continue;
+    const alias = undated(newest.id);
+    return candidates.some((model) => model.id === alias) ? alias : newest.id;
+  }
+  return null;
+}
+
+/** What main sends when the list cannot be read: a guess, since a key that cannot list models can often still answer. */
+export const OPENAI_FALLBACK_MODEL = 'gpt-5';
+
+/**
+ * The model a review or a connection test sends (hardening.10): the author's
+ * choice, else the list's default, else the list's first row, which is what
+ * the review dialog's select shows when no row is the default, so what the
+ * dialog shows is what is sent (C.28). `models` is null when the list could
+ * not be read.
+ */
+export function openAiModelToSend(requested: string, models: readonly OpenAiModel[] | null): string {
+  const chosen = requested.trim();
+  if (chosen.length > 0) return chosen;
+  if (!models) return OPENAI_FALLBACK_MODEL;
+  return defaultOpenAiModel(models) ?? usableModels(models)[0]?.id ?? OPENAI_FALLBACK_MODEL;
 }
 
 /* ------------------------------------------------------------------ */

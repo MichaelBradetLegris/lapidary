@@ -81,6 +81,8 @@ The key must be a real environment variable, set before the app starts. Claude C
 
 Alternatively, set `OPENAI_API_KEY` as an environment variable, the same way as `ANTHROPIC_API_KEY` above, before starting the app. It is used only when no key is saved, and Settings says which one is active. **Remove key** deletes the saved key.
 
+Unless you choose a model in **Review with AI**, reviews use the newest full GPT-5 your key can use, never a pro, codex or chat model. OpenAI streams some models, gpt-5 among them, only to organisations that have verified their identity; if a review says yours has not, verify it with **Verify Organization** at https://platform.openai.com/settings/organization/general, or choose another model.
+
 ## First run
 
 The first time you start the app, a welcome guide takes the place of the main window. Each of its three steps says when it is done, and you can do them in any order:

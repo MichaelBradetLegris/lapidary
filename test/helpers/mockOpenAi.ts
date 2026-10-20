@@ -15,8 +15,10 @@
  * unstreamed one that comes after them (for a connection test's time limit),
  * `obsidian` the review of the Obsidian sample chapter (`OBSIDIAN_REVIEW`),
  * `outputlimit` a streamed reply cut off at the model's output limit, which
- * ends `incomplete` (files.10), and anything else the canned review of
- * Chapter 01.
+ * ends `incomplete` (files.10), `unverified` the 400 OpenAI gives a streamed
+ * request from an organisation that has not verified its identity, while an
+ * unstreamed one is answered (`UNVERIFIED_STREAM_MESSAGE`, hardening.10), and
+ * anything else the canned review of Chapter 01.
  *
  * Two ways to use it:
  *   vitest:  const mock = await startMockOpenAi(); ... mock.url ... await mock.close();
@@ -42,10 +44,20 @@ export type Scenario =
   | 'wrongshape'
   | 'slow'
   | 'obsidian'
-  | 'outputlimit';
+  | 'outputlimit'
+  | 'unverified';
 
 /** The output limit the `outputlimit` scenario's reply reaches: gpt-5's 128,000 tokens. */
 export const MOCK_OUTPUT_LIMIT = 128_000;
+
+/**
+ * The `unverified` scenario's refusal (hardening.10), worded as OpenAI's API
+ * words it for a streamed request to gpt-5 or o3 from an organisation that
+ * has not verified its identity: status 400, `invalid_request_error`, `param`
+ * `stream`, code `unsupported_value`.
+ */
+export const UNVERIFIED_STREAM_MESSAGE =
+  'Your organization must be verified to stream this model. Please go to: https://platform.openai.com/settings/organization/general and click on Verify Organization. If you just verified, it can take up to 15 minutes for access to propagate.';
 
 export interface RecordedRequest {
   method: string;
@@ -349,6 +361,12 @@ const MODELS = [
   { id: 'gpt-5', created: 1_754_000_000, object: 'model', owned_by: 'openai' },
   // Newer than every gpt-5, to prove the default prefers the gpt-5 family.
   { id: 'gpt-6-preview-mock', created: 1_790_000_000, object: 'model', owned_by: 'openai' },
+  // Each newer than a gpt-5 the default could take, and never the default (hardening.10).
+  // The first three are listed; o3-deep-research is left out as a search model.
+  { id: 'gpt-5.5-pro', created: 1_781_000_000, object: 'model', owned_by: 'system' },
+  { id: 'gpt-5-codex', created: 1_758_000_000, object: 'model', owned_by: 'system' },
+  { id: 'gpt-5-chat-latest', created: 1_754_500_000, object: 'model', owned_by: 'system' },
+  { id: 'o3-deep-research', created: 1_749_000_000, object: 'model', owned_by: 'system' },
   { id: 'gpt-4o', created: 1_715_000_000, object: 'model', owned_by: 'system' },
   { id: 'o3', created: 1_744_000_000, object: 'model', owned_by: 'system' },
   { id: 'text-embedding-3-large', created: 1_705_000_000, object: 'model', owned_by: 'system' },
@@ -371,6 +389,7 @@ export function scenarioForKey(authorization: string): Scenario {
   if (key.includes('slow')) return 'slow';
   if (key.includes('obsidian')) return 'obsidian';
   if (key.includes('outputlimit')) return 'outputlimit';
+  if (key.includes('unverified')) return 'unverified';
   return 'ok';
 }
 
@@ -379,8 +398,15 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-function apiError(res: ServerResponse, status: number, type: string, code: string, message: string): void {
-  sendJson(res, status, { error: { message, type, param: null, code } });
+function apiError(
+  res: ServerResponse,
+  status: number,
+  type: string,
+  code: string,
+  message: string,
+  param: string | null = null
+): void {
+  sendJson(res, status, { error: { message, type, param, code } });
 }
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
@@ -560,6 +586,17 @@ export async function startMockOpenAi(options: { port?: number; log?: boolean } 
 
       if (req.method === 'POST' && url.pathname === '/v1/responses') {
         const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
+        if (scenario === 'unverified' && request['stream'] === true) {
+          apiError(
+            res,
+            400,
+            'invalid_request_error',
+            'unsupported_value',
+            UNVERIFIED_STREAM_MESSAGE,
+            'stream'
+          );
+          return;
+        }
         const requested = typeof request['model'] === 'string' ? request['model'] : 'gpt-5';
         // The API answers with a dated snapshot of the model that was asked for.
         const model = `${requested}-2026-06-01`;

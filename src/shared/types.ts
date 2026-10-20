@@ -231,7 +231,8 @@ export interface Settings {
   model: string;
   /**
    * The OpenAI model id. Empty means "whichever model the list defaults to",
-   * which is the newest gpt-5 the key can see.
+   * which is the newest full gpt-5 the key can see, never a -pro, -codex,
+   * -deep-research or -chat model (`defaultOpenAiModel`, hardening.10).
    */
   openaiModel: string;
   /** shared by both providers; the OpenAI provider maps it to a reasoning effort */
