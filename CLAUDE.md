@@ -18,6 +18,7 @@ npm test           # vitest
 npm run lint
 npm run build      # electron-vite build
 npm run package    # sync productName, build, then electron-builder into dist/
+npm run package:dir     # the same, but only dist/win-unpacked: no installer, no portable exe
 npm run icons      # regenerate resources/icon/ from scripts/make-icons.py (needs Pillow)
 npm run branding:check  # exit 1 if package.json has drifted from src/shared/branding.ts; writes nothing
 npm run check:public    # exit 1 if a file git would commit holds a profile path, an email or a key shape

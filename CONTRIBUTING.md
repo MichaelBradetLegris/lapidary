@@ -38,6 +38,8 @@ Building:
 - `build`: `typecheck`, then `electron-vite build` into `out/`.
 - `typecheck`: `tsc --build --force` over `tsconfig.node.json` (main, preload, shared, scripts and tests) and `tsconfig.web.json` (the renderer). It writes only to `node_modules/.tmp`.
 - `package`: `build`, then electron-builder into `dist/`: an NSIS installer and a portable exe, both x64 and unsigned. It never publishes (`--publish never`). npm runs `prepackage` first, which is `node scripts/sync-branding.cjs`: it copies the app's name and repository from `src/shared/branding.ts` into package.json, writing only a field that differs.
+- `package:dir`: the same, but electron-builder stops at the unpacked app in `dist/win-unpacked`, with no installer and no portable exe. It never publishes either, and npm runs `prepackage:dir`, the same sync, first.
+- `verify:package`, `release:check` and `release:notes`: names kept for the package verifier (`scripts/verify-package.ts`) and the release scripts (`scripts/check-release.cjs`, `scripts/release-notes.cjs`), which are not written yet. Until they are, each stops with a missing-file error.
 - `icons`: regenerates `resources/icon/` from `scripts/make-icons.py`. Needs `python` on PATH with Pillow.
 
 Checks:
