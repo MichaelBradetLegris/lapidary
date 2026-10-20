@@ -457,6 +457,11 @@ export interface ApiRequestMap {
     response: string | null;
   };
   'files:list': { request: void; response: ChapterFile[] };
+  /**
+   * whether main watches the manuscript folder: false with none chosen, or
+   * after a start the folder refused, until a list read works (files.21)
+   */
+  'files:watching': { request: void; response: { watching: boolean } };
   'files:read': { request: { path: string }; response: FileContent };
   'files:save': { request: SaveRequest; response: SaveResponse };
   /** live "can I use this name?" for the New chapter dialog */
@@ -530,6 +535,7 @@ const REQUEST_CHANNEL_FLAGS = {
   'dialog:pick-folder': true,
   'dialog:pick-file': true,
   'files:list': true,
+  'files:watching': true,
   'files:read': true,
   'files:save': true,
   'files:check-name': true,
@@ -586,6 +592,8 @@ export interface AiProgressEvent {
 export interface ApiEventMap {
   'file:changed': FileChangedEvent;
   'files:invalidated': { folder: string };
+  /** main started or stopped watching the manuscript folder, as `files:watching` answers (files.21) */
+  'files:watching-changed': { watching: boolean };
   'ai:progress': AiProgressEvent;
   'ai:rate-limit': RateLimitInfo;
   /** the zoom changed from outside the renderer's own controls: Ctrl+wheel or a shortcut */
@@ -612,6 +620,7 @@ export type EventChannel = keyof ApiEventMap;
 const EVENT_CHANNEL_FLAGS = {
   'file:changed': true,
   'files:invalidated': true,
+  'files:watching-changed': true,
   'ai:progress': true,
   'ai:rate-limit': true,
   'view:zoom-changed': true,

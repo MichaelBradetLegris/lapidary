@@ -3,11 +3,13 @@ import { commitDecisions } from '../../src/shared/diff/compose';
 import { createDiffReview } from '../../src/shared/review';
 import type { Hunk, Review, ReviewComment } from '../../src/shared/types';
 import {
+  NOT_WATCHING,
   NO_CHAPTERS,
   NO_FOLDER_CHOSEN,
   READ_LIST_AGAIN,
   chapterListMarks,
-  chapterListNotice
+  chapterListNotice,
+  watchNotice
 } from '../../src/shared/ui/chapterList';
 import { saveButtonInput, saveButtonState, unsavedDotLabel } from '../../src/shared/ui/save';
 
@@ -171,5 +173,22 @@ describe('chapterListNotice (apply.25)', () => {
 
   it('shows the rows when there are some', () => {
     expect(chapterListNotice({ configured: true, count: 3, problem: null })).toBeNull();
+  });
+});
+
+describe('watchNotice (files.21)', () => {
+  it('says changes made outside will not show until Try again succeeds, while main is not watching', () => {
+    expect(watchNotice({ configured: true, watching: false })).toBe(NOT_WATCHING);
+    expect(NOT_WATCHING).toBe(
+      'Lapidary is not watching the manuscript folder, so changes made outside Lapidary will not show until Try again succeeds.'
+    );
+    // The button it names is the list's own.
+    expect(NOT_WATCHING).toContain(`until ${READ_LIST_AGAIN} succeeds`);
+  });
+
+  it('says nothing while main watches the folder, or when no folder is chosen', () => {
+    expect(watchNotice({ configured: true, watching: true })).toBeNull();
+    expect(watchNotice({ configured: false, watching: false })).toBeNull();
+    expect(watchNotice({ configured: false, watching: true })).toBeNull();
   });
 });

@@ -52,6 +52,7 @@ function render(index: Record<string, ReviewSummary> = {}): string {
       review: null,
       configured: true,
       problem: null,
+      watching: true,
       onOpen: () => undefined,
       onChooseFolder: () => undefined,
       onReadAgain: () => undefined,

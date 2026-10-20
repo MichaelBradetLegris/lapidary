@@ -178,6 +178,8 @@ export function App(): React.JSX.Element {
 
   const [files, setFiles] = useState<ChapterFile[]>([]);
   const [filesProblem, setFilesProblem] = useState<string | null>(null);
+  /* Whether main watches the manuscript folder (files.21); true until it says otherwise. */
+  const [watching, setWatching] = useState(true);
   const [index, setIndex] = useState<Record<string, ReviewSummary>>({});
   const [history, setHistory] = useState<ReviewSummary[]>([]);
 
@@ -280,7 +282,10 @@ export function App(): React.JSX.Element {
 
   /* The chapter list. A manuscript folder that cannot be read shows main's
      words where the empty-folder line would be, with Try again (apply.25).
-     Only the newest answer is kept, as for the marks. */
+     Only the newest answer is kept, as for the marks. A list read that works
+     starts main's watcher when the folder refused its start, so once the
+     answer is in, the page asks whether main is watching the folder; a later
+     change comes as `files:watching-changed` (files.21). */
   const filesSeq = useRef(0);
   const refreshFiles = useCallback(() => {
     const ticket = ++filesSeq.current;
@@ -294,7 +299,10 @@ export function App(): React.JSX.Element {
         if (ticket !== filesSeq.current) return;
         setFiles([]);
         setFilesProblem(errorMessage(err));
-      });
+      })
+      .then(() => call('files:watching', undefined))
+      .then((answer) => setWatching(answer.watching))
+      .catch(() => undefined);
     void refreshIndex();
   }, [refreshIndex]);
 
@@ -561,6 +569,8 @@ export function App(): React.JSX.Element {
     });
 
     const offInvalidated = window.api.on('files:invalidated', () => refreshFiles());
+    // Main's watcher started, or the folder refused its start (files.21).
+    const offWatching = window.api.on('files:watching-changed', (event) => setWatching(event.watching));
     // Ctrl+plus / minus / 0 and Ctrl+wheel are handled in the main process,
     // which says so here so the status bar shows the level in use (round 5).
     const offZoom = window.api.on('view:zoom-changed', ({ zoom }) => {
@@ -574,6 +584,7 @@ export function App(): React.JSX.Element {
     return () => {
       offChanged();
       offInvalidated();
+      offWatching();
       offZoom();
       offNotice();
     };
@@ -1153,6 +1164,7 @@ export function App(): React.JSX.Element {
               review={review}
               configured={Boolean(settings?.manuscriptFolder)}
               problem={filesProblem}
+              watching={watching}
               onOpen={openFromList}
               onChooseFolder={chooseManuscriptFolder}
               onReadAgain={refreshFiles}

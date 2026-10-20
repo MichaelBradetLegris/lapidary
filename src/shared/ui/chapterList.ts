@@ -8,11 +8,13 @@
  * goes with each decision, as the toolbar's does, and its badge counts what is
  * still pending rather than what was pending when the list was last read.
  * `chapterListNotice` is the line the list shows when it has no rows to show
- * (apply.25).
+ * (apply.25), and `watchNotice` the line it adds while main is not watching
+ * the manuscript folder (files.21).
  *
  * Pure (CLAUDE.md rule 4), so every case has a test without a DOM.
  */
 
+import { APP_NAME } from '../branding';
 import { decisionCounts, unsavedDecisionCount } from '../diff/compose';
 import type { ReviewSummary } from '../ipc';
 import type { Review } from '../types';
@@ -82,4 +84,22 @@ export function chapterListNotice(input: {
   if (input.problem !== null) return { text: input.problem, action: 'read-again' };
   if (input.count === 0) return { text: NO_CHAPTERS, action: null };
   return null;
+}
+
+/**
+ * The line the list adds while main is not watching the manuscript folder
+ * (files.21), above the rows or under the line that stands in their place.
+ */
+export const NOT_WATCHING = `${APP_NAME} is not watching the manuscript folder, so changes made outside ${APP_NAME} will not show until ${READ_LIST_AGAIN} succeeds.`;
+
+/**
+ * The line about the watcher, or null (files.21). Main's watcher did not
+ * start, as when another program held the folder at start-up, so a chapter
+ * changed, added or removed in Obsidian reaches neither the list nor the open
+ * chapter. The list then has Try again whatever else it shows, since a list
+ * read that works starts the watcher again. With no folder chosen there is
+ * nothing to watch, and the list says so instead.
+ */
+export function watchNotice(input: { configured: boolean; watching: boolean }): string | null {
+  return input.configured && !input.watching ? NOT_WATCHING : null;
 }
