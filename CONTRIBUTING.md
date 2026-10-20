@@ -54,7 +54,7 @@ Checks:
 - `branding:check`: exits 1 if package.json's `productName`, `repository`, `homepage` or `bugs` differ from `src/shared/branding.ts`. It writes nothing.
 - `check:public`: exits 1 if a file git would commit holds a profile path, an email address or something shaped like a key. It prints file, line and kind, never the value.
 
-Before you commit, these must pass: `typecheck`, `lint`, `format:check`, `test`, `branding:check` and `check:public`. Run `test:slow` too when you touch the watcher. CI (`.github/workflows/ci.yml`) runs the same checks and the build on Windows and Linux for every pull request and every push to `main`.
+Before you commit, these must pass: `typecheck`, `lint`, `format:check`, `test`, `branding:check` and `check:public`. Run `test:slow` too when you touch the watcher. CI (`.github/workflows/ci.yml`) runs the same checks and the build on Windows and Linux for every pull request and every push to `main`. Once both pass, it runs `package:dir` and then `verify:package` on Windows: the unpacked app is built and checked, but no installer is made and nothing is published.
 
 ## Where things are
 

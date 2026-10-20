@@ -1,6 +1,8 @@
 # The checks every change must pass (release.3). The Windows leg is the
 # platform the app ships for; the Linux leg keeps the source portable, and the
-# whole suite passed on Linux before this file existed (PLAN release.3).
+# whole suite passed on Linux before this file existed (PLAN release.3). Once
+# both legs pass, the package job builds the unpacked Windows app and checks
+# it (release.5).
 name: CI
 
 on:
@@ -42,3 +44,42 @@ jobs:
       - run: npm test
       # build runs the typecheck first
       - run: npm run build
+
+  # The app as the installer would hold it, built and checked on every change,
+  # so a change that breaks packaging fails here rather than on a release tag
+  # (PLAN release.5). package:dir is the build `npm run package` makes, less
+  # the installer.
+  package:
+    needs: check
+    runs-on: windows-latest
+    # Nothing here can publish: package:dir passes --publish never, no
+    # GH_TOKEN or GITHUB_TOKEN variable is set, the job's token can only read,
+    # and checkout does not leave it in the git config.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # electron-builder downloads the Electron zip into Electron's cache. Its
+      # own cache holds the tools that an installer or a signed build fetches,
+      # which package:dir does not need, so it stays empty for now, and a path
+      # that does not exist is left out of the saved cache. What both hold
+      # follows the versions in the lockfile. The release workflow restores
+      # no cache (PLAN 11.3 n).
+      - name: Cache Electron and electron-builder downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+      - run: npm run package:dir
+      # No --installer: package:dir makes no installer, latest.yml or
+      # app-update.yml for it to check.
+      - run: npm run verify:package
