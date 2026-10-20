@@ -1,0 +1,115 @@
+# Builds the Windows installer from a pushed version tag and puts it in a draft
+# release with its .blockmap, latest.yml and SHA256SUMS.txt (PLAN release.7,
+# 11.3 n). The author reads the draft and publishes it with
+# `gh release edit vX.Y.Z --draft=false --latest`; the updater never sees a
+# draft.
+#
+# Two jobs, so that the token that can write releases is never in a job that
+# runs the build. `build` runs npm ci, the checks and electron-builder with a
+# token that can only read. `release` runs nothing from the repository or from
+# npm: only gh, on the files `build` hands over. The tag reaches every script
+# through the TAG variable and is never written into one. Actions are pinned by
+# commit, and no cache is restored, so a release is built from the tag and the
+# lockfile alone.
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAG: ${{ github.ref_name }}
+    outputs:
+      title: ${{ steps.files.outputs.title }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      # Node's builtins only, before npm ci: the tag must be a version that
+      # package.json, package-lock.json and a dated CHANGELOG section agree on.
+      - name: Check the tag against package.json, package-lock.json and CHANGELOG.md
+        run: node scripts/check-release.cjs "$TAG"
+      - run: npm ci
+      # prepackage would otherwise bring package.json into line silently.
+      - run: npm run branding:check
+      - run: npm run lint
+      - run: npm test
+      # Builds (typecheck first), writes the notices and runs electron-builder
+      # with --publish never; postpackage then runs the verifier as below.
+      - run: npm run package
+      - name: Check the package, the installer, latest.yml and the .blockmap
+        run: npm run verify:package -- --installer
+      # The installer's name comes from the function that names it in the
+      # notes' footer, so the two cannot disagree.
+      - name: Collect the four release files
+        id: files
+        run: |
+          version="${TAG#v}"
+          name="$(node -p "require('./scripts/branding.cjs').appName()")"
+          installer="$(node -p "require('./scripts/release-notes.cjs').installerName(process.argv[1])" "$version")"
+          out="$RUNNER_TEMP/release"
+          mkdir -p "$out/assets"
+          cd dist
+          sha256sum "$installer" "$installer.blockmap" latest.yml > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cp "$installer" "$installer.blockmap" latest.yml SHA256SUMS.txt "$out/assets/"
+          echo "title=$name $version" >> "$GITHUB_OUTPUT"
+      # --out writes UTF-8 with LF; a redirect in Windows PowerShell would
+      # write UTF-16.
+      - name: Write the release notes
+        run: node scripts/release-notes.cjs "$TAG" --out "$RUNNER_TEMP/release/notes.md"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: release
+      # --verify-tag refuses a tag that is not on GitHub. A version with a
+      # hyphen, such as 1.1.0-rc.1, is marked a prerelease.
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          TITLE: ${{ needs.build.outputs.title }}
+        run: |
+          shopt -s nullglob
+          assets=(release/assets/*)
+          if [ "${#assets[@]}" -ne 4 ]; then
+            echo "::error::Expected 4 release files, found ${#assets[@]}."
+            exit 1
+          fi
+          prerelease=()
+          case "${TAG#v}" in *-*) prerelease=(--prerelease) ;; esac
+          gh release create "$TAG" --draft --verify-tag "${prerelease[@]}" \
+            --title "$TITLE" --notes-file release/notes.md "${assets[@]}"

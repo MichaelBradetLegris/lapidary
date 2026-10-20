@@ -155,8 +155,10 @@ A path written with a placeholder such as `C:\Users\<name>` needs no marker. `np
 
 ## Releasing
 
-No release has been made yet, and the release workflow is still planned (PLAN section 11.3 (n) and the checklist in 11.4). These rules hold already:
+No release has been made yet. A pushed version tag runs the release workflow (`.github/workflows/release.yml`, PLAN section 11.3 (n)), and the checklist in PLAN 11.4 says when to push one. These rules hold already:
 
 - First the CHANGELOG's Unreleased section becomes that version's dated section. Then `npm version <x.y.z> -m "Release %s"` sets the version, commits, and tags the commit `v<x.y.z>`. `npm run release:check -- v<x.y.z>` then runs the check the release workflow starts with, and `npm run release:notes -- v<x.y.z>` shows the notes it will publish.
 - Push the branch, then that one tag: `git push origin main`, then `git push origin v<x.y.z>`.
+- The workflow runs `release:check` on the tag before it installs anything, then `lint`, `test` and `package` with the verifier, and makes a draft release of four files: the installer, its `.blockmap`, `latest.yml` and `SHA256SUMS.txt`, with the notes `release:notes` writes. A version with a hyphen, such as `1.1.0-rc.1`, is marked a prerelease. It publishes nothing: read the draft, then publish it with `gh release edit v<x.y.z> --draft=false --latest`. The updater never sees a draft.
+- When the check fails, nothing has been built: delete the tag (`git push origin --delete v<x.y.z>`, then `git tag -d v<x.y.z>`), fix what it names, and tag again.
 - Never `git push --tags` or `git push --all`. A pushed version tag will start a release build, so tags go up one at a time, on purpose.
