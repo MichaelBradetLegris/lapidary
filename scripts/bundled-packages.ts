@@ -11,6 +11,7 @@
 import path from 'node:path';
 import type { Plugin } from 'vite';
 
+/** The record's name; third-party-notices.ts has its own copy, which a test pins equal. */
 export const BUNDLED_PACKAGES_FILE = 'bundled-packages.json';
 
 /**

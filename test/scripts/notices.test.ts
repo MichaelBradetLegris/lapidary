@@ -3,13 +3,24 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { UserConfig } from 'electron-vite';
+import type { Rollup } from 'vite';
 import { afterEach, describe, expect, it } from 'vitest';
-import { packageDirOf } from '../../scripts/bundled-packages';
+import viteConfig from '../../electron.vite.config';
+import {
+  BUNDLED_PACKAGES_FILE as PLUGIN_RECORD_FILE,
+  bundledPackages,
+  packageDirOf
+} from '../../scripts/bundled-packages';
 import {
   ALLOWED_LICENCES,
+  BUILDS,
+  BUNDLED_PACKAGES_FILE,
   NOTICES_FILE,
+  bundledPackageDirs,
   declaredLicence,
   entryHeading,
+  licenceFiles,
   licenceIds,
   licenceProblem,
   licenceProblems,
@@ -305,6 +316,67 @@ describe('what ships', () => {
     ]);
   });
 
+  it('knows the usual names of licence files, and a LICENSES folder', () => {
+    const dir = tempRoot();
+    for (const name of [
+      'LICENCE',
+      'COPYING',
+      'COPYING.LESSER',
+      'LICENSE-MIT',
+      'UNLICENSE',
+      'license.txt',
+      'License.Apache',
+      'MIT-LICENSE.txt',
+      'THIRD-PARTY-LICENSES.md',
+      'NOTICE.md',
+      // Not licence files.
+      'README.md',
+      'CHANGELOG.md',
+      'licensing.md',
+      'add-license.js',
+      'license-check.json',
+      'package.json'
+    ]) {
+      writeFileSync(path.join(dir, name), `${name}\r\n`);
+    }
+    // REUSE's folder of licence texts is read; any other folder is passed over,
+    // even one named LICENSE.
+    mkdirSync(path.join(dir, 'LICENSES'));
+    writeFileSync(path.join(dir, 'LICENSES', 'MIT.txt'), 'MIT');
+    writeFileSync(path.join(dir, 'LICENSES', 'Apache-2.0.txt'), 'Apache-2.0');
+    mkdirSync(path.join(dir, 'LICENSE'));
+    writeFileSync(path.join(dir, 'LICENSE', 'MIT.txt'), 'In a folder named LICENSE.');
+    mkdirSync(path.join(dir, 'NOTICE'));
+    const files = licenceFiles(dir);
+    expect(files.map((file) => file.name)).toEqual([
+      'COPYING',
+      'COPYING.LESSER',
+      'LICENCE',
+      'LICENSE-MIT',
+      'License.Apache',
+      'license.txt',
+      'LICENSES/Apache-2.0.txt',
+      'LICENSES/MIT.txt',
+      'MIT-LICENSE.txt',
+      'THIRD-PARTY-LICENSES.md',
+      'UNLICENSE',
+      'NOTICE.md'
+    ]);
+    expect(files[0]).toEqual({ name: 'COPYING', text: 'COPYING' });
+    expect(files.find((file) => file.name === 'LICENSES/MIT.txt')?.text).toBe('MIT');
+  });
+
+  it('passes a package whose only licence file is UNLICENSE, and fails one with only a NOTICE', () => {
+    const root = fakeProject();
+    addPackage(root, 'node_modules/y', { name: 'y', version: '1.0.0', license: 'Unlicense' });
+    rmSync(path.join(root, 'node_modules/y/LICENSE'));
+    writeFileSync(path.join(root, 'node_modules/y/UNLICENSE'), 'This is free and unencumbered software.');
+    rmSync(path.join(root, 'node_modules/c/LICENSE'));
+    const packages = shippedPackages(root);
+    expect(packages.find((p) => p.name === 'y')?.files.map((file) => file.name)).toEqual(['UNLICENSE']);
+    expect(licenceProblems(packages)).toEqual(['c 1.0.0 (node_modules/c) has no licence file to copy']);
+  });
+
   it('stops when a required dependency is not installed', () => {
     const root = fakeProject();
     rmSync(path.join(root, 'node_modules/e'), { recursive: true });
@@ -398,6 +470,45 @@ describe('the notices file', () => {
     expect(existsSync(result.file)).toBe(false);
   });
 
+  it.each([
+    [
+      'a build has not recorded its bundle',
+      (root: string) => rmSync(path.join(root, 'out', 'preload', 'bundled-packages.json')),
+      'out/preload/bundled-packages.json is missing. Run npm run build first.'
+    ],
+    [
+      'a required dependency is not installed',
+      (root: string) => rmSync(path.join(root, 'node_modules/e'), { recursive: true }),
+      'node_modules/a needs e, which is not installed. Run npm ci first.'
+    ],
+    [
+      'a bundled package has no package.json',
+      (root: string) => rmSync(path.join(root, 'node_modules/r/package.json')),
+      'node_modules/r has no package.json.'
+    ]
+  ])('is not written, and an earlier one is removed, when %s', (_case, breakTree, message) => {
+    const root = fakeProject();
+    const file = writeNotices(root, 'Example').file;
+    expect(existsSync(file)).toBe(true);
+    breakTree(root);
+    expect(() => writeNotices(root, 'Example')).toThrow(message);
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it('exits 1 from the command line when the tree cannot be read, leaving no notices', () => {
+    const root = fakeProject();
+    const file = path.join(root, 'out', NOTICES_FILE);
+    writeFileSync(file, 'Notices from an earlier build.\n');
+    rmSync(path.join(root, 'out', 'renderer', 'bundled-packages.json'));
+    const run = spawnSync(process.execPath, [SCRIPT, '--root', root], { encoding: 'utf8' });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toBe(
+      'notices: out/renderer/bundled-packages.json is missing. Run npm run build first.\n'
+    );
+    expect(run.stdout).toBe('');
+    expect(existsSync(file)).toBe(false);
+  });
+
   it('exits 1 from the command line on a refused licence, and 0 once it is gone', () => {
     const root = fakeProject();
     addPackage(root, 'node_modules/r', { name: 'r', version: '3.0.0', license: 'AGPL-3.0-only' });
@@ -443,5 +554,118 @@ describe('the bundled-packages plugin', () => {
     // A query is not part of the path, even when it names a package's folder.
     const own = path.join(root, 'src/renderer/styles/app.css').replace(/\\/g, '/');
     expect(packageDirOf(`${own}?inline&from=/node_modules/x/`, root)).toBeUndefined();
+  });
+
+  /** Runs the plugin's generateBundle on `bundle`, as Rollup would, and returns what it emitted. */
+  async function emitted(
+    projectRoot: string,
+    bundle: Record<string, unknown>
+  ): Promise<Rollup.EmittedFile[]> {
+    const hook = bundledPackages(projectRoot).generateBundle;
+    const handler = typeof hook === 'function' ? hook : hook?.handler;
+    if (!handler) throw new Error('the plugin has no generateBundle hook');
+    const files: Rollup.EmittedFile[] = [];
+    const context = {
+      emitFile(file: Rollup.EmittedFile): string {
+        files.push(file);
+        return `ref${files.length}`;
+      }
+    };
+    await handler.call(
+      context as unknown as ThisParameterType<typeof handler>,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle,
+      false
+    );
+    return files;
+  }
+
+  /** A chunk as Rollup gives it, holding modules with these ids. */
+  function chunk(fileName: string, ids: string[]): Record<string, unknown> {
+    return {
+      type: 'chunk',
+      fileName,
+      modules: Object.fromEntries(ids.map((id, i) => [id, { renderedLength: i % 2 === 0 ? 100 : 0 }]))
+    };
+  }
+
+  it('records the packages of every chunk once, sorted, as one asset under the name the notices read', async () => {
+    const at = (rest: string): string => path.join(root, rest).replace(/\\/g, '/');
+    const files = await emitted(root, {
+      'index.js': chunk('index.js', [
+        at('src/renderer/main.tsx'),
+        at('node_modules/react/index.js'),
+        `\0${at('node_modules/react/index.js')}?commonjs-proxy`,
+        at('node_modules/react/cjs/react.production.js'),
+        '\0vite/preload-helper.js',
+        at('node_modules/a/node_modules/b/x.js'),
+        '\0commonjsHelpers.js'
+      ]),
+      'assets/vendor.js': chunk('assets/vendor.js', [
+        `\0${at('node_modules/zustand/esm/index.mjs')}?commonjs-module`,
+        at('node_modules/@scope/pkg/dist/x.js'),
+        at('node_modules/react/index.js')
+      ]),
+      // An asset has no modules, and is passed over.
+      'assets/index.css': { type: 'asset', fileName: 'assets/index.css', source: 'body {}' }
+    });
+    expect(files).toEqual([
+      {
+        type: 'asset',
+        fileName: BUNDLED_PACKAGES_FILE,
+        source:
+          '{\n  "packages": [\n' +
+          '    "node_modules/@scope/pkg",\n' +
+          '    "node_modules/a/node_modules/b",\n' +
+          '    "node_modules/react",\n' +
+          '    "node_modules/zustand"\n' +
+          '  ]\n}\n'
+      }
+    ]);
+  });
+
+  it("records an empty list for a bundle of the project's own code", async () => {
+    const own = path.join(root, 'src/main/index.ts').replace(/\\/g, '/');
+    expect(await emitted(root, { 'index.js': chunk('index.js', [own, '\0commonjsHelpers.js']) })).toEqual([
+      { type: 'asset', fileName: BUNDLED_PACKAGES_FILE, source: '{\n  "packages": []\n}\n' }
+    ]);
+  });
+
+  it('writes records the notices script reads', async () => {
+    expect(PLUGIN_RECORD_FILE).toBe(BUNDLED_PACKAGES_FILE);
+    expect(BUNDLED_PACKAGES_FILE).toBe('bundled-packages.json');
+    const project = tempRoot();
+    const at = (rest: string): string => path.join(project, rest).replace(/\\/g, '/');
+    const bundles: Record<string, string[]> = {
+      main: [at('src/main/index.ts')],
+      preload: [at('src/preload/index.ts')],
+      renderer: [at('src/renderer/main.tsx'), at('node_modules/react/index.js'), at('node_modules/@s/p/x.js')]
+    };
+    for (const build of BUILDS) {
+      const [record] = await emitted(project, { 'index.js': chunk('index.js', bundles[build] ?? []) });
+      if (record?.type !== 'asset' || typeof record.source !== 'string') throw new Error('no record emitted');
+      mkdirSync(path.join(project, 'out', build), { recursive: true });
+      writeFileSync(path.join(project, 'out', build, record.fileName ?? ''), record.source);
+    }
+    expect(bundledPackageDirs(project, path.join(project, 'out')).sort()).toEqual([
+      path.join(project, 'node_modules', '@s', 'p'),
+      path.join(project, 'node_modules', 'react')
+    ]);
+  });
+
+  it('runs in each of the three builds of electron.vite.config.ts', () => {
+    const config: UserConfig = viteConfig;
+    const flatten = (list: readonly unknown[]): unknown[] =>
+      list.flatMap((item) => (Array.isArray(item) ? flatten(item) : [item]));
+    for (const build of BUILDS) {
+      const plugins = flatten(config[build as 'main' | 'preload' | 'renderer']?.plugins ?? []);
+      const names = plugins.map((plugin) =>
+        plugin && typeof plugin === 'object' && 'name' in plugin ? plugin.name : undefined
+      );
+      expect(
+        names.filter((name) => name === 'bundled-packages'),
+        build
+      ).toHaveLength(1);
+    }
   });
 });

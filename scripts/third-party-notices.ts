@@ -1,9 +1,10 @@
 /*
  * opensource.5: writes out/THIRD_PARTY_NOTICES.txt, which the installer puts
  * beside the app (`extraResources`), with every third-party package the app
- * ships and the licence and notice files that package carries. When a
- * package's licence is not one of ALLOWED_LICENCES it fails: it writes nothing
- * and removes the file an earlier run wrote.
+ * ships and the licence and notice files that package carries. It removes the
+ * file an earlier run wrote before it starts, so when it fails, on a licence
+ * that is not one of ALLOWED_LICENCES or on a tree it cannot read, it leaves
+ * no notices behind.
  *
  *   npm run notices
  *   node scripts/third-party-notices.ts [--root <folder>]
@@ -54,6 +55,11 @@ export const ALLOWED_LICENCES: readonly string[] = [
 /** The builds whose bundles are recorded, each in out/<build>/bundled-packages.json. */
 export const BUILDS: readonly string[] = ['main', 'preload', 'renderer'];
 
+/**
+ * The name scripts/bundled-packages.ts gives each record. It is written out
+ * here as well, because this script imports nothing of the project's so that
+ * Node can run it as it is; test/scripts/notices.test.ts pins the two equal.
+ */
 export const BUNDLED_PACKAGES_FILE = 'bundled-packages.json';
 export const NOTICES_FILE = 'THIRD_PARTY_NOTICES.txt';
 
@@ -179,13 +185,16 @@ export function licenceProblem(licence: string | undefined): string | undefined 
   return `has ${licence}, and ${refused.join(', ')} ${refused.length === 1 ? 'is' : 'are'} not on the allowed list`;
 }
 
+/** A notice file (NOTICE, NOTICE.md), which goes with a licence but is not one. */
+const NOTICE_FILE = /^notice/i;
+
 /** One line per package that may not ship, or that has no licence file; empty when all may. */
 export function licenceProblems(packages: readonly ShippedPackage[]): string[] {
   const problems: string[] = [];
   for (const pkg of packages) {
     const problem = licenceProblem(pkg.licence);
     if (problem) problems.push(`${pkg.name} ${pkg.version} (${pkg.dir}) ${problem}`);
-    if (!pkg.files.some((file) => !/^notice/i.test(file.name))) {
+    if (!pkg.files.some((file) => !NOTICE_FILE.test(file.name))) {
       problems.push(`${pkg.name} ${pkg.version} (${pkg.dir}) has no licence file to copy`);
     }
   }
@@ -210,6 +219,10 @@ function readJson(file: string): PackageJson {
 
 function isFile(file: string): boolean {
   return statSync(file, { throwIfNoEntry: false })?.isFile() ?? false;
+}
+
+function isFolder(dir: string): boolean {
+  return statSync(dir, { throwIfNoEntry: false })?.isDirectory() ?? false;
 }
 
 /** Forward slashes, relative to `root`. */
@@ -289,14 +302,41 @@ export function bundledPackageDirs(root: string, outDir: string): string[] {
   return [...dirs];
 }
 
-/** LICENSE, LICENCE, COPYING and NOTICE files, with or without an extension or suffix. */
-const LICENCE_FILE = /^(?:licen[cs]e|copying|notice)(?:$|[.\-_])/i;
+/**
+ * Licence and notice files, case aside: a name that starts with LICENSE or
+ * LICENCE (or either in the plural), UNLICENSE, COPYING or NOTICE, alone or
+ * followed by `.`, `-` or `_` and more (LICENSE.md, LICENSE-MIT, License.Apache,
+ * COPYING.LESSER), or one with LICENSE or LICENCE after a `.`, `-` or `_`
+ * (MIT-LICENSE.txt, THIRD-PARTY-LICENSES.md).
+ */
+const LICENCE_FILE = /^(?:(?:un)?licen[cs]es?|copying|notice)(?:$|[.\-_])|[.\-_]licen[cs]es?(?:$|[.\-_])/i;
 
-/** The licence and notice files at the top of a package folder, licences first. */
+/** Scripts and data, which are not licence texts whatever their names say (add-license.js). */
+const SCRIPT_OR_DATA = /\.(?:[cm]?[jt]sx?|json|map|node|wasm|sh|cmd|bat|ps1|py)$/i;
+
+/** A folder of licence texts as REUSE lays them out, LICENSES/MIT.txt; its files are copied too. */
+const LICENCE_FOLDER = /^licen[cs]es$/i;
+
+/**
+ * The licence and notice files at the top of a package folder and in a
+ * LICENSES folder there, named `LICENSES/<file>`: licences first, then
+ * notices, each by name. Any other folder is passed over, one named LICENSE
+ * included.
+ */
 export function licenceFiles(dir: string): LicenceFile[] {
-  const names = readdirSync(dir)
-    .filter((name) => LICENCE_FILE.test(name) && isFile(path.join(dir, name)))
-    .sort((a, b) => Number(/^notice/i.test(a)) - Number(/^notice/i.test(b)) || a.localeCompare(b));
+  const isText = (name: string): boolean => !SCRIPT_OR_DATA.test(name);
+  const names: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const full = path.join(dir, name);
+    if (LICENCE_FOLDER.test(name) && isFolder(full)) {
+      for (const inner of readdirSync(full)) {
+        if (isText(inner) && isFile(path.join(full, inner))) names.push(`${name}/${inner}`);
+      }
+    } else if (LICENCE_FILE.test(name) && isText(name) && isFile(full)) {
+      names.push(name);
+    }
+  }
+  names.sort((a, b) => Number(NOTICE_FILE.test(a)) - Number(NOTICE_FILE.test(b)) || a.localeCompare(b, 'en'));
   return names.map((name) => ({
     name,
     text: readText(path.join(dir, name)).replace(/\r\n?/g, '\n').replace(/\s+$/, '')
@@ -420,10 +460,11 @@ export function renderNotices(
 }
 
 /**
- * Finds what ships under `root`, checks the licences and, when all are allowed,
- * writes out/THIRD_PARTY_NOTICES.txt. When one is not, it returns the problems
- * and removes the file an earlier run wrote, so that no build can ship notices
- * that are out of date. Throws when the tree cannot be read.
+ * Removes the out/THIRD_PARTY_NOTICES.txt an earlier run wrote, finds what
+ * ships under `root`, checks the licences and, when all are allowed, writes the
+ * file again. When one is not, it returns the problems; when the tree cannot be
+ * read, it throws. Either way there is then no notices file, so that no build
+ * can ship notices that are out of date.
  */
 export function writeNotices(
   root: string,
@@ -431,12 +472,10 @@ export function writeNotices(
 ): { problems: string[]; file: string; packages: ShippedPackage[] } {
   const outDir = path.join(root, 'out');
   const file = path.join(outDir, NOTICES_FILE);
+  rmSync(file, { force: true });
   const packages = shippedPackages(root, outDir);
   const problems = licenceProblems(packages);
-  if (problems.length > 0) {
-    rmSync(file, { force: true });
-    return { problems, file, packages };
-  }
+  if (problems.length > 0) return { problems, file, packages };
   const version = readJson(path.join(root, 'package.json')).version;
   mkdirSync(outDir, { recursive: true });
   writeFileSync(file, renderNotices(appName, typeof version === 'string' ? version : '0.0.0', packages));
