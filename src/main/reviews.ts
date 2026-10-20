@@ -626,6 +626,14 @@ async function mayOverwrite(file: string, dir: string, sourcePath: string, ci: b
  * `<stamp>.review.json`, or `<stamp>-2.review.json` and so on when that name is
  * taken by another chapter's review. The same review saved again without a
  * path still lands on its own entry.
+ *
+ * A name that is there but cannot be read may be this very review, so, as in
+ * `mayOverwrite`, the save fails saying why rather than go on to the next
+ * name, which would make a copy that opens in its place (apply.25). It also
+ * ends the search when no name can be read at all, as when the review's time
+ * holds a NUL: every look then fails before touching the disk, so the next
+ * name would be tried for ever without the event loop getting a turn
+ * (hardening.8 review).
  */
 async function newEntryPath(dir: string, review: Review, ci: boolean): Promise<string> {
   const stamp = stampFor(review);
@@ -633,6 +641,7 @@ async function newEntryPath(dir: string, review: Review, ci: boolean): Promise<s
     const candidate = path.join(dir, `${stamp}${n === 1 ? '' : `-${n}`}${SUFFIX}`);
     if (!(await fileExists(candidate))) return candidate;
     const entry = await readEntry(candidate);
+    if (isUnread(entry)) throw readFailure(entry.error, reviewFileName(candidate));
     if (isEntry(entry) && entry.summary.id === review.id && belongs(entry, review.sourcePath, ci)) {
       return candidate;
     }

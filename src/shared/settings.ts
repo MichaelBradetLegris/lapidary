@@ -54,6 +54,29 @@ function guidelinesSetting(value: unknown): string | null {
   return file !== null && GUIDELINES_EXTENSIONS.has(extensionOf(file)) ? file : null;
 }
 
+/** The settings that name a folder or a file, which the normaliser drops when it cannot use them. */
+export type PathSettingKey = 'manuscriptFolder' | 'reviewsFolder' | 'guidelinesPath';
+
+const PATH_SETTING_KEYS: readonly PathSettingKey[] = ['manuscriptFolder', 'reviewsFolder', 'guidelinesPath'];
+
+/**
+ * The first folder or file in `patch` that `normalizeSettings` would drop to
+ * null, or null when there is none. Null itself is kept (the usual folder or
+ * file), and a key the patch leaves out, or sends as undefined, is not looked
+ * at. The drop is for a settings.json read from disk; main refuses a patch
+ * this names rather than save null over what was chosen before (hardening.8
+ * review, PLAN 11.3 d).
+ */
+export function droppedPathSetting(patch: object): PathSettingKey | null {
+  for (const key of PATH_SETTING_KEYS) {
+    const value = (patch as Record<string, unknown>)[key];
+    if (value === undefined || value === null) continue;
+    const kept = key === 'guidelinesPath' ? guidelinesSetting(value) : folderSetting(value);
+    if (kept === null) return key;
+  }
+  return null;
+}
+
 /** Unique non-empty strings, in their first order. */
 function stringSet(value: unknown): string[] {
   if (!Array.isArray(value)) return [];

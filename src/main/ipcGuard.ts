@@ -68,10 +68,12 @@ export type PathFieldTable = { readonly [C in RequestChannel]?: readonly StringF
 
 /**
  * The fields that hold a path, or a file name main makes into one, channel by
- * channel. The names are checked against the payload types, so a field that
- * is renamed or is not a string fails the typecheck. `files:check-name` is
- * left out on purpose: it answers any name typed in the New chapter dialog
- * with words of its own, a NUL included ("A file name cannot contain ...").
+ * channel: a review's `createdAt` names the file a new review is saved in
+ * (`newEntryPath` in reviews.ts). The names are checked against the payload
+ * types, so a field that is renamed or is not a string fails the typecheck.
+ * `files:check-name` is left out on purpose: it answers any name typed in the
+ * New chapter dialog with words of its own, a NUL included ("A file name
+ * cannot contain ...").
  */
 export const PATH_FIELDS: PathFieldTable = {
   'settings:set': ['manuscriptFolder', 'reviewsFolder', 'guidelinesPath'],
@@ -83,7 +85,7 @@ export const PATH_FIELDS: PathFieldTable = {
   'reviews:list': ['sourcePath'],
   'reviews:load': ['path'],
   'reviews:load-latest': ['sourcePath'],
-  'reviews:save': ['path', 'review.sourcePath'],
+  'reviews:save': ['path', 'review.sourcePath', 'review.createdAt'],
   'reviews:shown': ['sourcePath', 'path'],
   'shell:reveal': ['sourcePath', 'name'],
   'drafts:load': ['sourcePath'],

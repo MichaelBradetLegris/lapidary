@@ -71,7 +71,7 @@ const EXPECTED_PATH_FIELDS: Record<string, readonly string[]> = {
   'reviews:list': ['sourcePath'],
   'reviews:load': ['path'],
   'reviews:load-latest': ['sourcePath'],
-  'reviews:save': ['path', 'review.sourcePath'],
+  'reviews:save': ['path', 'review.sourcePath', 'review.createdAt'],
   'reviews:shown': ['sourcePath', 'path'],
   'shell:reveal': ['sourcePath', 'name'],
   'drafts:load': ['sourcePath'],
@@ -178,6 +178,11 @@ describe('a NUL in a path', () => {
     expect(
       refusal('reviews:save', { path: 'D:\\Reviews\\a.review.json', review: { sourcePath: HIDDEN } })?.message
     ).toContain('review.sourcePath');
+    // A review's time names the file a new review is saved in.
+    expect(
+      refusal('reviews:save', { review: { sourcePath: CHAPTER, createdAt: `2026-10-20T10${NUL}00` } })
+        ?.message
+    ).toContain('review.createdAt');
   });
 
   it('reads a nested path as the handler would, through a prototype too', () => {

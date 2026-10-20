@@ -1,9 +1,11 @@
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
-import { normalizeSettings } from '../shared/settings';
+import { hasNul, isAbsolutePath } from '../shared/paths';
+import { droppedPathSetting, normalizeSettings, type PathSettingKey } from '../shared/settings';
 import type { Settings } from '../shared/types';
 import { atomicWriteFile } from './atomic';
 import { fail } from './errors';
+import { assertGuidelinesFile } from './guidelines';
 import type { LogLevel } from './log';
 
 /**
@@ -19,6 +21,11 @@ import type { LogLevel } from './log';
  * - any other read error (a lock, a permission problem): one retry after 200 ms,
  *   then the defaults are used but NOT cached. A save then reads again and
  *   refuses to write if it still cannot, leaving the file as it was.
+ *
+ * A folder or guidelines file the normaliser cannot use is dropped to null
+ * when settings.json is read, but a save that names one is refused before
+ * anything is read or written (`refuseDroppedPath`), so what was chosen
+ * before stays (hardening.8 review).
  *
  * No electron import: the folder, the reads and the clock are passed in.
  */
@@ -59,6 +66,36 @@ function stamp(date: Date): string {
   return (
     `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}` +
     `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+  );
+}
+
+/** How the refusal names each folder setting, as the Settings rows do. */
+const FOLDER_NAMES: Record<Exclude<PathSettingKey, 'guidelinesPath'>, string> = {
+  manuscriptFolder: 'manuscript folder',
+  reviewsFolder: 'reviews folder'
+};
+
+/**
+ * Throws an `invalid-input` failure when `patch` names a folder or guidelines
+ * file that `normalizeSettings` would drop to null: a guidelines file that is
+ * not .md or .txt in `assertGuidelinesFile`'s words, anything else as a
+ * setting that has to be a full path. The words name the setting, never the
+ * path. Null, the usual folder or file, is taken.
+ */
+function refuseDroppedPath(patch: Partial<Settings>): void {
+  const key = droppedPathSetting(patch);
+  if (key === null) return;
+  if (key === 'guidelinesPath') {
+    const file: unknown = patch.guidelinesPath;
+    if (typeof file === 'string' && isAbsolutePath(file) && !hasNul(file)) assertGuidelinesFile(file);
+    throw fail(
+      'invalid-input',
+      'The guidelines file has to be a .md or .txt file named by its full path. Nothing was changed; choose another one in Settings.'
+    );
+  }
+  throw fail(
+    'invalid-input',
+    `The ${FOLDER_NAMES[key]} has to be named by its full path, from a drive or a network share. Nothing was changed; choose it again in Settings.`
   );
 }
 
@@ -137,6 +174,7 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
   }
 
   async function save(patch: Partial<Settings>): Promise<Settings> {
+    refuseDroppedPath(patch);
     let current = cached;
     if (!current) {
       // Either nothing has been read yet, or the last read failed. Read again,

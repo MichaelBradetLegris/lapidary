@@ -633,6 +633,33 @@ describe('saveReview writes only where the review belongs', () => {
     expect(saved.endsWith('.review.json')).toBe(true);
     expect(await missing(notes)).toBe(true);
   });
+
+  it('refuses a review whose time holds a NUL at once, rather than look for a free name for ever', async () => {
+    // Every look at such a name fails before it reaches the disk, so the search
+    // this guards against never let a timer run, and no timeout could end it
+    // (hardening.8 review). The spy ends it after 20 looks instead, by saying
+    // the name is free, and the count fails the test.
+    const NUL = '\u0000';
+    const real = fs.access.bind(fs);
+    let looks = 0;
+    const access = vi.spyOn(fs, 'access').mockImplementation(((target: string, mode?: number) => {
+      if (typeof target === 'string' && target.includes(NUL)) {
+        looks += 1;
+        if (looks > 20)
+          return Promise.reject(Object.assign(new Error('ENOENT: not there'), { code: 'ENOENT' }));
+      }
+      return real(target, mode);
+    }) as typeof fs.access);
+    try {
+      await expect(saveReview(root, make(source, `2026-10-20T10${NUL}00.000Z`))).rejects.toMatchObject({
+        code: 'ERR_INVALID_ARG_VALUE'
+      });
+    } finally {
+      access.mockRestore();
+    }
+    expect(looks).toBe(1);
+    expect(await fs.readdir(path.join(root, 'chapter-12'))).toEqual([]);
+  });
 });
 
 describe('a review written by 0.1.0', () => {
@@ -882,6 +909,27 @@ describe('a review file that cannot be read (apply.25)', () => {
     // Readable again: written in place, and still the review the chapter opens with.
     expect((await saveReview(root, decided, newer)).path).toBe(newer);
     expect((await loadLatestReview(root, source))?.review.decidedAt).toBe('2026-09-09T00:00:00.000Z');
+    expect(await fs.readdir(folder())).toHaveLength(Object.keys(before).length);
+  });
+
+  it('is not passed over for the next name when the review is saved again without its path (hardening.8 review)', async () => {
+    const review = make(source, T1, [pendingHunk]);
+    const { path: saved } = await saveReview(root, review);
+    const before = await snapshot();
+    const decided = { ...review, decidedAt: '2026-09-09T00:00:00.000Z' };
+    const held = hold(saved);
+    try {
+      const shown = toAppError(await failure(saveReview(root, decided)));
+      expect(shown.message).toBe(
+        explainReadError(busy(saved), `the review file ${path.basename(saved)}`, process.platform)
+      );
+    } finally {
+      held.mockRestore();
+    }
+    // No `-2` copy that would open in its place.
+    expect(await snapshot()).toEqual(before);
+    // Readable again: the review lands on its own entry.
+    expect((await saveReview(root, decided)).path).toBe(saved);
     expect(await fs.readdir(folder())).toHaveLength(Object.keys(before).length);
   });
 });
