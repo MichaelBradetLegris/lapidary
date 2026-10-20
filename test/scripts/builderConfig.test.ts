@@ -10,8 +10,9 @@ import { APP_ID, APP_NAME, APP_REPOSITORY } from '../../src/shared/branding';
  * one-click per-user NSIS installer for x64, with no portable exe (11.0); a
  * GitHub publish block from APP_REPOSITORY, which the build writes into
  * resources/app-update.yml for the updater; nothing unpacked from the asar,
- * since no Anthropic package is a dependency (C.42); and only the en-US
- * locale file of Chromium's.
+ * since no Anthropic package is a dependency (C.42); and only Chromium's en-US
+ * and en-GB locale files, the second so that a Windows in British English keeps
+ * day-first dates and a British spelling check (C.90).
  */
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -62,9 +63,9 @@ describe('electron-builder config (release.4)', () => {
     });
   });
 
-  it('unpacks nothing from the asar and keeps only the en-US locale file', () => {
+  it('unpacks nothing from the asar and keeps only the en-US and en-GB locale files', () => {
     expect(builder).not.toHaveProperty('asarUnpack');
-    expect(builder.electronLanguages).toEqual(['en-US']);
+    expect(builder.electronLanguages).toEqual(['en-US', 'en-GB']);
   });
 
   it('keeps the package name that names the install folder and the updater cache', () => {

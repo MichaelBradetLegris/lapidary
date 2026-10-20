@@ -53,11 +53,21 @@ module.exports = {
     { from: 'resources/GUIDELINES.default.md', to: 'GUIDELINES.default.md' },
     { from: 'resources/icon/icon-256.png', to: 'icon.png' }
   ],
-  // Only en-US.pak, the locale Chromium falls back on; the other 54 locale
-  // files are 47.7 MiB. The page's locale is then en-US on every system, so
-  // History's dates and the review dialog's word count follow US conventions
-  // and Chromium's own messages are in English, like the app's (C.90).
-  electronLanguages: ['en-US'],
+  // Only en-US.pak, the locale Chromium falls back on, and en-GB.pak; the
+  // other 53 locale files are 47.2 MiB. Chromium takes the page's locale from
+  // Windows's display language among the files it has, and the spelling
+  // check's language from that locale, since main never sets one. A Windows
+  // in British English, or in an English Chromium maps to it (Irish,
+  // Australian, New Zealand, Indian, South African or Canadian), gets en-GB:
+  // day-first dates in History and a British spelling check in the boxes
+  // where the author edits a paragraph or a suggestion. Every other Windows
+  // gets en-US: US dates, the review dialog's word count written the US way
+  // and a US spelling check, even in French or German. en-US alone would have
+  // given British writers a US spelling check on a new install, underlining
+  // "colour" and "realise". The spelling language is stored in userData on
+  // the first run and kept after that. Chromium's own messages are in
+  // English, like the app's (C.90).
+  electronLanguages: ['en-US', 'en-GB'],
   // Where installed copies look for updates: the releases of APP_REPOSITORY.
   // A draft is invisible to the updater until the author publishes it.
   publish: [{ provider: 'github', owner, repo, releaseType: 'draft' }],

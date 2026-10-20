@@ -19,7 +19,8 @@ import { unsavedPhrase } from './save';
 
 /**
  * A review's date as History shows it: the date and time format of the page's
- * locale, which a packaged build makes en-US on every system (C.90), or the
+ * locale, which a packaged build makes en-GB on a Windows in British English
+ * or an English Chromium maps to it and en-US on every other (C.90), or the
  * stored text when it is not a readable time. The review selector
  * (`reviewPicker`) and the questions that name a review by its date use the
  * same words, so the author can find the one they mean in History.

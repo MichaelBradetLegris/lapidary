@@ -89,8 +89,8 @@ Work towards 1.0.
 - When you have not chosen an OpenAI model, reviews use the newest full GPT-5 your key can use, such as gpt-5.5, then the newest GPT-5 mini, then nano. A pro, codex or chat model is chosen for you only when your key can use no other, and a pro model only when it can use nothing else, though you can still pick any of them from the list; the newest GPT-5 of any kind used to be chosen, which could be a pro model that costs several times as much.
 - An OpenAI review refused because your OpenAI organisation has not been verified now says so and what to do: verify it with Verify Organization at https://platform.openai.com/settings/organization/general, wait up to 15 minutes, and try again, or choose another model. It used to show OpenAI's own message and say that the model or the effort level may not be available, or, for a model OpenAI lets only verified organisations use, that the API key had been rejected.
 - OpenAI is labelled experimental, as it has been tested only with a stand-in for OpenAI's service, not with a real key. The review dialog's provider list reads "OpenAI (API key, experimental)", and while OpenAI is chosen a note under it says what that means; in Settings the key's row reads "OpenAI API key (experimental)".
-- The Windows installer, now `Lapidary-Setup-<version>.exe`, installs in one click: it asks no questions and needs no administrator rights, installs for your Windows account only, adds a Start menu entry and a desktop shortcut, and starts Lapidary when it is done. There is no portable exe any more, as it unpacked the whole app again at every start and could not be updated.
-- A review's date, in History, in the side panel's list of reviews and in the questions that name a review, is written the US way, as in 10/20/2026, 3:30:00 PM, whatever language Windows uses, and so is the word count in Review with AI. The app now carries only Electron's US English language file, which makes the installer smaller.
+- The Windows installer, now `Lapidary-Setup-<version>.exe`, installs in one click: it asks no questions and needs no administrator rights, installs for your Windows account only, adds a Start menu entry and a desktop shortcut, and starts Lapidary when it is done.
+- On a Windows whose display language is not English, such as French or German, a review's date, in History, in the side panel's list of reviews and in the questions that name a review, is now written the US way, as in 10/20/2026, 3:30:00 PM, and so is the word count in Review with AI. On a new install there, the spelling check in the boxes where you edit a paragraph or a suggestion checks US English, where it used to check that language; an install you already have keeps the language it checked. Windows in US English is unchanged, and so is Windows in British English or in another English that Lapidary treats as British, such as Irish, Australian, New Zealand, Indian, South African or Canadian English, which keeps dates like 20/10/2026, 15:30:00 and a British spelling check. Lapidary now carries only Electron's US and British English language files, which makes the installer smaller.
 
 ### Fixed
 
@@ -148,6 +148,7 @@ Work towards 1.0.
 ### Removed
 
 - The copy of Claude Code that came inside the app with the Claude Agent SDK. Install Claude Code with Anthropic's installer; the Setup screen shows how.
+- The portable exe. It unpacked the whole app again at every start and could not be updated; use the installer, which needs no administrator rights.
 
 ## [0.1.0] - 2026-09-27
 
