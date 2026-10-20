@@ -38,6 +38,7 @@ import { NotificationCards } from './components/NotificationCards';
 import { ReviewDialog } from './components/ReviewDialog';
 import { ReviewPane } from './components/ReviewPane';
 import { SettingsDialog } from './components/SettingsDialog';
+import { SettingsUnreadable } from './components/SettingsUnreadable';
 import { SetupScreen } from './components/SetupScreen';
 import { SidePanel } from './components/SidePanel';
 import { StatusBar } from './components/StatusBar';
@@ -54,6 +55,7 @@ import { noteMergeMarkers } from './state/mergeMarkers';
 import { useKeyboardBindings } from './state/keyboard';
 import { useProgressLabel } from './state/progress';
 import { reviewWithoutSaving, saveThenReview } from './state/reviewStart';
+import { readSettings, useSettingsRead, type SettingsReadIo } from './state/settingsRead';
 import { useApp, type NotificationAction } from './state/store';
 import { closeWelcome, reopenWelcome, type WelcomeIo } from './state/welcome';
 import {
@@ -77,6 +79,11 @@ const DRAFT_IO: DraftIo = {
 /** How a one-time hint is put away for good (apply.12, state/hints.ts). */
 const HINT_IO: HintIo = {
   setSettings: (patch) => call('settings:set', patch)
+};
+
+/** How the page asks main for the settings (hardening.15, state/settingsRead.ts). */
+const SETTINGS_READ_IO: SettingsReadIo = {
+  getSettings: () => call('settings:get', undefined)
 };
 
 /** How Start, Skip and Show the welcome guide again write the settings (setup.11, state/welcome.ts). */
@@ -124,6 +131,9 @@ export function App(): React.JSX.Element {
   const diagnosticsOpen = useApp((s) => s.diagnosticsOpen);
   const setDiagnosticsOpen = useApp((s) => s.setDiagnosticsOpen);
   const welcomeClosed = useApp((s) => s.welcomeClosed);
+  const settingsReadFailed = useSettingsRead((s) => s.failed);
+  const settingsTrying = useSettingsRead((s) => s.trying);
+  const settingsFailedAgain = useSettingsRead((s) => s.failedAgain);
   const chapterSaving = useApp((s) => s.chapterSaving);
   const questionOpen = useApp((s) => s.confirmSpec !== null);
 
@@ -257,14 +267,25 @@ export function App(): React.JSX.Element {
     void refreshIndex();
   }, [refreshIndex]);
 
+  /* The settings, as the page loads and from the card's Try again
+     (`readSettings`). While settings.json cannot be read, main hands the page
+     none and the store keeps none, so the card below stands in place of
+     everything else, and nothing that assumes a first run shows or writes
+     (hardening.15, C.86). */
+  const loadSettings = useCallback(
+    (again: boolean) => {
+      void readSettings(SETTINGS_READ_IO, again)
+        .then((read) => {
+          if (read) refreshFiles();
+        })
+        .catch(fail);
+    },
+    [refreshFiles, fail]
+  );
+
   useEffect(() => {
-    call('settings:get', undefined)
-      .then((loaded) => {
-        setSettings(loaded);
-        refreshFiles();
-      })
-      .catch(fail);
-  }, [setSettings, refreshFiles, fail]);
+    loadSettings(false);
+  }, [loadSettings]);
 
   /* History lists the chapter on screen, so a reply for a chapter the author
      has left since is dropped (apply.3). */
@@ -1029,6 +1050,30 @@ export function App(): React.JSX.Element {
     ),
     question: questionOpen
   });
+
+  /* settings.json could not be read (hardening.15, C.86): one card says so,
+     with Try again, in place of everything else, the toolbar and the status
+     bar too, whose buttons lead to Settings, Setup and the rest, none of which
+     has settings to work from. The notification cards stay, for a Try again
+     whose request fails, and so does the question, for a close. A read that
+     works puts the settings in the store, and the page is drawn as usual. */
+  if (settingsReadFailed && settings === null) {
+    return (
+      <div className="app-shell">
+        <div className="app-shell__page" inert={inert.page}>
+          <div className="body body--single">
+            <NotificationCards onAction={onCardAction} />
+            <SettingsUnreadable
+              trying={settingsTrying}
+              failedAgain={settingsFailedAgain}
+              onTryAgain={() => loadSettings(true)}
+            />
+          </div>
+        </div>
+        <ConfirmDialog />
+      </div>
+    );
+  }
 
   /* The Setup screen, or the welcome guide, in place of the chapter list, the
      prose and the side panel (setup.7, setup.11). Setup comes first, so the

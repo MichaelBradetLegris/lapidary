@@ -15,6 +15,15 @@ export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: AppError
 /* Payload shapes                                                      */
 /* ------------------------------------------------------------------ */
 
+/**
+ * `settings:get`'s answer (hardening.15, PLAN C.86): the settings as main read
+ * them, or, while settings.json is there but cannot be read, or is not JSON
+ * and cannot be copied aside, no settings and `readFailed`, never the error.
+ * Handed the defaults, the page would show the welcome guide and write lists
+ * built from them over the author's once the file could be read.
+ */
+export type SettingsAnswer = { readFailed: false; settings: Settings } | { readFailed: true; settings: null };
+
 export interface ChapterFile {
   path: string;
   /** path relative to the manuscript folder, using forward slashes */
@@ -524,7 +533,7 @@ export type FlushReason =
 /* ------------------------------------------------------------------ */
 
 export interface ApiRequestMap {
-  'settings:get': { request: void; response: Settings };
+  'settings:get': { request: void; response: SettingsAnswer };
   'settings:set': { request: Partial<Settings>; response: Settings };
   'settings:effective': { request: void; response: EffectivePaths };
   'dialog:pick-folder': { request: { title: string; defaultPath?: string }; response: string | null };

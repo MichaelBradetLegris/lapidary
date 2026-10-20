@@ -1,10 +1,11 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AppFailure } from '../../src/main/errors';
 import { assertGuidelinesFile } from '../../src/main/guidelines';
-import { SETTINGS_FILE, createSettingsStore } from '../../src/main/settingsStore';
+import { SETTINGS_FILE, createSettingsStore, settingsAnswer } from '../../src/main/settingsStore';
+import { APP_NAME } from '../../src/shared/branding';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
 
 /* hardening.3a: the store never overwrites a settings.json it could not read. */
@@ -288,5 +289,209 @@ describe('a save naming a folder or guidelines file the app cannot use', () => {
       reviewsFolder: null,
       guidelinesPath: null
     });
+  });
+});
+
+/* hardening.15: a load says when settings.json could not be read, so
+   settings:get can hand the page no settings, and a corrupt file whose copy
+   cannot be made is a file that could not be read: nothing is cached, and a
+   save is refused while no copy has been made. */
+describe('a settings.json that could not be read (hardening.15)', () => {
+  const AUTHOR = `${JSON.stringify(
+    {
+      manuscriptFolder: 'C:\\Novel',
+      model: 'opus',
+      effort: 'medium',
+      onboardingDone: true,
+      dismissedHints: ['save-to-chapter']
+    },
+    null,
+    2
+  )}\n`;
+
+  /** A logger that keeps each line as `level event k=v ...`. */
+  function lines(): {
+    seen: string[];
+    logger: (level: string, event: string, fields?: Record<string, unknown>) => void;
+  } {
+    const seen: string[] = [];
+    return {
+      seen,
+      logger: (level, event, fields = {}) =>
+        seen.push(
+          [`${level} ${event}`, ...Object.entries(fields).map(([k, v]) => `${k}=${String(v)}`)].join(' ')
+        )
+    };
+  }
+
+  function denied(): Error {
+    return Object.assign(new Error('EACCES: permission denied, copyfile'), { code: 'EACCES' });
+  }
+
+  it("says so for a file another program holds, and settings:get's answer is the flag alone", async () => {
+    const dir = scratch();
+    writeFileSync(path.join(dir, SETTINGS_FILE), AUTHOR);
+    const log = lines();
+    const store = createSettingsStore({
+      dir,
+      sleep: noWait,
+      readFile: () => Promise.reject(busy()),
+      logger: log.logger
+    });
+    const read = await store.loadChecked();
+    expect(read).toEqual({ settings: DEFAULT_SETTINGS, readFailed: true });
+    const answer = settingsAnswer(read);
+    expect(answer).toEqual({ readFailed: true, settings: null });
+    expect(JSON.stringify(answer)).not.toMatch(/EBUSY|busy|locked|Novel/);
+    expect(log.seen).toEqual(['warn settings.read-failed code=EBUSY']);
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(AUTHOR);
+  });
+
+  it('says it was read for a file that reads, one that is missing and a corrupt one copied aside', async () => {
+    const ok = scratch();
+    writeFileSync(path.join(ok, SETTINGS_FILE), AUTHOR);
+    const read = await createSettingsStore({ dir: ok, sleep: noWait }).loadChecked();
+    expect(read.readFailed).toBe(false);
+    expect(read.settings).toMatchObject({
+      model: 'opus',
+      effort: 'medium',
+      dismissedHints: ['save-to-chapter']
+    });
+    expect(settingsAnswer(read)).toEqual({ readFailed: false, settings: read.settings });
+
+    const missing = await createSettingsStore({ dir: scratch(), sleep: noWait }).loadChecked();
+    expect(missing).toEqual({ settings: DEFAULT_SETTINGS, readFailed: false });
+
+    const corrupt = scratch();
+    writeFileSync(path.join(corrupt, SETTINGS_FILE), 'not json');
+    const copied = await createSettingsStore({ dir: corrupt, sleep: noWait, now: at }).loadChecked();
+    expect(copied).toEqual({ settings: DEFAULT_SETTINGS, readFailed: false });
+    expect(readdirSync(corrupt)).toContain(`${SETTINGS_FILE}.corrupt-20261014090507`);
+  });
+
+  it('reads the file again after a read that failed, and then has what it says, with nothing written', async () => {
+    const dir = scratch();
+    writeFileSync(path.join(dir, SETTINGS_FILE), AUTHOR);
+    let locked = true;
+    let writes = 0;
+    const store = createSettingsStore({
+      dir,
+      sleep: noWait,
+      readFile: (file) => (locked ? Promise.reject(busy()) : Promise.resolve(readFileSync(file, 'utf8'))),
+      writeFile: (file, bytes) => {
+        writes += 1;
+        writeFileSync(file, bytes);
+        return Promise.resolve();
+      }
+    });
+    expect((await store.loadChecked()).readFailed).toBe(true);
+    locked = false;
+    const read = await store.loadChecked();
+    expect(read.readFailed).toBe(false);
+    expect(read.settings).toMatchObject({
+      manuscriptFolder: 'C:\\Novel',
+      model: 'opus',
+      onboardingDone: true
+    });
+    expect(writes).toBe(0);
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(AUTHOR);
+  });
+
+  it('treats a corrupt file whose copy fails as one that could not be read: nothing cached, a save refused, the file kept', async () => {
+    const dir = scratch();
+    const corrupt = '{ "manuscriptFolder": "C:/Novel", oops';
+    writeFileSync(path.join(dir, SETTINGS_FILE), corrupt);
+    const log = lines();
+    let copies = 0;
+    let failing = true;
+    let writes = 0;
+    const store = createSettingsStore({
+      dir,
+      sleep: noWait,
+      now: at,
+      logger: log.logger,
+      copyFile: (from, to, mode) => {
+        copies += 1;
+        if (failing) return Promise.reject(denied());
+        copyFileSync(from, to, mode);
+        return Promise.resolve();
+      },
+      writeFile: (file, bytes) => {
+        writes += 1;
+        writeFileSync(file, bytes);
+        return Promise.resolve();
+      }
+    });
+
+    expect(await store.loadChecked()).toEqual({ settings: DEFAULT_SETTINGS, readFailed: true });
+    // Not cached: the next load reads the file and tries the copy again.
+    expect(await store.load()).toEqual(DEFAULT_SETTINGS);
+    expect(copies).toBe(2);
+    await expect(store.save({ zoom: 1.5 })).rejects.toMatchObject({
+      code: 'io',
+      message: `Settings could not be saved, because settings.json could not be read and no copy of it could be made, so saving would lose what it holds. ${APP_NAME}'s log says why the copy failed.`
+    });
+    expect(copies).toBe(3);
+    expect(writes).toBe(0);
+    expect(readdirSync(dir)).toEqual([SETTINGS_FILE]);
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(corrupt);
+    expect(log.seen).toEqual([
+      'warn settings.unreadable kept=none code=EACCES',
+      'warn settings.unreadable kept=none code=EACCES',
+      'warn settings.unreadable kept=none code=EACCES',
+      'warn settings.save-refused kept=none'
+    ]);
+
+    // Once a copy can be made, the rule for a corrupt file holds again.
+    failing = false;
+    expect(await store.loadChecked()).toEqual({ settings: DEFAULT_SETTINGS, readFailed: false });
+    await store.save({ zoom: 1.5 });
+    const copy = `${SETTINGS_FILE}.corrupt-20261014090507`;
+    expect(readFileSync(path.join(dir, copy), 'utf8')).toBe(corrupt);
+    expect((JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')) as { zoom: number }).zoom).toBe(
+      1.5
+    );
+  });
+
+  it('refuses a save over a corrupt file it reads only then, when the copy fails', async () => {
+    const dir = scratch();
+    writeFileSync(path.join(dir, SETTINGS_FILE), 'not json');
+    const store = createSettingsStore({
+      dir,
+      sleep: noWait,
+      copyFile: () => Promise.reject(denied())
+    });
+    // No load first: the save reads the file itself.
+    await expect(store.save({ model: 'sonnet' })).rejects.toMatchObject({ code: 'io' });
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe('not json');
+    expect(readdirSync(dir)).toEqual([SETTINGS_FILE]);
+  });
+
+  it('treats a corrupt file whose twenty copy names are all taken in the same way, and logs it', async () => {
+    const dir = scratch();
+    writeFileSync(path.join(dir, SETTINGS_FILE), 'not json');
+    const base = `${SETTINGS_FILE}.corrupt-20261014090507`;
+    const names = [base, ...Array.from({ length: 19 }, (_, i) => `${base}-${i + 2}`)];
+    for (const name of names) writeFileSync(path.join(dir, name), `older copy ${name}`);
+    const log = lines();
+    let writes = 0;
+    const store = createSettingsStore({
+      dir,
+      sleep: noWait,
+      now: at,
+      logger: log.logger,
+      writeFile: () => {
+        writes += 1;
+        return Promise.resolve();
+      }
+    });
+
+    expect(await store.loadChecked()).toEqual({ settings: DEFAULT_SETTINGS, readFailed: true });
+    expect(log.seen).toEqual(['warn settings.unreadable kept=none code=EEXIST names=20']);
+    await expect(store.save({ model: 'sonnet' })).rejects.toMatchObject({ code: 'io' });
+    expect(writes).toBe(0);
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe('not json');
+    expect(readdirSync(dir).sort()).toEqual([SETTINGS_FILE, ...names].sort());
+    for (const name of names) expect(readFileSync(path.join(dir, name), 'utf8')).toBe(`older copy ${name}`);
   });
 });

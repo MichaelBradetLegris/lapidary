@@ -2412,6 +2412,21 @@ input[type='text'] {
   margin: 0 0 16px;
 }
 
+/* ---------- settings that could not be read (hardening.15) ---------- */
+
+/* One card in the Setup screen's scroller and centred column (.setup,
+   .setup__page), in the look of its warning status card, with the page's
+   heading inside it and Try again beside the words. */
+.settings-unreadable h1 {
+  margin-bottom: 8px;
+}
+
+/* A Try again that found the file still unreadable; empty until then, so
+   the line is read out when it changes. */
+.settings-unreadable__status {
+  font-weight: 600;
+}
+
 /* ---------- welcome guide (setup.11) ---------- */
 
 /* The guide uses the Setup screen's scroller and centred column (.setup,

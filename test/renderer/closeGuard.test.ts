@@ -1155,7 +1155,9 @@ describe('the wiring (apply.9)', () => {
     const layouts = [...app.matchAll(/return \(\s*<div className="app-shell">([\s\S]*?)\r?\n {2,4}\);/g)].map(
       (m) => m[1] ?? ''
     );
-    expect(layouts).toHaveLength(2);
+    // The main layout, the Setup screen's and the card of a settings.json
+    // that could not be read (hardening.15).
+    expect(layouts).toHaveLength(3);
     for (const layout of layouts) {
       // The main layout's page is inert under a dialog too, and under a
       // question through `shellInert` (ui.4, test/shared/dialog.test.ts).
@@ -1164,6 +1166,7 @@ describe('the wiring (apply.9)', () => {
       expect(layout).toMatch(/<ConfirmDialog \/>\s*<\/div>\s*$/);
     }
     expect(layouts.some((layout) => layout.includes('<SetupScreen'))).toBe(true);
+    expect(layouts.some((layout) => layout.includes('<SettingsUnreadable'))).toBe(true);
   });
 
   it('pushes in the same task: no await, timer or microtask before the send', () => {

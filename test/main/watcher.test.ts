@@ -500,8 +500,10 @@ describe('the list read that starts the watcher (files.21)', () => {
     expect(ipc).toContain(
       "handle('files:watching', () => Promise.resolve({ watching: watcher.watching() }));"
     );
-    // Settings starts the folder it holds, as before, and never tries a failed start again.
-    expect(ipc.match(/startWatching\(settings\.manuscriptFolder\);/g)).toHaveLength(2);
+    // Settings starts the folder it holds, as before, and never tries a failed start again;
+    // settings:get only after a read that worked (hardening.15).
+    expect(ipc.match(/startWatching\((?:read\.)?settings\.manuscriptFolder\);/g)).toHaveLength(2);
+    expect(ipc).toMatch(/if \(!read\.readFailed\) \{\s*startWatching\(read\.settings\.manuscriptFolder\);/);
     expect(ipc).not.toMatch(/\.ensure\(/);
   });
 });

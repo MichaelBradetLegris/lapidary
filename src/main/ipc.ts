@@ -77,10 +77,11 @@ import {
   reviewIndex,
   saveReview
 } from './reviews';
-import { loadSettings, saveSettings } from './settings';
+import { loadSettings, loadSettingsChecked, saveSettings } from './settings';
+import { settingsAnswer } from './settingsStore';
 import { applyTheme } from './theme';
 import { createManuscriptWatcher, listAndWatch } from './watcher';
-import { changeZoom } from './zoom';
+import { applyZoom, changeZoom } from './zoom';
 
 type Handler<C extends RequestChannel> = (payload: RequestPayload<C>) => Promise<ResponsePayload<C>>;
 
@@ -147,10 +148,19 @@ export function installIpcBridge(): void {
 }
 
 export function registerCoreHandlers(): void {
+  /* While settings.json cannot be read, the page is handed no settings, only
+     the flag, and the watcher is left as it is (hardening.15, C.86). A read
+     that works puts the author's theme and zoom back, which the window took
+     from the defaults when the file could not be read as it opened;
+     `applyTheme` and `applyZoom` change nothing already in effect. */
   handle('settings:get', async () => {
-    const settings = await loadSettings();
-    startWatching(settings.manuscriptFolder);
-    return settings;
+    const read = await loadSettingsChecked();
+    if (!read.readFailed) {
+      startWatching(read.settings.manuscriptFolder);
+      applyTheme(read.settings.theme);
+      applyZoom(read.settings.zoom);
+    }
+    return settingsAnswer(read);
   });
 
   handle('settings:set', async (patch) => {

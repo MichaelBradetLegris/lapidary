@@ -662,6 +662,84 @@ describe('saveReview writes only where the review belongs', () => {
   });
 });
 
+/* hardening.15: a new entry is named by the review's `createdAt`, so a `/` or
+   `\` in it, which only a review file edited by hand could hold, named a
+   subfolder of the chapter's folder: `a/b` landed in `a` once it had been
+   made, and `../c` in `--`. Such a time is refused before anything is made or
+   written. */
+describe("a review's time with a separator in it (hardening.15)", () => {
+  const source = 'C:/vault/Chapter 12.md';
+  const TIMES = ['a/b', 'a\\b', '../c'];
+
+  /** Every file and folder under the reviews folder, relative to it, with forward slashes. */
+  async function everything(dir = root, prefix = ''): Promise<string[]> {
+    const found: string[] = [];
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+      const name = `${prefix}${entry.name}`;
+      found.push(name);
+      if (entry.isDirectory()) found.push(...(await everything(path.join(dir, entry.name), `${name}/`)));
+    }
+    return found.sort();
+  }
+
+  async function refusal(review: Review, file?: string): Promise<AppFailure | null> {
+    return saveReview(root, review, file).then(
+      () => null,
+      (err: unknown) => err as AppFailure
+    );
+  }
+
+  it('is refused with invalid-input, naming the field and never the value, before the folder is made', async () => {
+    for (const time of TIMES) {
+      const err = await refusal(make(source, time));
+      expect(err, time).toBeInstanceOf(AppFailure);
+      expect(err?.code).toBe('invalid-input');
+      expect(err?.message).toBe(
+        `This review could not be saved: its time (createdAt) holds a / or \\, which a file name cannot hold. A review ${APP_NAME} makes never has one, so the review file may have been edited by hand.`
+      );
+      expect(err?.message).not.toContain(time);
+      expect(await everything()).toEqual([]);
+    }
+  });
+
+  it('writes nothing into a subfolder of that name made by hand, nor beside the chapter folder', async () => {
+    const folder = path.join(root, 'chapter-12');
+    // `a/b` and `a\b` would have named `a`; `../c`, its dots made dashes, `--`.
+    await fs.mkdir(path.join(folder, 'a'), { recursive: true });
+    await fs.mkdir(path.join(folder, '--'), { recursive: true });
+    const before = await everything();
+    expect(before).toEqual(['chapter-12', 'chapter-12/--', 'chapter-12/a']);
+    for (const time of TIMES) {
+      expect((await refusal(make(source, time)))?.code, time).toBe('invalid-input');
+      expect(await everything(), time).toEqual(before);
+    }
+  });
+
+  it('is refused when the path it is sent cannot be written over, which would start a new entry', async () => {
+    const foreign = path.join(root, 'elsewhere', 'x.review.json');
+    for (const time of TIMES) {
+      expect((await refusal(make(source, time), foreign))?.code, time).toBe('invalid-input');
+    }
+    expect(await everything()).toEqual([]);
+  });
+
+  it('still saves such a review over its own entry, whose name it does not give', async () => {
+    const { path: entry } = await saveReview(root, make(source, T1));
+    const before = await everything();
+    for (const time of TIMES) {
+      const edited = { ...make(source, T1), createdAt: time };
+      expect((await saveReview(root, edited, entry)).path).toBe(entry);
+      expect((await loadReviewFile(entry)).createdAt).toBe(time);
+      expect(await everything()).toEqual(before);
+    }
+  });
+
+  it("takes the app's own times, colons and dots made dashes", async () => {
+    const { path: saved } = await saveReview(root, make(source, '2026-10-20T09:15:42.123Z'));
+    expect(path.relative(root, saved)).toBe(path.join('chapter-12', '2026-10-20T09-15-42-123Z.review.json'));
+  });
+});
+
 describe('a review written by 0.1.0', () => {
   const FIXTURE = path.join(
     path.dirname(fileURLToPath(import.meta.url)),
