@@ -217,6 +217,9 @@ export function cloudHints(folder: string): string[] {
  * UTF-16"), its review file or its backup folder, and `frames` and `error`
  * can hold anything, so they stay in the log file only. A field not listed
  * here is left out, so one a later event adds stays out until it is listed.
+ * `reason`, `exitCode` and `outcome` (`renderer.gone`) and `components` (the
+ * app's own component names a render error happened in) came with
+ * hardening.4.
  */
 export const REPORT_WARNING_FIELDS: ReadonlySet<string> = new Set([
   'channel',
@@ -230,7 +233,11 @@ export const REPORT_WARNING_FIELDS: ReadonlySet<string> = new Set([
   'stopped',
   'kept',
   'names',
-  'durationMs'
+  'durationMs',
+  'reason',
+  'exitCode',
+  'outcome',
+  'components'
 ]);
 
 /** A log line's time, level and event, as `createLogger` (src/main/log.ts) writes them. */

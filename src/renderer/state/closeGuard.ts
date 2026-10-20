@@ -63,10 +63,23 @@ export interface CloseGuardDeps {
   cancelReview: () => void;
   /** how long the writes may take before the page asks; `WRITES_WAIT_MS` unless a test shortens it */
   writesWaitMs?: number;
+  /**
+   * What a close would put at risk, read from the store: `closeGuardStateOf`
+   * unless given, and `crashedPageState` on the page shown after a crash
+   * (hardening.4), which can offer no Save.
+   */
+  stateOf?: (state: GuardSlices) => CloseGuardState;
+  /**
+   * false when the page cannot show a question (hardening.4's last resort,
+   * with nothing drawn): each question is taken as answered Close anyway, so
+   * a close still gives the writes their time and then goes, rather than
+   * waiting for an answer nobody can give.
+   */
+  questions?: boolean;
 }
 
 /** The parts of the store a close puts at risk. */
-type GuardSlices = Pick<
+export type GuardSlices = Pick<
   AppState,
   | 'review'
   | 'drafts'
@@ -94,6 +107,27 @@ export function closeGuardStateOf(state: GuardSlices): CloseGuardState {
     reviewRunning: state.aiBusyPath !== null,
     writesPending: state.persistPending || state.draftWritesPending || state.chapterSaving,
     dialogText: hasDialogText(state)
+  };
+}
+
+/**
+ * What a close puts at risk once drawing the window has failed and the page
+ * shown in its place has taken the guard over (hardening.4, `CrashFallback`).
+ * Decisions are kept in their review and boxes in their drafts once written,
+ * and a crashed page cannot save to the chapter, so no chapter is named and
+ * nothing is counted as unsaved: what is left at risk is a write not yet made
+ * and a review still running. Text typed in a dialog went with the page.
+ */
+export function crashedPageState(state: GuardSlices): CloseGuardState {
+  const live = closeGuardStateOf(state);
+  return {
+    chapter: null,
+    unsavedDecisions: 0,
+    changedParagraphs: 0,
+    locked: false,
+    reviewRunning: live.reviewRunning,
+    writesPending: live.writesPending,
+    dialogText: false
   };
 }
 
@@ -132,12 +166,60 @@ let closeAsked = false;
 /** One of the run's questions is on screen. */
 let asking = false;
 
+/**
+ * Write what the writers hold after drawing the window failed (hardening.4,
+ * `CrashFallback`): failed writes queued again, then flushed, and why any is
+ * still not on disk, in the words of its card; empty when all is.
+ */
+export async function writeAfterCrash(writes: PageWrites): Promise<string[]> {
+  try {
+    writes.retry();
+    await writes.flush();
+  } catch {
+    // A writer that throws has said why in its failures, or has nothing to say.
+  }
+  return [...new Set(writes.failures())];
+}
+
+/**
+ * The page shown after a crash takes the close guard over from App
+ * (hardening.4) with `crashedPageState`: a question the failed page had open
+ * is answered Cancel first, since what it would go on to do belongs to that
+ * page (a close it held is then kept, and the next is asked of this page),
+ * and a crashed page offers no Save. `questions` is false when nothing can
+ * be drawn to ask them. Returns the uninstall.
+ */
+export function installCrashedPageGuard(
+  io: CloseGuardIo,
+  writes: PageWrites,
+  options: { questions: boolean }
+): () => void {
+  const open = useApp.getState();
+  if (open.confirmSpec) open.answerChoice('cancel');
+  return installCloseGuard({
+    io,
+    writes,
+    // Never called: a crashed page names no chapter, so no question offers Save.
+    save: () => Promise.resolve('failed'),
+    // The review's request belongs to the page that failed; quitting the app stops it.
+    cancelReview: () => undefined,
+    stateOf: crashedPageState,
+    questions: options.questions
+  });
+}
+
+/** What a close puts at risk now, as the installed guard reads it. */
+function stateNow(deps: CloseGuardDeps): CloseGuardState {
+  return (deps.stateOf ?? closeGuardStateOf)(useApp.getState());
+}
+
 function report(deps: CloseGuardDeps, status: CloseStatus): void {
   if (closeAsked) deps.io.sendStatus(status);
 }
 
 /** Ask one of the run's questions; main is told it is on screen. */
 async function ask(deps: CloseGuardDeps, spec: ConfirmSpec): Promise<ConfirmChoice> {
+  if (deps.questions === false) return 'alt';
   report(deps, 'prompting');
   asking = true;
   try {
@@ -168,8 +250,7 @@ function nextTask(): Promise<void> {
 async function raceWrites(deps: CloseGuardDeps): Promise<'written' | 'slow' | 'failed'> {
   deps.writes.retry();
   let over = false;
-  const more = (): boolean =>
-    !over && closeGuardStateOf(useApp.getState()).writesPending && deps.writes.failures().length === 0;
+  const more = (): boolean => !over && stateNow(deps).writesPending && deps.writes.failures().length === 0;
   const done = (async () => {
     await pendingSave();
     await deps.writes.flush();
@@ -204,7 +285,7 @@ async function raceWrites(deps: CloseGuardDeps): Promise<'written' | 'slow' | 'f
 async function writeEverything(deps: CloseGuardDeps): Promise<'written' | 'close-anyway'> {
   for (;;) {
     if ((await raceWrites(deps)) === 'written') return 'written';
-    const prompt = stillWritingPrompt(deps.writes.failures(), closeGuardStateOf(useApp.getState()));
+    const prompt = stillWritingPrompt(deps.writes.failures(), stateNow(deps));
     if ((await ask(deps, prompt)) === 'alt') return 'close-anyway';
   }
 }
@@ -226,7 +307,7 @@ async function decide(deps: CloseGuardDeps): Promise<boolean> {
     stopReview(deps);
     return true;
   }
-  const prompt = closePrompt(closeGuardStateOf(useApp.getState()));
+  const prompt = closePrompt(stateNow(deps));
   // Nothing to ask: the writes were all there was, and they are done.
   if (!prompt) return true;
 
@@ -307,8 +388,9 @@ export function prepareToLeaveApp(reason: LeaveAppReason): Promise<boolean> {
 export function installCloseGuard(deps: CloseGuardDeps): () => void {
   installed = deps;
   let last: CloseGuardState | null = null;
+  const stateOf = deps.stateOf ?? closeGuardStateOf;
   const push = (slices: GuardSlices): void => {
-    const next = closeGuardStateOf(slices);
+    const next = stateOf(slices);
     if (last && sameGuardState(last, next)) return;
     last = next;
     deps.io.pushState(next);

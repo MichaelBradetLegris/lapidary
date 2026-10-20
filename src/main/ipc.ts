@@ -27,6 +27,7 @@ import {
   setAsideFolderFor
 } from './drafts';
 import { collectAppInfo, openAiPackageVersion } from './appInfo';
+import { createRendererLog } from './crash';
 import { collectDiagnostics } from './diagnostics';
 import { fail } from './errors';
 import {
@@ -237,12 +238,23 @@ function displayFacts(settings: Settings): DisplayFacts {
 }
 
 /**
+ * The page's unexpected errors (hardening.4): only the fields main knows, at
+ * most 30 lines a minute (`createRendererLog`).
+ */
+const rendererLog = createRendererLog({ log });
+
+/**
  * Copy diagnostics and the versions (hardening.5). Neither runs a check of
  * Claude or OpenAI: they read what the last one found, so asking for them
  * costs nothing and logs no `ai.runtime`. The report is scrubbed here, where
- * the home folder is known, before it crosses to the page.
+ * the home folder is known, before it crosses to the page. The page's own
+ * errors come in here too, for the log (`log:renderer`, hardening.4).
  */
 function registerDiagnosticsHandlers(): void {
+  handle('log:renderer', (line) => {
+    rendererLog(line);
+    return Promise.resolve();
+  });
   handle('app:info', appInfo);
   handle('app:diagnostics', async () => {
     const data = await collectDiagnostics({

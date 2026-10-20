@@ -160,9 +160,11 @@ describe('keeping the split (ui.6, 11.3 d)', () => {
   });
 
   it('is waited for by a close, with the review, paragraph and hint writes', () => {
-    expect(APP).toContain(
+    // The page's writes moved to state/pageIo.ts with hardening.4, for the crash page too.
+    expect(read('renderer/state/pageIo.ts')).toContain(
       'Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites(), flushSplitWrites()])'
     );
+    expect(APP).toContain('writes: PAGE_WRITES,');
   });
 });
 

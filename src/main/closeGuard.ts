@@ -150,6 +150,12 @@ export interface CloseGuard<W extends GuardWindow> {
   onBeforeQuit(): void;
   /** The one quitting flag: set by `before-quit`, cleared when the author keeps the window. */
   isQuitting(): boolean;
+  /**
+   * Windows has said the session is ending (`session-end`): every close goes
+   * through at once, and nothing should be asked (hardening.4's Reload or
+   * Quit, PLAN 7.7).
+   */
+  isSessionEnding(): boolean;
 }
 
 /** `dialog.showMessageBox`'s options for the native box, apart from the signal. */
@@ -498,6 +504,7 @@ export function createCloseGuard<W extends GuardWindow>(deps: CloseGuardDeps<W>)
     onBeforeQuit: () => {
       quitting = true;
     },
-    isQuitting: () => quitting
+    isQuitting: () => quitting,
+    isSessionEnding: () => sessionEnding
   };
 }

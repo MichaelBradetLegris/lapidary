@@ -419,6 +419,21 @@ describe('warningLine', () => {
     );
   });
 
+  it("keeps what a crash line says went (hardening.4), never the error's words or frames", () => {
+    expect(
+      warningLine(
+        '2026-10-20T08:10:00.000Z WARN renderer.gone reason=crashed exitCode=-1073741819 outcome=offer'
+      )
+    ).toBe('2026-10-20T08:10:00.000Z WARN renderer.gone reason=crashed exitCode=-1073741819 outcome=offer');
+    expect(
+      warningLine(
+        '2026-10-20T08:10:00.000Z ERROR renderer.render-failed name=TypeError message="Heron.md" frames="at StatusBar (file:///D:/app.js:1:2)" components="StatusBar < App < ErrorBoundary"'
+      )
+    ).toBe(
+      '2026-10-20T08:10:00.000Z ERROR renderer.render-failed name=TypeError components="StatusBar < App < ErrorBoundary"'
+    );
+  });
+
   it('reads a quoted value to its end, so a field named inside a message is not taken for one', () => {
     expect(
       warningLine(

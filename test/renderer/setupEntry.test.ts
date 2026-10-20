@@ -302,16 +302,19 @@ describe('Copy diagnostics, from Setup and from a card (hardening.5)', () => {
 
   it('asks main once as it opens, copies the report it got, and only once on its own', () => {
     const dialog = read('components/DiagnosticsDialog.tsx');
-    expect(dialog).toContain("call('app:diagnostics', undefined)");
+    // The report's request and copy moved to a hook with hardening.4, which the crash page shares.
+    const report = read('state/diagnosticsReport.ts');
+    expect(dialog).toContain('const report = useDiagnosticsReport(copyOnOpen);');
+    expect(report).toContain("call('app:diagnostics', undefined)");
     // Only the latest answer counts, so what is shown is what was copied (StrictMode asks twice).
-    expect(dialog).toMatch(
+    expect(report).toMatch(
       /useEffect\(\(\) => \{\s*fetchReport\(\);\s*return \(\) => \{\s*latest\.current \+= 1;/
     );
-    expect(dialog).toMatch(/if \(request === latest\.current\) setText\(report\.text\);/);
-    expect(dialog).toMatch(
-      /if \(!copyOnOpen \|\| text === null \|\| copiedOnOpen\.current\) return;\s*copiedOnOpen\.current = true;\s*copy\(text\);/
+    expect(report).toMatch(/if \(request === latest\.current\) setText\(report\.text\);/);
+    expect(report).toMatch(
+      /if \(!copyOnOpen \|\| text === null \|\| copiedOnOpen\.current\) return;\s*copiedOnOpen\.current = true;\s*copyText\(text\);/
     );
-    expect(dialog).toContain('navigator.clipboard.writeText(report)');
+    expect(report).toContain('navigator.clipboard.writeText(report)');
     expect(dialog).toContain('useDialogEscape(boxRef, onClose);');
     expect(dialog).toContain('useDialogFocus(boxRef, DIAGNOSTICS_LINK_SELECTOR, copyRef);');
   });

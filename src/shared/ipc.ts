@@ -334,6 +334,28 @@ export interface DiagnosticsReport {
   text: string;
 }
 
+/** Which kind of error the page did not expect (`log:renderer`, hardening.4). */
+export type RendererErrorKind =
+  /** an error nothing caught: a window `error` event */
+  | 'error'
+  /** a promise rejected with no handler: a window `unhandledrejection` event */
+  | 'rejection'
+  /** drawing the page failed and the error boundary caught it, so the window shows its fallback */
+  | 'render'
+  /** drawing the page failed past the error boundary (React's `onUncaughtError`) */
+  | 'render-uncaught';
+
+/**
+ * One line the page asks main to log (`log:renderer`, hardening.4): what
+ * kind of error, and its loggable fields (`pageErrorFields`), scalars only.
+ * Main keeps only the fields in `RENDERER_LOG_FIELDS`, scrubs them as it
+ * writes them, and writes at most 30 such lines a minute.
+ */
+export interface RendererLogLine {
+  kind: RendererErrorKind;
+  fields: Record<string, string | number | boolean | null>;
+}
+
 /** How "Open" opens the guidelines file: in Obsidian, or in the system's app for .md (setup.10). */
 export type OpenGuidelinesVia = 'obsidian' | 'default';
 
@@ -578,6 +600,8 @@ export interface ApiRequestMap {
    * new check of Claude or OpenAI, and nothing of the chapters but their count
    */
   'app:diagnostics': { request: void; response: DiagnosticsReport };
+  /** an error the page did not expect, for the log (hardening.4); main writes at most 30 a minute */
+  'log:renderer': { request: RendererLogLine; response: void };
 }
 
 export type RequestChannel = keyof ApiRequestMap;
@@ -627,7 +651,8 @@ const REQUEST_CHANNEL_FLAGS = {
   'app:close-status': true,
   'app:close-decision': true,
   'app:info': true,
-  'app:diagnostics': true
+  'app:diagnostics': true,
+  'log:renderer': true
 } as const satisfies Record<RequestChannel, true>;
 
 export const REQUEST_CHANNELS: readonly RequestChannel[] = Object.keys(

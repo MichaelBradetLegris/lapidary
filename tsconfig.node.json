@@ -23,6 +23,7 @@
     "src/renderer/state/welcome.ts",
     "src/renderer/state/hover.ts",
     "src/renderer/state/mergeMarkers.ts",
+    "src/renderer/state/errorReport.ts",
     "scripts/**/*.ts",
     "test/**/*.ts",
     "electron.vite.config.ts",

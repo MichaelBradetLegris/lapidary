@@ -18,6 +18,11 @@ interface Props {
   onRetry: () => void;
   /** the Copy button, which the dialog focuses as it opens */
   copyRef?: Ref<HTMLButtonElement>;
+  /**
+   * Copy is the blue button, as in the Diagnostics dialog; false on the page
+   * shown after a crash, where Reload window is (hardening.4)
+   */
+  copyPrimary?: boolean;
 }
 
 /**
@@ -34,14 +39,20 @@ export function DiagnosticsPanel({
   copyState,
   onCopy,
   onRetry,
-  copyRef
+  copyRef,
+  copyPrimary = true
 }: Props): React.JSX.Element {
   const line = diagnosticsCopyLine(copyState);
   return (
     <div className="diagnostics">
       <p className="modal__hint">{DIAGNOSTICS_INTRO}</p>
       <div className="diagnostics__copy">
-        <button type="button" className="primary" ref={copyRef} {...heldButton(text === null, onCopy)}>
+        <button
+          type="button"
+          {...(copyPrimary ? { className: 'primary' } : {})}
+          ref={copyRef}
+          {...heldButton(text === null, onCopy)}
+        >
           {COPY_DIAGNOSTICS}
         </button>
         <span

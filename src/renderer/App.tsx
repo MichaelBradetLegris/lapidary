@@ -21,7 +21,7 @@ import { welcomeNotKept, welcomeShown } from '../shared/ui/welcome';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
 import { bodyClassName, columnClassName } from '../shared/ui/columns';
 import { shellInert } from '../shared/ui/dialog';
-import type { ApiEventMap, ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
+import type { ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
 import { PROVIDER_NAMES, type Provider, type Review } from '../shared/types';
 import { ColumnStrip } from './components/ColumnStrip';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -44,22 +44,11 @@ import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { ApiError, call, errorMessage } from './state/client';
-import {
-  installCloseGuard,
-  type CloseGuardDeps,
-  type CloseGuardIo,
-  type PageWrites
-} from './state/closeGuard';
-import {
-  draftWriteFailures,
-  flushDraftWrites,
-  installDraftPersistence,
-  retryDraftWrites,
-  type DraftIo
-} from './state/drafts';
+import { installCloseGuard, type CloseGuardDeps } from './state/closeGuard';
+import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state/drafts';
 import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
-import { dismissHint, flushHintWrites, type HintIo } from './state/hints';
-import { flushSplitWrites } from './state/split';
+import { dismissHint, type HintIo } from './state/hints';
+import { CLOSE_GUARD_IO, PAGE_WRITES } from './state/pageIo';
 import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { noteMergeMarkers } from './state/mergeMarkers';
 import { useKeyboardBindings } from './state/keyboard';
@@ -73,7 +62,6 @@ import {
   markReviewPersistedState,
   retryReviewWrites,
   reviewWriteFailureOf,
-  reviewWriteFailures,
   writeReviewNow
 } from './state/reviewPersistence';
 import { baseFrom, useSaveChapter, type SaveDeps } from './state/saveChapter';
@@ -86,27 +74,6 @@ const DRAFT_IO: DraftIo = {
   setAside: (request) => call('drafts:set-aside', request)
 };
 
-/** Listen to one of main's events, or to nothing outside the app window. */
-function onMain<E extends 'app:close-requested' | 'app:flush'>(
-  event: E,
-  listener: (payload: ApiEventMap[E]) => void
-): () => void {
-  return typeof window.api?.on === 'function' ? window.api.on(event, listener) : () => undefined;
-}
-
-/**
- * How the close guard reaches main (apply.9, state/closeGuard.ts). `call`
- * sends before its first await, so each message is on its way when this
- * returns: a close right after a decision already finds it pushed.
- */
-const CLOSE_GUARD_IO: CloseGuardIo = {
-  pushState: (state) => void call('app:guard-state', state).catch(() => undefined),
-  sendStatus: (status) => void call('app:close-status', { status }).catch(() => undefined),
-  sendDecision: (close) => void call('app:close-decision', { close }).catch(() => undefined),
-  onCloseRequested: (listener) => onMain('app:close-requested', () => listener()),
-  onFlush: (listener) => onMain('app:flush', ({ reason }) => listener(reason))
-};
-
 /** How a one-time hint is put away for good (apply.12, state/hints.ts). */
 const HINT_IO: HintIo = {
   setSettings: (patch) => call('settings:set', patch)
@@ -115,25 +82,6 @@ const HINT_IO: HintIo = {
 /** How Start, Skip and Show the welcome guide again write the settings (setup.11, state/welcome.ts). */
 const WELCOME_IO: WelcomeIo = {
   setSettings: (patch) => call('settings:set', patch)
-};
-
-/**
- * The review and paragraph writers, which a close and the end of a session
- * write out (apply.9), and a hint put away just before, such as the Save hint
- * that Save and close puts away (apply.12), and the side panel's split moved
- * just before (ui.6). A hint or a split that cannot be written is not
- * reported: the hint shows again at the next start, which has the split last
- * written.
- */
-const PAGE_WRITES: PageWrites = {
-  flush: async () => {
-    await Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites(), flushSplitWrites()]);
-  },
-  retry: () => {
-    retryReviewWrites();
-    retryDraftWrites();
-  },
-  failures: () => [...reviewWriteFailures(), ...draftWriteFailures()]
 };
 
 /**

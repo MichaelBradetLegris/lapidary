@@ -5,11 +5,14 @@ import { unsavedDecisionCount } from '../../src/shared/diff/compose';
 import type { CloseGuardState, SaveRequest, SaveResponse } from '../../src/shared/ipc';
 import { createReview } from '../../src/shared/review';
 import type { Review } from '../../src/shared/types';
-import { closePrompt, stillWritingPrompt, WRITES_WAIT_MS } from '../../src/shared/ui/save';
+import { closePrompt, needsAttention, stillWritingPrompt, WRITES_WAIT_MS } from '../../src/shared/ui/save';
 import {
   closeGuardStateOf,
+  crashedPageState,
   installCloseGuard,
+  installCrashedPageGuard,
   prepareToLeaveApp,
+  writeAfterCrash,
   type CloseGuardDeps,
   type PageWrites
 } from '../../src/renderer/state/closeGuard';
@@ -95,6 +98,8 @@ function harness(
     /** a writer behind the stand-in, which still counts and holds its flushes */
     writes?: PageWrites;
     writesWaitMs?: number;
+    /** what a close puts at risk, as the page shown after a crash reads it (hardening.4) */
+    stateOf?: CloseGuardDeps['stateOf'];
   } = {}
 ): Harness {
   const h: Harness = {
@@ -157,7 +162,8 @@ function harness(
     cancelReview: () => {
       h.cancels += 1;
     },
-    ...(options.writesWaitMs !== undefined ? { writesWaitMs: options.writesWaitMs } : {})
+    ...(options.writesWaitMs !== undefined ? { writesWaitMs: options.writesWaitMs } : {}),
+    ...(options.stateOf ? { stateOf: options.stateOf } : {})
   };
   h.uninstall = installCloseGuard(h.deps);
   return h;
@@ -821,26 +827,177 @@ describe('Restart now and the end of a session (apply.9)', () => {
   });
 });
 
+/* hardening.4: once drawing the window has failed, the page shown in its place
+   takes the guard over with `crashedPageState`. */
+describe('after a crash (hardening.4)', () => {
+  it('counts only a write not yet made and a review running, and names no chapter', () => {
+    state().toggleAccepted('h1');
+    state().openDraft(1);
+    state().setDraftText(1, 'She said nothing.');
+    state().setDialogText('manual-review', true);
+    state().setAiBusy(SOURCE);
+    useApp.setState({ persistPending: true });
+    expect(crashedPageState(state())).toEqual({
+      chapter: null,
+      unsavedDecisions: 0,
+      changedParagraphs: 0,
+      locked: false,
+      reviewRunning: true,
+      writesPending: true,
+      dialogText: false
+    });
+    state().setAiBusy(null);
+    useApp.setState({ persistPending: false, draftWritesPending: false });
+    expect(needsAttention(crashedPageState(state()))).toBe(false);
+  });
+
+  it('pushes that state as it takes the guard over, so a close with everything written goes at once', () => {
+    state().toggleAccepted('h1');
+    const h = guard({ stateOf: crashedPageState });
+    expect(h.pushes).toEqual([crashedPageState(state())]);
+    expect(needsAttention(h.pushes[0] ?? null)).toBe(false);
+    // A write that starts is pushed, and so is its end.
+    useApp.setState({ persistPending: true });
+    useApp.setState({ persistPending: false });
+    expect(h.pushes.map((p) => p.writesPending)).toEqual([false, true, false]);
+  });
+
+  it('answers a close by writing and closing, asking nothing and saving nothing', async () => {
+    state().toggleAccepted('h1');
+    const h = guard({ stateOf: crashedPageState });
+    h.sent.length = 0;
+    expect(await prepareToLeaveApp('close')).toBe(true);
+    expect(toMain(h)).toEqual(['received', 'decision:true']);
+    expect(h.flushes).toBeGreaterThan(0);
+    expect(h.saves).toEqual([]);
+  });
+
+  it('asks Still writing when a write failed, in the words of its card, with no Save', async () => {
+    state().toggleAccepted('h1');
+    const h = guard({ stateOf: crashedPageState });
+    h.failures = ['The review could not be saved: the disk is full.'];
+    const run = prepareToLeaveApp('close');
+    await settle();
+    expect(state().confirmSpec).toEqual(stillWritingPrompt(h.failures, crashedPageState(state())));
+    // Wait: tried again, and made.
+    h.failures = [];
+    state().answerChoice('cancel');
+    expect(await run).toBe(true);
+    expect(h.retries).toBe(2);
+    expect(h.saves).toEqual([]);
+  });
+
+  it('asks before a running review is lost, with Close anyway and no Save', async () => {
+    state().toggleAccepted('h1');
+    state().setAiBusy(SOURCE);
+    guard({ stateOf: crashedPageState });
+    const run = prepareToLeaveApp('close');
+    await settle();
+    expect(state().confirmSpec).toEqual(closePrompt(crashedPageState(state())));
+    expect(state().confirmSpec).toMatchObject({
+      confirmLabel: '',
+      altLabel: 'Close anyway',
+      defaultButton: 'cancel'
+    });
+    state().answerChoice('cancel');
+    expect(await run).toBe(false);
+  });
+
+  it('takes the guard over: answers the failed page its open question Cancel, and offers no Save', async () => {
+    state().toggleAccepted('h1');
+    const h = guard();
+    // The failed page had its close question up: main was told it was on screen.
+    const held = prepareToLeaveApp('close');
+    await settle();
+    expect(state().confirmSpec?.title).toBe('Close Lapidary?');
+    h.uninstall();
+    h.sent.length = 0;
+    h.pushes.length = 0;
+    current = { ...h, uninstall: installCrashedPageGuard(h.deps.io, h.deps.writes, { questions: true }) };
+    // Kept, as Cancel keeps it; the next close is this page's.
+    expect(await held).toBe(false);
+    expect(state().confirmSpec).toBeNull();
+    expect(h.sent).toEqual(['state', 'decision:false']);
+    expect(h.pushes).toEqual([crashedPageState(state())]);
+    h.sent.length = 0;
+    expect(await prepareToLeaveApp('close')).toBe(true);
+    expect(toMain(h)).toEqual(['received', 'decision:true']);
+    expect(h.saves).toEqual([]);
+  });
+
+  it('with nothing drawn to ask with, a close gives the writes their time and goes, asking nothing', async () => {
+    vi.useFakeTimers();
+    state().toggleAccepted('h1');
+    state().setAiBusy(SOURCE);
+    const h = guard();
+    h.uninstall();
+    current = { ...h, uninstall: installCrashedPageGuard(h.deps.io, h.deps.writes, { questions: false }) };
+    h.failures = ['The review could not be saved: the disk is full.'];
+    h.sent.length = 0;
+    const run = prepareToLeaveApp('close');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await run).toBe(true);
+    expect(state().confirmSpec).toBeNull();
+    // Never `prompting`: main's own box stays the way out while the writes run.
+    expect(toMain(h)).toEqual(['received', 'decision:true']);
+    expect(h.retries).toBeGreaterThan(0);
+  });
+
+  it('writeAfterCrash queues failed writes again, writes, and says what is still not on disk', async () => {
+    const calls: string[] = [];
+    let failures = ['The paragraphs you are editing could not be kept: the disk is full.'];
+    const writes: PageWrites = {
+      retry: () => void calls.push('retry'),
+      flush: async () => {
+        calls.push('flush');
+        await Promise.resolve();
+        failures = [];
+      },
+      failures: () => failures
+    };
+    expect(await writeAfterCrash(writes)).toEqual([]);
+    expect(calls).toEqual(['retry', 'flush']);
+    const throwing: PageWrites = {
+      retry: () => undefined,
+      flush: () => Promise.reject(new Error('gone')),
+      failures: () => ['The review could not be saved: gone']
+    };
+    expect(await writeAfterCrash(throwing)).toEqual(['The review could not be saved: gone']);
+    // The same words from both writers are said once.
+    const twice: PageWrites = {
+      retry: () => undefined,
+      flush: () => Promise.resolve(),
+      failures: () => ['x', 'x']
+    };
+    expect(await writeAfterCrash(twice)).toEqual(['x']);
+  });
+});
+
 describe('the wiring (apply.9)', () => {
   const read = (file: string): string =>
     readFileSync(path.join(__dirname, '..', '..', 'src', 'renderer', file), 'utf8');
   const app = read('App.tsx');
+  // The IPC and the writers moved to state/pageIo.ts with hardening.4, so the
+  // page shown after a crash installs the guard with the same ones.
+  const io = read('state/pageIo.ts');
 
   it('App installs the guard with the IPC channels and both writers', () => {
     expect(app).toContain('useEffect(() => installCloseGuard(closeDeps), [closeDeps]);');
-    expect(app).toContain("call('app:guard-state', state)");
-    expect(app).toContain("call('app:close-status', { status })");
-    expect(app).toContain("call('app:close-decision', { close })");
-    expect(app).toContain("onMain('app:close-requested'");
-    expect(app).toContain("onMain('app:flush'");
+    expect(app).toContain('io: CLOSE_GUARD_IO,');
+    expect(app).toContain('writes: PAGE_WRITES,');
+    expect(io).toContain("call('app:guard-state', state)");
+    expect(io).toContain("call('app:close-status', { status })");
+    expect(io).toContain("call('app:close-decision', { close })");
+    expect(io).toContain("onMain('app:close-requested'");
+    expect(io).toContain("onMain('app:flush'");
     // apply.12 adds the hint writes, so a hint Save and close puts away is on disk first,
     // and ui.6 the split's, so a split moved just before a close is kept.
-    expect(app).toMatch(
+    expect(io).toMatch(
       /Promise\.all\(\[flushReviewWrites\(\), flushDraftWrites\(\), flushHintWrites\(\), flushSplitWrites\(\)\]\)/
     );
-    expect(app).toContain('retryReviewWrites();');
-    expect(app).toContain('retryDraftWrites();');
-    expect(app).toContain('[...reviewWriteFailures(), ...draftWriteFailures()]');
+    expect(io).toContain('retryReviewWrites();');
+    expect(io).toContain('retryDraftWrites();');
+    expect(io).toContain('[...reviewWriteFailures(), ...draftWriteFailures()]');
     expect(app).toContain('cancelReview');
   });
 

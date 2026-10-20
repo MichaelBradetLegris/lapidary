@@ -125,10 +125,18 @@ interface ErrorLike {
 }
 
 /**
+ * Names an app error goes by: `AppFailure` in main, and `ApiError` in the
+ * page, which carries main's code and message across (`log:renderer`,
+ * hardening.4).
+ */
+const APP_ERROR_NAMES: ReadonlySet<string> = new Set(['AppFailure', 'ApiError']);
+
+/**
  * The one policy for putting an error in the log:
  *
- * - an app error (`AppFailure`, recognised by its string `code` and name) logs
- *   its code, plus its message unless that quotes model output; never `detail`;
+ * - an app error (`AppFailure`, or the page's `ApiError`, recognised by its
+ *   string `code` and name) logs its code, plus its message unless that
+ *   quotes model output; never `detail`;
  * - a SyntaxError logs its name and stack frames only, because V8 quotes the
  *   text it failed to parse in the message, and frames are read only from
  *   the stack after the message;
@@ -147,7 +155,7 @@ export function loggableErrorFields(err: unknown, ctx: ScrubContext = {}): Recor
     ctx
   ).join(' | ');
 
-  if (name === 'AppFailure' && typeof e.code === 'string') {
+  if (APP_ERROR_NAMES.has(name) && typeof e.code === 'string') {
     return quotesModelOutput(e.code)
       ? { code: e.code }
       : { code: e.code, message: truncate(scrub(message, ctx)) };
