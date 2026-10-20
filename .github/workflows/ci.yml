@@ -45,10 +45,13 @@ jobs:
       # build runs the typecheck first
       - run: npm run build
 
-  # The app as the installer would hold it, built and checked on every change,
-  # so a change that breaks packaging fails here rather than on a release tag
-  # (PLAN release.5). package:dir is the build `npm run package` makes, less
-  # the installer.
+  # The unpacked app, built and checked on every pull request and push to main,
+  # so a change that breaks the app folder or what verify:package checks in it
+  # fails here rather than on a release tag (PLAN release.5). package:dir is
+  # the build `npm run package` makes, less the installer, its .blockmap,
+  # latest.yml and the app's resources/app-update.yml, which electron-builder
+  # writes only for an NSIS target (PLAN C.88). In CI only the release workflow
+  # builds and checks those (verify:package --installer, PLAN release.7).
   package:
     needs: check
     runs-on: windows-latest
