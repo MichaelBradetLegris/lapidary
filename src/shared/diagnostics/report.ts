@@ -7,8 +7,8 @@
  * message or a GitHub issue: a section per subject, a line per fact. What it
  * may hold is what Appendix D question 17 allows: versions, settings, the
  * state of the last checks, folder paths with the home folder written `~`,
- * the number of chapters, and the log's warnings, which the log policy
- * already keeps free of content. Never chapter text or chapter names, the
+ * the number of chapters, and the log's warnings, each reduced to what
+ * failed (`warningLine`). Never chapter text or chapter names, the
  * guidelines' words, the account's email address, a key or its last four
  * characters, a status message (it can carry what a probe said), drafts or
  * backups. Every line is scrubbed on the way out as the log's are
@@ -130,7 +130,7 @@ export interface DiagnosticsData {
   openai: { runtime: RuntimeStatus | null; lastFailure: LastFailure | null };
   folders: FolderFacts;
   guidelines: GuidelinesFacts;
-  /** the log's last warnings and errors of this run, as written */
+  /** the log's last warnings and errors of this run, as written; the report keeps `warningLine` of each */
   warnings: readonly string[];
 }
 
@@ -208,6 +208,54 @@ const CLOUD_FOLDERS: ReadonlyArray<{ tool: string; part: RegExp }> = [
 export function cloudHints(folder: string): string[] {
   const parts = folder.split(/[\\/]+/).filter((part) => part !== '');
   return CLOUD_FOLDERS.filter(({ part }) => parts.some((p) => part.test(p))).map(({ tool }) => tool);
+}
+
+/**
+ * The fields of a log line the report keeps: what failed and where, never
+ * the words (hardening.5 review). An app error's `message` is the sentence
+ * the page shows, which names the chapter ("Chapter 07.md is saved as
+ * UTF-16"), its review file or its backup folder, and `frames` and `error`
+ * can hold anything, so they stay in the log file only. A field not listed
+ * here is left out, so one a later event adds stays out until it is listed.
+ */
+export const REPORT_WARNING_FIELDS: ReadonlySet<string> = new Set([
+  'channel',
+  'code',
+  'name',
+  'errno',
+  'syscall',
+  'provider',
+  'stage',
+  'quitting',
+  'stopped',
+  'kept',
+  'names',
+  'durationMs'
+]);
+
+/** A log line's time, level and event, as `createLogger` (src/main/log.ts) writes them. */
+const LOG_LINE_START = /^\S+ (?:DEBUG|INFO|WARN|ERROR) [A-Za-z][\w.-]*(?= |$)/;
+
+/** One ` key=value` after them: a bare value, or a JSON string with its escapes (`formatFields`). */
+const LOG_FIELD = / ([A-Za-z][\w.]*)=("(?:[^"\\]|\\.)*"|[^\s"]+)/y;
+
+/**
+ * A warning as the report writes it: its time, level and event, and of its
+ * fields only `REPORT_WARNING_FIELDS`, as the log wrote them. A line that
+ * does not read as the log's own is left out whole, and so is whatever
+ * follows a field that does not.
+ */
+export function warningLine(line: string): string {
+  const start = LOG_LINE_START.exec(line);
+  if (!start) return 'a line the report could not read';
+  const kept = [start[0]];
+  const field = new RegExp(LOG_FIELD.source, 'y');
+  field.lastIndex = start[0].length;
+  for (let m = field.exec(line); m; m = field.exec(line)) {
+    const [, key = '', value = ''] = m;
+    if (REPORT_WARNING_FIELDS.has(key)) kept.push(`${key}=${value}`);
+  }
+  return kept.join(' ');
 }
 
 /* ------------------------------------------------------------------ */
@@ -352,7 +400,7 @@ export function reportSections(data: DiagnosticsData): Array<{ title: string; li
     },
     {
       title: 'Recent warnings',
-      lines: data.warnings.length > 0 ? [...data.warnings] : ['none in this run']
+      lines: data.warnings.length > 0 ? data.warnings.map(warningLine) : ['none in this run']
     }
   ];
 }

@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { fail } from '../../src/main/errors';
+import { createInstalledRecord } from '../../src/main/providers/claudeBinary';
 import type { CliInitInfo } from '../../src/main/providers/claudeCli';
 import {
   FIRST_HANDSHAKE_MS,
@@ -36,10 +39,11 @@ const ACCOUNT_INFO: CliInitInfo = {
 
 function check(patch: Partial<RuntimeCheckDeps> = {}) {
   return createClaudeRuntimeCheck({
-    locate: () => Promise.resolve(EXE),
+    locate: () => Promise.resolve({ path: EXE, onPath: true }),
     version: () => Promise.resolve('2.1.283'),
     authStatus: () => Promise.resolve(SIGNED_IN),
     handshake: () => Promise.resolve(ACCOUNT_INFO),
+    installed: createInstalledRecord(),
     now: () => NOW,
     ...patch
   });
@@ -169,6 +173,58 @@ describe('the runtime check', () => {
     })();
     expect(status).toMatchObject({ state: 'error' });
     expect(status.message).toContain('Could not tell whether Claude Code is signed in');
+  });
+});
+
+describe('what the check keeps for app:info and Copy diagnostics (hardening.5 review)', () => {
+  it('keeps where Claude Code is, whether a terminal finds it, and what --version said', async () => {
+    const installed = createInstalledRecord();
+    expect(installed.current()).toBeUndefined();
+    await check({ installed })();
+    expect(installed.current()).toEqual({ path: EXE, onPath: true, version: '2.1.283' });
+    // An outdated Claude Code is the one most worth naming, though the check ends in an error.
+    const status = await check({
+      installed,
+      locate: () => Promise.resolve({ path: EXE, onPath: false }),
+      version: () => Promise.resolve('2.1.200')
+    })();
+    expect(status.state).toBe('error');
+    expect(installed.current()).toEqual({ path: EXE, onPath: false, version: '2.1.200' });
+  });
+
+  it('keeps the lookup before --version answers, and an answer it cannot read as no version', async () => {
+    const installed = createInstalledRecord();
+    let answer: (version: string | null) => void = () => undefined;
+    const pending = check({
+      installed,
+      version: () => new Promise<string | null>((resolve) => (answer = resolve))
+    })();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(installed.current()).toEqual({ path: EXE, onPath: true, version: null });
+    answer(null);
+    await pending;
+    expect(installed.current()).toEqual({ path: EXE, onPath: true, version: null });
+  });
+
+  it('keeps nothing found when Claude Code is missing, in place of what an earlier check found', async () => {
+    const installed = createInstalledRecord();
+    await check({ installed })();
+    await check({ installed, locate: () => Promise.resolve(null) })();
+    expect(installed.current()).toBeNull();
+  });
+
+  it('is the record installedCli reads, and a lookup outside a check is kept in it too', () => {
+    const source = readFileSync(path.join(__dirname, '../../src/main/providers/claude.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|\s)\/\/.*$/gm, '$1');
+    expect(source).toContain('const installed = createInstalledRecord();');
+    expect(source).toMatch(/export function installedCli\(\)[^{]*\{\s*return installed\.current\(\);\s*\}/);
+    expect(source).toMatch(/createClaudeRuntimeCheck\(\{[^]*?\n {2}installed,\n[^]*?\}\);/);
+    const outside = source.slice(
+      source.indexOf('async function locateExecutable('),
+      source.indexOf('function probeOptions(')
+    );
+    expect(outside).toMatch(/const located = await lookUp\(\);\s*installed\.lookedUp\(located\);/);
   });
 });
 

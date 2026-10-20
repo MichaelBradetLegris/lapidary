@@ -8,6 +8,7 @@ import {
   obsidianSyncState,
   reportSections,
   systemName,
+  warningLine,
   type DiagnosticsData
 } from '../../src/shared/diagnostics/report';
 import type { RuntimeStatus } from '../../src/shared/ipc';
@@ -199,18 +200,18 @@ describe('diagnosticsReport', () => {
     const leaky = diagnosticsReport(
       data({
         claude: ['Claude: ready (subscription)', 'Plan: max for ann@example.com'],
-        warnings: [`2026-10-20T08:10:00.000Z WARN odd.event value=${DUMMY_KEY} who=ann@example.com`]
+        warnings: [`2026-10-20T08:10:00.000Z WARN odd.event code=${DUMMY_KEY} name=ann@example.com`]
       }),
       { home: HOME }
     );
     expect(leaky).not.toMatch(EMAIL);
     expect(leaky).not.toMatch(KEY);
     expect(leaky).toContain('Plan: max for [email]');
-    expect(leaky).toContain('value=[key] who=[email]');
+    expect(leaky).toContain('WARN odd.event code=[key] name=[email]');
   });
 
   it('cuts a line that runs too long', () => {
-    const long = diagnosticsReport(data({ warnings: [`x ${'y'.repeat(2000)}`] }));
+    const long = diagnosticsReport(data({ claude: [`Claude Code: ${'y'.repeat(2000)}`] }));
     for (const line of long.split('\n')) expect(line.length).toBeLessThanOrEqual(MAX_REPORT_LINE);
     expect(long).toContain('…');
   });
@@ -362,9 +363,80 @@ describe('diagnosticsReport', () => {
     expect(unread).toContain('  Claude Code: unknown version, not found by name in a terminal');
   });
 
-  it('carries the warnings as the log wrote them', () => {
+  it("carries each warning's time, level, event and what failed, never its message (hardening.5 review)", () => {
     expect(text).toContain(
-      '  2026-10-20T08:10:00.000Z WARN ipc.failed channel=files:save code=invalid-input message="Not a chapter"'
+      '  2026-10-20T08:10:00.000Z WARN ipc.failed channel=files:save code=invalid-input\n'
+    );
+    expect(text).not.toContain('Not a chapter');
+    // The page's own sentences, as runHandler logs them, name the chapter, its review and its path.
+    const named = diagnosticsReport(
+      data({
+        warnings: [
+          '2026-10-20T08:10:00.000Z WARN ipc.failed channel=files:read code=not-utf8 message="Chapter 07 - Heron.md is saved as UTF-16, and the app reads only UTF-8."',
+          `2026-10-20T08:11:00.000Z WARN ipc.failed channel=files:save code=not-found message="The chapter is no longer at ${HOME.replace(/\\/g, '\\\\')}\\\\OneDrive\\\\Vault\\\\Novel\\\\Heron.md."`,
+          '2026-10-20T08:12:00.000Z WARN ipc.failed channel=reviews:load code=io message="Lapidary could not find the review file Heron.review.json."',
+          '2026-10-20T08:13:00.000Z WARN backups.failed name=Error message="EPERM in ~\\\\backups\\\\heron-3f2a" frames="at copyChapter (file:///D:/app/out/main/index.js:12:3)"',
+          '2026-10-20T08:14:00.000Z ERROR ipc.failed channel=files:read error="Heron"'
+        ]
+      }),
+      { home: HOME }
+    );
+    const warnings = named.slice(named.indexOf('Recent warnings\n'));
+    expect(warnings).toBe(
+      [
+        'Recent warnings',
+        '  2026-10-20T08:10:00.000Z WARN ipc.failed channel=files:read code=not-utf8',
+        '  2026-10-20T08:11:00.000Z WARN ipc.failed channel=files:save code=not-found',
+        '  2026-10-20T08:12:00.000Z WARN ipc.failed channel=reviews:load code=io',
+        '  2026-10-20T08:13:00.000Z WARN backups.failed name=Error',
+        '  2026-10-20T08:14:00.000Z ERROR ipc.failed channel=files:read',
+        ''
+      ].join('\n')
+    );
+    expect(named).not.toMatch(/heron|Chapter 07/i);
+    expect(warnings).not.toMatch(/~|file:|D:/);
+  });
+});
+
+describe('warningLine', () => {
+  it('keeps the fields that say what failed, as the log wrote them, and drops the rest', () => {
+    expect(
+      warningLine(
+        '2026-10-20T08:10:00.000Z WARN watcher.error folder="D:\\\\Novel" name=Error code=EPERM errno=-4048 syscall=watch stopped=true'
+      )
+    ).toBe(
+      '2026-10-20T08:10:00.000Z WARN watcher.error name=Error code=EPERM errno=-4048 syscall=watch stopped=true'
+    );
+    expect(
+      warningLine(
+        '2026-10-20T08:10:00.000Z WARN ai.review.failed provider=openai code=openai-timeout message="x" durationMs=60012'
+      )
+    ).toBe(
+      '2026-10-20T08:10:00.000Z WARN ai.review.failed provider=openai code=openai-timeout durationMs=60012'
+    );
+    expect(warningLine('2026-10-20T08:10:00.000Z WARN drafts.unreadable')).toBe(
+      '2026-10-20T08:10:00.000Z WARN drafts.unreadable'
+    );
+  });
+
+  it('reads a quoted value to its end, so a field named inside a message is not taken for one', () => {
+    expect(
+      warningLine(
+        '2026-10-20T08:10:00.000Z WARN ipc.failed message="He said \\"code=leak channel=Heron\\" twice" code=io channel=files:read'
+      )
+    ).toBe('2026-10-20T08:10:00.000Z WARN ipc.failed code=io channel=files:read');
+  });
+
+  it("leaves out a line that is not the log's own, and whatever follows a field it cannot read", () => {
+    expect(warningLine('Heron.md could not be read')).toBe('a line the report could not read');
+    expect(warningLine('2026-10-20T08:10:00.000Z NOTE odd.event code=io')).toBe(
+      'a line the report could not read'
+    );
+    expect(warningLine('2026-10-20T08:10:00.000Z WARN ipc.failed code=io message="Heron.md, cut off')).toBe(
+      '2026-10-20T08:10:00.000Z WARN ipc.failed code=io'
+    );
+    expect(warningLine('2026-10-20T08:10:00.000Z WARN ipc.failed code=io  name=Heron')).toBe(
+      '2026-10-20T08:10:00.000Z WARN ipc.failed code=io'
     );
   });
 });

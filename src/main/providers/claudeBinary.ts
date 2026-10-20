@@ -123,6 +123,35 @@ export function afterVersion(
   return previous?.path === executable ? { ...previous, version } : previous;
 }
 
+/**
+ * Where `installedCli` (claude.ts) is kept. The runtime check writes to it
+ * itself (`createClaudeRuntimeCheck`), so what `app:info` and Copy
+ * diagnostics read is what the check found (hardening.5 review); claude.ts
+ * writes a lookup made outside a check, for a model list, a review or a
+ * test before the first check.
+ */
+export interface InstalledRecord {
+  /** what the last lookup found and its version; null: not installed; undefined: not looked for yet */
+  current(): InstalledCli | null | undefined;
+  /** a lookup found this, or nothing (`afterLookup`) */
+  lookedUp(located: LocatedClaude | null): void;
+  /** `--version` of `executable` said this (`afterVersion`) */
+  versionRead(executable: string, version: string | null): void;
+}
+
+export function createInstalledRecord(): InstalledRecord {
+  let installed: InstalledCli | null | undefined;
+  return {
+    current: () => installed,
+    lookedUp: (located) => {
+      installed = afterLookup(installed, located);
+    },
+    versionRead: (executable, version) => {
+      installed = afterVersion(installed, executable, version);
+    }
+  };
+}
+
 /** The first candidate that exists, or null when Claude Code is not installed. */
 export async function locateClaudeCode(deps: LocateDeps): Promise<LocatedClaude | null> {
   if (deps.noClaudeCode) return null;

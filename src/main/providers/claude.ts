@@ -7,15 +7,15 @@ import { getDevSwitches } from '../devSwitches';
 import { log } from '../log';
 import { fail } from '../errors';
 import {
-  afterLookup,
-  afterVersion,
   canRun,
   claudeAuthStatus,
   claudeVersion,
+  createInstalledRecord,
   locateClaudeCode,
   spawn,
   type InstalledCli,
   type LocateDeps,
+  type LocatedClaude,
   type RunOptions
 } from './claudeBinary';
 import { cliInitialize, cliReviewInput, runCliReview, runCliTest, type CliDeps } from './claudeCli';
@@ -50,8 +50,8 @@ import type {
 /** null: not installed; undefined: not looked for yet. */
 let executableCache: string | null | undefined;
 
-/** What the last lookup found and its version (setup.3); null: not installed; undefined: not looked for yet. */
-let installed: InstalledCli | null | undefined;
+/** What the last lookup found and its version; the runtime check writes to it itself. */
+const installed = createInstalledRecord();
 
 /**
  * The Claude Code the last lookup found, whether a terminal finds it by name,
@@ -59,7 +59,7 @@ let installed: InstalledCli | null | undefined;
  * (hardening.5). Reading it looks for nothing and runs nothing.
  */
 export function installedCli(): InstalledCli | null | undefined {
-  return installed;
+  return installed.current();
 }
 
 /** Where to look, for this machine (setup.3, claudeBinary.ts). */
@@ -76,10 +76,15 @@ function locateDeps(): LocateDeps {
 }
 
 /** The installer's location, then PATH, then the usual system folders. */
-async function locateExecutable(): Promise<string | null> {
+async function lookUp(): Promise<LocatedClaude | null> {
   warnAboutSessionEnvironment();
-  const located = await locateClaudeCode(locateDeps());
-  installed = afterLookup(installed, located);
+  return locateClaudeCode(locateDeps());
+}
+
+/** A lookup outside the runtime check, before the first one: kept as the check keeps its own. */
+async function locateExecutable(): Promise<string | null> {
+  const located = await lookUp();
+  installed.lookedUp(located);
   return located?.path ?? null;
 }
 
@@ -138,16 +143,15 @@ const handshake = createHandshake((executable, timeoutMs) => cliInitialize(cliDe
  */
 const runtimeCheck = createClaudeRuntimeCheck({
   locate: async () => {
-    executableCache = await locateExecutable();
-    return executableCache;
+    const located = await lookUp();
+    executableCache = located?.path ?? null;
+    return located;
   },
-  version: async (executable) => {
-    const version = await claudeVersion(executable, probeOptions());
-    installed = afterVersion(installed, executable, version);
-    return version;
-  },
+  version: (executable) => claudeVersion(executable, probeOptions()),
   authStatus: (executable) => claudeAuthStatus(executable, probeOptions()),
   handshake: (executable) => handshake.run(executable),
+  // The check keeps what it found and the version itself (hardening.5 review).
+  installed,
   now: () => new Date()
 });
 

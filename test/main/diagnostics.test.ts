@@ -4,7 +4,11 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { collectDiagnostics, findUp, switchWords, type DiagnosticsDeps } from '../../src/main/diagnostics';
 import { NO_DEV_SWITCHES } from '../../src/main/devSwitches';
+import { readChapter } from '../../src/main/files';
+import { runHandler } from '../../src/main/ipcEnvelope';
+import { createLogger } from '../../src/main/log';
 import { withLogging } from '../../src/main/providers/logged';
+import { loadReviewFile } from '../../src/main/reviews';
 import type { ReviewProvider } from '../../src/main/providers/types';
 import { diagnosticsReport, type DisplayFacts } from '../../src/shared/diagnostics/report';
 import type { AppInfo, RuntimeStatus } from '../../src/shared/ipc';
@@ -291,6 +295,40 @@ describe('collectDiagnostics: the last checks, never a new one', () => {
     });
     expect(asked).toBe(10);
     expect(data.warnings).toHaveLength(1);
+  });
+
+  it('names no chapter when a read, a save or a review load has failed, though the log does (hardening.5 review)', async () => {
+    // A chapter saved as UTF-16, and one renamed in Obsidian since the list was read.
+    const utf16 = path.join(manuscript, 'Chapter 07 - The Secret Title.md');
+    await fs.writeFile(utf16, Buffer.from('﻿The secret chapter.\r\n', 'utf16le'));
+    const renamed = path.join(manuscript, 'Secret Heron Chapter.md');
+    const review = path.join(
+      root,
+      'userdata',
+      'reviews',
+      'secret-heron-chapter',
+      'Secret Heron Chapter.review.json'
+    );
+    const logger = createLogger({
+      dir: path.join(root, 'logs'),
+      home: os.homedir(),
+      schedule: () => undefined
+    });
+    const log = (...args: Parameters<typeof logger.log>): void => logger.log(...args);
+    const failed = [
+      await runHandler('files:read', { path: utf16 }, () => readChapter(utf16), log),
+      await runHandler('files:read', { path: renamed }, () => readChapter(renamed), log),
+      await runHandler('reviews:load', { path: review }, () => loadReviewFile(review), log)
+    ];
+    expect(failed.map((r) => (r.ok ? 'ok' : r.error.code))).toEqual(['not-utf8', 'io', 'io']);
+    const data = await collectDiagnostics(deps({}, { warnings: (n) => logger.tail(n, 'warn') }));
+    // The log holds the page's sentences, which name them.
+    expect(data.warnings.join('\n')).toContain('Chapter 07 - The Secret Title.md is saved as UTF-16');
+    expect(data.warnings.join('\n')).toContain('Secret Heron Chapter');
+    const text = diagnosticsReport(data, { home: os.homedir() });
+    expect(text).toMatch(/ WARN ipc\.failed channel=files:read code=not-utf8\n/);
+    expect(text).toMatch(/ WARN ipc\.failed channel=reviews:load code=io\n/);
+    expect(text).not.toMatch(/Secret|Heron|Chapter 0|UTF-16/i);
   });
 });
 
