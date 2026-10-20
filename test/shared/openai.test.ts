@@ -299,9 +299,16 @@ describe('OpenAI default model', () => {
     ]) {
       expect(NOT_DEFAULT_MODEL.test(id), id).toBe(false);
     }
+    // Made-up names it must name too. Every -chat id above ends in -chat-latest, so
+    // these say what each half of the pattern adds: a -chat model that is no
+    // -chat-latest alias, which only the word `chat` names, and a chat-latest whose
+    // `chat` follows no dash, which only `chat-latest` names (C.82).
+    for (const id of ['gpt-5-chat', 'gpt-5.1-chat-2025-11-13', 'gpt-5-groupchat-latest']) {
+      expect(NOT_DEFAULT_MODEL.test(id), id).toBe(true);
+    }
   });
 
-  it('lists the skipped models but never takes one as the default', () => {
+  it('lists the skipped models but takes none as the default while another is listed', () => {
     const listed = usableModels(OPENAI_LIST).map((m) => m.id);
     // `isTextModel` already leaves out the deep research models, as search
     // models, and gpt-5.1-codex-mini with codex-mini-latest.
@@ -319,6 +326,10 @@ describe('OpenAI default model', () => {
     expect(defaultOpenAiModel(noFull)).toBe('gpt-5.4-mini');
     const noMini = noFull.filter((m) => !/^gpt-5(\.\d+)?-mini/.test(m.id));
     expect(defaultOpenAiModel(noMini)).toBe('gpt-5.4-nano');
+    // A nano comes before any other gpt-5, even a newer one.
+    expect(defaultOpenAiModel([...noMini, { id: 'gpt-5.6-preview', created: 1_790_000_000 }])).toBe(
+      'gpt-5.4-nano'
+    );
     const noNano = noMini.filter((m) => !/^gpt-5(\.\d+)?-nano/.test(m.id));
     // Any other gpt-5 that is not skipped comes before another family.
     expect(defaultOpenAiModel([...noNano, { id: 'gpt-5.6-preview', created: 1 }])).toBe('gpt-5.6-preview');
@@ -361,27 +372,49 @@ describe('OpenAI default model', () => {
     ).toBe('gpt-5-mini-2025-08-07');
   });
 
-  it('has no default when every text model is one it skips', () => {
+  it('takes a skipped model only when every text model is one, and a -pro model last of all', () => {
+    // Every skipped model of the list: the list opens with gpt-5.5-pro, but the
+    // default is the newest gpt-5 that is no -pro.
+    const skippedOnly = OPENAI_LIST.filter((model) => NOT_DEFAULT_MODEL.test(model.id));
+    expect(usableModels(skippedOnly)[0]?.id).toBe('gpt-5.5-pro');
+    expect(defaultOpenAiModel(skippedOnly)).toBe('gpt-5.2-codex');
+    // A chat model before a newer pro.
     expect(
       defaultOpenAiModel([
         { id: 'gpt-5.5-pro', created: 3 },
-        { id: 'gpt-5-codex', created: 2 },
+        { id: 'gpt-5-chat-latest', created: 1 },
+        { id: 'whisper-1', created: 4 }
+      ])
+    ).toBe('gpt-5-chat-latest');
+    // Only pro models: by the same tiers, a gpt-5 before a newer o3-pro, the alias
+    // before its newer snapshot.
+    expect(
+      defaultOpenAiModel([
+        { id: 'o3-pro', created: 3 },
+        { id: 'gpt-5-pro-2025-10-06', created: 2 },
+        { id: 'gpt-5-pro', created: 1 }
+      ])
+    ).toBe('gpt-5-pro');
+    // No text model at all, the deep research models being search models.
+    expect(
+      defaultOpenAiModel([
         { id: 'o3-deep-research', created: 1 },
         { id: 'whisper-1', created: 4 }
       ])
     ).toBeNull();
   });
 
-  it('sends the choice, else the default, else the row the dialog shows, else gpt-5', () => {
+  it('sends the choice, else the default, else gpt-5', () => {
     expect(openAiModelToSend(' gpt-5.5-pro ', OPENAI_LIST)).toBe('gpt-5.5-pro');
     expect(openAiModelToSend('', OPENAI_LIST)).toBe('gpt-5.5');
-    // Nothing qualifies: the list's first row, which the dialog's select shows (selectedModel).
+    // Only skipped models: the default the dialog marks, not the pro in its first row.
     const skippedOnly = [
       { id: 'gpt-5-codex', created: 2 },
       { id: 'gpt-5.5-pro', created: 3 },
       { id: 'whisper-1', created: 4 }
     ];
-    expect(openAiModelToSend('', skippedOnly)).toBe('gpt-5.5-pro');
+    expect(openAiModelToSend('', skippedOnly)).toBe('gpt-5-codex');
+    // No text model listed.
     expect(openAiModelToSend('  ', [{ id: 'whisper-1', created: 1 }])).toBe(OPENAI_FALLBACK_MODEL);
     // The list could not be read.
     expect(openAiModelToSend('', null)).toBe('gpt-5');

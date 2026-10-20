@@ -99,15 +99,19 @@ export function usableModels(models: readonly OpenAiModel[]): OpenAiModel[] {
 }
 
 /**
- * Models that are never the default (hardening.10), though they stay in the
- * list for an author who picks one: a `-pro` model costs several times as much
- * and is slow to answer, a `-codex` model is tuned for writing code, a
- * `-deep-research` model expects web search, which a review does not offer
- * (`isTextModel` already leaves those out, as search models), and a `-chat`
- * model or a `chat-latest` alias is the model ChatGPT runs, which moves
- * without notice.
+ * Models that are not the default while the list has any other text model
+ * (hardening.10), though they stay in the list for an author who picks one: a
+ * `-pro` model costs several times as much and is slow to answer, a `-codex`
+ * model is tuned for writing code, a `-deep-research` model expects web
+ * search, which a review does not offer (`isTextModel` already leaves those
+ * out, as search models), and a `-chat` model or a `chat-latest` alias is the
+ * model ChatGPT runs, which moves without notice. Every OpenAI id holding
+ * `chat-latest` is a `-chat-latest`, which `-chat-` names already (C.82).
  */
 export const NOT_DEFAULT_MODEL = /-(pro|codex|deep-research|chat)(-|$)|chat-latest/i;
+
+/** A `-pro` model, the dearest of those: the default only when the list holds nothing else. */
+const PRO_MODEL = /-pro(-|$)/i;
 
 /** The date a snapshot's id ends with, as in `gpt-5-2025-08-07`. */
 const SNAPSHOT_DATE = /-\d{4}-\d{2}-\d{2}$/;
@@ -134,12 +138,27 @@ const DEFAULT_TIERS: readonly RegExp[] = [
  * What the dialog should select when the author has not chosen, and what main
  * sends for an empty model setting (hardening.10): the newest full gpt-5, else
  * the newest gpt-5 mini, else nano, else the first tier of `DEFAULT_TIERS`
- * that has a model, never one `NOT_DEFAULT_MODEL` names. A dated snapshot
+ * that has a model, among the models `NOT_DEFAULT_MODEL` does not name. Only
+ * when every text model listed is one it names does the default come from
+ * those, by the same tiers, a codex or chat model before a `-pro` one, which
+ * the newest-first list would otherwise put first (C.82). A dated snapshot
  * gives way to its undated alias when the list has both, so the default
- * follows the alias as OpenAI moves it. Null when no model qualifies.
+ * follows the alias as OpenAI moves it. Null only when no text model is
+ * listed.
  */
 export function defaultOpenAiModel(models: readonly OpenAiModel[]): string | null {
-  const candidates = usableModels(models).filter((model) => !NOT_DEFAULT_MODEL.test(model.id));
+  const usable = usableModels(models);
+  const named = (model: OpenAiModel): boolean => NOT_DEFAULT_MODEL.test(model.id);
+  const pro = (model: OpenAiModel): boolean => PRO_MODEL.test(model.id);
+  return (
+    newestByTier(usable.filter((model) => !named(model))) ??
+    newestByTier(usable.filter((model) => named(model) && !pro(model))) ??
+    newestByTier(usable.filter(pro))
+  );
+}
+
+/** The newest model of the first tier of `DEFAULT_TIERS` that has one, as its alias when listed. */
+function newestByTier(candidates: readonly OpenAiModel[]): string | null {
   const undated = (id: string): string => id.replace(SNAPSHOT_DATE, '');
   for (const tier of DEFAULT_TIERS) {
     const newest = candidates.find((model) => tier.test(undated(model.id)));
@@ -155,16 +174,16 @@ export const OPENAI_FALLBACK_MODEL = 'gpt-5';
 
 /**
  * The model a review or a connection test sends (hardening.10): the author's
- * choice, else the list's default, else the list's first row, which is what
- * the review dialog's select shows when no row is the default, so what the
- * dialog shows is what is sent (C.28). `models` is null when the list could
- * not be read.
+ * choice, else the list's default, which the review dialog's select shows
+ * marked "(default)", so what the dialog shows is what is sent (C.28); else
+ * `gpt-5`, when the list could not be read (`models` is null) or holds no
+ * text model.
  */
 export function openAiModelToSend(requested: string, models: readonly OpenAiModel[] | null): string {
   const chosen = requested.trim();
   if (chosen.length > 0) return chosen;
   if (!models) return OPENAI_FALLBACK_MODEL;
-  return defaultOpenAiModel(models) ?? usableModels(models)[0]?.id ?? OPENAI_FALLBACK_MODEL;
+  return defaultOpenAiModel(models) ?? OPENAI_FALLBACK_MODEL;
 }
 
 /* ------------------------------------------------------------------ */

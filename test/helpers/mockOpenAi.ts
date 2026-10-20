@@ -17,8 +17,10 @@
  * `outputlimit` a streamed reply cut off at the model's output limit, which
  * ends `incomplete` (files.10), `unverified` the 400 OpenAI gives a streamed
  * request from an organisation that has not verified its identity, while an
- * unstreamed one is answered (`UNVERIFIED_STREAM_MESSAGE`, hardening.10), and
- * anything else the canned review of Chapter 01.
+ * unstreamed one is answered (`UNVERIFIED_STREAM_MESSAGE`, hardening.10),
+ * `skippedonly` a model list holding only models the default passes over while
+ * it has any other (`SKIPPED_ONLY_MODELS`, hardening.10), and anything else
+ * the canned review of Chapter 01.
  *
  * Two ways to use it:
  *   vitest:  const mock = await startMockOpenAi(); ... mock.url ... await mock.close();
@@ -45,7 +47,8 @@ export type Scenario =
   | 'slow'
   | 'obsidian'
   | 'outputlimit'
-  | 'unverified';
+  | 'unverified'
+  | 'skippedonly';
 
 /** The output limit the `outputlimit` scenario's reply reaches: gpt-5's 128,000 tokens. */
 export const MOCK_OUTPUT_LIMIT = 128_000;
@@ -378,6 +381,19 @@ const MODELS = [
   { id: 'gpt-4o-realtime-preview', created: 1_727_000_000, object: 'model', owned_by: 'system' }
 ];
 
+/**
+ * The `skippedonly` scenario's model list (hardening.10): a -pro, a -codex
+ * and a -chat model, newest first in that order, and one that is not text.
+ * With nothing else to take, the default is the codex, never the newer pro
+ * the list opens with.
+ */
+export const SKIPPED_ONLY_MODELS = [
+  { id: 'gpt-5.5-pro', created: 1_781_000_000, object: 'model', owned_by: 'system' },
+  { id: 'gpt-5-codex', created: 1_758_000_000, object: 'model', owned_by: 'system' },
+  { id: 'gpt-5-chat-latest', created: 1_754_500_000, object: 'model', owned_by: 'system' },
+  { id: 'whisper-1', created: 1_677_000_000, object: 'model', owned_by: 'openai-internal' }
+];
+
 export function scenarioForKey(authorization: string): Scenario {
   const key = authorization.toLowerCase();
   if (key.includes('unauthorized')) return 'unauthorized';
@@ -390,6 +406,7 @@ export function scenarioForKey(authorization: string): Scenario {
   if (key.includes('obsidian')) return 'obsidian';
   if (key.includes('outputlimit')) return 'outputlimit';
   if (key.includes('unverified')) return 'unverified';
+  if (key.includes('skippedonly')) return 'skippedonly';
   return 'ok';
 }
 
@@ -580,7 +597,10 @@ export async function startMockOpenAi(options: { port?: number; log?: boolean } 
       }
 
       if (req.method === 'GET' && url.pathname === '/v1/models') {
-        sendJson(res, 200, { object: 'list', data: MODELS });
+        sendJson(res, 200, {
+          object: 'list',
+          data: scenario === 'skippedonly' ? SKIPPED_ONLY_MODELS : MODELS
+        });
         return;
       }
 
