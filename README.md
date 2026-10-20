@@ -75,9 +75,11 @@ The key must be a real environment variable, set before the app starts. Claude C
 
 ## Connecting OpenAI
 
+OpenAI in Lapidary is experimental: it has been tested only with a stand-in for OpenAI's service, not with a real key, so a review may fail in ways not yet seen. The review dialog and Settings say so too.
+
 1. Create a key at https://platform.openai.com/api-keys. It belongs to an OpenAI Platform account, which is separate from a ChatGPT subscription and is billed per token. Make sure the account has credit.
 2. In the app, open **Settings**, paste the key into the **OpenAI API key** field, and click **Save key**. The field empties at once and the status line changes to "saved in Settings, encrypted (ends xxxx)".
-3. In **Review with AI**, choose **OpenAI (API key)** as the provider.
+3. In **Review with AI**, choose **OpenAI (API key, experimental)** as the provider.
 
 Alternatively, set `OPENAI_API_KEY` as an environment variable, the same way as `ANTHROPIC_API_KEY` above, before starting the app. It is used only when no key is saved, and Settings says which one is active. **Remove key** deletes the saved key.
 

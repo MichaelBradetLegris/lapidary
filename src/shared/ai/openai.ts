@@ -1,13 +1,72 @@
 /**
  * The provider-independent half of the OpenAI path that the window also needs:
- * key wording, the effort mapping, the model list rules and the progress
- * estimate. Deliberately free of zod, so importing it does not pull the schema
- * into the renderer bundle; the reply handling lives in `openaiReply.ts`. Pure
- * TypeScript and unit-tested (CLAUDE.md rule 4).
+ * how far it has been tried, key wording, the effort mapping, the model list
+ * rules and the progress estimate. Deliberately free of zod, so importing it
+ * does not pull the schema into the renderer bundle; the reply handling lives
+ * in `openaiReply.ts`. Pure TypeScript and unit-tested (CLAUDE.md rule 4).
  */
 
+import { APP_NAME } from '../branding';
 import type { OpenAiKeyStatus } from '../ipc';
 import type { EffortLevel } from '../types';
+
+/* ------------------------------------------------------------------ */
+/* Maturity                                                            */
+/* ------------------------------------------------------------------ */
+
+/** How far OpenAI reviews can have been tried, least first. */
+export const OPENAI_MATURITIES = ['experimental', 'tested'] as const;
+export type OpenAiMaturity = (typeof OPENAI_MATURITIES)[number];
+
+/**
+ * How far OpenAI reviews have been tried (hardening.11, PLAN 11.1):
+ * `experimental` while they have met only the mock server in
+ * `test/helpers/mockOpenAi.ts`, `tested` once reviews with a real key have
+ * been checked. That check is hardening.11b, cut for 1.0 (Appendix D 16),
+ * which would flip this in the commit that records it. Every label that says
+ * OpenAI is experimental reads it through the functions below, and
+ * `test/openaiMaturity.test.ts` fails when any other string in `src` spells
+ * the word, so the flip is this one edit (C.83).
+ */
+export const OPENAI_MATURITY: OpenAiMaturity = 'experimental';
+
+/** The word the labels add while OpenAI is untested, or null once it is tested. */
+export function openAiMaturityWord(maturity: OpenAiMaturity = OPENAI_MATURITY): string | null {
+  return maturity === 'tested' ? null : maturity;
+}
+
+/** The review dialog's provider option for OpenAI (5.5): "OpenAI (API key, experimental)". */
+export function openAiProviderLabel(maturity: OpenAiMaturity = OPENAI_MATURITY): string {
+  const word = openAiMaturityWord(maturity);
+  return word ? `OpenAI (API key, ${word})` : 'OpenAI (API key)';
+}
+
+/** The name of Settings' row for the key (section 7): "OpenAI API key (experimental)". */
+export function openAiKeyRowLabel(maturity: OpenAiMaturity = OPENAI_MATURITY): string {
+  const word = openAiMaturityWord(maturity);
+  return word ? `OpenAI API key (${word})` : 'OpenAI API key';
+}
+
+/**
+ * One sentence, "OpenAI in <the app's name> is experimental.", for the
+ * welcome guide's OpenAI step and the review dialog's note; null once OpenAI
+ * is tested.
+ */
+export function openAiMaturitySentence(maturity: OpenAiMaturity = OPENAI_MATURITY): string | null {
+  const word = openAiMaturityWord(maturity);
+  return word ? `OpenAI in ${APP_NAME} is ${word}.` : null;
+}
+
+/**
+ * The note under the review dialog's provider select while OpenAI is chosen
+ * (5.5): what experimental means here. Null once OpenAI is tested.
+ */
+export function openAiMaturityNote(maturity: OpenAiMaturity = OPENAI_MATURITY): string | null {
+  const sentence = openAiMaturitySentence(maturity);
+  return sentence
+    ? `${sentence} It has been tested only with a stand-in for OpenAI's service, not with a real key, so a review may fail in ways not yet seen.`
+    : null;
+}
 
 /* ------------------------------------------------------------------ */
 /* Key status wording                                                  */

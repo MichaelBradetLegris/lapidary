@@ -3,14 +3,21 @@ import {
   NOT_DEFAULT_MODEL,
   OPENAI_EFFORTS,
   OPENAI_FALLBACK_MODEL,
+  OPENAI_MATURITY,
   defaultOpenAiModel,
   estimateTokens,
   isTextModel,
   openAiKeyLine,
+  openAiKeyRowLabel,
+  openAiMaturityNote,
+  openAiMaturitySentence,
+  openAiMaturityWord,
   openAiModelToSend,
+  openAiProviderLabel,
   toOpenAiEffort,
   usableModels
 } from '../../src/shared/ai/openai';
+import { APP_NAME } from '../../src/shared/branding';
 import { parseOpenAiText, stripOptionalNulls, toStrictJsonSchema } from '../../src/shared/ai/openaiReply';
 import { estimateCostUsd, priceFor } from '../../src/shared/ai/pricing';
 import { reviewOutputJsonSchema } from '../../src/shared/prompt/schema';
@@ -487,9 +494,12 @@ describe('providers in settings', () => {
       expect(PROVIDER_LABELS[provider]).toBeTruthy();
       expect(PROVIDER_NAMES[provider]).toBeTruthy();
     }
-    expect(PROVIDER_LABELS.openai).toBe('OpenAI (API key)');
+    expect(PROVIDER_LABELS.openai).toBe('OpenAI (API key, experimental)');
+    expect(PROVIDER_LABELS.openai).toBe(openAiProviderLabel(OPENAI_MATURITY));
     // Plain name only: Claude Code may run on a plan or an API key (opensource.6).
     expect(PROVIDER_LABELS.claude).toBe('Claude');
+    // The short name never carries the label: the status bar and History say only who answered.
+    expect(PROVIDER_NAMES.openai).toBe('OpenAI');
   });
 
   it('keeps a model setting per provider so neither is sent the other one', () => {
@@ -541,5 +551,33 @@ describe('generator.provider on load', () => {
     expect(paste.generator.provider).toBeUndefined();
     const claude = upgradeLoadedReview(stored({ kind: 'claude' }));
     expect(claude.generator).toEqual({ kind: 'claude', provider: 'claude' });
+  });
+});
+
+describe('how far OpenAI has been tried (hardening.11)', () => {
+  it('labels it experimental, in the words of the task', () => {
+    expect(openAiMaturityWord('experimental')).toBe('experimental');
+    expect(openAiProviderLabel('experimental')).toBe('OpenAI (API key, experimental)');
+    expect(openAiKeyRowLabel('experimental')).toBe('OpenAI API key (experimental)');
+    expect(openAiMaturitySentence('experimental')).toBe(`OpenAI in ${APP_NAME} is experimental.`);
+    expect(openAiMaturityNote('experimental')).toBe(
+      `OpenAI in ${APP_NAME} is experimental. It has been tested only with a stand-in for OpenAI's service, not with a real key, so a review may fail in ways not yet seen.`
+    );
+  });
+
+  it('drops the label, the sentence and the note once OpenAI is tested', () => {
+    expect(openAiMaturityWord('tested')).toBeNull();
+    expect(openAiProviderLabel('tested')).toBe('OpenAI (API key)');
+    expect(openAiKeyRowLabel('tested')).toBe('OpenAI API key');
+    expect(openAiMaturitySentence('tested')).toBeNull();
+    expect(openAiMaturityNote('tested')).toBeNull();
+  });
+
+  it('reads OPENAI_MATURITY when no maturity is given', () => {
+    expect(openAiMaturityWord()).toBe(openAiMaturityWord(OPENAI_MATURITY));
+    expect(openAiProviderLabel()).toBe(openAiProviderLabel(OPENAI_MATURITY));
+    expect(openAiKeyRowLabel()).toBe(openAiKeyRowLabel(OPENAI_MATURITY));
+    expect(openAiMaturitySentence()).toBe(openAiMaturitySentence(OPENAI_MATURITY));
+    expect(openAiMaturityNote()).toBe(openAiMaturityNote(OPENAI_MATURITY));
   });
 });

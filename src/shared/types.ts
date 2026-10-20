@@ -3,6 +3,7 @@
  * This module must not import Node or DOM APIs (CLAUDE.md rule 4).
  */
 
+import { openAiProviderLabel } from './ai/openai';
 import type { SyntaxKind } from './text/obsidian';
 import type { Theme } from './ui/theme';
 
@@ -208,11 +209,12 @@ export type Provider = (typeof PROVIDERS)[number];
 /**
  * How the provider select names each one. Claude's label is the plain name of
  * the service, since Claude Code may run on a plan or on an API key
- * (opensource.6); OpenAI's also says how it is paid for.
+ * (opensource.6); OpenAI's also says how it is paid for and, while
+ * `OPENAI_MATURITY` says so, that it is experimental (hardening.11).
  */
 export const PROVIDER_LABELS: Record<Provider, string> = {
   claude: 'Claude',
-  openai: 'OpenAI (API key)'
+  openai: openAiProviderLabel()
 };
 
 /** The short name, for the status bar and the history badges. */

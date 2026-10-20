@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { openAiKeyLine } from '../../shared/ai/openai';
+import { openAiKeyLine, openAiKeyRowLabel } from '../../shared/ai/openai';
 import type {
   EffectivePaths,
   ModelInfo,
@@ -293,7 +293,7 @@ export function SettingsDialog({
         </div>
 
         <div className="modal__row">
-          <span>OpenAI API key</span>
+          <span>{openAiKeyRowLabel()}</span>
           <span
             className={`modal__path ${keyStatus?.configured ? '' : 'modal__path--warn'}`}
             data-testid="settings-key-line"
