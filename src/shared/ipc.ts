@@ -280,6 +280,60 @@ export interface ConnectionTestResult {
   rateLimit?: RateLimitInfo;
 }
 
+/**
+ * The Claude Code the last lookup found (setup.3, `installedCli` in
+ * `src/main/providers/claude.ts`). Reading it runs nothing: before the first
+ * check of the run there is nothing to say.
+ */
+export type ClaudeCodeInfo =
+  | { state: 'not-checked' }
+  | { state: 'not-installed' }
+  | {
+      state: 'found';
+      /** what `claude --version` said, or null when it said nothing readable */
+      version: string | null;
+      /** a terminal finds `claude` by name, so the short commands work as they are */
+      onPath: boolean;
+    };
+
+/**
+ * The versions that matter when something goes wrong (`app:info`,
+ * hardening.5), all read while the app runs, none written in at build time:
+ * `src/main/appInfo.ts`. No path, so nothing here names the user.
+ */
+export interface AppInfo {
+  /** `APP_NAME` */
+  name: string;
+  /** the app's own version, from its package.json */
+  version: string;
+  /** an installed build, not a development run */
+  packaged: boolean;
+  electron: string;
+  chromium: string;
+  node: string;
+  /** `process.platform`: `win32`, `darwin` or `linux` */
+  platform: string;
+  arch: string;
+  /** the system's own version number, as `os.release()` gives it: `10.0.26300` on Windows 11 */
+  osRelease: string;
+  /** the `openai` package's version, from its package.json; null when it cannot be read */
+  openai: string | null;
+  /** the user's Claude Code, as the last lookup found it */
+  claudeCode: ClaudeCodeInfo;
+  /** the oldest Claude Code the app works with (`MIN_CLAUDE_CODE`) */
+  claudeCodeMin: string;
+}
+
+/**
+ * What Copy diagnostics puts on the clipboard (`app:diagnostics`,
+ * hardening.5): plain text, made in main by `diagnosticsReport`
+ * (`src/shared/diagnostics/report.ts`), with the home folder written `~` and
+ * no chapter text, email address, key or last four characters of one.
+ */
+export interface DiagnosticsReport {
+  text: string;
+}
+
 /** How "Open" opens the guidelines file: in Obsidian, or in the system's app for .md (setup.10). */
 export type OpenGuidelinesVia = 'obsidian' | 'default';
 
@@ -517,6 +571,13 @@ export interface ApiRequestMap {
   'app:close-status': { request: { status: CloseStatus }; response: void };
   /** true closes the window, or goes on quitting; false keeps it open */
   'app:close-decision': { request: { close: boolean }; response: void };
+  /** the versions, read without running anything (hardening.5) */
+  'app:info': { request: void; response: AppInfo };
+  /**
+   * the diagnostics report (hardening.5): what the last checks found, never a
+   * new check of Claude or OpenAI, and nothing of the chapters but their count
+   */
+  'app:diagnostics': { request: void; response: DiagnosticsReport };
 }
 
 export type RequestChannel = keyof ApiRequestMap;
@@ -564,7 +625,9 @@ const REQUEST_CHANNEL_FLAGS = {
   'view:zoom': true,
   'app:guard-state': true,
   'app:close-status': true,
-  'app:close-decision': true
+  'app:close-decision': true,
+  'app:info': true,
+  'app:diagnostics': true
 } as const satisfies Record<RequestChannel, true>;
 
 export const REQUEST_CHANNELS: readonly RequestChannel[] = Object.keys(

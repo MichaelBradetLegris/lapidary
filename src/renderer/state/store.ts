@@ -180,15 +180,16 @@ export function changedParagraphCount(drafts: Record<number, ParagraphDraft>): n
  * guide covers the page (`SaveShortcutContext.modalOpen`). The welcome guide
  * shows while the settings say it is not done, unless Start or Skip closed it
  * this session (`welcomeShown`, setup.11 and its review); a state without
- * settings has none. The suggestion editor is a floating panel, not a modal,
- * and is not counted.
+ * settings has none. Diagnostics counts once it is open (hardening.5); a
+ * state that does not say has it closed. The suggestion editor is a floating
+ * panel, not a modal, and is not counted.
  */
 export function isModalOpen(
   state: Pick<
     AppState,
     'confirmSpec' | 'settingsOpen' | 'setupOpen' | 'newChapterOpen' | 'manualReviewOpen' | 'reviewDialogOpen'
   > &
-    Partial<Pick<AppState, 'settings' | 'welcomeClosed'>>
+    Partial<Pick<AppState, 'settings' | 'welcomeClosed' | 'diagnosticsOpen'>>
 ): boolean {
   return (
     state.confirmSpec !== null ||
@@ -197,7 +198,8 @@ export function isModalOpen(
     welcomeShown(state.settings, state.welcomeClosed) ||
     state.newChapterOpen ||
     state.manualReviewOpen ||
-    state.reviewDialogOpen
+    state.reviewDialogOpen ||
+    (state.diagnosticsOpen ?? null) !== null
   );
 }
 
@@ -224,7 +226,7 @@ export function reviewKeysActive(
     | 'manualReviewOpen'
     | 'reviewDialogOpen'
   > &
-    Partial<Pick<AppState, 'settings' | 'welcomeClosed'>>
+    Partial<Pick<AppState, 'settings' | 'welcomeClosed' | 'diagnosticsOpen'>>
 ): boolean {
   return state.review !== null && state.editor === null && !isModalOpen(state) && !isLocked(state);
 }
@@ -344,6 +346,12 @@ export interface AppState {
   /** the Claude Setup screen stands in place of the chapter */
   setupOpen: boolean;
   /**
+   * the Diagnostics dialog is open (hardening.5): `copy` from Setup's Copy
+   * diagnostics, which copies the report as it comes in, `show` from a card's
+   * Show diagnostics; null when closed
+   */
+  diagnosticsOpen: 'copy' | 'show' | null;
+  /**
    * Start or Skip closed the welcome guide in this run (setup.11 review). It
    * keeps the guide away even while the settings still say it is not done,
    * as after a write of `onboardingDone` that failed, until Show the welcome
@@ -420,6 +428,7 @@ export interface AppState {
   setReviewDialogOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setSetupOpen: (open: boolean) => void;
+  setDiagnosticsOpen: (open: 'copy' | 'show' | null) => void;
   setWelcomeClosed: (closed: boolean) => void;
   setChapterSaving: (saving: boolean) => void;
   /** say whether a dialog holds text the author typed; unchanged state sets nothing */
@@ -502,6 +511,7 @@ export const useApp = create<AppState>()((set, get) => ({
   reviewDialogOpen: false,
   settingsOpen: false,
   setupOpen: false,
+  diagnosticsOpen: null,
   welcomeClosed: false,
   chapterSaving: false,
   drafts: {},
@@ -701,6 +711,7 @@ export const useApp = create<AppState>()((set, get) => ({
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
 
   setSetupOpen: (setupOpen) => set({ setupOpen }),
+  setDiagnosticsOpen: (diagnosticsOpen) => set({ diagnosticsOpen }),
   setWelcomeClosed: (welcomeClosed) => set({ welcomeClosed }),
 
   setChapterSaving: (chapterSaving) => set({ chapterSaving }),

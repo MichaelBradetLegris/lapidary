@@ -46,6 +46,9 @@ export function lastRuntime(id: Provider): RuntimeStatus | null {
   );
 }
 
+/** The Claude Code the last lookup found and its version (setup.3), without looking again (hardening.5). */
+export { installedCli } from './claude';
+
 /** The last failure of `id` that says something about setup (`nextLastFailure`), or null. */
 export function lastFailure(id: Provider): LastFailure | null {
   return (

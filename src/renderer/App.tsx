@@ -25,6 +25,7 @@ import type { ApiEventMap, ChapterFile, LoadedReview, ReviewSummary } from '../s
 import { PROVIDER_NAMES, type Provider, type Review } from '../shared/types';
 import { ColumnStrip } from './components/ColumnStrip';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { DiagnosticsDialog } from './components/DiagnosticsDialog';
 import { EditPopover } from './components/EditPopover';
 import { FileList } from './components/FileList';
 import { FilterChips } from './components/FilterChips';
@@ -172,6 +173,8 @@ export function App(): React.JSX.Element {
   const setSettingsOpen = useApp((s) => s.setSettingsOpen);
   const setupOpen = useApp((s) => s.setupOpen);
   const setSetupOpen = useApp((s) => s.setSetupOpen);
+  const diagnosticsOpen = useApp((s) => s.diagnosticsOpen);
+  const setDiagnosticsOpen = useApp((s) => s.setDiagnosticsOpen);
   const welcomeClosed = useApp((s) => s.welcomeClosed);
   const chapterSaving = useApp((s) => s.chapterSaving);
   const questionOpen = useApp((s) => s.confirmSpec !== null);
@@ -967,12 +970,16 @@ export function App(): React.JSX.Element {
           // The no-backups card: the backups root, as in Settings (apply.11).
           revealBackups();
           break;
+        case 'show-diagnostics':
+          // Shows the report; only Setup's Copy diagnostics copies it at once (hardening.5).
+          setDiagnosticsOpen('show');
+          break;
         default:
-          // Diagnostics (hardening.5) and updates (release.9) wire theirs in when they land.
+          // Updates (release.9) wire theirs in when they land.
           break;
       }
     },
-    [openSettings, openSetup, fail, revealBackups]
+    [openSettings, openSetup, fail, revealBackups, setDiagnosticsOpen]
   );
 
   /* The status bar's runtime label is a button: Setup for Claude, Settings
@@ -987,7 +994,7 @@ export function App(): React.JSX.Element {
      OpenAI's (setup.9). */
   const usageNotice = claudeInUse ? ai.rateLimit : null;
 
-  /* The four dialogs, each drawn only when it can be. They sit outside the
+  /* The dialogs, each drawn only when it can be. They sit outside the
      page, which is inert while one of them is open, so Tab and Shift+Tab go
      round the dialog's own controls and nothing behind its backdrop can take
      the focus; a question makes the dialogs inert too (ui.4, `shellInert`). */
@@ -1063,8 +1070,15 @@ export function App(): React.JSX.Element {
         onShowWelcome={showWelcomeAgain}
       />
     ) : null;
+  /* Diagnostics (hardening.5): from Setup's Copy diagnostics, which copies
+     the report as it comes in, or a card's Show diagnostics. */
+  const diagnosticsDialog = diagnosticsOpen ? (
+    <DiagnosticsDialog copyOnOpen={diagnosticsOpen === 'copy'} onClose={() => setDiagnosticsOpen(null)} />
+  ) : null;
   const inert = shellInert({
-    dialog: [newChapterDialog, manualReviewDialog, reviewDialog, settingsDialog].some((d) => d !== null),
+    dialog: [newChapterDialog, manualReviewDialog, reviewDialog, settingsDialog, diagnosticsDialog].some(
+      (d) => d !== null
+    ),
     question: questionOpen
   });
 
@@ -1100,6 +1114,7 @@ export function App(): React.JSX.Element {
                 testing={ai.testing.claude ?? false}
                 testOutcome={ai.testOutcomes.claude ?? null}
                 rateLimit={ai.rateLimit}
+                onCopyDiagnostics={() => setDiagnosticsOpen('copy')}
               />
             ) : settings ? (
               <WelcomeScreen
@@ -1128,6 +1143,7 @@ export function App(): React.JSX.Element {
           {manualReviewDialog}
           {reviewDialog}
           {settingsDialog}
+          {diagnosticsDialog}
         </div>
         <ConfirmDialog />
       </div>
@@ -1246,6 +1262,7 @@ export function App(): React.JSX.Element {
         {manualReviewDialog}
         {reviewDialog}
         {settingsDialog}
+        {diagnosticsDialog}
       </div>
       {/* Last, above everything: a question can be asked from any dialog above. */}
       <ConfirmDialog />

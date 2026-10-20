@@ -7,11 +7,14 @@ import { getDevSwitches } from '../devSwitches';
 import { log } from '../log';
 import { fail } from '../errors';
 import {
+  afterLookup,
+  afterVersion,
   canRun,
   claudeAuthStatus,
   claudeVersion,
   locateClaudeCode,
   spawn,
+  type InstalledCli,
   type LocateDeps,
   type RunOptions
 } from './claudeBinary';
@@ -47,6 +50,18 @@ import type {
 /** null: not installed; undefined: not looked for yet. */
 let executableCache: string | null | undefined;
 
+/** What the last lookup found and its version (setup.3); null: not installed; undefined: not looked for yet. */
+let installed: InstalledCli | null | undefined;
+
+/**
+ * The Claude Code the last lookup found, whether a terminal finds it by name,
+ * and what its `--version` said, for diagnostics and `app:info`
+ * (hardening.5). Reading it looks for nothing and runs nothing.
+ */
+export function installedCli(): InstalledCli | null | undefined {
+  return installed;
+}
+
 /** Where to look, for this machine (setup.3, claudeBinary.ts). */
 function locateDeps(): LocateDeps {
   return {
@@ -63,7 +78,9 @@ function locateDeps(): LocateDeps {
 /** The installer's location, then PATH, then the usual system folders. */
 async function locateExecutable(): Promise<string | null> {
   warnAboutSessionEnvironment();
-  return (await locateClaudeCode(locateDeps()))?.path ?? null;
+  const located = await locateClaudeCode(locateDeps());
+  installed = afterLookup(installed, located);
+  return located?.path ?? null;
 }
 
 /** How the two probes run: never in the vault, with the same environment as a review. */
@@ -124,7 +141,11 @@ const runtimeCheck = createClaudeRuntimeCheck({
     executableCache = await locateExecutable();
     return executableCache;
   },
-  version: (executable) => claudeVersion(executable, probeOptions()),
+  version: async (executable) => {
+    const version = await claudeVersion(executable, probeOptions());
+    installed = afterVersion(installed, executable, version);
+    return version;
+  },
   authStatus: (executable) => claudeAuthStatus(executable, probeOptions()),
   handshake: (executable) => handshake.run(executable),
   now: () => new Date()

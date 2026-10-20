@@ -58,6 +58,7 @@ beforeEach(() => {
     editor: null,
     settingsOpen: false,
     setupOpen: false,
+    diagnosticsOpen: null,
     settings: null,
     newChapterOpen: false,
     manualReviewOpen: false,
@@ -78,6 +79,9 @@ describe('reviewKeysActive (apply.20 review)', () => {
     ['New chapter', { newChapterOpen: true }],
     ['Settings', { settingsOpen: true }],
     ['the Setup screen', { setupOpen: true }],
+    // From a card's Show diagnostics, over the chapter (hardening.5).
+    ['Diagnostics', { diagnosticsOpen: 'show' }],
+    ['Diagnostics from Copy diagnostics', { diagnosticsOpen: 'copy' }],
     // Shown again from Settings with a chapter open (setup.11).
     [
       'the welcome guide',

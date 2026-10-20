@@ -92,6 +92,37 @@ export interface LocatedClaude {
   onPath: boolean;
 }
 
+/**
+ * What the last lookup found and what its `--version` said (`installedCli`
+ * in claude.ts), for diagnostics and `app:info` (hardening.5), which read it
+ * and never look again.
+ */
+export interface InstalledCli extends LocatedClaude {
+  /** null until `--version` has answered for this path, or when its answer could not be read */
+  version: string | null;
+}
+
+/**
+ * The record after a lookup: what it found, keeping the version already read
+ * when the path is the same, since a lookup does not run `--version`.
+ */
+export function afterLookup(
+  previous: InstalledCli | null | undefined,
+  located: LocatedClaude | null
+): InstalledCli | null {
+  if (!located) return null;
+  return { ...located, version: previous?.path === located.path ? previous.version : null };
+}
+
+/** The record after `--version` of `executable` answered; a version of another path changes nothing. */
+export function afterVersion(
+  previous: InstalledCli | null | undefined,
+  executable: string,
+  version: string | null
+): InstalledCli | null | undefined {
+  return previous?.path === executable ? { ...previous, version } : previous;
+}
+
 /** The first candidate that exists, or null when Claude Code is not installed. */
 export async function locateClaudeCode(deps: LocateDeps): Promise<LocatedClaude | null> {
   if (deps.noClaudeCode) return null;

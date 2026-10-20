@@ -1,6 +1,9 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, safeStorage, screen, shell } from 'electron';
 import { existsSync, promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { diagnosticsReport, type DisplayFacts } from '../shared/diagnostics/report';
+import type { Settings } from '../shared/types';
 import type {
   ApiEventMap,
   ChapterFile,
@@ -23,8 +26,19 @@ import {
   setAsideFile,
   setAsideFolderFor
 } from './drafts';
+import { collectAppInfo, openAiPackageVersion } from './appInfo';
+import { collectDiagnostics } from './diagnostics';
 import { fail } from './errors';
-import { beginRequest, cancelRequest, endRequest, noteTest, providers } from './providers';
+import {
+  beginRequest,
+  cancelRequest,
+  endRequest,
+  installedCli,
+  lastFailure,
+  lastRuntime,
+  noteTest,
+  providers
+} from './providers';
 import { testConnection } from './providers/connectionTest';
 import { registerController } from './providers/controllers';
 import { clearOpenAiKey, openAiKeyStatus, storeOpenAiKey } from './secrets';
@@ -48,7 +62,7 @@ import {
   guidelinesStatus
 } from './guidelines';
 import { runHandler } from './ipcEnvelope';
-import { log } from './log';
+import { log, logWriting, tail } from './log';
 import { openGuidelines } from './openGuidelines';
 import { pickShell, type ShellApi } from './shellApi';
 import {
@@ -186,6 +200,67 @@ export function registerCoreHandlers(): void {
   registerAiHandlers();
   registerSecretHandlers();
   registerCloseGuardHandlers();
+  registerDiagnosticsHandlers();
+}
+
+/** The versions, read now: the app's, Electron's, the openai package's and the user's Claude Code (hardening.5). */
+function appInfo(): ReturnType<typeof collectAppInfo> {
+  return collectAppInfo({
+    version: app.getVersion(),
+    packaged: app.isPackaged,
+    versions: process.versions,
+    platform: process.platform,
+    arch: process.arch,
+    osRelease: os.release(),
+    openAiVersion: openAiPackageVersion,
+    installedCli
+  });
+}
+
+/**
+ * How the app is drawn: the theme in force, Windows' contrast themes, and
+ * the first window's zoom, size and display. The GPU's compositing status is
+ * Chromium's own word for it, such as `enabled` or `disabled_software`.
+ */
+function displayFacts(settings: Settings): DisplayFacts {
+  const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed()) ?? null;
+  const [width = 0, height = 0] = win ? win.getContentSize() : [];
+  return {
+    theme: settings.theme,
+    dark: nativeTheme.shouldUseDarkColors,
+    forcedColors: nativeTheme.inForcedColorsMode,
+    zoom: win ? win.webContents.getZoomFactor() : settings.zoom,
+    scale: win ? screen.getDisplayMatching(win.getBounds()).scaleFactor : null,
+    window: win ? { width, height, maximized: win.isMaximized() } : null,
+    gpuCompositing: app.getGPUFeatureStatus().gpu_compositing || null
+  };
+}
+
+/**
+ * Copy diagnostics and the versions (hardening.5). Neither runs a check of
+ * Claude or OpenAI: they read what the last one found, so asking for them
+ * costs nothing and logs no `ai.runtime`. The report is scrubbed here, where
+ * the home folder is known, before it crosses to the page.
+ */
+function registerDiagnosticsHandlers(): void {
+  handle('app:info', appInfo);
+  handle('app:diagnostics', async () => {
+    const data = await collectDiagnostics({
+      now: () => new Date(),
+      info: appInfo,
+      settings: loadSettings,
+      lastRuntime,
+      lastFailure,
+      display: displayFacts,
+      userData: app.getPath('userData'),
+      switches: getDevSwitches(),
+      logWriting,
+      warnings: (n) => tail(n, 'warn'),
+      guidelinesTemplate: guidelinesTemplate(),
+      ci: caseInsensitiveFs()
+    });
+    return { text: diagnosticsReport(data, { home: os.homedir() }) };
+  });
 }
 
 /**

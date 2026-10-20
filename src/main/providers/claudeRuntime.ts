@@ -99,9 +99,13 @@ export function createClaudeRuntimeCheck(deps: RuntimeCheckDeps): () => Promise<
  */
 export function claudeDiagnostics(runtime: RuntimeStatus | null, lastFailure: LastFailure | null): string[] {
   if (!runtime) return ['Claude: not checked yet'];
+  const found =
+    runtime.state === 'missing-binary'
+      ? 'not found'
+      : `${runtime.cliVersion ?? 'unknown version'}${runtime.executablePath ? ` at ${runtime.executablePath}` : ''}`;
   return [
     `Claude: ${runtime.state}${runtime.credential ? ` (${runtime.credential})` : ''}`,
-    `Claude Code: ${runtime.cliVersion ?? 'unknown version'}${runtime.executablePath ? ` at ${runtime.executablePath}` : ''}`,
+    `Claude Code: ${found}`,
     `Claude Code minimum: ${runtime.minCliVersion ?? MIN_CLAUDE_CODE}`,
     ...(runtime.authMethod ? [`Auth method: ${runtime.authMethod}`] : []),
     ...(runtime.subscriptionType ? [`Plan: ${runtime.subscriptionType}`] : []),

@@ -2310,6 +2310,55 @@ input[type='text'] {
   color: var(--ink-soft);
 }
 
+/* Copy diagnostics, a line of its own above the privacy footer (hardening.5). */
+.setup__diagnostics {
+  color: var(--ink-soft);
+}
+
+/* ---------- Diagnostics (hardening.5) ---------- */
+
+/* Wide enough that the report's paths and log lines seldom wrap. The text
+   scrolls inside its own box, so Copy and Close stay in view. */
+.modal--diagnostics {
+  width: min(760px, 100%);
+}
+
+.diagnostics__copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0 0 10px;
+}
+
+.diagnostics__copy button {
+  white-space: nowrap;
+}
+
+.diagnostics__copied {
+  color: var(--ink-soft);
+}
+
+.diagnostics__copied--failed {
+  color: var(--danger);
+}
+
+/* Exactly what Copy puts on the clipboard, in the face of a command (.cmd code). */
+.diagnostics__text {
+  margin: 0;
+  max-height: 50vh;
+  overflow: auto;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- welcome guide (setup.11) ---------- */
 
 /* The guide uses the Setup screen's scroller and centred column (.setup,

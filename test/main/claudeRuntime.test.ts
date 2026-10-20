@@ -187,4 +187,18 @@ describe('claudeDiagnostics', () => {
     expect(lines.join('\n')).not.toMatch(/example\.com|organi[sz]ation/i);
     expect(claudeDiagnostics(null, null)).toEqual(['Claude: not checked yet']);
   });
+
+  it('says not found, rather than an unknown version, when Claude Code is not installed (hardening.5)', () => {
+    const lines = claudeDiagnostics(
+      { provider: 'claude', state: 'missing-binary', checkedAt: NOW.toISOString(), message: 'not installed' },
+      null
+    );
+    expect(lines).toEqual([
+      'Claude: missing-binary',
+      'Claude Code: not found',
+      `Claude Code minimum: ${MIN_CLAUDE_CODE}`,
+      `Checked: ${NOW.toISOString()}`,
+      'Last failure: none'
+    ]);
+  });
 });

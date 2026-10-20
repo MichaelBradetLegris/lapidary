@@ -22,6 +22,7 @@ import {
   type LastFailure,
   type SetupOs
 } from '../../shared/ui/setup';
+import { COPY_DIAGNOSTICS, SETUP_DIAGNOSTICS_TEXT } from '../../shared/ui/diagnostics';
 import { heldButton } from '../state/heldButton';
 import { Command } from './Command';
 import { UpdateNote } from './UpdateNote';
@@ -51,6 +52,8 @@ interface Props {
   testOutcome?: ConnectionTestOutcome | null;
   /** Claude Code's last usage notice, which names the limit a usage-limit view advises on (setup.9) */
   rateLimit?: RateLimitInfo | null;
+  /** Copy diagnostics (hardening.5): opens the Diagnostics dialog, which copies the report; shown when given */
+  onCopyDiagnostics?: () => void;
 }
 
 const SYSTEMS: ReadonlyArray<{ id: SetupOs; label: string }> = [
@@ -68,8 +71,9 @@ const SETUP_DOCS = 'https://code.claude.com/docs/en/setup';
  * very small request and says under the buttons how it went (setup.8); then,
  * for the view, the steps on the chosen system, each command with a Copy
  * that says when it fails; troubleshooting; Advanced, with the Claude Code
- * path and version; and the privacy footer. Everything it says comes from
- * `src/shared/ui/setup.ts`.
+ * path and version; Copy diagnostics (hardening.5); and the privacy footer.
+ * Everything it says comes from `src/shared/ui/setup.ts`, and the
+ * diagnostics line from `src/shared/ui/diagnostics.ts`.
  *
  * The app never offers a sign-in of its own: no button here signs in. The
  * author signs in with Anthropic, in Claude Code and the browser, and this
@@ -87,7 +91,8 @@ export function SetupScreen({
   onTest,
   testing = false,
   testOutcome = null,
-  rateLimit = null
+  rateLimit = null,
+  onCopyDiagnostics
 }: Props): React.JSX.Element {
   const host = givenHost ?? osFromUserAgent(navigator.userAgent);
   const [os, setOs] = useState<SetupOs>(() => initialOs ?? host);
@@ -232,6 +237,17 @@ export function SetupScreen({
             ))}
           </dl>
         </details>
+
+        {/* For whoever helps when something goes wrong (hardening.5): the
+            dialog it opens copies the report and shows what was copied. */}
+        {onCopyDiagnostics ? (
+          <p className="setup__diagnostics">
+            <button type="button" className="link" data-opens="diagnostics" onClick={onCopyDiagnostics}>
+              {COPY_DIAGNOSTICS}
+            </button>{' '}
+            {SETUP_DIAGNOSTICS_TEXT}
+          </p>
+        ) : null}
 
         <p className="setup__footer">
           {PRIVACY_FOOTER}{' '}
