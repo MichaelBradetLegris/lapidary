@@ -12,7 +12,8 @@ import { APP_ID, APP_NAME, APP_REPOSITORY } from '../../src/shared/branding';
  * resources/app-update.yml for the updater; nothing unpacked from the asar,
  * since no Anthropic package is a dependency (C.42); and only Chromium's en-US
  * and en-GB locale files, the second so that a Windows in British English keeps
- * day-first dates and a British spelling check (C.90).
+ * day-first dates and a British spelling check (C.90). opensource.5 added the
+ * third-party notices and the licence beside the asar.
  */
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -20,6 +21,8 @@ const require = createRequire(import.meta.url);
 
 interface BuilderConfig {
   appId?: unknown;
+  files?: unknown;
+  extraResources?: unknown;
   productName?: unknown;
   asarUnpack?: unknown;
   electronLanguages?: unknown;
@@ -66,6 +69,24 @@ describe('electron-builder config (release.4)', () => {
   it('unpacks nothing from the asar and keeps only the en-US and en-GB locale files', () => {
     expect(builder).not.toHaveProperty('asarUnpack');
     expect(builder.electronLanguages).toEqual(['en-US', 'en-GB']);
+  });
+
+  it('puts the third-party notices and the licence beside the asar, and keeps them out of it', () => {
+    // opensource.5: `npm run notices` writes out/THIRD_PARTY_NOTICES.txt after the build.
+    expect(builder.extraResources).toEqual([
+      { from: 'resources/GUIDELINES.default.md', to: 'GUIDELINES.default.md' },
+      { from: 'resources/icon/icon-256.png', to: 'icon.png' },
+      { from: 'out/THIRD_PARTY_NOTICES.txt', to: 'THIRD_PARTY_NOTICES.txt' },
+      { from: 'LICENSE', to: 'LICENSE.txt' }
+    ]);
+    expect(builder.files).toEqual([
+      'out/**/*',
+      '!out/THIRD_PARTY_NOTICES.txt',
+      '!out/*/bundled-packages.json',
+      'resources/icon/icon*.png',
+      'package.json',
+      'node_modules/**/*'
+    ]);
   });
 
   it('keeps the package name that names the install folder and the updater cache', () => {

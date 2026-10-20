@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -58,13 +58,25 @@ function compareVersions(a: string, b: string): number {
 }
 
 describe('packaging scripts (release.2)', () => {
+  it('builds, writes the notices, then packages, and verifies the installer build after', () => {
+    // opensource.5: the notices are written from the build's records, so after
+    // it, and before electron-builder, which copies them beside the asar.
+    expect(scripts.package).toBe(
+      'npm run build && npm run notices && electron-builder --config electron-builder.config.cjs --publish never'
+    );
+    expect(scripts.postpackage).toBe('npm run verify:package -- --installer');
+    expect(scripts.notices).toBe('node scripts/third-party-notices.ts');
+  });
+
   it('builds the unpacked app with --dir, syncing package.json first as package does', () => {
     expect(scripts['package:dir']).toBe(
-      'npm run build && electron-builder --config electron-builder.config.cjs --dir --publish never'
+      'npm run build && npm run notices && electron-builder --config electron-builder.config.cjs --dir --publish never'
     );
     // npm runs pre<name> before <name>, so package:dir needs its own copy of prepackage.
     expect(scripts['prepackage:dir']).toBe('node scripts/sync-branding.cjs');
     expect(scripts['prepackage:dir']).toBe(scripts.prepackage);
+    // No postpackage:dir: CI (release.5) runs verify:package on its output itself.
+    expect(scripts['postpackage:dir']).toBeUndefined();
   });
 
   it('tells every electron-builder run never to publish', () => {
@@ -78,8 +90,10 @@ describe('packaging scripts (release.2)', () => {
   });
 
   it('points the verifier and the release scripts at their agreed files', () => {
-    // The files themselves land with opensource.5 (verify-package.ts) and release.6b (the other two).
+    // opensource.5 wrote verify-package.ts; release.6b writes the other two.
     expect(scripts['verify:package']).toBe('node scripts/verify-package.ts');
+    expect(existsSync(path.join(ROOT, 'scripts', 'verify-package.ts'))).toBe(true);
+    expect(existsSync(path.join(ROOT, 'scripts', 'third-party-notices.ts'))).toBe(true);
     expect(scripts['release:check']).toBe('node scripts/check-release.cjs');
     expect(scripts['release:notes']).toBe('node scripts/release-notes.cjs');
   });

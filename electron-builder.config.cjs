@@ -46,12 +46,27 @@ module.exports = {
     buildResources: 'resources/icon'
   },
   // The main process, the preload, the renderer bundle and the production
-  // dependency tree. electron-builder drops devDependencies on its own.
-  files: ['out/**/*', 'resources/icon/icon*.png', 'package.json', 'node_modules/**/*'],
+  // dependency tree. electron-builder drops devDependencies on its own. The
+  // notices and each build's record of its bundled packages stay out of the
+  // asar: the notices go beside it instead, below.
+  files: [
+    'out/**/*',
+    '!out/THIRD_PARTY_NOTICES.txt',
+    '!out/*/bundled-packages.json',
+    'resources/icon/icon*.png',
+    'package.json',
+    'node_modules/**/*'
+  ],
   extraResources: [
     // main/guidelines.ts looks for the template beside the executable.
     { from: 'resources/GUIDELINES.default.md', to: 'GUIDELINES.default.md' },
-    { from: 'resources/icon/icon-256.png', to: 'icon.png' }
+    { from: 'resources/icon/icon-256.png', to: 'icon.png' },
+    // Every third-party package the app ships, with its licence text, written
+    // by `npm run notices` (scripts/third-party-notices.ts) after the build,
+    // and the app's own licence. Beside the asar, so that the About dialog can
+    // open them as plain files (release.9).
+    { from: 'out/THIRD_PARTY_NOTICES.txt', to: 'THIRD_PARTY_NOTICES.txt' },
+    { from: 'LICENSE', to: 'LICENSE.txt' }
   ],
   // Only en-US.pak, the locale Chromium falls back on, and en-GB.pak; the
   // other 53 locale files are 47.2 MiB. Chromium takes the page's locale from
