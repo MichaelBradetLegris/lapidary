@@ -1,3 +1,5 @@
+<img src="resources/icon/icon-256.png" width="128" height="128" alt="">
+
 # Lapidary
 
 [![CI](https://github.com/MichaelBradetLegris/lapidary/actions/workflows/ci.yml/badge.svg)](https://github.com/MichaelBradetLegris/lapidary/actions/workflows/ci.yml)

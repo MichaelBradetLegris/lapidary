@@ -14,24 +14,24 @@ import { abortAll } from './providers/controllers';
 import { loadSettings } from './settings';
 import { SHELL_STUB_PREFIX } from './shellApi';
 import { applyTheme, currentWindowBackground, installTheme } from './theme';
+import { windowIconPath } from './windowIcon';
 import { installZoom } from './zoom';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
 
 /**
- * The window and taskbar icon. Packaged builds get it beside the executable
- * through electron-builder's extraResources; a dev run reads it out of the repo,
- * so `npm run dev` shows the real icon rather than Electron's default.
+ * The window and taskbar icon (src/main/windowIcon.ts): none when packaged,
+ * where Windows uses the executable's own, and icon.ico from the repository
+ * in a dev run, so `npm run dev` shows the real icon rather than Electron's.
  */
 function iconPath(): string | undefined {
-  const candidates = app.isPackaged
-    ? [path.join(process.resourcesPath, 'icon.png')]
-    : [
-        path.join(app.getAppPath(), 'resources', 'icon', 'icon-256.png'),
-        path.join(dirname, '../../resources/icon/icon-256.png')
-      ];
-  return candidates.find((candidate) => existsSync(candidate));
+  return windowIconPath({
+    platform: process.platform,
+    packaged: app.isPackaged,
+    roots: [app.getAppPath(), path.join(dirname, '..', '..')],
+    exists: existsSync
+  });
 }
 
 /**

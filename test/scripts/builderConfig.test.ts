@@ -13,7 +13,8 @@ import { APP_ID, APP_NAME, APP_REPOSITORY } from '../../src/shared/branding';
  * since no Anthropic package is a dependency (C.42); and only Chromium's en-US
  * and en-GB locale files, the second so that a Windows in British English keeps
  * day-first dates and a British spelling check (C.90). opensource.5 added the
- * third-party notices and the licence beside the asar.
+ * third-party notices and the licence beside the asar. brand.5 took the icon
+ * files out of the package: the window uses the executable's icon (C.92).
  */
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -28,7 +29,7 @@ interface BuilderConfig {
   electronLanguages?: unknown;
   publish?: unknown;
   portable?: unknown;
-  win?: { target?: unknown; artifactName?: unknown };
+  win?: { icon?: unknown; target?: unknown; artifactName?: unknown };
   nsis?: Record<string, unknown>;
 }
 
@@ -66,6 +67,14 @@ describe('electron-builder config (release.4)', () => {
     });
   });
 
+  it('gives the executable icon.ico and packs no icon file of its own', () => {
+    // brand.5: a packaged window has no icon option and takes the executable's
+    // (src/main/windowIcon.ts), so nothing reads an icon file from the package.
+    expect(builder.win?.icon).toBe('resources/icon/icon.ico');
+    expect(JSON.stringify(builder.files)).not.toMatch(/icon/);
+    expect(JSON.stringify(builder.extraResources)).not.toMatch(/icon/);
+  });
+
   it('unpacks nothing from the asar and keeps only the en-US and en-GB locale files', () => {
     expect(builder).not.toHaveProperty('asarUnpack');
     expect(builder.electronLanguages).toEqual(['en-US', 'en-GB']);
@@ -75,7 +84,6 @@ describe('electron-builder config (release.4)', () => {
     // opensource.5: `npm run notices` writes out/THIRD_PARTY_NOTICES.txt after the build.
     expect(builder.extraResources).toEqual([
       { from: 'resources/GUIDELINES.default.md', to: 'GUIDELINES.default.md' },
-      { from: 'resources/icon/icon-256.png', to: 'icon.png' },
       { from: 'out/THIRD_PARTY_NOTICES.txt', to: 'THIRD_PARTY_NOTICES.txt' },
       { from: 'LICENSE', to: 'LICENSE.txt' }
     ]);
@@ -83,7 +91,6 @@ describe('electron-builder config (release.4)', () => {
       'out/**/*',
       '!out/THIRD_PARTY_NOTICES.txt',
       '!out/*/bundled-packages.json',
-      'resources/icon/icon*.png',
       'package.json',
       'node_modules/**/*'
     ]);

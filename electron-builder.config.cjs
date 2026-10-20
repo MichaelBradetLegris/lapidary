@@ -48,19 +48,19 @@ module.exports = {
   // The main process, the preload, the renderer bundle and the production
   // dependency tree. electron-builder drops devDependencies on its own. The
   // notices and each build's record of its bundled packages stay out of the
-  // asar: the notices go beside it instead, below.
+  // asar: the notices go beside it instead, below. No icon file goes in
+  // either: the window takes the executable's own icon, which comes from
+  // win.icon (src/main/windowIcon.ts, C.92).
   files: [
     'out/**/*',
     '!out/THIRD_PARTY_NOTICES.txt',
     '!out/*/bundled-packages.json',
-    'resources/icon/icon*.png',
     'package.json',
     'node_modules/**/*'
   ],
   extraResources: [
     // main/guidelines.ts looks for the template beside the executable.
     { from: 'resources/GUIDELINES.default.md', to: 'GUIDELINES.default.md' },
-    { from: 'resources/icon/icon-256.png', to: 'icon.png' },
     // Every third-party package the app ships, with its licence text, written
     // by `npm run notices` (scripts/third-party-notices.ts) after the build,
     // and the app's own licence. Beside the asar, so that the About dialog can
@@ -87,6 +87,8 @@ module.exports = {
   // A draft is invisible to the updater until the author publishes it.
   publish: [{ provider: 'github', owner, repo, releaseType: 'draft' }],
   win: {
+    // Embedded in the executable with all 14 frames (scripts/make-icons.py),
+    // and also the installer's and the uninstaller's icon.
     icon: 'resources/icon/icon.ico',
     target: [{ target: 'nsis', arch: ['x64'] }]
   },
