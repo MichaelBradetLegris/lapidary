@@ -52,6 +52,109 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings({ sideSplit: null }).sideSplit).toBeNull();
   });
 
+  /* hardening.8: a folder or a guidelines file the app cannot use is dropped to null, the usual one. */
+  const NUL = '\u0000';
+  const FOLDERS = ['manuscriptFolder', 'reviewsFolder'] as const;
+
+  it('keeps a folder given as an absolute path, on Windows or POSIX', () => {
+    for (const key of FOLDERS) {
+      for (const folder of [
+        'C:\\Novel',
+        'c:/Novel',
+        'D:\\',
+        '\\\\srv\\share\\Novel',
+        '//srv/share',
+        '/srv/novel'
+      ]) {
+        expect(normalizeSettings({ [key]: folder })[key], `${key} ${folder}`).toBe(folder);
+      }
+      expect(normalizeSettings({ [key]: null })[key]).toBeNull();
+    }
+  });
+
+  it('drops a folder that is relative, empty, not a string or holds a NUL', () => {
+    for (const key of FOLDERS) {
+      for (const folder of [
+        'Novel',
+        '.\\Novel',
+        './Novel',
+        '..\\Novel',
+        '~/Novel',
+        'C:Novel',
+        'C:',
+        ' C:\\Novel',
+        '',
+        '   ',
+        `C:\\Novel${NUL}`,
+        `C:\\No${NUL}vel\\Part 1`,
+        5,
+        true,
+        ['C:\\Novel'],
+        { path: 'C:\\Novel' }
+      ]) {
+        expect(normalizeSettings({ [key]: folder })[key], `${key} ${JSON.stringify(folder)}`).toBeNull();
+      }
+    }
+  });
+
+  it('shows the welcome guide again when the only manuscript folder named is dropped', () => {
+    expect(normalizeSettings({ manuscriptFolder: 'Novel' }).onboardingDone).toBe(false);
+    expect(normalizeSettings({ manuscriptFolder: 'Novel', onboardingDone: true }).onboardingDone).toBe(true);
+  });
+
+  it('keeps a guidelines file given as an absolute path to a .md or .txt file, in any case', () => {
+    for (const file of [
+      'C:\\Novel\\GUIDELINES.md',
+      'C:\\Novel\\House style.MD',
+      'D:/Notes/rules.txt',
+      '\\\\srv\\share\\Style.Txt',
+      '/srv/novel/style.md',
+      'C:\\Novel\\..md',
+      'C:\\Novel\\notes.v2.md'
+    ]) {
+      expect(normalizeSettings({ guidelinesPath: file }).guidelinesPath, file).toBe(file);
+    }
+    expect(normalizeSettings({ guidelinesPath: null }).guidelinesPath).toBeNull();
+  });
+
+  it('drops a guidelines file that is not .md or .txt, is relative, or holds a NUL', () => {
+    for (const file of [
+      'C:\\Novel\\rules.docx',
+      'C:\\Novel\\GUIDELINES',
+      'C:\\Novel\\GUIDELINES.md.bak',
+      'C:\\Novel\\GUIDELINES.md ',
+      'C:\\Novel\\.md',
+      'C:\\Novel.md\\rules',
+      'C:\\Novel\\',
+      'GUIDELINES.md',
+      '.\\GUIDELINES.md',
+      'C:GUIDELINES.md',
+      `C:\\Novel\\GUIDELINES.md${NUL}`,
+      `C:\\Novel\\GUIDE${NUL}.txt`,
+      '',
+      7
+    ]) {
+      expect(normalizeSettings({ guidelinesPath: file }).guidelinesPath, JSON.stringify(file)).toBeNull();
+    }
+  });
+
+  it('drops only the value it cannot use, keeping the rest of the file', () => {
+    const settings = normalizeSettings({
+      manuscriptFolder: 'C:\\Novel',
+      reviewsFolder: 'Reviews',
+      guidelinesPath: 'C:\\Novel\\style.pdf',
+      model: 'opus',
+      onboardingDone: true
+    });
+    expect(settings).toMatchObject({
+      manuscriptFolder: 'C:\\Novel',
+      reviewsFolder: null,
+      guidelinesPath: null,
+      model: 'opus',
+      onboardingDone: true
+    });
+  });
+
   it('drops unknown keys and never shares the default array', () => {
     const settings = normalizeSettings({ surprise: 1 });
     expect(settings).not.toHaveProperty('surprise');

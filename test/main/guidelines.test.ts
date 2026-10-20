@@ -3,7 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppFailure, explainReadError, explainWriteError, toAppError } from '../../src/main/errors';
-import { ensureGuidelines, ensureGuidelinesFile, guidelinesStatus } from '../../src/main/guidelines';
+import {
+  assertGuidelinesFile,
+  ensureGuidelines,
+  ensureGuidelinesFile,
+  guidelinesStatus
+} from '../../src/main/guidelines';
 import {
   assertCanOpen,
   openGuidelines,
@@ -12,6 +17,7 @@ import {
 } from '../../src/main/openGuidelines';
 import type { ShellApi } from '../../src/main/shellApi';
 import { obsidianOpenUrl } from '../../src/shared/obsidian';
+import { normalizeSettings } from '../../src/shared/settings';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
 
 /* setup.10: the guidelines file is created once, never overwritten, and opened
@@ -60,6 +66,32 @@ describe('ensureGuidelinesFile', () => {
       ensureGuidelinesFile(settings({ guidelinesPath: path.join(root, 'rules.docx') }), template)
     ).rejects.toMatchObject({ code: 'invalid-input' });
     await expect(fs.access(path.join(root, 'rules.docx'))).rejects.toThrow();
+  });
+
+  it('is chosen in a settings file only when main would take it (hardening.8)', () => {
+    // The normaliser keeps an absolute file path exactly when assertGuidelinesFile would accept it.
+    for (const name of [
+      'GUIDELINES.md',
+      'house style.TXT',
+      'notes.v2.Md',
+      '..md',
+      '.md',
+      '.txt',
+      'rules.docx',
+      'rules.md.bak',
+      'rules',
+      'rules.',
+      'rules.md '
+    ]) {
+      const file = path.join(root, 'Novel', name);
+      let accepted = true;
+      try {
+        assertGuidelinesFile(file);
+      } catch {
+        accepted = false;
+      }
+      expect(normalizeSettings({ guidelinesPath: file }).guidelinesPath, name).toBe(accepted ? file : null);
+    }
   });
 
   it('says so when there is nowhere to put it, or no template', async () => {

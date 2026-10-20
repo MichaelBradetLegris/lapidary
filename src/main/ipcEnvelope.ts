@@ -1,6 +1,7 @@
 import { loggableErrorFields } from '../shared/diagnostics/redact';
 import type { IpcResult, RequestChannel } from '../shared/ipc';
 import { toAppError } from './errors';
+import { checkPayload } from './ipcGuard';
 import type { Logger } from './log';
 
 /**
@@ -14,7 +15,14 @@ import type { Logger } from './log';
  * logged here: `withLogging` (providers/logged.ts) logs it as
  * `ai.review.failed`, with the review's counts.
  *
- * No electron import, so test/main/loggedProvider.test.ts drives it.
+ * Before the handler runs, the payload is checked (`checkPayload`,
+ * ipcGuard.ts, hardening.8): a channel that takes nothing is sent nothing,
+ * any other a plain object, and no path field holds a NUL. A payload refused
+ * there never reaches the handler, and is logged for every channel, a
+ * review's too, since `withLogging` never sees it.
+ *
+ * No electron import, so test/main/loggedProvider.test.ts and
+ * test/main/ipcGuard.test.ts drive it.
  */
 
 /** Channels whose failures are logged where the work is done, not here. */
@@ -27,16 +35,23 @@ export async function runHandler(
   log: Logger['log']
 ): Promise<IpcResult<unknown>> {
   try {
+    checkPayload(channel, payload);
+  } catch (err) {
+    return failed(channel, err, log);
+  }
+  try {
     return { ok: true, value: await handler(payload) };
   } catch (err) {
-    const error = toAppError(err);
-    if (!FAILURES_LOGGED_ELSEWHERE.has(channel)) {
-      // A failure with words of its own is one the app foresaw; one without is a fault.
-      log(error.code === 'unknown' ? 'error' : 'warn', 'ipc.failed', {
-        channel,
-        ...loggableErrorFields(err)
-      });
-    }
-    return { ok: false, error };
+    return FAILURES_LOGGED_ELSEWHERE.has(channel)
+      ? { ok: false, error: toAppError(err) }
+      : failed(channel, err, log);
   }
+}
+
+/** The page's answer to a failure, logged as `ipc.failed`. */
+function failed(channel: RequestChannel, err: unknown, log: Logger['log']): IpcResult<unknown> {
+  const error = toAppError(err);
+  // A failure with words of its own is one the app foresaw; one without is a fault.
+  log(error.code === 'unknown' ? 'error' : 'warn', 'ipc.failed', { channel, ...loggableErrorFields(err) });
+  return { ok: false, error };
 }

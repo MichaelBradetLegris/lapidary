@@ -1,6 +1,15 @@
 import fc from 'fast-check';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { commonTrailingSegments, isInsidePath, pathKey, samePath } from '../../src/shared/paths';
+import {
+  commonTrailingSegments,
+  extensionOf,
+  hasNul,
+  isAbsolutePath,
+  isInsidePath,
+  pathKey,
+  samePath
+} from '../../src/shared/paths';
 
 /* files.1a: path comparison as the file system does it. `ci` is always explicit. */
 
@@ -81,6 +90,111 @@ describe('isInsidePath', () => {
         expect(isInsidePath(a, b, ci) && isInsidePath(b, a, ci)).toBe(false);
       })
     );
+  });
+});
+
+/* hardening.8: what a settings file may name as a folder or a guidelines file. */
+
+const ODD_PATHS = [
+  'C:\\Novel',
+  'c:/Novel',
+  'C:',
+  'C:Novel',
+  'D:\\',
+  '\\\\srv\\share\\Novel',
+  '//srv/share',
+  '/srv/novel',
+  '\\Novel',
+  'Novel',
+  '.\\Novel',
+  './Novel',
+  '..\\Novel',
+  '~/Novel',
+  ' C:\\Novel',
+  '1:\\Novel',
+  'CD:\\Novel',
+  '',
+  'C:\\Novel\\GUIDELINES.md',
+  'C:\\Novel\\House style.MD',
+  'C:\\Novel\\.md',
+  'C:\\Novel\\..md',
+  'C:\\Novel\\a..txt',
+  'C:\\Novel\\GUIDELINES',
+  'C:\\Novel\\GUIDELINES.',
+  'C:\\Novel\\GUIDELINES.md ',
+  'C:\\Novel.md\\rules',
+  'C:/Novel.d/rules',
+  'rules.txt'
+];
+
+describe('isAbsolutePath', () => {
+  it("answers as Windows' path.isAbsolute, whichever system runs it", () => {
+    for (const p of ODD_PATHS) expect(isAbsolutePath(p), JSON.stringify(p)).toBe(path.win32.isAbsolute(p));
+  });
+
+  it('takes POSIX absolute paths, and refuses relative ones', () => {
+    expect(isAbsolutePath('/srv/novel')).toBe(true);
+    expect(isAbsolutePath('C:\\Novel')).toBe(true);
+    expect(isAbsolutePath('\\\\srv\\share')).toBe(true);
+    expect(isAbsolutePath('Novel')).toBe(false);
+    expect(isAbsolutePath('C:Novel')).toBe(false);
+    expect(isAbsolutePath('~/Novel')).toBe(false);
+  });
+});
+
+describe('extensionOf', () => {
+  it("reads the extension as Windows' path.extname does, in lower case", () => {
+    for (const p of ODD_PATHS) {
+      expect(extensionOf(p), JSON.stringify(p)).toBe(path.win32.extname(p).toLowerCase());
+    }
+  });
+});
+
+describe('isAbsolutePath and extensionOf, property', () => {
+  const anyMix = fc
+    .array(fc.constantFrom('C', 'd', ':', '.', '\\', '/', ' ', 'md', 'txt', 'Novel', '~'), { maxLength: 10 })
+    .map((parts) => parts.join(''));
+  /** A root, then names made of letters, dots and spaces joined by either separator. */
+  const filePath = fc
+    .tuple(
+      fc.constantFrom('', 'C:\\', 'c:/', '\\\\srv\\share\\', '/', '.\\'),
+      fc.array(
+        fc
+          .array(fc.constantFrom('a', 'B', '.', ' ', 'md', 'TXT'), { minLength: 1, maxLength: 5 })
+          .map((n) => n.join('')),
+        { minLength: 1, maxLength: 4 }
+      ),
+      fc.constantFrom('\\', '/')
+    )
+    .map(([root, names, sep]) => root + names.join(sep));
+
+  it("isAbsolutePath agrees with Windows' path module on any mix of drives, dots and separators", () => {
+    fc.assert(
+      fc.property(anyMix, (p) => isAbsolutePath(p) === path.win32.isAbsolute(p)),
+      { numRuns: 2000 }
+    );
+  });
+
+  it("extensionOf agrees with Windows' path module on a file's path", () => {
+    fc.assert(
+      fc.property(filePath, (p) => extensionOf(p) === path.win32.extname(p).toLowerCase()),
+      { numRuns: 2000 }
+    );
+  });
+
+  it('gives a path that ends in a separator no extension, since it names a folder', () => {
+    expect(extensionOf('C:\\Novel\\rules.md\\')).toBe('');
+    expect(extensionOf('C:/Novel/rules.md/')).toBe('');
+    expect(path.win32.extname('C:\\Novel\\rules.md\\')).toBe('.md');
+  });
+});
+
+describe('hasNul', () => {
+  it('finds a NUL anywhere in a path', () => {
+    expect(hasNul('C:\\Novel\\Chapter 01.md')).toBe(false);
+    expect(hasNul('C:\\Novel\\Chapter 01.md\u0000.exe')).toBe(true);
+    expect(hasNul('\u0000')).toBe(true);
+    expect(hasNul('')).toBe(false);
   });
 });
 

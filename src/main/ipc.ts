@@ -86,7 +86,11 @@ type Handler<C extends RequestChannel> = (payload: RequestPayload<C>) => Promise
 
 const handlers = new Map<RequestChannel, (payload: unknown) => Promise<unknown>>();
 
-/** Register one typed request handler. Every channel goes through the same envelope. */
+/**
+ * Register one typed request handler. Every channel goes through the same
+ * envelope (`runHandler`), which refuses a payload of the wrong shape or with
+ * a NUL in a path field before the handler runs (`checkPayload`, hardening.8).
+ */
 export function handle<C extends RequestChannel>(channel: C, fn: Handler<C>): void {
   handlers.set(channel, (payload) => fn(payload as RequestPayload<C>));
 }
@@ -130,7 +134,9 @@ export const closeGuard = createCloseGuard<BrowserWindow>({
  * a write that replaces a file; every read path explains its own first
  * (`readFailure`, apply.24), and so does every write that makes a new file,
  * a copy or a folder (`writeFailure`, apply.25). A failure is logged as
- * `ipc.failed`, never with its payload (`runHandler`, hardening.3b).
+ * `ipc.failed`, never with its payload (`runHandler`, hardening.3b), and a
+ * payload that is not what its channel takes never reaches its handler
+ * (`checkPayload`, hardening.8).
  */
 export function installIpcBridge(): void {
   for (const [channel, fn] of handlers) {
