@@ -47,10 +47,14 @@ export interface RebaseResult {
 }
 
 /**
- * There is no search window round the old offset: every occurrence of a side's
- * words in the body is a candidate, and the `NEAREST` to the old offset are
- * scored (4.5). A `window` option, declared here until `files.23` and read by
- * nothing, was removed.
+ * There is no search window round the old offset for words found exactly:
+ * every occurrence of a side's words in the body is a candidate, and the
+ * `NEAREST` to the old offset are scored (4.5). Only the fuzzy fallback, run
+ * when neither side has a candidate, still searches near the old offset
+ * (`fuzzyFind`'s `Match_Distance`), so a hunk whose words were edited as well
+ * as moved may leave the page once they moved a few hundred characters. A
+ * `window` option, declared here until `files.23` and read by nothing, was
+ * removed.
  */
 export interface RebaseOptions {
   /** characters of surrounding text used to re-anchor a zero-length hunk */

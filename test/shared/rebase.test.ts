@@ -54,7 +54,7 @@ describe('rebaseReview', () => {
     expect(next.hunks.every((h) => h.paragraph >= 1)).toBe(true);
   });
 
-  it('finds a hunk however far the file moved it, as there is no window round the old offset (files.23)', () => {
+  it("finds a hunk's words however far the file moved them, as there is no window round the old offset for exact matches (files.23)", () => {
     const review = build();
     const filler = 'The rain went on and on over the town, and the roofs ran with water all night.';
     const above = Array.from({ length: 8 }, () => Array.from({ length: 5 }, () => filler).join(' ')).join(
