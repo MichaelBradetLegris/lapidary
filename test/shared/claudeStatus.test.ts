@@ -78,11 +78,19 @@ describe('modelArgs', () => {
   });
 });
 
+/** A version one minor above `version`: 2.2.0 for 2.1.283. */
+function nextMinor(version: string): string {
+  const [major = 0, minor = 0] = version.split('.').map(Number);
+  return `${major}.${minor + 1}.0`;
+}
+
 describe('claudeUpdateAdvice', () => {
   it('says nothing for a current or unknown version', () => {
+    // The pin: the one line the Claude Code check of each release moves with
+    // the constant (docs/RELEASING.md). Every other test reads the constant.
     expect(RECOMMENDED_CLAUDE_CODE).toBe('2.1.283');
-    expect(claudeUpdateAdvice('2.1.283', 'C:/x/claude.exe', true)).toBeNull();
-    expect(claudeUpdateAdvice('2.2.0', 'C:/x/claude.exe', true)).toBeNull();
+    expect(claudeUpdateAdvice(RECOMMENDED_CLAUDE_CODE, 'C:/x/claude.exe', true)).toBeNull();
+    expect(claudeUpdateAdvice(nextMinor(RECOMMENDED_CLAUDE_CODE), 'C:/x/claude.exe', true)).toBeNull();
     expect(claudeUpdateAdvice(undefined, 'C:/x/claude.exe', true)).toBeNull();
   });
 
@@ -90,7 +98,7 @@ describe('claudeUpdateAdvice', () => {
     const exe = 'C:/Users/Ann/.local/bin/claude.exe'; // check-public: allow
     expect(claudeUpdateAdvice('2.1.266', exe, true)).toEqual({
       installed: '2.1.266',
-      recommended: '2.1.283',
+      recommended: RECOMMENDED_CLAUDE_CODE,
       command: 'claude update',
       fullPathCommand: "& 'C:/Users/Ann/.local/bin/claude.exe' update" // check-public: allow
     });

@@ -140,6 +140,28 @@ describe('docs/RELEASING.md (release.10)', () => {
     expect(check).toContain('src/shared/ai/claudeModels.ts');
   });
 
+  it("marks the owner's steps, so an agent following the doc stops before them", () => {
+    // Pushing, publishing or deleting on GitHub, merging a pull request,
+    // updating the author's Claude Code and a live review on their plan.
+    const owners = [
+      /`git push /,
+      /`gh release (?:edit|delete) /,
+      /\bmerge\b.*\bpull request/i,
+      /Bring your own copy up to date/,
+      /\*\*One live review\.\*\*/,
+      /open the model list/
+    ];
+    const lines = text.split(/\r?\n/).filter((line) => owners.some((rule) => rule.test(line)));
+    expect(lines.length).toBeGreaterThanOrEqual(8);
+    for (const line of lines) expect(line, line).toContain('**(author)**');
+  });
+
+  it('publishes a pre-release without --latest', () => {
+    const cut = section(text, 'Cutting a release');
+    expect(cut).toContain('`gh release edit vx.y.z --draft=false --latest`');
+    expect(cut).toContain('`gh release edit vx.y.z --draft=false`');
+  });
+
   it('looks up the major of Electron that package.json pins', () => {
     const major = /^(\d+)\./.exec(
       pkg.devDependencies?.['electron'] ?? pkg.dependencies?.['electron'] ?? ''

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   FREE_PLAN_WARNING,
   NOT_SIGNED_IN_MESSAGE,
+  RECOMMENDED_CLAUDE_CODE,
   signedInElsewhereMessage
 } from '../../src/shared/ai/claudeStatus';
 import type { RateLimitInfo, RuntimeStatus } from '../../src/shared/ipc';
@@ -62,8 +63,14 @@ import { OTHER_MODELS_ADVICE, WAIT_ADVICE, usageLimitCard } from '../../src/shar
 
 const PATH = 'C:\\Users\\Ann\\.local\\bin\\claude.exe'; // check-public: allow
 
+/**
+ * An up-to-date Claude Code. It follows the constant, so the Claude Code check
+ * of each release (docs/RELEASING.md) moves only the pin in claudeStatus.test.ts.
+ */
+const CURRENT = RECOMMENDED_CLAUDE_CODE;
+
 function claude(patch: Partial<RuntimeStatus> = {}): RuntimeStatus {
-  return { provider: 'claude', state: 'ready', executablePath: PATH, cliVersion: '2.1.283', ...patch };
+  return { provider: 'claude', state: 'ready', executablePath: PATH, cliVersion: CURRENT, ...patch };
 }
 
 const expired: LastFailure = { code: 'claude-login-expired' };
@@ -102,7 +109,7 @@ describe('nextLastFailure', () => {
     expect(nextLastFailure(null, { type: 'failure', code: 'claude-outdated', runtime: claude() })).toEqual({
       code: 'claude-outdated',
       executablePath: PATH,
-      cliVersion: '2.1.283'
+      cliVersion: CURRENT
     });
   });
 
@@ -141,7 +148,7 @@ describe('nextLastFailure', () => {
     expect(limit).toEqual({
       code: 'claude-usage-limit',
       executablePath: PATH,
-      cliVersion: '2.1.283',
+      cliVersion: CURRENT,
       planLimit: false
     });
     expect(nextLastFailure(limit, { type: 'check', runtime: claude() })).toBe(limit);
@@ -248,7 +255,7 @@ describe('commands', () => {
     for (const os of ['mac', 'linux'] as const) {
       expect(updateAdvice(claude({ cliVersion: '2.1.266' }), os, 'windows')).toEqual({
         installed: '2.1.266',
-        recommended: '2.1.283',
+        recommended: CURRENT,
         command: 'claude update',
         fullPathCommand: null
       });
@@ -438,7 +445,7 @@ describe('reviewDialogWarning', () => {
       'older than Lapidary needs'
     );
     expect(reviewDialogWarning(claude(), { code: 'claude-outdated' })).toBe(
-      'The last review said that Claude Code 2.1.283 is too old for it. The review may fail until it is updated.'
+      `The last review said that Claude Code ${CURRENT} is too old for it. The review may fail until it is updated.`
     );
     expect(reviewDialogWarning(claude(), expired)).toContain('sign-in had ended');
     expect(reviewDialogWarning(claude(), { code: 'claude-not-signed-in' })).toContain('not signed in');
@@ -512,7 +519,7 @@ describe('setupStatus', () => {
       tone: 'ok',
       title: 'Claude is ready',
       lines: [
-        'Claude Code 2.1.283 is signed in as ann@example.com (Claude Max). Review with AI can use Claude.'
+        `Claude Code ${CURRENT} is signed in as ann@example.com (Claude Max). Review with AI can use Claude.`
       ]
     });
     const key = setupStatus('api-key', claude({ credential: 'api-key', apiKeySource: 'ANTHROPIC_API_KEY' }));
@@ -898,7 +905,7 @@ describe('a token in ANTHROPIC_AUTH_TOKEN (setup.17)', () => {
     expect(setupView(token, null)).toBe('ready');
     expect(runtimeLabel(token)).toBe('Claude ready (token)');
     expect(setupStatus('ready', token).lines).toEqual([
-      'Claude Code 2.1.283 signs in with the token in ANTHROPIC_AUTH_TOKEN, such as a gateway or proxy hands out, so reviews are billed to the account behind that token, not through your Claude sign-in. Review with AI can use Claude.',
+      `Claude Code ${CURRENT} signs in with the token in ANTHROPIC_AUTH_TOKEN, such as a gateway or proxy hands out, so reviews are billed to the account behind that token, not through your Claude sign-in. Review with AI can use Claude.`,
       `To use your Claude sign-in instead, remove ANTHROPIC_AUTH_TOKEN from your environment and start ${APP_NAME} again.`
     ]);
     expect(connectionTestNote(token)).toBe(CONNECTION_TEST_NOTES['auth-token']);
@@ -918,8 +925,8 @@ describe('Advanced and the status bar button', () => {
     );
     expect(Object.fromEntries(rows.map((row) => [row.label, row.value]))).toEqual({
       'Claude Code': PATH,
-      Version: '2.1.283',
-      Needs: '2.1.266 or newer, and 2.1.283 or newer for the newest models',
+      Version: CURRENT,
+      Needs: `2.1.266 or newer, and ${CURRENT} or newer for the newest models`,
       'Signs in with': 'a Claude plan, auth method claude.ai',
       'Last checked': '14:02:11',
       'Looks in': expect.stringContaining('claude.exe') as unknown

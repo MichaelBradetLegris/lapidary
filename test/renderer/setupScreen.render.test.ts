@@ -6,6 +6,7 @@ import { SetupScreen } from '../../src/renderer/components/SetupScreen';
 import { StatusBar } from '../../src/renderer/components/StatusBar';
 import { heldButton } from '../../src/renderer/state/heldButton';
 import { PRO_PLAN_NOTE, PRO_PLAN_NOTE_OPUS_ONLY, claudeModelOptions } from '../../src/shared/ai/claudeModels';
+import { RECOMMENDED_CLAUDE_CODE } from '../../src/shared/ai/claudeStatus';
 import type { ModelInfo, RuntimeStatus } from '../../src/shared/ipc';
 import { DEFAULT_SETTINGS, type Review } from '../../src/shared/types';
 import {
@@ -35,12 +36,13 @@ import {
 
 const PATH = 'C:\\Users\\Ann\\.local\\bin\\claude.exe'; // check-public: allow
 
+/** An up-to-date Claude Code, which follows the constant (docs/RELEASING.md). */
 function claude(patch: Partial<RuntimeStatus> = {}): RuntimeStatus {
   return {
     provider: 'claude',
     state: 'ready',
     executablePath: PATH,
-    cliVersion: '2.1.283',
+    cliVersion: RECOMMENDED_CLAUDE_CODE,
     minCliVersion: '2.1.266',
     checkedAt: '2026-10-18T12:02:11.000Z',
     ...patch
