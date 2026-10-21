@@ -15,13 +15,14 @@ This file is for people who build the app, change it or send a pull request. Use
 
 ```powershell
 npm ci
+npx install-electron
 npm test
 npm run dev:clean
 ```
 
-In PowerShell, plain `npm` runs `npm.ps1`, which Windows' default execution policy blocks. If PowerShell says that running scripts is disabled on this system, type `npm.cmd` in place of `npm`, here and below, or use Command Prompt.
+In PowerShell, plain `npm` runs `npm.ps1`, which Windows' default execution policy blocks. If PowerShell says that running scripts is disabled on this system, type `npm.cmd` and `npx.cmd` in place of `npm` and `npx`, here and below, or use Command Prompt.
 
-`npm ci` installs exactly what `package-lock.json` lists. npm 11 warns that the install scripts of `electron-winstaller` and `esbuild` are "not yet covered by allowScripts"; the tests and the build work as they are. The Electron package has no install step of its own: it downloads the Electron binary the first time the app is started (`dev`, `dev:clean` or `start`), and `package` fetches its own copy. Those first runs need an internet connection; later ones use Electron's cache. The tests and `build` do not need the binary.
+`npm ci` installs exactly what `package-lock.json` lists. npm 11 warns that the install scripts of `electron-winstaller` and `esbuild` are "not yet covered by allowScripts"; the tests and the build work as they are. The Electron package has no install step, so `npm ci` does not fetch the Electron binary, and neither does starting the app: electron-vite, which `dev`, `dev:clean` and `start` run, looks only for the `node_modules/electron/path.txt` that fetching the binary writes, and without it stops with "Electron uninstall". `npx install-electron`, the Electron package's own `install.js`, fetches the binary for the version `package-lock.json` pins and writes that file. Run it after every `npm ci`, which empties `node_modules` first, and after any install that changes Electron's version; `package` fetches its own copy. It needs an internet connection the first time for each version, and later uses Electron's cache. The tests and `build` do not need the binary.
 
 ## npm scripts
 

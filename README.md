@@ -30,7 +30,7 @@ Two services can do the reviewing. You need one of them:
 
 The installer asks no questions and needs no administrator rights. It installs Lapidary for your Windows account, adds a Start menu entry and a desktop shortcut, and starts the app, which opens on its welcome guide ([First run](#first-run)). You download Lapidary only once: after that, updates arrive in the app ([Updates](#updates)).
 
-If Windows refuses to run the installer at all, see [Troubleshooting](#troubleshooting): Smart App Control and S mode block apps that are not signed.
+If Windows refuses to run the installer at all, see [Troubleshooting](#troubleshooting): Smart App Control blocks apps that are not signed, and S mode runs only apps from the Microsoft Store.
 
 **Checking the download.** Each release also holds `SHA256SUMS.txt`, with the SHA-256 checksum of the installer. To check yours, run this in PowerShell, with the installer's own name and the folder you saved it in:
 
@@ -202,11 +202,11 @@ If another program holds the manuscript folder when Lapidary starts, the chapter
 
 Most problems come with a card that says what happened and what to try. For anything else:
 
-- **Copy diagnostics**, near the foot of the Setup screen, and in About, puts on the clipboard what someone helping you needs to know: the versions of Lapidary, Electron, the OpenAI library and your Claude Code; your review and display settings; what the last checks of Claude and OpenAI found; how many chapters your manuscript folder holds, and whether it is in an Obsidian vault, in git or in a cloud folder such as OneDrive; and the log's recent warnings, each as what failed and its error code. On the Setup screen a Diagnostics window opens with it and shows exactly what was copied; About shows the same text. It holds no chapter text, chapter names, email address or key, writes your user folder as `~`, and runs no check of its own, so it costs nothing.
+- **Copy diagnostics**, near the foot of the Setup screen, and in About, puts on the clipboard what someone helping you needs to know: the versions of Lapidary, Electron, the OpenAI library and your Claude Code; your review and display settings; what the last checks of Claude and OpenAI found; the paths of your manuscript folder, the reviews folder, the guidelines file and the app's data folder, with your user folder written as `~`; how many chapters the manuscript folder holds, and whether it is in an Obsidian vault, in git or in a cloud folder such as OneDrive; and the log's recent warnings, each as what failed and its error code. On the Setup screen a Diagnostics window opens with it and shows exactly what was copied; About shows the same text. It holds no chapter text, chapter names, email address or key, and runs no check of its own, so it costs nothing.
 - **The log**, `main.log` in the `logs` folder of the app's data folder, records what happened: start and quit, what each check of Claude or OpenAI found, each review and save as sizes, counts and times, requests that failed, and problems the app worked around. **Open log folder** in About shows it. It never holds chapter text, guidelines, prompts, replies, keys or email addresses, and your user folder appears in it as `~`.
 - When something fails that Lapidary did not expect, a card says so, with **Show diagnostics**. If the window cannot be drawn, a page takes its place that first writes your decisions and open paragraph boxes, then offers **Reload window**; they are there when you open the chapter again. If the window's process stops, a box offers **Reload window** or **Quit**.
 
-To report a problem, open an issue on [GitHub](https://github.com/MichaelBradetLegris/lapidary/issues) and paste what Copy diagnostics copied. Issues are public: read the text first, and leave out chapter text, keys, email addresses and your Windows user name. Security problems go privately, as [SECURITY.md](SECURITY.md) says.
+To report a problem, open an issue on [GitHub](https://github.com/MichaelBradetLegris/lapidary/issues) and paste what Copy diagnostics copied. Issues are public: read the text first, and leave out chapter text, keys, email addresses, your Windows user name and any folder name you would rather not show. Security problems go privately, as [SECURITY.md](SECURITY.md) says.
 
 ## Troubleshooting
 
@@ -228,7 +228,7 @@ To report a problem, open an issue on [GitHub](https://github.com/MichaelBradetL
 
 **Save to chapter keeps failing** with a message that Windows refused the write. Another program, such as a sync tool or a virus scanner, may be holding the file: Save waits about a second and a half for it, and you can save again once it has let go. If it keeps happening, Windows Security's Controlled folder access may be blocking Lapidary: allow it under Windows Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled folder access. Nothing is written to the chapter while a save is refused.
 
-**Lapidary could not read its settings.** Another program, such as a backup or sync tool, a virus scanner or an editor, may have `settings.json` open: close it and click **Try again**. Until the file can be read, Lapidary changes nothing in it, so your settings are kept.
+**Lapidary could not read its settings.** When it says another program may have `settings.json` open, such as a backup or sync tool, a virus scanner or an editor, close that program and click **Try again**. When it says `settings.json` is damaged, mend the file, or move it out of its folder to start afresh, then click **Try again**. Until the file can be read, Lapidary changes nothing in it, so your settings are kept.
 
 **Check for updates says GitHub could not be reached.** Check the internet connection and click **Check for updates** in About again.
 
@@ -272,7 +272,7 @@ They apply to Claude Code everywhere, not only in this app. Setting them in `~/.
 
 **The app's data folder** is `%APPDATA%\ai-grammar-checker`; its name dates from before the app was renamed. **Open data folder** in About opens it. It holds:
 
-- `settings.json`: your settings. If it was ever unreadable, a copy named `settings.json.corrupt-<time>` sits beside it. While the app cannot read it, because another program holds it open, or because it is damaged and cannot be copied aside, the app says so with Try again and changes nothing in it.
+- `settings.json`: your settings. If it was ever damaged (not valid JSON), Lapidary kept a copy named `settings.json.corrupt-<time>` beside it and started again from its default settings. While the app cannot read it, because another program holds it open, or because it is damaged and cannot be copied aside, the app says so with Try again and changes nothing in it.
 - `secrets.json`: the encrypted OpenAI key. It exists only once you have saved a key.
 - `reviews\`: your reviews, unless you chose another reviews folder in Settings. Each review holds the full text of its chapter.
 - `backups\`: the versions of your chapters that Save to chapter replaced, a folder for each chapter, with a `chapter.json` naming the chapter file.

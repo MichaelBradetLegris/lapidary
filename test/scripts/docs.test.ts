@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { claudeArgs } from '../../src/main/providers/claudeOptions';
+import { MIN_CLAUDE_CODE } from '../../src/shared/ai/claudeStatus';
 import { APP_DATA_DIR, APP_NAME } from '../../src/shared/branding';
 import { EFFORT_LEVELS } from '../../src/shared/types';
 import {
@@ -22,11 +23,15 @@ import {
  * installed `claude --help` when it was written; this keeps it so when a
  * script is renamed or a flag is added to the command line.
  *
- * opensource.11: the same for README.md, the user's document. Every command
- * it gives is one the Setup screen, the release notes or package.json gives,
- * word for word; the installer and the folders it names are the ones the
- * build and the app use; its install steps are the release notes' own; and
- * its links lead to files and headings that exist.
+ * opensource.11: the same for README.md, the user's document. Every Claude
+ * Code or WinGet command it gives is one the Setup screen gives, whole: one
+ * of its commands as Setup shows it, or a command one of its troubleshooting
+ * answers names to the end of a clause, and never a command cut short from
+ * one Setup gives in full. Its npm commands are scripts package.json has;
+ * the Claude Code it asks for is `MIN_CLAUDE_CODE`; the installer and the
+ * folders it names are the ones the build and the app use; its install steps
+ * are the release notes' own; and its links lead to files and headings that
+ * exist.
  */
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -90,6 +95,13 @@ describe('commands in the documents (release.10)', () => {
     const named = [...read(file).matchAll(/\bnpm(?:\.cmd)? run ([\w:-]+)/g)].map((match) => match[1] ?? '');
     expect(named.length, file).toBeGreaterThan(0);
     for (const name of named) expect(Object.keys(scripts), `${file}: npm run ${name}`).toContain(name);
+  });
+
+  it.each(COMMAND_DOCS)('%s runs with npx only programs the installed packages provide', (file) => {
+    // opensource.11 review: CONTRIBUTING's `npx install-electron`, the electron package's own.
+    for (const match of read(file).matchAll(/\bnpx(?:\.cmd)? ([\w-]+)/g)) {
+      expect(existsExactly(`node_modules/.bin/${match[1] ?? ''}`), `${file}: npx ${match[1]}`).toBe(true);
+    }
   });
 
   it.each(COMMAND_DOCS)('%s runs only scripts and helpers that exist with node', (file) => {
@@ -223,24 +235,62 @@ describe('README.md (opensource.11)', () => {
   const spans = [...text.replace(fence, '').matchAll(/`([^`\n]+)`/g)].map((match) => match[1] ?? '');
   const code = [...fenced, ...spans].filter((item) => item !== '');
 
-  /** What the Setup screen shows on Windows, in every view: its commands and its troubleshooting answers. */
-  const views: SetupViewId[] = ['not-installed', 'signed-out', 'expired', 'could-not-check', 'outdated'];
-  const setupWords = [
+  /**
+   * The commands the Setup screen shows on Windows, each whole: the install
+   * line, the sign-in and the update, their forms through the installer's
+   * path for a terminal that does not find `claude`, and the other ways to
+   * install.
+   */
+  const setupCommands = new Set([
     installAndLoginCommand('windows'),
     loginCommand(undefined, 'windows').command,
     updateCommand(undefined, 'windows').command,
     installerPathCommand('windows', 'auth login'),
-    ...otherInstalls('windows').map((install) => install.command),
-    ...views.flatMap((view) =>
-      setupTroubleshooting(view, null, 'windows', 'windows').map((item) => `${item.question}\n${item.answer}`)
-    )
-  ].join('\n');
+    installerPathCommand('windows', 'update'),
+    ...otherInstalls('windows').map((install) => install.command)
+  ]);
 
-  it('gives only commands the Setup screen gives, word for word', () => {
-    const commands = code.filter((item) => /^(?:claude|winget|irm|brew) /.test(item));
+  /** Setup's troubleshooting answers on Windows, in every view, which name a few more commands in a sentence. */
+  const views: SetupViewId[] = ['not-installed', 'signed-out', 'expired', 'could-not-check', 'outdated'];
+  const answers = views.flatMap((view) =>
+    setupTroubleshooting(view, null, 'windows', 'windows').map((item) => item.answer)
+  );
+  const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  /**
+   * Whether an answer names `command` whole: after a space or at the start,
+   * and up to the end of a clause, a full stop, comma, semicolon or colon
+   * before a space or the end of the answer, or the end itself. So
+   * `claude auth`, which the answers' `claude auth login` goes on from, and
+   * `winget upgrade Anthropic`, cut inside a name, are not found.
+   */
+  const namedInAnswer = (command: string): boolean => {
+    const whole = new RegExp(`(?:^|\\s)${escapeRegExp(command)}(?=[.,;:]?$|[.,;:]\\s)`);
+    return answers.some((answer) => whole.test(answer));
+  };
+
+  it('gives only commands the Setup screen gives, whole', () => {
+    const commands = code.filter((item) => /^(?:claude|winget|irm|brew|&) /.test(item));
     expect(commands.length).toBeGreaterThanOrEqual(6);
     expect(commands).toContain(installAndLoginCommand('windows'));
-    for (const command of commands) expect(setupWords, command).toContain(command);
+    expect(commands).toContain(loginCommand(undefined, 'windows').command);
+    for (const command of commands) {
+      if (setupCommands.has(command)) continue;
+      // A command Setup gives longer, such as its sign-in once that gains a
+      // flag, is out of date here even where an answer still names it.
+      for (const full of setupCommands)
+        expect(full.startsWith(`${command} `), `${command} | ${full}`).toBe(false);
+      expect(namedInAnswer(command), command).toBe(true);
+    }
+  });
+
+  it('asks for the Claude Code the app needs', () => {
+    expect(section(text, 'Requirements')).toContain(`Claude Code ${MIN_CLAUDE_CODE} or newer`);
+    // The bug report form's example of what `claude --version` prints.
+    const form = read('.github/ISSUE_TEMPLATE/bug_report.yml');
+    const field = form.indexOf('id: claude-code');
+    expect(field).toBeGreaterThan(-1);
+    expect(/^\s*placeholder: (.+?)\r?$/m.exec(form.slice(field))?.[1]).toBe(MIN_CLAUDE_CODE);
   });
 
   it('runs npm only with commands and scripts that exist', () => {

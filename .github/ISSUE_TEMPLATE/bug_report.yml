@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thank you for reporting this. Issues are public, so please do not paste chapter text, API keys, email addresses, or file paths that show your Windows user name.
+        Thank you for reporting this. Issues are public, so please do not paste chapter text, API keys, email addresses, file paths that show your Windows user name, or folder names you would rather not show.
 
         To report a security problem, do not open an issue: see SECURITY.md in the repository.
   - type: input
@@ -65,7 +65,7 @@ body:
     attributes:
       label: Diagnostics or log
       description: |
-        Press Copy diagnostics, near the foot of the Setup screen (Settings, then Setup in the Claude account row) or under Diagnostics in About (Settings, then About), and paste the text here. It gives the versions, your settings and what the last checks found. If a maintainer asks for the log as well, press Windows+R, paste `%APPDATA%\ai-grammar-checker\logs\main.log` and press Enter, and copy the lines from around the time it happened. The app leaves chapter text, keys and email addresses out of both and shortens your user folder to `~`, but read the text before you paste it.
+        Press Copy diagnostics, near the foot of the Setup screen (Settings, then Setup in the Claude account row) or under Diagnostics in About (Settings, then About), and paste the text here. It gives the versions, your settings and what the last checks found. If a maintainer asks for the log as well, press Windows+R, paste `%APPDATA%\ai-grammar-checker\logs\main.log` and press Enter, and copy the lines from around the time it happened. The app leaves chapter text, keys and email addresses out of both and shortens your user folder to `~`, but Copy diagnostics gives the paths of your manuscript folder, reviews folder and guidelines file, so read the text before you paste it.
       render: text
     validations:
       required: false
@@ -74,5 +74,5 @@ body:
     attributes:
       label: Before you submit
       options:
-        - label: I removed manuscript text, API keys, email addresses and my Windows user name from everything above.
+        - label: I removed manuscript text, API keys, email addresses, my Windows user name and any folder names I would rather not show from everything above.
           required: true
