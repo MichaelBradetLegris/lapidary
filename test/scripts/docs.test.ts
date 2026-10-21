@@ -1,18 +1,41 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { claudeArgs } from '../../src/main/providers/claudeOptions';
+import { MIN_CLAUDE_CODE } from '../../src/shared/ai/claudeStatus';
+import { APP_DATA_DIR, APP_NAME } from '../../src/shared/branding';
 import { EFFORT_LEVELS } from '../../src/shared/types';
+import {
+  installAndLoginCommand,
+  installerPathCommand,
+  loginCommand,
+  otherInstalls,
+  setupTroubleshooting,
+  updateCommand,
+  type SetupViewId
+} from '../../src/shared/ui/setup';
 
 /*
  * release.10: the commands and files the maintainer's documents name are the
  * ones that exist. docs/RELEASING.md was checked against the scripts and the
  * installed `claude --help` when it was written; this keeps it so when a
  * script is renamed or a flag is added to the command line.
+ *
+ * opensource.11: the same for README.md, the user's document. Every Claude
+ * Code or WinGet command it gives is one the Setup screen gives, whole: one
+ * of its commands as Setup shows it, or a command one of its troubleshooting
+ * answers names to the end of a clause, and never a command cut short from
+ * one Setup gives in full. Its npm commands are scripts package.json has;
+ * the Claude Code it asks for is `MIN_CLAUDE_CODE`; the installer and the
+ * folders it names are the ones the build and the app use; its install steps
+ * are the release notes' own; and its links lead to files and headings that
+ * exist.
  */
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const require = createRequire(import.meta.url);
 const read = (file: string): string => readFileSync(path.join(ROOT, file), 'utf8');
 
 const RELEASING = 'docs/RELEASING.md';
@@ -20,6 +43,7 @@ const RELEASING = 'docs/RELEASING.md';
 const COMMAND_DOCS = [RELEASING, 'CONTRIBUTING.md', 'CLAUDE.md', 'README.md'];
 
 interface PackageJson {
+  name?: string;
   scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
@@ -71,6 +95,13 @@ describe('commands in the documents (release.10)', () => {
     const named = [...read(file).matchAll(/\bnpm(?:\.cmd)? run ([\w:-]+)/g)].map((match) => match[1] ?? '');
     expect(named.length, file).toBeGreaterThan(0);
     for (const name of named) expect(Object.keys(scripts), `${file}: npm run ${name}`).toContain(name);
+  });
+
+  it.each(COMMAND_DOCS)('%s runs with npx only programs the installed packages provide', (file) => {
+    // opensource.11 review: CONTRIBUTING's `npx install-electron`, the electron package's own.
+    for (const match of read(file).matchAll(/\bnpx(?:\.cmd)? ([\w-]+)/g)) {
+      expect(existsExactly(`node_modules/.bin/${match[1] ?? ''}`), `${file}: npx ${match[1]}`).toBe(true);
+    }
   });
 
   it.each(COMMAND_DOCS)('%s runs only scripts and helpers that exist with node', (file) => {
@@ -176,5 +207,171 @@ describe('docs/RELEASING.md (release.10)', () => {
     const packages = section(text, 'Packages checked by hand each release');
     expect(packages).toContain('npm view electron-builder dist-tags');
     expect(packages).toContain('npm view electron-updater dist-tags');
+  });
+});
+
+interface ReleaseNotes {
+  renderFooter(template: string, values: Record<string, unknown>): string;
+  footerValues(version: string): Record<string, string> & { installer: string };
+  FOOTER: string;
+}
+
+interface BuilderConfig {
+  productName?: string;
+  nsis?: { artifactName?: string };
+}
+
+describe('README.md (opensource.11)', () => {
+  const text = read('README.md');
+  const notes = require('../../scripts/release-notes.cjs') as ReleaseNotes;
+  const builder = require('../../electron-builder.config.cjs') as BuilderConfig;
+  const flat = (value: string): string => value.replace(/\s+/g, ' ').trim();
+
+  /** Every inline code span, and every line of a fenced block, as written. */
+  const fence = /^[ \t]*```[a-z]*\n([\s\S]*?)^[ \t]*```$/gm;
+  const fenced = [...text.matchAll(fence)].flatMap((match) =>
+    (match[1] ?? '').split('\n').map((line) => line.trim())
+  );
+  const spans = [...text.replace(fence, '').matchAll(/`([^`\n]+)`/g)].map((match) => match[1] ?? '');
+  const code = [...fenced, ...spans].filter((item) => item !== '');
+
+  /**
+   * The commands the Setup screen shows on Windows, each whole: the install
+   * line, the sign-in and the update, their forms through the installer's
+   * path for a terminal that does not find `claude`, and the other ways to
+   * install.
+   */
+  const setupCommands = new Set([
+    installAndLoginCommand('windows'),
+    loginCommand(undefined, 'windows').command,
+    updateCommand(undefined, 'windows').command,
+    installerPathCommand('windows', 'auth login'),
+    installerPathCommand('windows', 'update'),
+    ...otherInstalls('windows').map((install) => install.command)
+  ]);
+
+  /** Setup's troubleshooting answers on Windows, in every view, which name a few more commands in a sentence. */
+  const views: SetupViewId[] = ['not-installed', 'signed-out', 'expired', 'could-not-check', 'outdated'];
+  const answers = views.flatMap((view) =>
+    setupTroubleshooting(view, null, 'windows', 'windows').map((item) => item.answer)
+  );
+  const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  /**
+   * Whether an answer names `command` whole: after a space or at the start,
+   * and up to the end of a clause, a full stop, comma, semicolon or colon
+   * before a space or the end of the answer, or the end itself. So
+   * `claude auth`, which the answers' `claude auth login` goes on from, and
+   * `winget upgrade Anthropic`, cut inside a name, are not found.
+   */
+  const namedInAnswer = (command: string): boolean => {
+    const whole = new RegExp(`(?:^|\\s)${escapeRegExp(command)}(?=[.,;:]?$|[.,;:]\\s)`);
+    return answers.some((answer) => whole.test(answer));
+  };
+
+  it('gives only commands the Setup screen gives, whole', () => {
+    const commands = code.filter((item) => /^(?:claude|winget|irm|brew|&) /.test(item));
+    expect(commands.length).toBeGreaterThanOrEqual(6);
+    expect(commands).toContain(installAndLoginCommand('windows'));
+    expect(commands).toContain(loginCommand(undefined, 'windows').command);
+    for (const command of commands) {
+      if (setupCommands.has(command)) continue;
+      // A command Setup gives longer, such as its sign-in once that gains a
+      // flag, is out of date here even where an answer still names it.
+      for (const full of setupCommands)
+        expect(full.startsWith(`${command} `), `${command} | ${full}`).toBe(false);
+      expect(namedInAnswer(command), command).toBe(true);
+    }
+  });
+
+  it('asks for the Claude Code the app needs', () => {
+    expect(section(text, 'Requirements')).toContain(`Claude Code ${MIN_CLAUDE_CODE} or newer`);
+    // The bug report form's example of what `claude --version` prints.
+    const form = read('.github/ISSUE_TEMPLATE/bug_report.yml');
+    const field = form.indexOf('id: claude-code');
+    expect(field).toBeGreaterThan(-1);
+    expect(/^\s*placeholder: (.+?)\r?$/m.exec(form.slice(field))?.[1]).toBe(MIN_CLAUDE_CODE);
+  });
+
+  it('runs npm only with commands and scripts that exist', () => {
+    // "npm error" is what npm prints when a command fails, which the README quotes.
+    const runs = code.filter((item) => /^npm(?:\.cmd)? /.test(item) && item !== 'npm error');
+    expect(runs.length).toBeGreaterThan(0);
+    for (const run of runs) {
+      const [, verb = '', name = ''] = /^npm(?:\.cmd)? (\S+)(?: (\S+))?/.exec(run) ?? [];
+      expect(['ci', 'install', 'test', 'start', 'run'], run).toContain(verb);
+      if (verb === 'run') expect(Object.keys(scripts), run).toContain(name);
+    }
+  });
+
+  it('passes Claude Code only flags the app passes', () => {
+    const review = claudeArgs({ model: 'sonnet', effort: 'low', maxTurns: 3, partialMessages: true });
+    const flags = code.filter((item) => /^--[a-z]/.test(item));
+    expect(flags.length).toBeGreaterThan(0);
+    for (const flag of flags) expect(review, flag).toContain(flag);
+  });
+
+  it('names the installer as the build names it', () => {
+    expect(builder.productName).toBe(APP_NAME);
+    expect(builder.nsis?.artifactName).toBe('${productName}-Setup-${version}.${ext}');
+    const named = [...text.matchAll(/\b([\w-]+-Setup-[^\s`"]+\.exe)\b/g)].map((match) => match[1] ?? '');
+    expect(named.length).toBeGreaterThanOrEqual(4);
+    for (const name of named) {
+      expect(name).toMatch(new RegExp(`^${APP_NAME}-Setup-(?:<version>|\\d+\\.\\d+\\.\\d+)\\.exe$`));
+    }
+  });
+
+  it("gives the release notes' install steps and checksum command word for word", () => {
+    const footer = notes.renderFooter(readFileSync(notes.FOOTER, 'utf8'), notes.footerValues('1.0.0'));
+    const install = flat(section(text, 'Installing'));
+    const steps = section(footer.replace(/^### /gm, '## '), 'Installing')
+      .split('\n')
+      .flatMap((line) => /^\d+\. (.+)$/.exec(line)?.[1] ?? []);
+    expect(steps.length).toBeGreaterThanOrEqual(2);
+    for (const step of steps) expect(install, step).toContain(flat(step));
+    expect(install).toContain(
+      `${APP_NAME} is not code-signed, so your browser and Windows may warn you the first time.`
+    );
+    const hash = /^Get-FileHash .+$/m.exec(footer)?.[0];
+    expect(hash).toBe(`Get-FileHash "$HOME\\Downloads\\${notes.footerValues('1.0.0').installer}"`);
+    expect(fenced).toContain(hash);
+  });
+
+  it('names the folders the app and its installer use', () => {
+    const folders = [...text.matchAll(/%(?:APPDATA|LOCALAPPDATA|USERPROFILE)%(?:\\[\w.-]+)*/g)].map(
+      (match) => match[0]
+    );
+    const known = [
+      `%APPDATA%\\${APP_DATA_DIR}`,
+      `%LOCALAPPDATA%\\Programs\\${pkg.name ?? ''}`,
+      `%LOCALAPPDATA%\\${pkg.name ?? ''}-updater`,
+      '%USERPROFILE%\\.local\\bin',
+      '%APPDATA%',
+      '%LOCALAPPDATA%'
+    ];
+    expect(folders.length).toBeGreaterThanOrEqual(6);
+    for (const folder of folders) expect(known, folder).toContain(folder);
+    // The uninstall steps name the two folders a user deletes by hand.
+    const uninstall = section(text, 'Uninstalling');
+    expect(uninstall).toContain(`\`${APP_DATA_DIR}\``);
+    expect(uninstall).toContain(`\`${pkg.name ?? ''}-updater\``);
+  });
+
+  it('links only to files and headings that exist', () => {
+    const anchors = text
+      .split(/\r?\n/)
+      .filter((line) => /^#{1,6} /.test(line))
+      .map((line) => anchorOf(line.replace(/^#+ /, '')));
+    const targets = [
+      ...[...text.matchAll(/\]\(([^)\s]+)\)/g)].map((match) => match[1] ?? ''),
+      ...[...text.matchAll(/<img src="([^"]+)"/g)].map((match) => match[1] ?? '')
+    ];
+    expect(targets.filter((target) => target.startsWith('#')).length).toBeGreaterThan(10);
+    expect(targets.filter((target) => target.endsWith('.png')).length).toBeGreaterThanOrEqual(3);
+    for (const target of targets) {
+      if (/^https?:\/\//.test(target)) continue;
+      if (target.startsWith('#')) expect(anchors, target).toContain(target.slice(1));
+      else expect(existsExactly(target.split('#')[0] ?? ''), target).toBe(true);
+    }
   });
 });

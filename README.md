@@ -4,9 +4,11 @@
 
 [![CI](https://github.com/MichaelBradetLegris/lapidary/actions/workflows/ci.yml/badge.svg)](https://github.com/MichaelBradetLegris/lapidary/actions/workflows/ci.yml)
 
-A Windows desktop app for reviewing AI-suggested copyedits to novel chapters kept as Markdown (`.md`) or plain text (`.txt`), for example in an Obsidian vault.
+A Windows desktop app for reviewing AI-suggested copyedits to novel chapters kept as Markdown (`.md`) or plain text (`.txt`), for example in an Obsidian vault. Before version 1.0 it was called Stet.
 
 You open a chapter, ask for a review, and every suggested change floats above the words it would replace. You accept or dismiss each one, in either direction, as often as you like. Larger issues (continuity, pacing, point of view) arrive as comments in the margin. Nothing is written to your chapter until you press **Save to chapter**.
+
+![Chapter 1 of the sample manuscript after a review: suggested changes float above the words they would replace, two of them accepted and one dismissed, comments sit in the margin, and the side panel lists the suggestions and the comments.](docs/images/review.png)
 
 Two services can do the reviewing. You need one of them:
 
@@ -16,33 +18,43 @@ Two services can do the reviewing. You need one of them:
 ## Requirements
 
 - Windows 10 or 11, 64-bit (x64). No builds are made for other systems.
+- About 460 MB of disk space: about 345 MB for the app and 110 MB for the copy of its installer that updates start from.
 - For Claude: Claude Code 2.1.266 or newer, signed in with a Claude plan that includes Claude Code (Pro, Max, Team or Enterprise; the free plan does not), or with an Anthropic Console account or API key. Run `claude update` now and then to get the newest models.
 - For OpenAI: an OpenAI API key, on an account with credit.
-- To build the app yourself: Node.js 24, or 26 and later, or 22.18 and later on the 22 line. Versions 23 and 25 do not work. Git only if you clone the repository.
 
-## Build from source
+## Installing
 
-There is no released installer yet. Until there is, build one yourself:
+1. Open the [latest release](https://github.com/MichaelBradetLegris/lapidary/releases/latest) and, under **Assets**, download `Lapidary-Setup-<version>.exe`, such as `Lapidary-Setup-1.0.0.exe`. It is about 110 MB. Lapidary is not code-signed, so your browser and Windows may warn you the first time.
+2. Edge may say that the file isn't commonly downloaded. Point at the download, click **...** and choose **Keep**, then **Show more** and **Keep anyway**. Other browsers ask in their own words; choose to keep the file.
+3. When you open it, Windows may say "Windows protected your PC". Click **More info**, then **Run anyway**.
 
-1. Install [Node.js](https://nodejs.org/), the version the site marks LTS. Its installer offers optional tools for native modules; you do not need them.
-2. Get the source code: on the repository's GitHub page click **Code**, then **Download ZIP**, and unzip it. If you use Git, clone the repository instead.
-3. Open the unzipped folder that holds `package.json`; it may sit inside a folder of the same name. Right-click an empty space in it and choose **Open in Terminal**. On Windows 10, hold Shift while you right-click and choose **Open PowerShell window here**.
-4. Type these two commands, pressing Enter after each:
+The installer asks no questions and needs no administrator rights. It installs Lapidary for your Windows account, adds a Start menu entry and a desktop shortcut, and starts the app, which opens on its welcome guide ([First run](#first-run)). You download Lapidary only once: after that, updates arrive in the app ([Updates](#updates)).
 
-   ```powershell
-   npm.cmd ci
-   npm.cmd run package
-   ```
+If Windows refuses to run the installer at all, see [Troubleshooting](#troubleshooting): Smart App Control blocks apps that are not signed, and S mode runs only apps from the Microsoft Store.
 
-   Type `npm.cmd`, not `npm`: Windows blocks PowerShell scripts by default, and plain `npm` would start one. The commands need an internet connection and take a few minutes. npm prints several warnings about deprecated packages and install scripts; these are expected. The build worked if no line starts with `npm error`.
+**Checking the download.** Each release also holds `SHA256SUMS.txt`, with the SHA-256 checksum of the installer. To check yours, run this in PowerShell, with the installer's own name and the folder you saved it in:
 
-5. Open the `dist` folder inside it and double-click `Lapidary-Setup-<version>.exe`. It installs the app for your Windows account without asking anything, adds a Start menu entry and a desktop shortcut, and starts the app. These builds are not code-signed, so if Windows says it protected your PC, click **More info**, then **Run anyway**.
+```powershell
+Get-FileHash "$HOME\Downloads\Lapidary-Setup-1.0.0.exe"
+```
 
-To update later, get the newest source the same way, run the two commands again and run the new installer.
+The hash it prints should match the one on the installer's line in `SHA256SUMS.txt`. PowerShell prints the letters in capitals, which makes no difference.
+
+## Updates
+
+Fifteen seconds after it starts, and once a day while it runs, Lapidary asks GitHub whether a newer version has been released. When there is one, a card says so, with the size of the download, and nothing is downloaded until you click **Download**. The same card then shows the download's progress and, once it is done, **Restart now**. Restart now asks about anything not saved to the chapter, as closing the window does, then closes Lapidary, runs the installer, which shows only its progress, and opens Lapidary again. Your settings, reviews, backups and open paragraph boxes stay as they were. Restart now is refused while a review is running; press it again once the review has finished.
+
+The card gives the most the download can be: the whole installer, about 110 MB. An update can download far less, as the updater fetches only the parts of the installer that changed since the version you have: between two test builds that differed by a one-line fix, that came to 1.1 MB. An update that moves Lapidary to a newer version of Electron, the framework it runs on, changes much more of the installer. The updater compares against the copy of the installer kept in `%LOCALAPPDATA%\manuscript-review-updater`; without it, an update downloads the whole installer.
+
+A download cut short by closing Lapidary, or finished but not yet installed, carries on at the next check without asking again. If a download or an install fails, the card says so and what to try; you can always download the newest installer from the releases page and run it over the version you have, which keeps your settings and reviews.
+
+**About**, from the About button at the foot of Settings, shows the version you have and has **Check for updates**, with a line saying what the last check found, and **Check for updates automatically**, which turns the checks off. **What's new** opens the release page of your version, with its changes.
 
 ## Connecting Claude
 
 The app reviews with Claude through Claude Code, Anthropic's command-line tool, and does not include it. You install Claude Code once and sign in to it yourself, with a Claude plan that includes it (Pro, Max, Team or Enterprise; the free plan does not) or with an Anthropic API key ([below](#with-an-anthropic-api-key-instead)). The app's **Setup** screen tells you what to do, one step at a time, and checks each step. If Claude Code is already installed and signed in on this computer, the app finds it and there is nothing to do.
+
+![The Setup screen when Claude Code is not installed: the install line to copy into PowerShell, WinGet as another way, and the troubleshooting questions.](docs/images/setup.png)
 
 **Opening Setup.** Setup opens by itself when you start a review with Claude while Claude Code is missing or not signed in. You can also open it from the card the app shows at start when Claude needs something (**Open Setup**), from the Claude label in the status bar, beside the zoom control, from **Settings** (**Setup** beside "Claude account"), or from the welcome guide (**Set up Claude**; see [First run](#first-run)).
 
@@ -59,7 +71,7 @@ The app reviews with Claude through Claude Code, Anthropic's command-line tool, 
 
 3. Come back to the app once PowerShell says you are signed in. Setup checks again when the app's window comes back to the front, or click **Check again**. "Claude is ready", with your account and plan, means reviews can run, and the status bar at the bottom then says "Claude ready" followed by your account's email.
 
-To be sure, click **Test the connection**. It sends one very small request to Claude through Claude Code, which counts against your plan like any other, and says whether Claude answered and how long it took. Nothing else on Setup sends anything to Claude: its checks only ask Claude Code for its version and its sign-in.
+To be sure, click **Test the connection**. It sends one very small request to Claude through Claude Code, which counts against your plan like any other, and says whether Claude answered and how long it took. Nothing else on Setup sends anything to Claude: its checks only ask Claude Code for its version, its sign-in and its list of models.
 
 Before your first review, decide whether Anthropic may train its models on your chapters: see **Model training** under [Privacy](#privacy).
 
@@ -86,6 +98,8 @@ OpenAI in Lapidary is experimental: it has been tested only with a stand-in for 
 Alternatively, set `OPENAI_API_KEY` as an environment variable, the same way as `ANTHROPIC_API_KEY` above, before starting the app. It is used only when no key is saved, and Settings says which one is active. **Remove key** deletes the saved key.
 
 Unless you choose a model in **Review with AI**, reviews use the newest full GPT-5 your key can use, else the newest GPT-5 mini, else nano. A pro, codex or chat model is used only when your key can use no other, and a pro model, which costs several times as much, only when it can use nothing else; the list marks the one that will be used "(default)". OpenAI streams some models, gpt-5 among them, only to organisations that have verified their identity, and some it lets only those organisations use at all; if a review says yours has not been verified, verify it with **Verify Organization** at https://platform.openai.com/settings/organization/general, or choose another model.
+
+As a rough guide, OpenAI's prices of September 2026 put a chapter at about 5 US cents with gpt-5-mini and up to about a dollar with the largest models, depending on its length and the effort. After each review the status bar shows an estimate of what it cost, for the models its price table knows.
 
 ## First run
 
@@ -118,6 +132,10 @@ If your Claude plan is Pro, the guide sets the review model to Sonnet the first 
 
 **Text size.** Ctrl+plus and Ctrl+minus zoom the whole window from 80% to 200%, Ctrl+0 goes back to 100%, and Ctrl+wheel works too. The same control sits at the right of the status bar. The level is remembered.
 
+**Dark mode.** Lapidary follows Windows' light or dark mode, and its title bar follows with it. To choose for yourself, set **Appearance** in Settings to **Light** or **Dark**; **Match system** follows Windows again. The window switches as soon as you choose.
+
+![The same chapter in dark mode.](docs/images/review-dark.png)
+
 **Models.** The review dialog lists the models the provider offers. For Claude the list comes from your installed Claude Code, so it depends on its version and your plan, and each model shows its version (such as Opus 5.5 or Sonnet 5). "Default" is whatever Claude Code currently recommends for your account.
 
 The status bar shows which provider and model answered and what it cost. Claude's figure is Claude Code's own estimate at API prices; on a Claude plan it is not what you pay. OpenAI's is marked "estimate": it is this app's arithmetic from a price table, and it is left out for models the table does not know. Every review is kept in **History** in the side panel, labelled with its provider and model. The list at the top of the side panel holds the same reviews: choose one to switch to it. A chapter opens with the review you last had on screen, usually the newest; when it is an older one, a warning mark beside the list says when the newest is from.
@@ -134,6 +152,8 @@ You can write your own words as well as accept suggested ones:
 
 Each word or phrase you change becomes its own suggestion, already accepted and marked "you", and can be undone the same way. A suggestion your change runs into moves to the Unanchored list with its reasoning kept. Typing exactly what a suggestion proposed simply accepts that suggestion. Emptying the box deletes the paragraph.
 
+What you type in a paragraph box is kept in the app's data folder within a second. If the app is closed, updated or stops while a box is open, the box comes back with your words the next time you open the chapter. If the paragraph has changed in the meantime, the box does not come back; your words are kept in a `.txt` file in the app's data folder instead, and a card's **Show the text** opens it.
+
 Paragraphs are numbered from 1 beside the text, and the AI is shown the same numbers, so "paragraph 12" in a comment means the one labelled 12.
 
 ## Saving to the chapter
@@ -143,6 +163,10 @@ Paragraphs are numbered from 1 beside the text, and the AI is shown the same num
 If the chapter changes on disk while it is open (for example, you edit it in Obsidian), the app notices, re-anchors the suggestions onto the new text and tells you how many it could not place. Avoid editing the same chapter in Obsidian while you are accepting changes here ([Working in an Obsidian vault](#working-in-an-obsidian-vault) says why).
 
 Your decisions are kept in the review automatically as you go; there is nothing to save there, and the status bar says when they were last kept ("Decisions kept 14:02"). Until you press **Save to chapter**, the button counts the changes the chapter file does not have yet ("Save 3 changes to chapter"), a dot sits before the chapter name, and the status bar says "3 not saved to chapter". The same dot marks the chapter in the list on the left, and stays there when you open another chapter or restart the app, so you can see which chapters still have changes to save. The dot, the button and the status bar go by the review on screen, which is the one the chapter opens with: if you switch to another review of the chapter, changes you left unsaved in the first stay in it, and the list at the top of the side panel counts them on its line ("2 not saved to chapter"). The first time a change is waiting, a note under the toolbar points at the button and names the file it writes; **Got it**, or your first Save to chapter, puts it away for good. Ctrl+S saves too. Opening another chapter while changes are not saved asks first: save them, keep them for later, or stay. Keep for later keeps your decisions in the review and any paragraph you are editing, which opens again when you come back to the chapter. Closing the window asks the same: save and close, close and keep them for later, or cancel.
+
+**Backups.** Before Save to chapter replaces a chapter file, it copies the version it replaces into the app's data folder, where each chapter has a folder of its own and each copy is named by the time of the save and the chapter's file name. If the copy cannot be made, nothing is written and a card says why. For each chapter the copies from the last 20 saves are kept, plus the first of each day for 30 days. **Show backups**, at the foot of the side panel, opens the open chapter's backup folder in File Explorer with the newest backup selected, and Settings has a **Backups** row that shows where they all are. A chapter you rename or move gets a new backup folder; the old one keeps its name.
+
+There is no restore button. A backup is the chapter file as it was, byte for byte, so it opens in Notepad or any text editor. To take back a passage, open the backup and copy the words into the chapter in Obsidian. To take back the whole chapter, first copy the chapter as it is now to a folder outside your vault, then paste the backup's whole text over the chapter's in Obsidian. Keep backups out of your vault: a copy there is listed as a chapter, and your sync tool syncs it.
 
 ## Working in an Obsidian vault
 
@@ -162,9 +186,9 @@ Lapidary reads and writes your chapter files where they are. Obsidian does not n
 
 **Files Lapidary will not open.** It reads files saved as UTF-8, which is what Obsidian writes, up to 4 MiB. A file in another encoding, such as UTF-16 or Windows-1252, is not opened: the message says what the file most likely is and how to save it again as UTF-8 in Notepad. A UTF-8 file with a few damaged characters is not opened either, and needs different care: the message gives the line of the first one; retype them in Obsidian and save there, and do not re-save the file in Notepad, which would garble every accented letter in it. A file that is not text at all is not opened, and the message offers no fix. In every case the file is left as it was. Split a file larger than 4 MiB into chapters.
 
-**What Save keeps, and what it does not.** Save to chapter changes only the words your decisions and edits change. Every other character stays as it was, the frontmatter included, and so do the file's line endings, its byte order mark if it has one, and its final line break; a file that mixes Windows and Unix line endings is written with Windows ones throughout. Before it replaces the file, Save copies the version it replaces into a backup in the app's data folder, never into your vault. It then writes the new text to a temporary file beside the chapter, whose name starts with a dot, and puts that file in the chapter's place in one step, so a crash cannot leave half a chapter. Because of that, **Save resets the file's creation date**: File Explorer's "Date created" becomes the time of the save. If you sort notes by created time in Obsidian, or use `file.ctime` in Dataview, expect a chapter to move each time Save changes it. When the file already reads like the page, Save writes nothing and the file keeps both its dates.
+**What Save keeps, and what it does not.** Save to chapter changes only the words your decisions and edits change. Every other character stays as it was, the frontmatter included, and so do the file's line endings, its byte order mark if it has one, and its final line break; a file that mixes Windows and Unix line endings is written with Windows ones throughout. Before it replaces the file, Save copies the version it replaces into a backup in the app's data folder, never into your vault. It then writes the new text to a temporary file beside the chapter, whose name starts with a dot, and puts that file in the chapter's place in one step, so a crash cannot leave half a chapter. Because of that, **Save resets the file's creation date**: after a save that changes the file, File Explorer's "Date created" is the time of the save. Keep that in mind if you sort or find notes by the date they were created. When the file already reads like the page, Save writes nothing and the file keeps both its dates.
 
-**Editing in Obsidian at the same time.** Lapidary watches the manuscript folder. When a chapter you have open changes on disk, because you typed in it in Obsidian or a sync tool brought a new version, Lapidary reloads it, moves the suggestions onto the new text and says how many it could not place. Save reads the file again just before it writes; if the file has changed, nothing is written: Lapidary reloads it, says what moved and tries once more. Still, do not type in a chapter in Obsidian while you are saving it here. Obsidian saves what you type a moment later and can write over a save, and Lapidary can only notice it afterwards. Finish in one app, then switch.
+**Editing in Obsidian at the same time.** Lapidary watches the manuscript folder. When a chapter you have open changes on disk, because you typed in it in Obsidian or a sync tool brought a new version, Lapidary reloads it, moves the suggestions onto the new text and says how many it could not place. Save reads the file again just before it writes; if the file has changed, nothing is written: Lapidary reloads it, says what moved and tries once more. Still, do not type in a chapter in Obsidian while you are saving it here. Lapidary cannot stop another program from writing the file a moment after its check, and it sees such a write only afterwards, when it reloads the chapter. Finish in one app, then switch.
 
 If another program holds the manuscript folder when Lapidary starts, the chapter list says "Lapidary is not watching the manuscript folder, so changes made outside Lapidary will not show until Try again succeeds." Click **Try again** once that program has let go.
 
@@ -174,9 +198,45 @@ If another program holds the manuscript folder when Lapidary starts, the chapter
 
 **What Lapidary adds to your vault.** `GUIDELINES.md` (or the guidelines file you chose in Settings), the chapters you make with **New chapter**, your reviews if you chose a reviews folder inside the vault, and, for the moment a save takes, its temporary file beside the chapter. Backups, drafts, settings and logs stay in the app's data folder.
 
+## When something goes wrong
+
+Most problems come with a card that says what happened and what to try. For anything else:
+
+- **Copy diagnostics**, near the foot of the Setup screen, and in About, puts on the clipboard what someone helping you needs to know: the versions of Lapidary, Electron, the OpenAI library and your Claude Code; your review and display settings; what the last checks of Claude and OpenAI found; the paths of your manuscript folder, the reviews folder, the guidelines file and the app's data folder, with your user folder written as `~`; how many chapters the manuscript folder holds, and whether it is in an Obsidian vault, in git or in a cloud folder such as OneDrive; and the log's recent warnings, each as what failed and its error code. On the Setup screen a Diagnostics window opens with it and shows exactly what was copied; About shows the same text. It holds no chapter text, chapter names, email address or key, and runs no check of its own, so it costs nothing.
+- **The log**, `main.log` in the `logs` folder of the app's data folder, records what happened: start and quit, what each check of Claude or OpenAI found, each review and save as sizes, counts and times, requests that failed, and problems the app worked around. **Open log folder** in About shows it. It never holds chapter text, guidelines, prompts, replies, keys or email addresses, and your user folder appears in it as `~`.
+- When something fails that Lapidary did not expect, a card says so, with **Show diagnostics**. If the window cannot be drawn, a page takes its place that first writes your decisions and open paragraph boxes, then offers **Reload window**; they are there when you open the chapter again. If the window's process stops, a box offers **Reload window** or **Quit**.
+
+To report a problem, open an issue on [GitHub](https://github.com/MichaelBradetLegris/lapidary/issues) and paste what Copy diagnostics copied. Issues are public: read the text first, and leave out chapter text, keys, email addresses, your Windows user name and any folder name you would rather not show. Security problems go privately, as [SECURITY.md](SECURITY.md) says.
+
+## Troubleshooting
+
+**"Windows protected your PC"** when you open the installer: this is SmartScreen, which warns about programs it has not seen often. Click **More info**, then **Run anyway**. Lapidary is not code-signed, so it may warn again about each new installer you download yourself.
+
+**Smart App Control blocked Lapidary.** On a Windows 11 PC where Smart App Control is on, an app that is not signed, and that Microsoft's service does not already know, is blocked outright, with no **Run anyway**. Lapidary is not signed. Windows Security shows whether Smart App Control is on, under **App & browser control**. There is no way past it from Lapidary's side: open an issue if it blocks you, as a signed build is planned only if someone needs one.
+
+**Windows in S mode** runs only apps from the Microsoft Store, so the installer does not run. Leaving S mode is free but cannot be undone; Microsoft's support pages explain it.
+
+**A PC with an ARM processor**, such as a Snapdragon laptop. Lapidary is built for x64 only. Windows 11 on ARM runs x64 apps through its own emulation, though Lapidary has not been tried there; Windows 10 on ARM cannot run them.
+
+**Claude: not signed in, or the sign-in has ended.** Setup says so and shows `claude auth login`, with a longer form for a PowerShell that does not find `claude` ([Connecting Claude](#connecting-claude)). Nothing in Lapidary is lost when a sign-in ends.
+
+**Claude: signed in, but Lapidary still says not signed in.** Click **Check again**. Lapidary starts Claude Code without your Claude Code settings files, so a sign-in kept there, such as an `apiKeyHelper` or an `env` block in `~/.claude/settings.json`, does not reach it. Sign in with `claude auth login`, or set `ANTHROPIC_API_KEY` as a Windows environment variable ([With an Anthropic API key instead](#with-an-anthropic-api-key-instead)).
+
+**Claude: a usage limit.** From 80% of one of your plan's limits, the status bar says how much is used and when it resets. When a review stops at a limit, its message says what to do: wait until the limit resets, and use Sonnet or Haiku afterwards, which use your limits more slowly than Opus models (Default included); or, when the limit is a weekly one for one model, choose another model under **Model** in Review with AI and go on.
+
+**A chapter will not open**, with a message that it is saved as UTF-16, in an older encoding or with damaged characters, or that it is not text: see **Files Lapidary will not open** under [Working in an Obsidian vault](#working-in-an-obsidian-vault).
+
+**Save to chapter keeps failing** with a message that Windows refused the write. Another program, such as a sync tool or a virus scanner, may be holding the file: Save waits about a second and a half for it, and you can save again once it has let go. If it keeps happening, Windows Security's Controlled folder access may be blocking Lapidary: allow it under Windows Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled folder access. Nothing is written to the chapter while a save is refused.
+
+**Lapidary could not read its settings.** When it says another program may have `settings.json` open, such as a backup or sync tool, a virus scanner or an editor, close that program and click **Try again**. When it says `settings.json` is damaged, mend the file, or move it out of its folder to start afresh, then click **Try again**. Until the file can be read, Lapidary changes nothing in it, so your settings are kept.
+
+**Check for updates says GitHub could not be reached.** Check the internet connection and click **Check for updates** in About again.
+
 ## Privacy
 
-**The app itself** has no analytics, no crash reporting and no update check. Links you click open in your web browser.
+**The app itself** has no analytics and no crash reporting. Links you click open in your web browser.
+
+**Update checks.** Each check asks github.com for the list of Lapidary's releases and the newest release's details, and a download fetches its installer from GitHub. A check sends nothing about your chapters and no id of your copy of Lapidary. **Check for updates automatically**, in About, turns the checks off.
 
 **What a review sends, and when.** Only when you start a review in the Review with AI dialog (**Start review**, or, when the page has changes not saved to the chapter, **Save 3 changes, then review** once the save has gone through, or **Review without them** once you have answered its question) does the app send the provider you chose:
 
@@ -187,7 +247,7 @@ If another program holds the manuscript folder when Lapidary starts, the chapter
 
 It does not send the folder's path, other chapters, earlier reviews, your decisions or your settings. For OpenAI, the app also asks OpenAI for its list of models, which sends no chapter text, when the review dialog shows OpenAI or after you save a key.
 
-**Claude Code at launch.** Each time the app starts, whichever provider you use, it runs your Claude Code to check its version and sign-in and to get its list of models. It sends no prompt, so this uses none of your plan's usage. Claude Code itself may contact Anthropic whenever it runs, as it does in a terminal.
+**Claude Code at launch.** Each time the app starts, whichever provider you use, it runs your Claude Code to check its version and sign-in and to get its list of models. This launch check sends no model request, so it uses none of your plan's usage, and neither does Check again. **Test the connection**, on the Setup screen, sends one very small request, and only when you click it. Claude Code itself may contact Anthropic whenever it runs, as it does in a terminal.
 
 **Claude Code's own data collection.** Claude Code reports usage metrics, which Anthropic says never include your prompts, code or file paths, and, for Pro and Max sign-ins, error reports. That is Claude Code's doing, not the app's. To turn them off, add these Windows environment variables, the same way as `ANTHROPIC_API_KEY` above, and then start the app:
 
@@ -208,15 +268,48 @@ They apply to Claude Code everywhere, not only in this app. Setting them in `~/.
 - **OpenAI**: your API key is the one credential the app stores. It is encrypted with Windows' data protection for your login (Electron `safeStorage`) and written to `secrets.json` in the app's data folder, never to `settings.json`. Only the app's background process decrypts it, at the moment of a request. It is never shown again and never sent to the app's window, which only learns whether a key exists and its last four characters. If Windows cannot encrypt, the app refuses to save the key and tells you to use `OPENAI_API_KEY` instead.
 - The app offers no "Sign in with ChatGPT": OpenAI documents API keys as the route for third-party apps, and a ChatGPT subscription does not pay for API use.
 
-**Where the app keeps its data.** In `%APPDATA%\ai-grammar-checker` (its name dates from before the app was renamed):
+## Where the app keeps its data
 
-- `settings.json`: your settings. If it was ever unreadable, a copy named `settings.json.corrupt-<time>` sits beside it. While the app cannot read it, because another program holds it open, or because it is damaged and cannot be copied aside, the app says so with Try again and changes nothing in it.
+**The app's data folder** is `%APPDATA%\ai-grammar-checker`; its name dates from before the app was renamed. **Open data folder** in About opens it. It holds:
+
+- `settings.json`: your settings. If it was ever damaged (not valid JSON), Lapidary kept a copy named `settings.json.corrupt-<time>` beside it and started again from its default settings. While the app cannot read it, because another program holds it open, or because it is damaged and cannot be copied aside, the app says so with Try again and changes nothing in it.
 - `secrets.json`: the encrypted OpenAI key. It exists only once you have saved a key.
 - `reviews\`: your reviews, unless you chose another reviews folder in Settings. Each review holds the full text of its chapter.
-- `logs\main.log`, and `main.1.log` once it fills: a short record of events: start and quit, what each check of Claude or OpenAI found, each review and save as sizes, counts and times, requests that failed, and problems the app worked around. It never holds chapter text, guidelines, prompts, replies, keys or email addresses, and your user folder appears in it as `~`.
+- `backups\`: the versions of your chapters that Save to chapter replaced, a folder for each chapter, with a `chapter.json` naming the chapter file.
+- `drafts\`: what you have typed in open paragraph boxes, and in `drafts\set-aside\` the text of boxes that could not be put back.
+- `logs\main.log`, and `main.1.log` once it fills: the log ([When something goes wrong](#when-something-goes-wrong)).
+- `.updaterId`, once Lapidary has checked for updates: a random id the update library keeps. Lapidary never sends it.
 - Folders that Electron keeps for itself, such as caches.
 
+**The app** is installed in `%LOCALAPPDATA%\Programs\manuscript-review`, and **the copy of its installer** that updates start from is in `%LOCALAPPDATA%\manuscript-review-updater`.
+
 Your chapters change only when you click **Save to chapter**. Besides them, the app adds to your manuscript folder only `GUIDELINES.md`, once and never overwritten, the chapters you make with **New chapter** and, if you chose a reviews folder inside it, your reviews. Claude Code keeps its own sign-in and settings; the app holds none of them.
+
+## Uninstalling
+
+In Windows 11, open **Settings > Apps > Installed apps**, click **...** beside Lapidary and choose **Uninstall**; in Windows 10, **Settings > Apps > Apps & features**, then Lapidary and **Uninstall**. This removes the app, its shortcuts and its entry in the list. It leaves your manuscript folder alone, and it also leaves the app's data folder and the copy of the installer, so a later install finds your settings and reviews again.
+
+To remove those too, delete the two folders once Lapidary is uninstalled: press Windows+R, type `%APPDATA%`, press Enter and delete the `ai-grammar-checker` folder; then do the same with `%LOCALAPPDATA%` and the `manuscript-review-updater` folder. Deleting the data folder deletes your saved OpenAI key, the backups and, unless you chose another reviews folder, your reviews. Claude Code is a separate program; it stays installed, and Anthropic's documentation says how to remove it.
+
+## Building from source
+
+Most people should use the installer from [Installing](#installing). To build it yourself you need Node.js 24, or 26 and later, or 22.18 and later on the 22 line; versions 23 and 25 do not work.
+
+1. Install [Node.js](https://nodejs.org/), the version the site marks LTS. Its installer offers optional tools for native modules; you do not need them.
+2. Get the source code: on the repository's GitHub page click **Code**, then **Download ZIP**, and unzip it. If you use Git, clone the repository instead.
+3. Open the unzipped folder that holds `package.json`; it may sit inside a folder of the same name. Right-click an empty space in it and choose **Open in Terminal**. On Windows 10, hold Shift while you right-click and choose **Open PowerShell window here**.
+4. Type these two commands, pressing Enter after each:
+
+   ```powershell
+   npm.cmd ci
+   npm.cmd run package
+   ```
+
+   Type `npm.cmd`, not `npm`: Windows blocks PowerShell scripts by default, and plain `npm` would start one. The commands need an internet connection and take a few minutes. npm prints several warnings about deprecated packages and install scripts; these are expected. The build worked if no line starts with `npm error`.
+
+5. Open the `dist` folder inside it and double-click `Lapidary-Setup-<version>.exe`. It installs the app as the released installer does. These builds are not code-signed either, so if Windows says it protected your PC, click **More info**, then **Run anyway**.
+
+A copy you build this way checks the published releases for updates, as a downloaded one does. To install a newer build of your own, run the installer it makes. [CONTRIBUTING.md](CONTRIBUTING.md) has the rest of the commands.
 
 ## Contributing and security
 
@@ -224,8 +317,10 @@ Your chapters change only when you click **Save to chapter**. Besides them, the 
 
 ## Licence and disclaimer
 
-MIT licence; see [LICENSE](LICENSE).
+MIT licence; see [LICENSE](LICENSE). The installed app's `resources` folder holds `LICENSE.txt` and `THIRD_PARTY_NOTICES.txt`, the licences of the software it includes, which About's **Licences and notices** opens.
 
 Lapidary is an independent open-source project. It runs Claude Code, made by Anthropic, which each user installs and signs in to themselves. It can also use OpenAI's API. Lapidary is not made, endorsed or sponsored by Anthropic or OpenAI, and it includes no Anthropic software.
+
+Nor is it made, endorsed or sponsored by the makers of Obsidian. It works on the Markdown files a vault holds and needs nothing installed in Obsidian.
 
 Suggestions and comments come from an AI model and can be wrong or misleading. Check each one, and verify any factual claim, before you accept it.
