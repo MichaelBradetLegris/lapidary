@@ -20,7 +20,7 @@
      information card's edge, the spinner, the open editor's border and glow */
   --accent: #3b5bdb;
   /* the icon's turquoise for filled buttons, the active Setup tab and ticked
-     checkboxes, with --on-accent on it (theme.11): the dark end of the icon's
+     checkboxes, with --on-accent on it (theme.12): the dark end of the icon's
      rim, #178e9c, deepened until white on it holds 5:1 */
   --accent-fill: #147a86;
   /* deeper still for hover and press, under the same white text */
@@ -102,7 +102,7 @@
     --ink-soft: #bdb5a8;
     --ink-faint: #968e82;
     --accent: #9db1ff;
-    /* the icon's dots, with near-black text on them (theme.11); hover and
+    /* the icon's dots, with near-black text on them (theme.12); hover and
        press take the icon's rim a fifth and half of the way down */
     --accent-fill: #4fd8e0;
     --accent-hover: #4dc5ce;
@@ -3133,7 +3133,7 @@ input[type='text'] {
   resize: none;
   overflow: hidden;
   /* The glow is the border's blue, not the buttons' turquoise, so the box has
-     one colour round it (theme.11, PLAN 11.3 e); stronger while it has the focus. */
+     one colour round it (theme.12, PLAN 11.3 e); stronger while it has the focus. */
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
