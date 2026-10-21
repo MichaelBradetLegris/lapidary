@@ -9,10 +9,11 @@ import { decodePng, isPng, type DecodedPng } from '../helpers/png';
  * resources/icon/, read as they are committed (PLAN C.92). The script needs
  * Pillow, which CI does not have, so this checks its output rather than
  * running it: the .ico's 14 frames, each equal to the PNG of its size, the PNG
- * set from 16 to 1024 px, the pebble's width and height, the SVG's gradients,
- * the small spec at 40 px and below, and every edge of the line and the dots
- * on the whole pixels C.92's layout gives, worked out here from the spec's
- * numbers, with the rim at least 1.25 px wide.
+ * set from 16 to 1024 px, the pebble's width, height, place and tilt, the
+ * small spec at 40 px and below, every edge of the ghost, the line and the
+ * dots on the whole pixels C.92's layout gives, worked out here from the
+ * spec's numbers, the rim at least 1.25 px wide, and the SVG's shapes and
+ * gradients.
  */
 
 const ICON = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'resources', 'icon');
@@ -125,20 +126,68 @@ const SPECS = {
 // the frame as the other icons on the taskbar do.
 const PEBBLE = { cx: 0.5, cy: 0.52, a: 0.49, bTop: 0.47, bBottom: 0.41, n: 2.6, rotation: -5 };
 
-/** The pebble's outline at `size` px, as make-icons.py works it out, from 720 points. */
-function pebbleOutline(size: number): [number, number][] {
+/**
+ * The pebble's outline at `size` px as make-icons.py works it out, each
+ * semi-axis shortened by `inset` of the side (the body's outline is inset by
+ * the rim), from 720 points for the rasters or 360 for the SVG.
+ */
+function pebbleOutline(size: number, inset = 0, count = 720): [number, number][] {
   const { cx, cy, a, bTop, bBottom, n, rotation } = PEBBLE;
   const rot = (rotation * Math.PI) / 180;
-  return Array.from({ length: 720 }, (_, i): [number, number] => {
-    const t = (2 * Math.PI * i) / 720;
+  return Array.from({ length: count }, (_, i): [number, number] => {
+    const t = (2 * Math.PI * i) / count;
     const [c, s] = [Math.cos(t), Math.sin(t)];
-    const x = a * Math.sign(c) * Math.abs(c) ** (2 / n);
-    const y = (s > 0 ? bBottom : bTop) * Math.sign(s) * Math.abs(s) ** (2 / n);
+    const x = (a - inset) * Math.sign(c) * Math.abs(c) ** (2 / n);
+    const y = (s > 0 ? bBottom - inset : bTop - inset) * Math.sign(s) * Math.abs(s) ** (2 / n);
     return [
       (cx + x * Math.cos(rot) - y * Math.sin(rot)) * size,
       (cy + x * Math.sin(rot) + y * Math.cos(rot)) * size
     ];
   });
+}
+
+/** The centre of the area inside a closed outline (the shoelace formulas). */
+function outlineCentre(points: [number, number][]): { x: number; y: number } {
+  let area = 0;
+  let x = 0;
+  let y = 0;
+  points.forEach(([x0, y0], i) => {
+    const [x1, y1] = points[(i + 1) % points.length] ?? points[0] ?? [0, 0];
+    const cross = x0 * y1 - x1 * y0;
+    area += cross / 2;
+    x += ((x0 + x1) * cross) / 6;
+    y += ((y0 + y1) * cross) / 6;
+  });
+  return { x: x / area, y: y / area };
+}
+
+/**
+ * The centre of an image's opacity and the tilt of its long axis in degrees,
+ * negative when its right end is higher (as the pebble's rotation of -5 has
+ * it), each pixel weighted by its alpha at its centre.
+ */
+function opacityCentreAndTilt(image: DecodedPng): { x: number; y: number; tilt: number } {
+  let [weight, sx, sy, sxx, syy, sxy] = [0, 0, 0, 0, 0, 0];
+  for (const y of range(0, image.height)) {
+    for (const x of range(0, image.width)) {
+      const w = pixel(image, x, y).alpha / 255;
+      const [px, py] = [x + 0.5, y + 0.5];
+      weight += w;
+      sx += w * px;
+      sy += w * py;
+      sxx += w * px * px;
+      syy += w * py * py;
+      sxy += w * px * py;
+    }
+  }
+  const [x, y] = [sx / weight, sy / weight];
+  const [xx, yy, xy] = [sxx / weight - x * x, syy / weight - y * y, sxy / weight - x * y];
+  return { x, y, tilt: (Math.atan2(2 * xy, xx - yy) * 90) / Math.PI };
+}
+
+/** How many canvas pixels make-icons.py draws for each pixel of `size`: 8, or fewer to stay within 4096. */
+function supersample(size: number): number {
+  return Math.max(1, Math.min(8, Math.floor(4096 / size)));
 }
 
 /** The nearest whole pixel, a half rounded up. */
@@ -342,6 +391,25 @@ describe('the PNGs', () => {
     }
   });
 
+  it('put the pebble where its outline is, tilted 5 degrees as the outline is', () => {
+    // The centre of each PNG's opacity is the centre of the outline's area
+    // less the half canvas pixel the script moves the outline up and left by,
+    // 1/16 px at 8x and 1/8 px at 1024 px, drawn at 4x (C.92, Rasters):
+    // measured, within 0.01 px at every size. The pebble 0.02 of the side
+    // higher (cy 0.50) is 0.33 px off at 16 px and 20 px off at 1024.
+    // Its long axis, worked out from the same opacity, is tilted -4.5 to -5.1
+    // degrees, measured; about 0 untilted and +4.5 to +5.1 with the tilt
+    // reversed.
+    for (const size of PNG_SIZES) {
+      const drawn = opacityCentreAndTilt(png(`icon-${size}.png`));
+      const centre = outlineCentre(pebbleOutline(size));
+      const moved = 0.5 / supersample(size);
+      expect(Math.abs(drawn.x - (centre.x - moved)), `${size} px across`).toBeLessThan(0.05);
+      expect(Math.abs(drawn.y - (centre.y - moved)), `${size} px down`).toBeLessThan(0.05);
+      expect(Math.abs(drawn.tilt - PEBBLE.rotation), `${size} px tilt`).toBeLessThan(1);
+    }
+  });
+
   it('leave the ghost line out at 40 px and below, and draw it from 48', () => {
     const ghost = rgb(PALETTE.ghost);
     for (const size of PNG_SIZES) {
@@ -391,6 +459,7 @@ describe('the parts on whole pixels (PLAN C.92)', () => {
     if (!found) throw new Error(`no icon-${size}.png`);
     return found;
   };
+  const ghost = rgb(PALETTE.ghost);
   const line = rgb(PALETTE.line);
   const dots = rgb(PALETTE.dots);
 
@@ -513,12 +582,41 @@ describe('the parts on whole pixels (PLAN C.92)', () => {
     }
   });
 
-  it('centres the line and the row of dots on the same axis', () => {
+  it('keeps all four edges of the ghost on whole pixels from 48 px', () => {
+    // As for the line: measured, at most 0.058 of the ghost's colour in the
+    // columns and rows just outside it. The ghost before brand.6, .34 of the
+    // side wide at .32 down, put 0.89 to 0.96 of it into the row below this
+    // one's at 60 px and from 72, and at 48 and 64 px, where its bottom edge
+    // fell on this one's, was 2 px narrower on its middle row.
+    for (const size of PNG_SIZES.filter((s) => s > SMALL_MAX)) {
+      const icon = image(size);
+      const { ghost: bar } = layout(size);
+      if (!bar) throw new Error(`${size} px: no ghost`);
+      const rows = range(bar.y0, bar.y1);
+      const columns = range(bar.x0, bar.x1);
+      for (const x of [bar.x0 - 1, bar.x1]) {
+        expect(mean(rows.map((y) => coverage(icon, x, y, ghost))), `${size} px, column ${x}`).toBeLessThan(
+          BLEND
+        );
+      }
+      for (const y of [bar.y0 - 1, bar.y1]) {
+        expect(mean(columns.map((x) => coverage(icon, x, y, ghost))), `${size} px, row ${y}`).toBeLessThan(
+          BLEND
+        );
+      }
+      const middle = bar.y0 + Math.floor((bar.y1 - bar.y0) / 2);
+      expect(runs(icon, middle, bar.x0 - 1, bar.x1 + 1, ghost), `${size} px`).toEqual([[bar.x0, bar.x1]]);
+    }
+  });
+
+  it('centres the ghost, the line and the row of dots on the same axis', () => {
     for (const size of PNG_SIZES) {
       const icon = image(size);
-      const { axis2, line: bar, dots: row } = layout(size);
+      const { axis2, ghost: faint, line: bar, dots: row } = layout(size);
       expect(Math.abs(centreX(icon, [bar], line) - axis2 / 2), `${size} px line`).toBeLessThan(0.05);
       expect(Math.abs(centreX(icon, row, dots) - axis2 / 2), `${size} px dots`).toBeLessThan(0.05);
+      if (faint)
+        expect(Math.abs(centreX(icon, [faint], ghost) - axis2 / 2), `${size} px ghost`).toBeLessThan(0.05);
     }
   });
 
@@ -561,5 +659,68 @@ describe('icon.svg', () => {
 
   it('uses the turquoise palette', () => {
     for (const colour of Object.values(PALETTE)) expect(svg).toContain(`"${colour}"`);
+  });
+
+  // The attributes of each element with this tag, by name, the elements in
+  // the order the file has them.
+  const elements = (tag: string): Record<string, string>[] =>
+    [...svg.matchAll(new RegExp(`<${tag} ([^>]*?)\\s*/>`, 'g'))].map((found): Record<string, string> =>
+      Object.fromEntries(
+        [...(found[1] ?? '').matchAll(/([\w-]+)="([^"]*)"/g)].map((a): [string, string] => [
+          a[1] ?? '',
+          a[2] ?? ''
+        ])
+      )
+    );
+
+  it('draws the ghost, the line and the dots where the 256 px layout puts them', () => {
+    // The About dialog shows this file at 64 px (AboutDialog.tsx). brand.5's
+    // SVG beside brand.6's PNGs passed every test before this one and the next.
+    const { ghost, line, dots } = layout(256);
+    expect(ghost).toEqual({ x0: 82, y0: 76, x1: 174, y1: 90 });
+    expect(line).toEqual({ x0: 60, y0: 108, x1: 196, y1: 140 });
+    expect(dots).toEqual(dotRow(54, 163, 20, 12, 5));
+    if (!ghost) throw new Error('no ghost at 256 px');
+    const rect = (box: Box, rx: number, fill: string): Record<string, string> => ({
+      x: String(box.x0),
+      y: String(box.y0),
+      width: String(box.x1 - box.x0),
+      height: String(box.y1 - box.y0),
+      rx: String(rx),
+      fill
+    });
+    expect(elements('rect')).toEqual([
+      rect(ghost, (ghost.y1 - ghost.y0) / 2, PALETTE.ghost),
+      rect(line, (line.y1 - line.y0) / 4, PALETTE.line)
+    ]);
+    expect(elements('circle')).toEqual(
+      dots.map((box) => ({
+        cx: String((box.x0 + box.x1) / 2),
+        cy: String((box.y0 + box.y1) / 2),
+        r: String((box.x1 - box.x0) / 2),
+        fill: PALETTE.dots
+      }))
+    );
+  });
+
+  it('draws the pebble and its body as their outlines at 256 px, each point within 0.01 px', () => {
+    // 360 points each, given to two decimals, so within 0.005 px, measured:
+    // the rim's outline, and the body's, each semi-axis shortened by the
+    // rim's .035 of the side.
+    const polygons = elements('polygon');
+    expect(polygons.map((p) => p.fill)).toEqual(['url(#icon-rim)', 'url(#icon-body)']);
+    const outlines = [pebbleOutline(256, 0, 360), pebbleOutline(256, layout(256).rim / 256, 360)];
+    polygons.forEach((polygon, i) => {
+      const points = (polygon.points ?? '').split(' ').map((pair) => pair.split(',').map(Number));
+      const outline = outlines[i] ?? [];
+      expect(points, `polygon ${i + 1}`).toHaveLength(outline.length);
+      const off = Math.max(
+        ...points.map(([x, y], j) => {
+          const [ox, oy] = outline[j] ?? [Number.NaN, Number.NaN];
+          return Math.max(Math.abs((x ?? Number.NaN) - ox), Math.abs((y ?? Number.NaN) - oy));
+        })
+      );
+      expect(off, `polygon ${i + 1}`).toBeLessThan(0.01);
+    });
   });
 });
