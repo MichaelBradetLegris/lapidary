@@ -2,7 +2,15 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CHANGE_CATEGORIES } from '../../src/shared/types';
-import { APP_CSS, tokenBlocks, type Scheme } from '../helpers/themeTokens';
+import { parseColour } from '../helpers/contrast';
+import {
+  APP_CSS,
+  resolveToken,
+  SCHEMES,
+  tokenBlocks,
+  type Scheme,
+  type TokenBlock
+} from '../helpers/themeTokens';
 
 /* theme.4: every colour the renderer paints is a token in a `:root` block of
    app.css (PLAN 11.3 e), so a theme is one block of values and nothing else.
@@ -536,7 +544,31 @@ const scrolls = (decls: Map<string, string>): boolean =>
 
 const SCROLLERS = [...new Set(RULES.filter((r) => scrolls(r.decls)).flatMap((r) => r.selectors))].sort();
 
+/**
+ * Why a scroller's background is not an opaque colour from a token, or null
+ * when it is: it must be one `var()` of a token whose value, followed through
+ * other tokens, is a colour with alpha 1 in light and in dark. A translucent
+ * token such as `--hover-overlay`, a share such as `--tint-pending`, which is
+ * no colour, and anything but one `var()` all fail (C.48).
+ */
+function opaqueBackgroundProblem(background: string, blocks: Record<Scheme, TokenBlock>): string | null {
+  const token = /^var\((--[\w-]+)\)$/.exec(background)?.[1];
+  if (!token) return `not one colour token: ${background || '(none)'}`;
+  for (const scheme of SCHEMES) {
+    let alpha: number;
+    try {
+      alpha = parseColour(resolveToken(blocks, scheme, token)).a;
+    } catch {
+      return `${scheme}: ${token} is not a colour`;
+    }
+    if (alpha !== 1) return `${scheme}: ${token} has alpha ${alpha}`;
+  }
+  return null;
+}
+
 describe('scrollers (theme.1, panel.1)', () => {
+  const blocks = tokenBlocks(APP_CSS);
+
   it('finds the scrollers the plan names', () => {
     for (const name of [
       '.center',
@@ -551,13 +583,39 @@ describe('scrollers (theme.1, panel.1)', () => {
     }
   });
 
-  it('gives every scroller an opaque background from a colour token', () => {
-    const transparent = SCROLLERS.filter((selector) => {
+  it('gives every scroller an opaque background from a colour token, in both themes', () => {
+    const problems = SCROLLERS.flatMap((selector) => {
       const decls = declsFor(selector);
       const background = decls.get('background') ?? decls.get('background-color') ?? '';
-      return !/^var\(--[a-z-]+\)$/.test(background);
+      const problem = opaqueBackgroundProblem(background, blocks);
+      return problem ? [`${selector}: ${problem}`] : [];
     });
-    expect(transparent).toEqual([]);
+    expect(problems).toEqual([]);
+  });
+
+  it('notices a scroller background that is not opaque, so the check above can fail', () => {
+    expect(opaqueBackgroundProblem('var(--bg)', blocks)).toBeNull();
+    // Light's value is var(--ink), followed to its colour.
+    expect(opaqueBackgroundProblem('var(--find-active-ink)', blocks)).toBeNull();
+    expect(opaqueBackgroundProblem('var(--hover-overlay)', blocks)).toMatch(
+      /^light: --hover-overlay has alpha/
+    );
+    expect(opaqueBackgroundProblem('var(--backdrop)', blocks)).toMatch(/^light: --backdrop has alpha/);
+    expect(opaqueBackgroundProblem('var(--tint-pending)', blocks)).toBe(
+      'light: --tint-pending is not a colour'
+    );
+    expect(opaqueBackgroundProblem('var(--no-such-token)', blocks)).toBe(
+      'light: --no-such-token is not a colour'
+    );
+    expect(opaqueBackgroundProblem('transparent', blocks)).toBe('not one colour token: transparent');
+    expect(opaqueBackgroundProblem('', blocks)).toBe('not one colour token: (none)');
+    expect(opaqueBackgroundProblem('color-mix(in srgb, var(--bg) 50%, transparent)', blocks)).toMatch(
+      /^not one colour token/
+    );
+    const darkOnly = tokenBlocks(
+      ':root { --x: #ffffff; color-scheme: light; } @media (prefers-color-scheme: dark) { :root { --x: rgb(0 0 0 / 50%); } }'
+    );
+    expect(opaqueBackgroundProblem('var(--x)', darkOnly)).toBe('dark: --x has alpha 0.5');
   });
 
   it('keeps the side panel itself from scrolling, so two scrollbars never sit side by side', () => {
