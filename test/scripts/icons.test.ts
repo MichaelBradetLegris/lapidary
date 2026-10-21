@@ -5,13 +5,14 @@ import { describe, expect, it } from 'vitest';
 import { decodePng, isPng, type DecodedPng } from '../helpers/png';
 
 /*
- * brand.5: the icon files scripts/make-icons.py writes into resources/icon/,
- * read as they are committed (PLAN C.92). The script needs Pillow, which CI
- * does not have, so this checks its output rather than running it: the .ico's
- * 14 frames, each equal to the PNG of its size, the PNG set from 16 to 1024
- * px, the SVG's gradients, the small spec at 40 px and below, and every edge
- * of the line and the dots on the whole pixels C.92's layout gives, worked out
- * here from the spec's numbers, with the rim at least 1.25 px wide.
+ * brand.5 and brand.6: the icon files scripts/make-icons.py writes into
+ * resources/icon/, read as they are committed (PLAN C.92). The script needs
+ * Pillow, which CI does not have, so this checks its output rather than
+ * running it: the .ico's 14 frames, each equal to the PNG of its size, the PNG
+ * set from 16 to 1024 px, the pebble's width and height, the SVG's gradients,
+ * the small spec at 40 px and below, and every edge of the line and the dots
+ * on the whole pixels C.92's layout gives, worked out here from the spec's
+ * numbers, with the rim at least 1.25 px wide.
  */
 
 const ICON = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'resources', 'icon');
@@ -105,18 +106,40 @@ interface Layout {
   rim: number;
 }
 
+// brand.6's spec: the large one scaled with the larger pebble, the small one
+// with a taller line and larger dots for the taskbar (PLAN 11.3 (o), C.92).
 const SPECS = {
   large: {
-    ghost: { width: 0.67 - 0.33, top: 0.32, height: 0.05 },
-    line: { width: 0.75 - 0.25, top: 0.43, height: 0.11 },
-    dots: { count: 5, diameter: 0.07, gap: 0.045, top: 0.62 }
+    ghost: { width: 0.6811 - 0.3189, top: 0.2982, height: 0.0564 },
+    line: { width: 0.7663 - 0.2337, top: 0.4223, height: 0.1241 },
+    dots: { count: 5, diameter: 0.0767, gap: 0.0452, top: 0.6378 }
   },
   small: {
     ghost: null,
-    line: { width: 0.75 - 0.25, top: 0.4, height: 0.13 },
-    dots: { count: 3, diameter: 0.1, gap: 0.07, top: 0.6 }
+    line: { width: 0.75 - 0.25, top: 0.37, height: 0.16 },
+    dots: { count: 3, diameter: 0.13, gap: 0.07, top: 0.6 }
   }
 };
+
+// The pebble, in fractions of the side (PLAN 11.3 (o)): since brand.6 it fills
+// the frame as the other icons on the taskbar do.
+const PEBBLE = { cx: 0.5, cy: 0.52, a: 0.49, bTop: 0.47, bBottom: 0.41, n: 2.6, rotation: -5 };
+
+/** The pebble's outline at `size` px, as make-icons.py works it out, from 720 points. */
+function pebbleOutline(size: number): [number, number][] {
+  const { cx, cy, a, bTop, bBottom, n, rotation } = PEBBLE;
+  const rot = (rotation * Math.PI) / 180;
+  return Array.from({ length: 720 }, (_, i): [number, number] => {
+    const t = (2 * Math.PI * i) / 720;
+    const [c, s] = [Math.cos(t), Math.sin(t)];
+    const x = a * Math.sign(c) * Math.abs(c) ** (2 / n);
+    const y = (s > 0 ? bBottom : bTop) * Math.sign(s) * Math.abs(s) ** (2 / n);
+    return [
+      (cx + x * Math.cos(rot) - y * Math.sin(rot)) * size,
+      (cy + x * Math.sin(rot) + y * Math.cos(rot)) * size
+    ];
+  });
+}
 
 /** The nearest whole pixel, a half rounded up. */
 function snap(value: number): number {
@@ -235,7 +258,7 @@ function centreX(image: DecodedPng, boxes: Box[], colour: Rgb): number {
 
 // A part edge that falls between two pixels puts as much of its colour into
 // the pixel outside as the fraction it covers, 0.3 for 0.3 px. On whole
-// pixels the smoothing leaves at most 0.09 there (16 to 1024 px, measured).
+// pixels the smoothing leaves at most 0.07 there (16 to 1024 px, measured).
 const BLEND = 0.15;
 
 describe('icon.ico', () => {
@@ -291,6 +314,34 @@ describe('the PNGs', () => {
     expect(icon.rgba.equals(png('icon-1024.png').rgba)).toBe(true);
   });
 
+  it('fill the frame with the pebble, as wide and as tall as its outline within 0.5 px', () => {
+    // brand.6. Each column's most opaque pixel, summed across the image, is
+    // how wide the pebble is drawn, and each row's, summed down it, how tall:
+    // measured, 0.04 to 0.34 px more than the outline at every size, as the
+    // smoothing spreads the edge. The pebble before brand.6 was 0.8 px
+    // narrower and 1.5 px shorter at 16 px, and more at every larger size.
+    for (const size of PNG_SIZES) {
+      const icon = png(`icon-${size}.png`);
+      const outline = pebbleOutline(size);
+      const xs = outline.map(([x]) => x);
+      const ys = outline.map(([, y]) => y);
+      const most = (cells: number[]): number =>
+        Math.max(...cells.map((cell) => icon.rgba[cell * 4 + 3] ?? 0));
+      const columns = range(0, size).map((x) => most(range(0, size).map((y) => y * size + x)));
+      const rows = range(0, size).map((y) => most(range(0, size).map((x) => y * size + x)));
+      const drawn = {
+        width: columns.reduce((sum, v) => sum + v, 0) / 255,
+        height: rows.reduce((sum, v) => sum + v, 0) / 255
+      };
+      expect(Math.abs(drawn.width - (Math.max(...xs) - Math.min(...xs))), `${size} px width`).toBeLessThan(
+        0.5
+      );
+      expect(Math.abs(drawn.height - (Math.max(...ys) - Math.min(...ys))), `${size} px height`).toBeLessThan(
+        0.5
+      );
+    }
+  });
+
   it('leave the ghost line out at 40 px and below, and draw it from 48', () => {
     const ghost = rgb(PALETTE.ghost);
     for (const size of PNG_SIZES) {
@@ -302,17 +353,18 @@ describe('the PNGs', () => {
           if (alpha === 255 && distance(colour, ghost) <= 16) near += 1;
         }
       }
-      // The ghost is 34% of the side wide and 5% high; half of it at least
+      // The ghost is 36% of the side wide and 5.6% high; half of it at least
       // keeps its colour after the edges are smoothed.
+      const { width, height } = SPECS.large.ghost;
       if (size <= SMALL_MAX) expect(near, `${size} px`).toBe(0);
-      else expect(near, `${size} px`).toBeGreaterThanOrEqual(0.34 * size * 0.05 * size * 0.5);
+      else expect(near, `${size} px`).toBeGreaterThanOrEqual(width * size * height * size * 0.5);
     }
   });
 
   it('put the line of type on whole pixels at 40 px and below, never blended across a row', () => {
     // Down the middle column, from a quarter of the side to just above the
     // dots, every pixel is the line's cream or the body's shade at that row.
-    // The smoothing leaves at most about 25 either way; a line edge that fell
+    // The smoothing leaves at most about 35 either way; a line edge that fell
     // between two rows would leave a blend up to 150 away from both.
     const line = rgb(PALETTE.line);
     const top = rgb(PALETTE.bodyTop);
@@ -343,15 +395,17 @@ describe('the parts on whole pixels (PLAN C.92)', () => {
   const dots = rgb(PALETTE.dots);
 
   it('lays the line and the dots out as C.92 gives them at 16, 24, 32 and 40 px', () => {
-    expect(layout(16).line).toEqual({ x0: 4, y0: 6, x1: 12, y1: 8 });
+    expect(layout(16).line).toEqual({ x0: 4, y0: 6, x1: 12, y1: 9 });
     expect(layout(16).dots).toEqual(dotRow(4, 10, 2, 1, 3));
-    expect(layout(24).line).toEqual({ x0: 6, y0: 10, x1: 18, y1: 13 });
-    expect(layout(24).dots).toEqual(dotRow(7, 14, 2, 2, 3));
-    expect(layout(32).line).toEqual({ x0: 8, y0: 13, x1: 25, y1: 17 });
-    expect(layout(32).dots).toEqual(dotRow(10, 19, 3, 2, 3));
-    expect(layout(32).axis2).toBe(33);
-    expect(layout(40).line).toEqual({ x0: 10, y0: 16, x1: 30, y1: 21 });
-    expect(layout(40).dots).toEqual(dotRow(11, 24, 4, 3, 3));
+    expect(layout(24).line).toEqual({ x0: 6, y0: 9, x1: 19, y1: 13 });
+    expect(layout(24).dots).toEqual(dotRow(6, 14, 3, 2, 3));
+    expect(layout(24).axis2).toBe(25);
+    expect(layout(32).line).toEqual({ x0: 8, y0: 12, x1: 24, y1: 17 });
+    expect(layout(32).dots).toEqual(dotRow(8, 19, 4, 2, 3));
+    expect(layout(32).axis2).toBe(32);
+    expect(layout(40).line).toEqual({ x0: 10, y0: 15, x1: 31, y1: 21 });
+    expect(layout(40).dots).toEqual(dotRow(10, 24, 5, 3, 3));
+    expect(layout(40).axis2).toBe(41);
     for (const size of PNG_SIZES) {
       const { axis2, ghost, line: bar, dots: row } = layout(size);
       expect(row, `${size} px`).toHaveLength(size <= SMALL_MAX ? 3 : 5);
@@ -382,8 +436,8 @@ describe('the parts on whole pixels (PLAN C.92)', () => {
   it('draws no dot over the rim beyond either end of the row', () => {
     // Beyond the row, the dots' rows are the body and then the rim. The dots'
     // colour is lighter than both, so a dot drawn over the rim, as the outer
-    // two of five would be at 16 px, makes a pixel greener than the rim: 61
-    // over its shade there. The smoothing makes the rim's own edges up to 19
+    // two of five would be at 16 px, makes a pixel greener than the rim: 60
+    // over its shade there. The smoothing makes the rim's own edges up to 21
     // greener, measured from 16 to 1024 px.
     for (const size of PNG_SIZES) {
       const icon = image(size);
@@ -415,13 +469,14 @@ describe('the parts on whole pixels (PLAN C.92)', () => {
       for (let i = 0; i + 1 < row.length; i += 1)
         outside.push(...range(row[i]?.x1 ?? 0, row[i + 1]?.x0 ?? 0));
       for (const x of outside) expect(column(x), `${size} px, column ${x}`).toBeLessThan(BLEND);
-      // The row just above them. The one below is the rim at 16 px, so the
-      // bottom edges are checked against the top ones instead.
+      // The rows just above and just below them. Below was the rim at 16 px
+      // until brand.6 made the pebble taller; it is the body at every size now.
       const columns = row.flatMap((box) => range(box.x0, box.x1));
-      expect(
-        mean(columns.map((x) => coverage(icon, x, first.y0 - 1, dots))),
-        `${size} px, above`
-      ).toBeLessThan(BLEND);
+      for (const y of [first.y0 - 1, first.y1]) {
+        expect(mean(columns.map((x) => coverage(icon, x, y, dots))), `${size} px, row ${y}`).toBeLessThan(
+          BLEND
+        );
+      }
       // A round dot on whole pixels covers its top row as much as its bottom
       // one, and its left column as much as its right.
       for (const box of row) {
@@ -470,8 +525,8 @@ describe('the parts on whole pixels (PLAN C.92)', () => {
   it('keeps the rim at least 1.25 px wide, so that it shows at 16 px', () => {
     // Down the middle column, from the top of the canvas to the first part,
     // each pixel's opacity times how much of the rim's shade it holds over the
-    // body's adds up to the rim's width there: measured, 0.13 to 0.21 px over
-    // at 40 px and below and within 0.15 px from 48 to 1024. Without the
+    // body's adds up to the rim's width there: measured, 0.12 to 0.20 px over
+    // at 40 px and below and within 0.11 px from 48 to 1024. Without the
     // 1.25 px minimum the rim would be 0.56 px wide at 16 px.
     for (const size of PNG_SIZES) {
       const icon = image(size);

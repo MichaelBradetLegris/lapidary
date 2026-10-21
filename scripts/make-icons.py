@@ -81,13 +81,15 @@ DOTS = "#4fd8e0"
 
 # The pebble, in fractions of the side: centre, half-width, half-heights above
 # and below the centre, superellipse exponent (2 is an ellipse, higher is
-# squarer) and the tilt in degrees.
+# squarer) and the tilt in degrees. Since brand.6 (2026-10-21) it fills more of
+# the frame, as the other icons on the taskbar do: a was 0.46, b_top 0.42 and
+# b_bottom 0.36.
 PEBBLE = {
     "cx": 0.50,
     "cy": 0.52,
-    "a": 0.46,
-    "b_top": 0.42,
-    "b_bottom": 0.36,
+    "a": 0.49,
+    "b_top": 0.47,
+    "b_bottom": 0.41,
     "n": 2.6,
     "rotation": -5.0,
 }
@@ -99,15 +101,30 @@ RIM_MIN_PX = 1.25
 # The parts on the pebble, all centred across it, so only x1 - x0 is read.
 # The line's corners are rounded by a quarter of its height; the ghost and the
 # dots are fully rounded.
+#
+# The large spec (48 px and up) is the one drawn for the smaller pebble before
+# brand.6, scaled with the pebble so the 256 and 1024 px renders keep their
+# proportions: x' = 0.5 + sx (x - 0.5) and y' = 0.49 + sy (y - 0.49), about the
+# pebble's middle, where 0.49 is its vertical middle (cy - (b_top - b_bottom) / 2,
+# the same before and after). sx = 0.49 / 0.46 = 1.065, the pebble's width, and
+# sy = 0.88 / 0.78 = 1.128, its height. The bars take sx across and sy down. The
+# dots' diameter takes sqrt(sx sy), so they grow with the pebble's area, their
+# centres move as y' does, and their gap is set so the row's span takes sx.
+# Rounded to four decimals.
 LARGE = {
-    "ghost": {"x0": 0.33, "x1": 0.67, "top": 0.32, "height": 0.05},
-    "line": {"x0": 0.25, "x1": 0.75, "top": 0.43, "height": 0.11},
-    "dots": {"count": 5, "diameter": 0.07, "gap": 0.045, "top": 0.62},
+    "ghost": {"x0": 0.3189, "x1": 0.6811, "top": 0.2982, "height": 0.0564},
+    "line": {"x0": 0.2337, "x1": 0.7663, "top": 0.4223, "height": 0.1241},
+    "dots": {"count": 5, "diameter": 0.0767, "gap": 0.0452, "top": 0.6378},
 }
+# The small spec (40 px and below) is not scaled but set for the taskbar's 24
+# and 32 px: a line 0.16 tall (0.13 before brand.6) and dots 0.13 wide (0.10),
+# the gap between them kept at 0.07 and the pair kept centred where it was, at
+# 0.55 of the side, so the line's top moves up from 0.40 to 0.37 and the dots
+# stay at 0.60. The line's width and the dots' gap are as they were.
 SMALL = {
     "ghost": None,
-    "line": {"x0": 0.25, "x1": 0.75, "top": 0.40, "height": 0.13},
-    "dots": {"count": 3, "diameter": 0.10, "gap": 0.07, "top": 0.60},
+    "line": {"x0": 0.25, "x1": 0.75, "top": 0.37, "height": 0.16},
+    "dots": {"count": 3, "diameter": 0.13, "gap": 0.07, "top": 0.60},
 }
 
 # The contact sheet's grounds: Windows 11's light and dark taskbars.
