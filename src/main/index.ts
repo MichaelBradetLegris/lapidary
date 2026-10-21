@@ -141,10 +141,11 @@ function createWindow(): BrowserWindow {
   });
 
   /* Show on the first painted frame, so the window never flashes blank. In the
-     packaged build 'ready-to-show' never fired on Windows and the app ran with
-     its window hidden, so the page finishing its load and a timer are fallbacks;
-     whichever comes first shows the window. A quiet test window is shown
-     without taking the foreground (dev.1). */
+     packaged build on Electron 44.3.0 'ready-to-show' never fired on Windows and
+     the app ran with its window hidden, so the page finishing its load and a
+     timer are fallbacks; whichever comes first shows the window, once (C.36).
+     Electron 44.4.4 lists a fix for that event, and the fallbacks stay. A quiet
+     test window is shown without taking the foreground (dev.1). */
   let shown = false;
   const reveal = (): void => {
     if (shown || win.isDestroyed()) return;
