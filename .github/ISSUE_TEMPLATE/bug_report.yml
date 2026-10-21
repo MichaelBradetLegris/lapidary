@@ -13,8 +13,8 @@ body:
     attributes:
       label: App version
       description: |
-        There is no About window yet. Use the version number in the file name of the installer you ran, such as 0.1.0. Or press Windows+R, paste `%APPDATA%\ai-grammar-checker\logs\main.log`, press Enter, and find the last line that contains `app.start version=`. If you cloned the repository with Git, the commit (`git rev-parse --short HEAD` in its folder) helps too.
-      placeholder: 0.1.0
+        Open Settings, then About: the version is under the app's name. If the app does not start, press Windows+R, paste `%APPDATA%\ai-grammar-checker\logs\main.log`, press Enter, and find the last line that contains `app.start version=`. If you cloned the repository with Git, the commit (`git rev-parse --short HEAD` in its folder) helps too.
+      placeholder: 1.0.0
     validations:
       required: true
   - type: dropdown
@@ -65,7 +65,7 @@ body:
     attributes:
       label: Diagnostics or log
       description: |
-        Open the Setup screen (Settings, then Setup in the Claude account row), press Copy diagnostics near its foot, and paste the text here. It gives the versions, your settings and what the last checks found. If a maintainer asks for the log as well, press Windows+R, paste `%APPDATA%\ai-grammar-checker\logs\main.log` and press Enter, and copy the lines from around the time it happened. The app leaves chapter text, keys and email addresses out of both and shortens your user folder to `~`, but read the text before you paste it.
+        Press Copy diagnostics, near the foot of the Setup screen (Settings, then Setup in the Claude account row) or under Diagnostics in About (Settings, then About), and paste the text here. It gives the versions, your settings and what the last checks found. If a maintainer asks for the log as well, press Windows+R, paste `%APPDATA%\ai-grammar-checker\logs\main.log` and press Enter, and copy the lines from around the time it happened. The app leaves chapter text, keys and email addresses out of both and shortens your user folder to `~`, but read the text before you paste it.
       render: text
     validations:
       required: false
