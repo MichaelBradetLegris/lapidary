@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { APP_NAME } from '../shared/branding';
 import { loggableErrorFields } from '../shared/diagnostics/redact';
 import type { RequestChannel, RequestPayload, ResponsePayload } from '../shared/ipc';
 import {
@@ -49,7 +50,15 @@ import { runUpdateInstall, type UpdateInstallDeps } from './updateInstall';
  * - **Install only by Restart now**, with the installer's progress window
  *   showing (`quitAndInstall(false, true)`); never on quit
  *   (`autoInstallOnAppQuit` false), since an install that the shutdown of the
- *   computer cuts short can leave half an app.
+ *   computer cuts short can leave half an app. electron-updater 6.8.10 starts
+ *   the installer and queues the app's quit for the next turn of the event
+ *   loop, and only then hears whether the installer could start. When it
+ *   says it could not, the controller cancels that quit (`beforeQuit`, from
+ *   main's `before-quit`), takes the close allowance back and starts the
+ *   watcher again; when no quit comes at all, it does the same. Either way
+ *   electron-updater starts no second install in this run, so the card points
+ *   at the release page (Appendix C "What the updater settled where the plan
+ *   left it open").
  * - **Notify only off Windows.** A check says a newer version is out and
  *   points at its release page; nothing is downloaded.
  * - **The fake** (`MANUSCRIPT_REVIEW_DEV_FAKE_UPDATE`, development runs only)
@@ -68,6 +77,14 @@ import { runUpdateInstall, type UpdateInstallDeps } from './updateInstall';
 
 /** The first check, after launch. */
 export const FIRST_CHECK_DELAY_MS = 15_000;
+
+/**
+ * How long after `quitAndInstall` has returned the controller waits for the
+ * quit electron-updater queues for the next turn of the event loop. With no
+ * quit by then the install has failed; and a quit held after the installer
+ * failed to start is let go then, so it never holds one the author asks for.
+ */
+export const INSTALL_QUIT_WAIT_MS = 1_000;
 
 /** Every check after the first. */
 export const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -171,6 +188,7 @@ export interface UpdateControllerDeps {
   repository: string;
   /** electron-updater's `autoUpdater`, or the fake; called once, the first time the updater is needed */
   loadUpdater(): UpdaterLike;
+  /** rejects while settings.json cannot be read (`checkedUpdateSettings`) */
   settings(): Promise<UpdateSettings>;
   /** write `updateDownloadConsent` (through `trackWrite`, writes.ts) */
   saveConsent(version: string | null): Promise<unknown>;
@@ -194,6 +212,26 @@ export interface UpdateController {
   download(version: string): Promise<UpdateStatus>;
   /** Restart now: install the downloaded version (`runUpdateInstall`); `installing`, or `failed` when it could not start. */
   install(): Promise<UpdateStatus>;
+  /**
+   * Main's `before-quit`. True when this quit is the one electron-updater
+   * queued before it said the installer could not start: main cancels it, and
+   * the app goes on as it was. Otherwise false, and Restart now's quit has
+   * come.
+   */
+  beforeQuit(): boolean;
+}
+
+/** Restart now, from `update:install` until the app quits or the install fails. */
+interface InstallRun {
+  version: string;
+  /** takes back the close allowance; kept as soon as `runUpdateInstall` has made it, before `quitAndInstall` */
+  takeBack: (() => void) | null;
+  /** `quitAndInstall` returned with no error raised inside it, so electron-updater has queued its quit */
+  returned: boolean;
+  /** the app has begun to quit (`before-quit`): the installer is on its way */
+  quitting: boolean;
+  /** fails the install when no quit has come `INSTALL_QUIT_WAIT_MS` after `quitAndInstall` returned */
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 export function createUpdateController(deps: UpdateControllerDeps): UpdateController {
@@ -205,8 +243,16 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
   let dailyTimer: ReturnType<typeof setInterval> | null = null;
   /** an `error` event raised inside `quitAndInstall` itself, which `runUpdateInstall` hears as a throw */
   let insideQuitAndInstall = false;
-  /** takes back Restart now's allowance, should the installer fail after it started */
-  let takeBack: (() => void) | null = null;
+  /** Restart now under way */
+  let run: InstallRun | null = null;
+  /** set after the installer failed to start: the quit electron-updater queued is to be cancelled */
+  let quitHold: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * An install failed after electron-updater had started it. It starts one
+   * install a run, so Restart now cannot try again, and no check runs until
+   * the app is opened again, since the card it would bring back could not work.
+   */
+  let installSpent = false;
 
   function status(): UpdateStatus {
     const offered = 'version' in state ? state.version : null;
@@ -254,17 +300,77 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
 
   /**
    * electron-updater's `error` event. A check's and a download's errors also
-   * reject their promise, which handles them; this acts only on an install
-   * that failed after `quitAndInstall` had returned, such as an installer
-   * that could not be started: the allowance goes back, and the card says so.
+   * reject their promise, which handles them, and one raised inside
+   * `quitAndInstall` is the wrapper's; this acts only on an install that
+   * failed after `quitAndInstall` had returned, which is how 6.8.10 reports an
+   * installer that could not be started (`failInstallLate`). Once the app has
+   * begun to quit it is only logged: the windows are already closing.
    */
   function onUpdaterError(err: Error): void {
-    if (insideQuitAndInstall || state.phase !== 'installing') return;
-    const version = state.version;
-    takeBack?.();
-    takeBack = null;
-    deps.log('error', 'update.install.failed', loggableErrorFields(err));
-    set({ phase: 'failed', stage: 'install', kind: classifyUpdateError(err), manual: false, version });
+    if (insideQuitAndInstall) return;
+    const current = run;
+    if (!current?.returned || state.phase !== 'installing') return;
+    if (current.quitting) {
+      deps.log('error', 'update.install.failed', { late: true, quitting: true, ...loggableErrorFields(err) });
+      return;
+    }
+    failInstallLate(current, err);
+  }
+
+  function releaseQuit(): void {
+    if (quitHold !== null) clearTimeout(quitHold);
+    quitHold = null;
+  }
+
+  /** Cancel the quit electron-updater has queued, if it comes within `INSTALL_QUIT_WAIT_MS`. */
+  function holdQuit(): void {
+    releaseQuit();
+    quitHold = setTimeout(() => {
+      quitHold = null;
+    }, INSTALL_QUIT_WAIT_MS);
+  }
+
+  /**
+   * Restart now failed after `quitAndInstall` had returned: the installer
+   * could not be started (`err`), and the quit electron-updater queued is
+   * held; or no quit came (`err` null), and there is none to hold. Either
+   * way the allowance goes back, the watcher starts again (11.3 n), and the
+   * card points at the release page, since electron-updater starts no second
+   * install in this run.
+   */
+  function failInstallLate(current: InstallRun, err: unknown): void {
+    if (run !== current) return;
+    run = null;
+    if (current.timer !== null) clearTimeout(current.timer);
+    installSpent = true;
+    if (err !== null) holdQuit();
+    current.takeBack?.();
+    deps.install.resumeWatching();
+    if (err === null) deps.log('error', 'update.install.no-quit', { waitedMs: INSTALL_QUIT_WAIT_MS });
+    else deps.log('error', 'update.install.failed', { late: true, ...loggableErrorFields(err) });
+    set({
+      phase: 'failed',
+      stage: 'install',
+      kind: err === null ? 'failed' : classifyUpdateError(err),
+      manual: false,
+      version: current.version,
+      retry: false
+    });
+  }
+
+  function beforeQuit(): boolean {
+    if (quitHold !== null) {
+      releaseQuit();
+      deps.log('info', 'update.install.quit-held');
+      return true;
+    }
+    const current = run;
+    if (current?.returned && !current.quitting) {
+      current.quitting = true;
+      if (current.timer !== null) clearTimeout(current.timer);
+      current.timer = null;
+    }
+    return false;
   }
 
   async function readSettings(): Promise<UpdateSettings | null> {
@@ -302,7 +408,7 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
         kind,
         ...loggableErrorFields(err)
       });
-      set({ phase: 'failed', stage: 'check', kind, manual: wasManual(manual), version: null });
+      set({ phase: 'failed', stage: 'check', kind, manual: wasManual(manual), version: null, retry: true });
       return status();
     }
     checkedAt = deps.now().toISOString();
@@ -311,11 +417,12 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
       set(IDLE);
       return status();
     }
-    const settings = await readSettings();
-    const consent = settings?.updateDownloadConsent ?? null;
+    // While settings.json cannot be read the consent is not known and counts
+    // as none: nothing resumes without a press, and nothing is written over it.
+    const consent = (await readSettings())?.updateDownloadConsent ?? null;
     if (!result.isUpdateAvailable) {
       deps.log('info', 'update.none', { latest: result.updateInfo.version });
-      if (settings && consent !== null) await writeConsent(null);
+      if (consent !== null) await writeConsent(null);
       set({ phase: 'up-to-date', manual: wasManual(manual) });
       return status();
     }
@@ -326,7 +433,7 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
       set({ phase: 'notify', version });
       return status();
     }
-    if (settings && consent !== keptConsent(consent, version)) await writeConsent(null);
+    if (consent !== keptConsent(consent, version)) await writeConsent(null);
     if (shouldAutoResumeDownload({ mode: deps.mode, consent, version })) {
       startDownload(version, true);
       return status();
@@ -343,6 +450,10 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
       return checking;
     }
     if (state.phase === 'downloading' || state.phase === 'downloaded' || state.phase === 'installing') {
+      return status();
+    }
+    if (installSpent) {
+      deps.log('info', 'update.check.skipped', { reason: 'install-failed', manual });
       return status();
     }
     checking = runCheck(manual).finally(() => {
@@ -370,7 +481,7 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
         if (state.phase !== 'downloading' || state.version !== version) return;
         const kind = classifyUpdateError(err);
         deps.log('warn', 'update.download.failed', { version, kind, ...loggableErrorFields(err) });
-        set({ phase: 'failed', stage: 'download', kind, manual: false, version });
+        set({ phase: 'failed', stage: 'download', kind, manual: false, version, retry: true });
       }
     );
   }
@@ -399,8 +510,15 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
     return status();
   }
 
-  /** `autoUpdater.quitAndInstall(false, true)`, which reports an installer it cannot start as an `error` event, not a throw. */
-  function quitAndInstall(): void {
+  /**
+   * `autoUpdater.quitAndInstall(false, true)` for `current`. electron-updater
+   * raises an `error` event inside the call, not a throw, only when it has no
+   * downloaded file to run, and this turns that into a throw for
+   * `runUpdateInstall`. Otherwise it has started the installer and queued the
+   * app's quit (or, after an install it started and lost, ignored the call),
+   * so the wait for that quit begins here.
+   */
+  function quitAndInstall(current: InstallRun): void {
     const target = theUpdater();
     const raised: Error[] = [];
     const record = (err: Error): void => {
@@ -416,26 +534,46 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
     }
     const first = raised[0];
     if (first) throw first;
+    current.returned = true;
+    current.timer = setTimeout(() => failInstallLate(current, null), INSTALL_QUIT_WAIT_MS);
   }
 
   async function install(): Promise<UpdateStatus> {
+    if (state.phase === 'failed' && state.stage === 'install' && !state.retry) {
+      throw fail(
+        'invalid-input',
+        `Restart now can try again once ${APP_NAME} has been closed and opened again. The release page has the installer.`
+      );
+    }
     const version =
       state.phase === 'downloaded' || (state.phase === 'failed' && state.stage === 'install')
         ? state.version
         : null;
     if (version === null) throw fail('not-found', 'There is no downloaded update to install.');
+    const current: InstallRun = { version, takeBack: null, returned: false, quitting: false, timer: null };
+    run = current;
     set({ phase: 'installing', version });
-    const outcome = await runUpdateInstall({ ...deps.install, quitAndInstall, log: deps.log });
-    if (outcome.started) {
-      takeBack = outcome.takeBack;
-      return status();
-    }
+    const outcome = await runUpdateInstall({
+      ...deps.install,
+      // Kept before quitAndInstall runs, so an installer that fails in the
+      // same turn still finds the allowance to take back.
+      allowNextClose: (reason) => {
+        current.takeBack = deps.install.allowNextClose(reason);
+        return current.takeBack;
+      },
+      quitAndInstall: () => quitAndInstall(current),
+      log: deps.log
+    });
+    if (outcome.started) return status();
+    // runUpdateInstall has taken the allowance back and started the watcher again.
+    if (run === current) run = null;
     set({
       phase: 'failed',
       stage: 'install',
       kind: classifyUpdateError(outcome.error),
       manual: false,
-      version
+      version,
+      retry: true
     });
     return status();
   }
@@ -443,11 +581,16 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
   /**
    * The timer's check: only while the setting is on, and not while a version
    * is on offer, whose card would otherwise go and come back with the check.
-   * Check for updates still checks then.
+   * Check for updates still checks then. While settings.json cannot be read
+   * the setting is not known, so the timer does not check (C.86).
    */
   async function scheduledCheck(): Promise<void> {
     const settings = await readSettings();
-    if (settings && !settings.checkForUpdates) {
+    if (settings === null) {
+      deps.log('info', 'update.check.skipped', { reason: 'settings-unread' });
+      return;
+    }
+    if (!settings.checkForUpdates) {
       deps.log('info', 'update.check.skipped', { reason: 'setting' });
       return;
     }
@@ -472,7 +615,24 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
     dailyTimer = null;
   }
 
-  return { status, start, stop, check, download, install };
+  return { status, start, stop, check, download, install, beforeQuit };
+}
+
+/**
+ * The controller's `settings()` from the store's `loadChecked`: a
+ * settings.json that cannot be read rejects rather than hand on the defaults,
+ * so the timer does not check against the author's choice, and a check
+ * neither acts on nor writes a consent it could not read (hardening.15,
+ * C.86).
+ */
+export function checkedUpdateSettings(
+  loadChecked: () => Promise<{ settings: UpdateSettings; readFailed: boolean }>
+): () => Promise<UpdateSettings> {
+  return async () => {
+    const read = await loadChecked();
+    if (read.readFailed) throw fail('io', 'settings.json could not be read.');
+    return read.settings;
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -547,6 +707,7 @@ export interface UpdateHandlerDeps {
   /** `MANUSCRIPT_REVIEW_DEV_FAKE_UPDATE` (devSwitches.ts) */
   fakeUpdate: string | null;
   repository: string;
+  /** rejects while settings.json cannot be read (`checkedUpdateSettings`) */
   settings: () => Promise<UpdateSettings>;
   saveConsent: (version: string | null) => Promise<unknown>;
   install: UpdateControllerDeps['install'];
@@ -600,4 +761,13 @@ export function registerUpdateHandlers(deps: UpdateHandlerDeps): void {
 /** Start the timer (PLAN 11.3 a: after the window is created). Does nothing when updates are off. */
 export function startUpdates(): void {
   appController?.start();
+}
+
+/**
+ * For main's `before-quit`: true when the quit is the one electron-updater
+ * queued before it said the installer could not start, which main then
+ * cancels (`UpdateController.beforeQuit`).
+ */
+export function updateHoldsQuit(): boolean {
+  return appController?.beforeQuit() ?? false;
 }

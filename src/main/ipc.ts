@@ -81,7 +81,7 @@ import {
 import { loadSettings, loadSettingsChecked, saveSettings } from './settings';
 import { SETTINGS_FILE, settingsAnswer } from './settingsStore';
 import { applyTheme } from './theme';
-import { registerUpdateHandlers } from './updates';
+import { checkedUpdateSettings, registerUpdateHandlers } from './updates';
 import { createManuscriptWatcher, listAndWatch } from './watcher';
 import { trackWrite, writesSettled } from './writes';
 import { applyZoom, changeZoom } from './zoom';
@@ -254,7 +254,7 @@ function registerUpdates(): void {
     },
     fakeUpdate: getDevSwitches().fakeUpdate,
     repository: APP_REPOSITORY,
-    settings: loadSettings,
+    settings: checkedUpdateSettings(loadSettingsChecked),
     saveConsent: (version) => trackWrite(() => saveSettings({ updateDownloadConsent: version })),
     install: {
       allowNextClose: (reason) => closeGuard.allowNextClose(reason),

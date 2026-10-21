@@ -14,7 +14,7 @@ import { abortAll } from './providers/controllers';
 import { loadSettings } from './settings';
 import { SHELL_STUB_PREFIX } from './shellApi';
 import { applyTheme, currentWindowBackground, installTheme } from './theme';
-import { startUpdates } from './updates';
+import { startUpdates, updateHoldsQuit } from './updates';
 import { windowIconPath } from './windowIcon';
 import { installZoom } from './zoom';
 
@@ -250,8 +250,16 @@ function start(): void {
 
   /* The app, not only its window, is closing: a close the page then agrees to
      goes on quitting, since holding the close cancelled the quit (apply.8).
-     Awaits nothing (11.3 a). */
-  app.on('before-quit', () => closeGuard.onBeforeQuit());
+     Awaits nothing (11.3 a). The one quit cancelled here is the one
+     electron-updater queued before it said the installer could not start, so
+     the app goes on as it was (release.8b, C.94). */
+  app.on('before-quit', (event) => {
+    if (updateHoldsQuit()) {
+      event.preventDefault();
+      return;
+    }
+    closeGuard.onBeforeQuit();
+  });
 
   // Synchronous on purpose: nothing may be awaited once the app is quitting.
   app.on('will-quit', () => {

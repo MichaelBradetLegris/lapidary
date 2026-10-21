@@ -12,10 +12,13 @@ import type { ProgressLike, UpdateCheckLike, UpdaterLike, UpdaterLogger } from '
  *   published release, or no connection;
  * - a download reports 10% every 0.3 s and ends after 3 s, or breaks off at
  *   40% for `download-fails`;
- * - Restart now's `quitAndInstall` quits the app on the next turn of the
- *   event loop, where the real one would start the installer, or, for
- *   `install-fails`, raises the `error` event and quits nothing, as the real
- *   one does for an installer it cannot start.
+ * - Restart now's `quitAndInstall` does what electron-updater 6.8.10's does
+ *   once a download is there: it returns, and quits the app on the next turn
+ *   of the event loop (`setImmediate`), where the real one starts the
+ *   installer. For `install-fails` it raises the `error` event in between
+ *   (`process.nextTick`), as the real one does when the installer's spawn
+ *   fails, and still quits; the controller holds that quit. Like the real
+ *   one, it starts one install a run and ignores every later call.
  *
  * Each step is said on the terminal (`say`), as "[fake update] ...".
  *
@@ -106,15 +109,23 @@ export function createFakeUpdater(deps: FakeUpdaterDeps): UpdaterLike {
     });
   }
 
+  /** BaseUpdater's `quitAndInstallCalled`: set by the first install, and never cleared in this run. */
+  let installCalled = false;
+
   function quitAndInstall(isSilent = false, isForceRunAfter = false): void {
-    if (plan.outcome === 'install-fails') {
-      say('install: the installer could not be started');
-      raise(updaterError('The installer could not be started (fake update).', 'ENOENT'));
+    if (installCalled) {
+      say('install call ignored: an install was already started in this run');
       return;
     }
-    say(
-      `install: the installer would start now (silent ${isSilent}, run after ${isForceRunAfter}); quitting instead`
-    );
+    installCalled = true;
+    if (plan.outcome === 'install-fails') {
+      say('install: the installer could not be started; the quit electron-updater queued follows');
+      process.nextTick(() => raise(updaterError('spawn EPERM (fake update)', 'EPERM')));
+    } else {
+      say(
+        `install: the installer would start now (silent ${isSilent}, run after ${isForceRunAfter}); quitting instead`
+      );
+    }
     setImmediate(() => deps.quit());
   }
 

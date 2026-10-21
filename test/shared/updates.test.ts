@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import { APP_NAME, APP_REPOSITORY } from '../../src/shared/branding';
 import {
@@ -71,6 +72,60 @@ describe('classifyUpdateError', () => {
     ).toBe('no-releases');
   });
 
+  /** electron-updater's words for a `/releases/latest` it could not read, with that request's failure after them. */
+  const latest = (cause: string): string =>
+    `Unable to find latest version on GitHub (https://github.com/o/r/releases/latest), please ensure a production release exists: ${cause}\n    at request (httpExecutor.js:1:1)`;
+  /** The same wrapped once more, as the GitHub provider of 6.8.10 throws it, with the feed after it. */
+  const wrapped = (cause: string, feed = '<feed></feed>'): Error =>
+    updaterError(
+      `Cannot parse releases feed: Error: ${latest(cause)},\nXML:\n${feed}`,
+      'ERR_UPDATER_INVALID_RELEASE_FEED'
+    );
+
+  it('reads a latest release that could not be read by the failure inside, under either code', () => {
+    const causes: [string, string][] = [
+      ['HttpError: 404 Not Found\nHeaders: {}', 'no-releases'],
+      ['HttpError: 503 Service Unavailable\nHeaders: {}', 'failed'],
+      ['HttpError: 429 Too many requests\nHeaders: {}', 'failed'],
+      ['HttpError: 403 Forbidden\nHeaders: {}', 'failed'],
+      ['Error: net::ERR_INTERNET_DISCONNECTED', 'offline'],
+      ['Error: net::ERR_CONNECTION_RESET', 'offline'],
+      ['Error: read ECONNRESET', 'offline'],
+      ['Error: getaddrinfo ENOTFOUND github.com', 'offline']
+    ];
+    for (const [cause, kind] of causes) {
+      expect(
+        classifyUpdateError(updaterError(latest(cause), 'ERR_UPDATER_LATEST_VERSION_NOT_FOUND')),
+        cause
+      ).toBe(kind);
+      expect(classifyUpdateError(wrapped(cause)), `wrapped: ${cause}`).toBe(kind);
+    }
+    // Another provider's way of saying there is no release yet names no status.
+    expect(
+      classifyUpdateError(
+        updaterError(
+          'Latest GitLab release is scheduled but not yet published',
+          'ERR_UPDATER_LATEST_VERSION_NOT_FOUND'
+        )
+      )
+    ).toBe('no-releases');
+  });
+
+  it('calls a releases feed that cannot be parsed a failure, and never reads the feed for a cause', () => {
+    const notes =
+      '<feed><entry><content>Fixed: net::ERR_INTERNET_DISCONNECTED and ECONNRESET</content></entry></feed>';
+    expect(classifyUpdateError(wrapped('HttpError: 404 Not Found', notes))).toBe('no-releases');
+    expect(classifyUpdateError(wrapped('HttpError: 500 Internal Server Error', notes))).toBe('failed');
+    expect(
+      classifyUpdateError(
+        updaterError(
+          `Cannot parse releases feed: TypeError: Cannot read properties of null,\nXML:\n${notes}`,
+          'ERR_UPDATER_INVALID_RELEASE_FEED'
+        )
+      )
+    ).toBe('failed');
+  });
+
   it('reads an empty releases feed as no published release, and other missing XML as a failure', () => {
     expect(
       classifyUpdateError(updaterError('No published versions on GitHub', 'ERR_XML_MISSED_ELEMENT'))
@@ -98,7 +153,13 @@ describe('classifyUpdateError', () => {
     }
     for (const code of ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENETUNREACH']) {
       expect(classifyUpdateError(updaterError('connect failed', code)), code).toBe('offline');
+      expect(
+        classifyUpdateError(new Error(`connect ${code} 140.82.121.4:443`)),
+        `${code} in the message`
+      ).toBe('offline');
     }
+    expect(classifyUpdateError(new Error('spawn EPERM'))).toBe('failed');
+    expect(classifyUpdateError(new Error('XECONNRESETX'))).toBe('failed');
   });
 
   it('reads a missing app-update.yml as no feed, and any other missing file as a failure', () => {
@@ -121,6 +182,126 @@ describe('classifyUpdateError', () => {
     expect(classifyUpdateError(null)).toBe('failed');
     expect(classifyUpdateError(undefined)).toBe('failed');
   });
+});
+
+/* The errors themselves, from the GitHub provider electron-updater 6.8.10
+   ships, with its requests answered by a stub: nothing is fetched. Should a
+   later version wrap them another way, the codes below change and this fails
+   before About's line goes wrong. */
+
+interface ProviderErrorCase {
+  name: string;
+  /** what each request answers: the releases feed (`.atom`), `/releases/latest` and `latest.yml` */
+  answer: (path: string) => Promise<string>;
+  code: string;
+  kind: string;
+}
+
+describe('classifyUpdateError on the GitHub provider of electron-updater 6.8.10', () => {
+  const updaterRequire = createRequire(createRequire(import.meta.url).resolve('electron-updater'));
+  const { GitHubProvider } = updaterRequire('./providers/GitHubProvider.js') as {
+    GitHubProvider: new (
+      options: { provider: 'github'; owner: string; repo: string },
+      updater: unknown,
+      runtime: unknown
+    ) => { getLatestVersion(): Promise<unknown> };
+  };
+  const { HttpError } = updaterRequire('builder-util-runtime') as {
+    HttpError: new (status: number, message: string) => Error;
+  };
+  const { SemVer } = updaterRequire('semver') as { SemVer: new (version: string) => unknown };
+
+  const entry = (tag: string): string =>
+    `<entry><id>tag:github.com,2008:Repository/1/${tag}</id><link rel="alternate" type="text/html" href="https://github.com/o/r/releases/tag/${tag}"/><title>${tag}</title><content>Fixed: net::ERR_INTERNET_DISCONNECTED</content></entry>`;
+  const feed = (...tags: string[]): string =>
+    `<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom">${tags.map(entry).join('')}</feed>`;
+  const status = (code: number, text: string): Error =>
+    new HttpError(code, `${code} ${text}\nHeaders: {"server":"GitHub.com"}`);
+  /** The feed, then the given answer for `/releases/latest`. */
+  const latestAnswers =
+    (tags: string[], latest: () => Promise<string>) =>
+    (path: string): Promise<string> =>
+      path.endsWith('.atom') ? Promise.resolve(feed(...tags)) : latest();
+
+  const cases: ProviderErrorCase[] = [
+    {
+      name: 'only a pre-release is published, so /releases/latest is a 404',
+      answer: latestAnswers(['v1.0.1-rc.1'], () => Promise.reject(status(404, 'Not Found'))),
+      code: 'ERR_UPDATER_INVALID_RELEASE_FEED',
+      kind: 'no-releases'
+    },
+    {
+      name: 'the connection is lost at /releases/latest',
+      answer: latestAnswers(['v1.0.1'], () => Promise.reject(new Error('net::ERR_CONNECTION_RESET'))),
+      code: 'ERR_UPDATER_INVALID_RELEASE_FEED',
+      kind: 'offline'
+    },
+    {
+      name: 'Node loses the connection at /releases/latest',
+      answer: latestAnswers(['v1.0.1'], () =>
+        Promise.reject(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }))
+      ),
+      code: 'ERR_UPDATER_INVALID_RELEASE_FEED',
+      kind: 'offline'
+    },
+    {
+      name: 'GitHub answers /releases/latest with a 503',
+      answer: latestAnswers(['v1.0.1'], () => Promise.reject(status(503, 'Service Unavailable'))),
+      code: 'ERR_UPDATER_INVALID_RELEASE_FEED',
+      kind: 'failed'
+    },
+    {
+      name: 'the releases feed is empty',
+      answer: () => Promise.resolve(feed()),
+      code: 'ERR_XML_MISSED_ELEMENT',
+      kind: 'no-releases'
+    },
+    {
+      name: 'the repository is missing or not public',
+      answer: () => Promise.reject(status(404, 'Not Found')),
+      code: 'HTTP_ERROR_404',
+      kind: 'no-releases'
+    },
+    {
+      name: 'the latest release has no latest.yml',
+      answer: (path) =>
+        path.endsWith('.atom')
+          ? Promise.resolve(feed('v1.0.1'))
+          : path.endsWith('/latest')
+            ? Promise.resolve('{"tag_name":"v1.0.1"}')
+            : Promise.reject(status(404, 'Not Found')),
+      code: 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND',
+      kind: 'failed'
+    }
+  ];
+
+  for (const c of cases) {
+    it(`${c.name}: ${c.kind}`, async () => {
+      const requested: string[] = [];
+      const provider = new GitHubProvider(
+        { provider: 'github', owner: 'o', repo: 'r' },
+        // As the controller sets the updater: no pre-releases.
+        { allowPrerelease: false, channel: null, currentVersion: new SemVer('1.0.0'), fullChangelog: false },
+        {
+          executor: {
+            request: (options: { path: string }) => {
+              requested.push(options.path);
+              return c.answer(options.path);
+            }
+          },
+          isUseMultipleRangeRequest: false,
+          platform: 'win32'
+        }
+      );
+      const err = await provider.getLatestVersion().then(
+        () => null,
+        (e: unknown) => e
+      );
+      expect(requested[0]).toBe('/o/r/releases.atom');
+      expect(err).toMatchObject({ code: c.code });
+      expect(classifyUpdateError(err)).toBe(c.kind);
+    });
+  }
 });
 
 describe('versions and the release page', () => {
@@ -180,9 +361,9 @@ describe('updateCardFor', () => {
       { phase: 'checking', manual: true },
       { phase: 'up-to-date', manual: true },
       { phase: 'installing', version: '1.0.1' },
-      { phase: 'failed', stage: 'check', kind: 'offline', manual: true, version: null },
-      { phase: 'failed', stage: 'check', kind: 'no-releases', manual: false, version: null },
-      { phase: 'failed', stage: 'check', kind: 'failed', manual: false, version: null }
+      { phase: 'failed', stage: 'check', kind: 'offline', manual: true, version: null, retry: true },
+      { phase: 'failed', stage: 'check', kind: 'no-releases', manual: false, version: null, retry: true },
+      { phase: 'failed', stage: 'check', kind: 'failed', manual: false, version: null, retry: true }
     ];
     for (const state of quiet) expect(updateCardFor(statusWith(state)), state.phase).toBeNull();
   });
@@ -228,13 +409,27 @@ describe('updateCardFor', () => {
 
   it('offers Download again after a download failed, saying when GitHub could not be reached', () => {
     const offline = updateCardFor(
-      statusWith({ phase: 'failed', stage: 'download', kind: 'offline', manual: false, version: '1.0.1' })
+      statusWith({
+        phase: 'failed',
+        stage: 'download',
+        kind: 'offline',
+        manual: false,
+        version: '1.0.1',
+        retry: true
+      })
     );
     expect(offline?.tone).toBe('warn');
     expect(offline?.action).toBe('update-download');
     expect(offline?.text).toContain('GitHub could not be reached');
     const other = updateCardFor(
-      statusWith({ phase: 'failed', stage: 'download', kind: 'failed', manual: false, version: '1.0.1' })
+      statusWith({
+        phase: 'failed',
+        stage: 'download',
+        kind: 'failed',
+        manual: false,
+        version: '1.0.1',
+        retry: true
+      })
     );
     expect(other?.text).toBe(
       `${APP_NAME} 1.0.1 could not be downloaded. Press Download to try again; the log has the details.`
@@ -244,13 +439,37 @@ describe('updateCardFor', () => {
   it('offers Restart now again after an install failed, and says the app goes on as it was', () => {
     expect(
       updateCardFor(
-        statusWith({ phase: 'failed', stage: 'install', kind: 'failed', manual: false, version: '1.0.1' })
+        statusWith({
+          phase: 'failed',
+          stage: 'install',
+          kind: 'failed',
+          manual: false,
+          version: '1.0.1',
+          retry: true
+        })
       )
     ).toEqual({
       tone: 'error',
       text: `${APP_NAME} 1.0.1 could not be installed, and ${APP_NAME} is still running as it was. Press Restart now to try again, or install it from the release page.`,
       action: 'update-restart'
     });
+  });
+
+  it('points at the release page after an install that failed once started, which cannot be tried again in this run', () => {
+    const status = statusWith({
+      phase: 'failed',
+      stage: 'install',
+      kind: 'failed',
+      manual: false,
+      version: '1.0.1',
+      retry: false
+    });
+    expect(updateCardFor(status)).toEqual({
+      tone: 'error',
+      text: `${APP_NAME} 1.0.1 could not be installed, and ${APP_NAME} is still running as it was. Install it from the release page, or close ${APP_NAME}, open it again and check for updates to try once more.`,
+      action: 'update-open-page'
+    });
+    expect(updateStatusLine(status)).toBe(updateCardFor(status)?.text);
   });
 });
 
@@ -282,19 +501,19 @@ describe('updateStatusLine', () => {
       [{ phase: 'installing', version: '1.0.1' }, `Installing ${APP_NAME} 1.0.1…`],
       [{ phase: 'notify', version: '1.0.1' }, `${APP_NAME} 1.0.1 is available on its release page.`],
       [
-        { phase: 'failed', stage: 'check', kind: 'no-releases', manual: true, version: null },
+        { phase: 'failed', stage: 'check', kind: 'no-releases', manual: true, version: null, retry: true },
         'No release has been published yet.'
       ],
       [
-        { phase: 'failed', stage: 'check', kind: 'offline', manual: true, version: null },
+        { phase: 'failed', stage: 'check', kind: 'offline', manual: true, version: null, retry: true },
         'GitHub could not be reached. Check the internet connection and try again.'
       ],
       [
-        { phase: 'failed', stage: 'check', kind: 'no-feed', manual: true, version: null },
+        { phase: 'failed', stage: 'check', kind: 'no-feed', manual: true, version: null, retry: true },
         `This copy of ${APP_NAME} cannot update itself: it has no update feed.`
       ],
       [
-        { phase: 'failed', stage: 'check', kind: 'failed', manual: true, version: null },
+        { phase: 'failed', stage: 'check', kind: 'failed', manual: true, version: null, retry: true },
         'The check for updates failed. The log has the details.'
       ]
     ];
@@ -303,8 +522,8 @@ describe('updateStatusLine', () => {
 
   it('words a failed download or install as its card does', () => {
     for (const state of [
-      { phase: 'failed', stage: 'download', kind: 'offline', manual: false, version: '1.0.1' },
-      { phase: 'failed', stage: 'install', kind: 'failed', manual: false, version: '1.0.1' }
+      { phase: 'failed', stage: 'download', kind: 'offline', manual: false, version: '1.0.1', retry: true },
+      { phase: 'failed', stage: 'install', kind: 'failed', manual: false, version: '1.0.1', retry: true }
     ] as const) {
       expect(updateStatusLine(statusWith(state))).toBe(updateCardFor(statusWith(state))?.text);
     }
@@ -313,7 +532,7 @@ describe('updateStatusLine', () => {
   it('never says "accepted changes"', () => {
     const states: UpdateState[] = [
       { phase: 'downloaded', version: '1.0.1' },
-      { phase: 'failed', stage: 'install', kind: 'failed', manual: false, version: '1.0.1' }
+      { phase: 'failed', stage: 'install', kind: 'failed', manual: false, version: '1.0.1', retry: true }
     ];
     for (const state of states) {
       expect(updateStatusLine(statusWith(state))).not.toMatch(/accepted changes/i);

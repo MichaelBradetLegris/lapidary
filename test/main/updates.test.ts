@@ -1,10 +1,14 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppFailure } from '../../src/main/errors';
 import {
   CHECK_INTERVAL_MS,
   FIRST_CHECK_DELAY_MS,
+  INSTALL_QUIT_WAIT_MS,
   NIL_STAGING_ID,
   STAGING_HEADER,
+  checkedUpdateSettings,
   chooseUpdateSource,
   createUpdateController,
   updaterLogger,
@@ -42,8 +46,18 @@ class StubUpdater implements UpdaterLike {
   /** the download under way */
   finishDownload: (() => void) | null = null;
   failDownload: ((err: Error) => void) | null = null;
-  /** what quitAndInstall does besides recording the call */
-  onInstall: () => void = () => undefined;
+  /**
+   * What starting the installer does, as NsisUpdater's `install` of 6.8.10:
+   * true when the installer is on its way, after which quitAndInstall queues
+   * the quit whatever happens next (a spawn that fails raises `error` after
+   * the call has returned); false when it raised `error` inside the call, as
+   * with no downloaded file.
+   */
+  onInstall: () => boolean = () => true;
+  /** BaseUpdater's flag: set by an install that started, and never cleared in this run */
+  quitAndInstallCalled = false;
+  /** `app.quit()`, which the harness hands to the controller's beforeQuit as main's before-quit does */
+  quit: () => void = () => undefined;
   private readonly progress = new Set<(info: ProgressLike) => void>();
   private readonly errors = new Set<(error: Error) => void>();
 
@@ -60,9 +74,14 @@ class StubUpdater implements UpdaterLike {
     });
   }
 
+  /** As BaseUpdater's: one install a run, and the quit on the next turn of the event loop once it started. */
   quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void {
     this.installs.push([isSilent, isForceRunAfter]);
-    this.onInstall();
+    // "install call ignored: quitAndInstallCalled is set to true": no error, no quit.
+    if (this.quitAndInstallCalled) return;
+    this.quitAndInstallCalled = true;
+    if (this.onInstall()) setImmediate(() => this.quit());
+    else this.quitAndInstallCalled = false;
   }
 
   on(
@@ -171,6 +190,7 @@ function setup(
     now: () => new Date('2026-10-20T12:00:00Z'),
     ...options.deps
   });
+  updater.quit = () => calls.push(controller.beforeQuit() ? 'quit:held' : 'quit');
   return {
     controller,
     updater,
@@ -285,6 +305,72 @@ describe('the timer', () => {
     await vi.advanceTimersByTimeAsync(FIRST_CHECK_DELAY_MS);
     expect(h.updater.checks).toBe(1);
   });
+
+  it('does not check again on its own in notify mode once a version is on offer', async () => {
+    const h = setup({ mode: 'notify' });
+    await h.controller.check(false);
+    expect(state(h)).toEqual({ phase: 'notify', version: '1.0.1' });
+    h.controller.start();
+    await vi.advanceTimersByTimeAsync(FIRST_CHECK_DELAY_MS + CHECK_INTERVAL_MS);
+    expect(h.updater.checks).toBe(1);
+    expect(h.logged.filter((l) => l.event === 'update.check.skipped').map((l) => l.fields)).toEqual([
+      { reason: 'offered' },
+      { reason: 'offered' }
+    ]);
+    h.controller.stop();
+  });
+
+  it('checks nothing on its own while settings.json cannot be read, as the setting is not known', async () => {
+    const h = setup({
+      settings: { checkForUpdates: true },
+      deps: { settings: () => Promise.reject(new Error('settings.json could not be read.')) }
+    });
+    h.controller.start();
+    await vi.advanceTimersByTimeAsync(FIRST_CHECK_DELAY_MS + CHECK_INTERVAL_MS);
+    expect(h.updater.checks).toBe(0);
+    expect(h.loads()).toBe(0);
+    expect(h.logged.filter((l) => l.event === 'update.check.skipped').map((l) => l.fields)).toEqual([
+      { reason: 'settings-unread' },
+      { reason: 'settings-unread' }
+    ]);
+    expect(h.logged.filter((l) => l.event === 'update.settings-unread')).toHaveLength(2);
+    h.controller.stop();
+  });
+});
+
+describe('a check while settings.json cannot be read', () => {
+  const unread = { settings: () => Promise.reject(new Error('settings.json could not be read.')) };
+
+  it('neither resumes a download nor writes over a consent it could not read', async () => {
+    const h = setup({ settings: { updateDownloadConsent: '1.0.1' }, deps: unread });
+    const status = await h.controller.check(true);
+    expect(status.state).toEqual({ phase: 'available', version: '1.0.1', size: 114_007_945 });
+    expect(h.updater.downloads).toBe(0);
+    expect(h.calls).toEqual([]);
+    h.updater.answer = () => Promise.resolve(available('1.0.2'));
+    await h.controller.check(true);
+    h.updater.answer = () => Promise.resolve(upToDate());
+    await h.controller.check(true);
+    expect(h.calls).toEqual([]);
+    expect(h.settings.updateDownloadConsent).toBe('1.0.1');
+  });
+});
+
+describe('checkedUpdateSettings', () => {
+  it('hands on the settings read, and rejects while settings.json cannot be read rather than hand on the defaults', async () => {
+    const settings: UpdateSettings = { checkForUpdates: false, updateDownloadConsent: '1.0.1' };
+    await expect(
+      checkedUpdateSettings(() => Promise.resolve({ settings, readFailed: false }))()
+    ).resolves.toBe(settings);
+    await expect(
+      checkedUpdateSettings(() =>
+        Promise.resolve({
+          settings: { checkForUpdates: true, updateDownloadConsent: null },
+          readFailed: true
+        })
+      )()
+    ).rejects.toMatchObject({ code: 'io' });
+  });
 });
 
 describe('the updater', () => {
@@ -385,7 +471,8 @@ describe('a check', () => {
       stage: 'check',
       kind: 'no-releases',
       manual: true,
-      version: null
+      version: null,
+      retry: true
     });
     expect(status.checkedAt).toBe('2026-10-20T12:00:00.000Z');
     expect(h.settings.updateDownloadConsent).toBe('1.0.1');
@@ -428,6 +515,19 @@ describe('a check', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect((await h.controller.check(true)).state.phase).toBe('downloaded');
     expect(h.updater.checks).toBe(checks);
+  });
+
+  it('does not check while Restart now is under way, by hand or by the timer, so a late install error still finds it', async () => {
+    const h = setup();
+    await downloaded(h);
+    const checks = h.updater.checks;
+    await h.controller.install();
+    expect((await h.controller.check(true)).state).toEqual({ phase: 'installing', version: '1.0.1' });
+    h.controller.start();
+    await vi.advanceTimersByTimeAsync(FIRST_CHECK_DELAY_MS + CHECK_INTERVAL_MS);
+    expect(h.updater.checks).toBe(checks);
+    expect(state(h)).toEqual({ phase: 'installing', version: '1.0.1' });
+    h.controller.stop();
   });
 });
 
@@ -488,7 +588,8 @@ describe('the download', () => {
       stage: 'download',
       kind: 'offline',
       manual: false,
-      version: '1.0.1'
+      version: '1.0.1',
+      retry: true
     });
     await h.controller.download('1.0.1');
     expect(h.updater.downloads).toBe(2);
@@ -534,37 +635,48 @@ describe('Restart now', () => {
     expect(h.updater.installs).toEqual([]);
   });
 
-  it('installs through runUpdateInstall: the close allowed first, then quitAndInstall(false, true)', async () => {
+  it('installs through runUpdateInstall: the close allowed first, then quitAndInstall(false, true), then the quit', async () => {
     const h = setup();
     await downloaded(h);
-    h.updater.onInstall = () => h.calls.push('quitAndInstall');
+    h.updater.onInstall = () => {
+      h.calls.push('quitAndInstall');
+      return true;
+    };
     expect((await h.controller.install()).state).toEqual({ phase: 'installing', version: '1.0.1' });
+    await vi.advanceTimersByTimeAsync(INSTALL_QUIT_WAIT_MS * 2);
     expect(h.calls.slice(1)).toEqual([
       'allowNextClose:update',
       'abortAll',
       'writesSettled',
       'stopWatching',
-      'quitAndInstall'
+      'quitAndInstall',
+      'quit'
     ]);
     expect(h.updater.installs).toEqual([[false, true]]);
+    // The quit came, so nothing is waited for any more: still installing, the allowance kept.
     expect(state(h)).toEqual({ phase: 'installing', version: '1.0.1' });
     expect(h.takeBack).not.toHaveBeenCalled();
+    expect(INSTALL_QUIT_WAIT_MS).toBe(1000);
   });
 
-  it('takes the allowance back and shows the error when the installer cannot start', async () => {
+  it('takes the allowance back and shows the error when the installer cannot start inside the call', async () => {
     const h = setup();
     await downloaded(h);
     const errorsBefore = h.updater.errorListeners();
-    // electron-updater raises the error event and returns, rather than throwing.
-    h.updater.onInstall = () =>
+    // With no downloaded file, electron-updater raises the error event inside the call and returns.
+    h.updater.onInstall = () => {
       h.updater.emitError(new Error('No update filepath provided, can’t quit and install'));
+      return false;
+    };
     expect((await h.controller.install()).state).toMatchObject({ phase: 'failed', stage: 'install' });
+    await vi.advanceTimersByTimeAsync(INSTALL_QUIT_WAIT_MS * 2);
     expect(state(h)).toEqual({
       phase: 'failed',
       stage: 'install',
       kind: 'failed',
       manual: false,
-      version: '1.0.1'
+      version: '1.0.1',
+      retry: true
     });
     expect(h.takeBack).toHaveBeenCalledTimes(1);
     expect(h.calls.slice(-2)).toEqual(['takeBack', 'resumeWatching']);
@@ -572,24 +684,165 @@ describe('Restart now', () => {
     expect(h.logged.filter((l) => l.event === 'update.install.failed')).toHaveLength(1);
   });
 
-  it('can be pressed again after an install that failed', async () => {
+  it('can be pressed again after a failure inside the call, which electron-updater lets try again', async () => {
     const h = setup();
     await downloaded(h);
-    h.updater.onInstall = () => h.updater.emitError(new Error('busy'));
+    h.updater.onInstall = () => {
+      h.updater.emitError(new Error('busy'));
+      return false;
+    };
     await h.controller.install();
-    h.updater.onInstall = () => undefined;
+    h.updater.onInstall = () => true;
     await h.controller.install();
+    await vi.advanceTimersByTimeAsync(0);
     expect(h.updater.installs).toHaveLength(2);
+    expect(h.calls.at(-1)).toBe('quit');
     expect(state(h).phase).toBe('installing');
   });
 
-  it('takes the allowance back when the installer fails after it had started', async () => {
+  it('when the installer fails after the call, holds the quit, takes the allowance back and watches again', async () => {
+    const h = setup();
+    await downloaded(h);
+    // As NsisUpdater 6.8.10: the spawn fails on the next tick, after quitAndInstall has queued the quit.
+    h.updater.onInstall = () => {
+      process.nextTick(() =>
+        h.updater.emitError(Object.assign(new Error('spawn EPERM'), { code: 'EPERM', syscall: 'spawn' }))
+      );
+      return true;
+    };
+    await h.controller.install();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.takeBack).toHaveBeenCalledTimes(1);
+    expect(h.calls.slice(-3)).toEqual(['takeBack', 'resumeWatching', 'quit:held']);
+    expect(state(h)).toEqual({
+      phase: 'failed',
+      stage: 'install',
+      kind: 'failed',
+      manual: false,
+      version: '1.0.1',
+      retry: false
+    });
+    expect(h.logged.find((l) => l.event === 'update.install.failed')?.fields).toMatchObject({
+      late: true,
+      code: 'EPERM'
+    });
+    expect(h.logged.some((l) => l.event === 'update.install.quit-held')).toBe(true);
+    // One quit held, no more: the author's own quit afterwards goes ahead.
+    expect(h.controller.beforeQuit()).toBe(false);
+  });
+
+  it('takes the allowance back when the installer fails in the same turn as quitAndInstall', async () => {
+    const h = setup();
+    await downloaded(h);
+    h.updater.onInstall = () => {
+      queueMicrotask(() => h.updater.emitError(new Error('spawn EPERM')));
+      return true;
+    };
+    const answered = await h.controller.install();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(answered.state).toMatchObject({ phase: 'failed', stage: 'install', retry: false });
+    expect(h.takeBack).toHaveBeenCalledTimes(1);
+    expect(h.calls.slice(-3)).toEqual(['takeBack', 'resumeWatching', 'quit:held']);
+  });
+
+  it('after an install that failed once started, refuses Restart now and checks nothing until the app is opened again', async () => {
+    const h = setup();
+    await downloaded(h);
+    h.updater.onInstall = () => {
+      process.nextTick(() => h.updater.emitError(new Error('spawn EPERM')));
+      return true;
+    };
+    await h.controller.install();
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(h.controller.install()).rejects.toMatchObject({ code: 'invalid-input' });
+    expect(h.updater.installs).toHaveLength(1);
+    const checks = h.updater.checks;
+    expect((await h.controller.check(true)).state).toMatchObject({ phase: 'failed', retry: false });
+    h.controller.start();
+    await vi.advanceTimersByTimeAsync(FIRST_CHECK_DELAY_MS + CHECK_INTERVAL_MS);
+    expect(h.updater.checks).toBe(checks);
+    expect(h.logged.filter((l) => l.event === 'update.check.skipped').map((l) => l.fields)).toEqual([
+      { reason: 'install-failed', manual: true },
+      { reason: 'install-failed', manual: false },
+      { reason: 'install-failed', manual: false }
+    ]);
+    h.controller.stop();
+  });
+
+  it('fails the install when no quit comes, as after a call electron-updater ignored', async () => {
+    const h = setup();
+    await downloaded(h);
+    // An earlier install it started and lost: electron-updater ignores the call, raising nothing.
+    h.updater.quitAndInstallCalled = true;
+    expect((await h.controller.install()).state.phase).toBe('installing');
+    await vi.advanceTimersByTimeAsync(INSTALL_QUIT_WAIT_MS - 1);
+    expect(state(h).phase).toBe('installing');
+    expect(h.takeBack).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(state(h)).toMatchObject({ phase: 'failed', stage: 'install', kind: 'failed', retry: false });
+    expect(h.calls.slice(-2)).toEqual(['takeBack', 'resumeWatching']);
+    expect(h.logged.find((l) => l.event === 'update.install.no-quit')?.fields).toEqual({
+      waitedMs: INSTALL_QUIT_WAIT_MS
+    });
+    // Nothing was queued to hold.
+    expect(h.controller.beforeQuit()).toBe(false);
+  });
+
+  it('lets a held quit go after the wait, so it never holds one the author asks for later', async () => {
+    const h = setup();
+    await downloaded(h);
+    h.updater.quit = () => undefined;
+    h.updater.onInstall = () => {
+      process.nextTick(() => h.updater.emitError(new Error('spawn EPERM')));
+      return true;
+    };
+    await h.controller.install();
+    await vi.advanceTimersByTimeAsync(INSTALL_QUIT_WAIT_MS);
+    expect(state(h)).toMatchObject({ phase: 'failed', retry: false });
+    expect(h.controller.beforeQuit()).toBe(false);
+  });
+
+  it('only logs an installer error that comes once the app has begun to quit', async () => {
     const h = setup();
     await downloaded(h);
     await h.controller.install();
-    h.updater.emitError(Object.assign(new Error('spawn EACCES'), { code: 'EACCES', syscall: 'spawn' }));
-    expect(h.takeBack).toHaveBeenCalledTimes(1);
-    expect(state(h)).toMatchObject({ phase: 'failed', stage: 'install', version: '1.0.1' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.calls.at(-1)).toBe('quit');
+    h.updater.emitError(new Error('spawn EPERM'));
+    expect(h.takeBack).not.toHaveBeenCalled();
+    expect(h.calls).not.toContain('resumeWatching');
+    expect(state(h).phase).toBe('installing');
+    expect(h.logged.at(-1)).toMatchObject({
+      event: 'update.install.failed',
+      fields: { late: true, quitting: true }
+    });
+  });
+
+  it('ignores an error event raised before quitAndInstall, while the writes are let end', async () => {
+    let settle!: (done: boolean) => void;
+    const takeBack = vi.fn();
+    const h = setup({
+      deps: {
+        install: {
+          allowNextClose: () => takeBack,
+          abortAll: () => 0,
+          writesSettled: () => new Promise<boolean>((resolve) => (settle = resolve)),
+          stopWatching: () => undefined,
+          resumeWatching: () => undefined
+        }
+      }
+    });
+    await downloaded(h);
+    const run = h.controller.install();
+    await vi.advanceTimersByTimeAsync(0);
+    h.updater.emitError(new Error('Cannot check for updates'));
+    expect(state(h).phase).toBe('installing');
+    expect(takeBack).not.toHaveBeenCalled();
+    settle(true);
+    expect((await run).state.phase).toBe('installing');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.updater.installs).toHaveLength(1);
+    expect(h.calls.at(-1)).toBe('quit');
   });
 
   it('ignores an error event that is not about an install', async () => {
@@ -693,5 +946,69 @@ describe('updaterLogger', () => {
     logger.info(new Error('first\nsecond'));
     logger.info(42);
     expect(logged.map(([, , fields]) => fields)).toEqual([{ text: 'first' }, { text: '42' }]);
+  });
+});
+
+/* The wiring the unit tests above cannot reach: which channels main tracks
+   as writes, where the controller and its timer are started, what it reads
+   for the feed and the settings, how the quit it holds is held, and the
+   dev:clean flag for the fake. Read from the sources, as watcher.test.ts and
+   devSwitches.test.ts do. */
+
+describe('the wiring in main and dev:clean', () => {
+  const read = (file: string): string => readFileSync(path.join(__dirname, '../..', file), 'utf8');
+  const between = (text: string, from: string, to: string): string => {
+    const start = text.indexOf(from);
+    expect(start, from).toBeGreaterThanOrEqual(0);
+    const end = text.indexOf(to, start + from.length);
+    expect(end, to).toBeGreaterThan(start);
+    return text.slice(start, end);
+  };
+  const ipc = read('src/main/ipc.ts');
+  const index = read('src/main/index.ts');
+
+  it('runs exactly the four channels that write the author’s files and settings inside trackWrite', () => {
+    const tracked = [...ipc.matchAll(/handleWrite\('([^']+)'/g)].map((m) => m[1]).sort();
+    expect(tracked).toEqual(['files:create', 'files:save', 'reviews:save', 'settings:set']);
+    for (const channel of tracked) expect(ipc).not.toContain(`handle('${channel}'`);
+    expect(between(ipc, 'function handleWrite<', '\n}\n')).toContain(
+      'handle(channel, (payload) => trackWrite(() => fn(payload)));'
+    );
+  });
+
+  it('registers the update channels inside registerCoreHandlers, with what the controller reads and writes', () => {
+    expect(between(ipc, 'export function registerCoreHandlers(): void {', '\n}\n')).toContain(
+      'registerUpdates();'
+    );
+    const updates = between(ipc, 'function registerUpdates(): void {', '\n}\n');
+    expect(updates).toContain(
+      "feedExists: () => existsSync(path.join(process.resourcesPath, 'app-update.yml')),"
+    );
+    expect(updates).toContain('settings: checkedUpdateSettings(loadSettingsChecked),');
+    expect(updates).toContain(
+      'saveConsent: (version) => trackWrite(() => saveSettings({ updateDownloadConsent: version })),'
+    );
+    expect(updates).toContain("push: (status) => broadcast('update:state', status),");
+    expect(updates).toContain('allowNextClose: (reason) => closeGuard.allowNextClose(reason),');
+    expect(updates).toContain('fakeUpdate: getDevSwitches().fakeUpdate,');
+  });
+
+  it('starts the timer once the window exists, and cancels the one quit the controller holds', () => {
+    const ready = between(index, 'void app.whenReady().then(async () => {', "app.on('activate'");
+    expect(ready.indexOf('registerCoreHandlers();')).toBeGreaterThanOrEqual(0);
+    expect(ready.indexOf('createWindow();')).toBeGreaterThan(ready.indexOf('registerCoreHandlers();'));
+    expect(ready.indexOf('startUpdates();')).toBeGreaterThan(ready.indexOf('createWindow();'));
+    expect(index.match(/startUpdates\(\)/g)).toHaveLength(1);
+    const beforeQuit = between(index, "app.on('before-quit', (event) => {", '\n  });\n');
+    expect(beforeQuit).toMatch(
+      /if \(updateHoldsQuit\(\)\) \{\s*event\.preventDefault\(\);\s*return;\s*\}\s*closeGuard\.onBeforeQuit\(\);/
+    );
+    expect(index.match(/app\.on\('before-quit'/g)).toHaveLength(1);
+  });
+
+  it('maps dev:clean --fake-update <plan> to the switch', () => {
+    const script = read('scripts/dev-clean.cjs');
+    expect(script).toMatch(/const WITH_VALUE = new Set\(\[[^\]]*'--fake-update'/);
+    expect(script).toContain("env.MANUSCRIPT_REVIEW_DEV_FAKE_UPDATE = options['--fake-update'];");
   });
 });

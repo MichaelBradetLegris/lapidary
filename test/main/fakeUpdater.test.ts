@@ -96,27 +96,33 @@ describe('createFakeUpdater', () => {
     expect(await result).toMatchObject({ message: 'net::ERR_CONNECTION_RESET' });
   });
 
-  it('quits on the next turn where the installer would start', async () => {
+  it('quits on the next turn where the installer would start, and starts one install a run', async () => {
     const { updater, quit, said } = fake('1.0.1');
     updater.quitAndInstall(false, true);
     expect(quit).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(0);
     expect(quit).toHaveBeenCalledTimes(1);
     expect(said.at(-1)).toContain('install: the installer would start now (silent false, run after true)');
-  });
-
-  it('raises the error event and quits nothing for install-fails, as electron-updater does', async () => {
-    const { updater, quit } = fake('1.0.1 install-fails');
-    const errors: Error[] = [];
-    const listener = (err: Error): void => void errors.push(err);
-    updater.on('error', listener);
     updater.quitAndInstall(false, true);
     await vi.advanceTimersByTimeAsync(0);
-    expect(errors).toHaveLength(1);
-    expect(quit).not.toHaveBeenCalled();
-    updater.removeListener('error', listener);
+    expect(quit).toHaveBeenCalledTimes(1);
+    expect(said.at(-1)).toBe(
+      '[fake update] install call ignored: an install was already started in this run'
+    );
+  });
+
+  it('for install-fails returns, raises the error event on the next tick, then quits, as electron-updater 6.8.10 does', async () => {
+    const { updater, quit } = fake('1.0.1 install-fails');
+    const order: string[] = [];
+    quit.mockImplementation(() => void order.push('quit'));
+    updater.on('error', (err) => void order.push(`error ${(err as Error & { code?: string }).code ?? ''}`));
     updater.quitAndInstall(false, true);
-    expect(errors).toHaveLength(1);
+    order.push('returned');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(order).toEqual(['returned', 'error EPERM', 'quit']);
+    updater.quitAndInstall(false, true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(order).toHaveLength(3);
   });
 });
 
@@ -124,10 +130,12 @@ describe('the fake through the controller', () => {
   function run(text: string): {
     controller: ReturnType<typeof createUpdateController>;
     cards: (string | null)[];
-    quit: ReturnType<typeof vi.fn>;
+    /** each quit the fake asked for, and whether the controller held it, as main's before-quit asks */
+    quits: string[];
   } {
     const plan = parseFakeUpdate(text) as FakeUpdatePlan;
-    const quit = vi.fn();
+    const quits: string[] = [];
+    const quit = (): void => void quits.push(controller.beforeQuit() ? 'held' : 'quit');
     const cards: (string | null)[] = [];
     const controller = createUpdateController({
       mode: 'auto',
@@ -152,11 +160,11 @@ describe('the fake through the controller', () => {
       log: () => undefined,
       now: () => new Date('2026-10-20T12:00:00Z')
     });
-    return { controller, cards, quit };
+    return { controller, cards, quits };
   }
 
   it('moves the card from the offer through the download to Restart now, then quits', async () => {
-    const { controller, cards, quit } = run('1.0.1');
+    const { controller, cards, quits } = run('1.0.1');
     controller.start();
     await vi.advanceTimersByTimeAsync(15_000 + FAKE_CHECK_MS);
     expect(controller.status().state.phase).toBe('available');
@@ -165,7 +173,7 @@ describe('the fake through the controller', () => {
     expect(controller.status().state.phase).toBe('downloaded');
     await controller.install();
     await vi.advanceTimersByTimeAsync(0);
-    expect(quit).toHaveBeenCalledTimes(1);
+    expect(quits).toEqual(['quit']);
     expect(cards).toEqual([
       null,
       `${APP_NAME} 1.0.1 is available: a download of up to 108.7 MB.`,
@@ -186,14 +194,18 @@ describe('the fake through the controller', () => {
     controller.stop();
   });
 
-  it('ends on the install error card for install-fails, and quits nothing', async () => {
-    const { controller, quit } = run('1.0.1 install-fails');
+  it('ends on the install error card for install-fails, with the quit electron-updater queues held', async () => {
+    const { controller, cards, quits } = run('1.0.1 install-fails');
     await Promise.all([controller.check(true), vi.advanceTimersByTimeAsync(FAKE_CHECK_MS)]);
     await controller.download('1.0.1');
     await vi.advanceTimersByTimeAsync(FAKE_STEP_MS * FAKE_STEPS);
     await controller.install();
     await vi.advanceTimersByTimeAsync(0);
-    expect(controller.status().state).toMatchObject({ phase: 'failed', stage: 'install' });
-    expect(quit).not.toHaveBeenCalled();
+    expect(controller.status().state).toMatchObject({ phase: 'failed', stage: 'install', retry: false });
+    expect(quits).toEqual(['held']);
+    expect(cards.at(-1)).toBe(
+      `${APP_NAME} 1.0.1 could not be installed, and ${APP_NAME} is still running as it was. Install it from the release page, or close ${APP_NAME}, open it again and check for updates to try once more.`
+    );
+    await expect(controller.install()).rejects.toMatchObject({ code: 'invalid-input' });
   });
 });

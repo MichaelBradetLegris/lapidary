@@ -62,12 +62,6 @@ export function updateModeFor(packaged: boolean, platform: string): UpdateMode {
  */
 export type UpdateErrorKind = 'no-releases' | 'offline' | 'no-feed' | 'failed';
 
-/** The error codes electron-updater gives when the repository has no release it can read (PLAN `release.8b`). */
-const NO_RELEASE_CODES: ReadonlySet<string> = new Set([
-  'ERR_UPDATER_NO_PUBLISHED_VERSIONS',
-  'ERR_UPDATER_LATEST_VERSION_NOT_FOUND'
-]);
-
 /** Node's codes for a connection that could not be made or was lost. */
 const OFFLINE_CODES: ReadonlySet<string> = new Set([
   'ENOTFOUND',
@@ -81,6 +75,17 @@ const OFFLINE_CODES: ReadonlySet<string> = new Set([
   'EHOSTUNREACH'
 ]);
 
+/** A connection failure named in a message: Electron's `net::ERR_...`, or one of Node's codes as a word. */
+const OFFLINE_TEXT = new RegExp(`\\bnet::ERR_[A-Z_]+|\\b(?:${[...OFFLINE_CODES].join('|')})\\b`);
+
+/**
+ * What electron-updater's GitHub provider says when it cannot read
+ * `/releases/latest`, with that request's own failure after it. 6.8.10 makes
+ * that request inside the `try` of `getLatestVersion`, whose `catch` wraps it
+ * once more as `ERR_UPDATER_INVALID_RELEASE_FEED` (C.94).
+ */
+const LATEST_RELEASE_UNREAD = 'Unable to find latest version on GitHub';
+
 interface ErrorFacts {
   code?: unknown;
   message?: unknown;
@@ -88,23 +93,58 @@ interface ErrorFacts {
 }
 
 /**
- * The kind of an error electron-updater gave (PLAN `release.8b`).
- * `ERR_UPDATER_NO_PUBLISHED_VERSIONS`, `ERR_XML_MISSED_ELEMENT` with "No
- * published versions" (an empty releases feed), `ERR_UPDATER_LATEST_VERSION_NOT_FOUND`
- * and an HTTP 404 (a repository that is missing or not public) are
- * `no-releases`. Electron's `net::ERR_...` failures and Node's connection
- * codes are `offline`. A missing `app-update.yml` is `no-feed`.
+ * A message up to the releases feed electron-updater appends to some of its
+ * errors ("\nXML:\n" and the feed), which holds the release notes, so their
+ * words are never taken for a cause.
+ */
+function beforeFeed(message: string): string {
+  const at = message.indexOf('\nXML:\n');
+  return at === -1 ? message : message.slice(0, at);
+}
+
+/**
+ * A failure to read the latest release, by the failure electron-updater put
+ * in its message: `offline` when the connection failed; `no-releases` for a
+ * 404, which is GitHub's answer while the repository has only drafts and
+ * pre-releases, or when the message names no HTTP status at all; `failed` for
+ * any other status, such as a rate limit or a server error.
+ */
+function latestReleaseFailure(text: string): UpdateErrorKind {
+  if (OFFLINE_TEXT.test(text)) return 'offline';
+  const status = /\bHttpError: (\d+)/.exec(text)?.[1];
+  return status === undefined || status === '404' ? 'no-releases' : 'failed';
+}
+
+/**
+ * The kind of an error electron-updater gave (PLAN `release.8b`, C.94).
+ *
+ * - `no-releases`: `ERR_UPDATER_NO_PUBLISHED_VERSIONS`; `ERR_XML_MISSED_ELEMENT`
+ *   with "No published versions" (an empty releases feed); an HTTP 404 (a
+ *   repository that is missing or not public); and a latest release that
+ *   could not be read for a 404 or for no stated reason, whether it comes as
+ *   `ERR_UPDATER_LATEST_VERSION_NOT_FOUND` or, as the GitHub provider of
+ *   6.8.10 gives it, inside `ERR_UPDATER_INVALID_RELEASE_FEED`
+ *   (`latestReleaseFailure`).
+ * - `offline`: Electron's `net::ERR_...` failures and Node's connection codes,
+ *   as the code or in the message, wrapped ones included.
+ * - `no-feed`: a missing `app-update.yml`.
+ *
+ * The releases feed electron-updater appends to a message is never read.
  */
 export function classifyUpdateError(err: unknown): UpdateErrorKind {
   if (typeof err !== 'object' || err === null) return 'failed';
   const e = err as ErrorFacts;
   const code = typeof e.code === 'string' ? e.code : '';
-  const message = typeof e.message === 'string' ? e.message : '';
-  if (NO_RELEASE_CODES.has(code)) return 'no-releases';
-  if (code === 'ERR_XML_MISSED_ELEMENT' && message.includes('No published versions')) return 'no-releases';
+  const text = beforeFeed(typeof e.message === 'string' ? e.message : '');
+  if (code === 'ERR_UPDATER_LATEST_VERSION_NOT_FOUND') return latestReleaseFailure(text);
+  if (code === 'ERR_UPDATER_INVALID_RELEASE_FEED' && text.includes(LATEST_RELEASE_UNREAD)) {
+    return latestReleaseFailure(text);
+  }
+  if (code === 'ERR_UPDATER_NO_PUBLISHED_VERSIONS') return 'no-releases';
+  if (code === 'ERR_XML_MISSED_ELEMENT' && text.includes('No published versions')) return 'no-releases';
   if (e.statusCode === 404 || code === 'HTTP_ERROR_404') return 'no-releases';
-  if (code === 'ENOENT' && message.includes('app-update.yml')) return 'no-feed';
-  if (OFFLINE_CODES.has(code) || /\bnet::ERR_[A-Z_]+/.test(message)) return 'offline';
+  if (code === 'ENOENT' && text.includes('app-update.yml')) return 'no-feed';
+  if (OFFLINE_CODES.has(code) || OFFLINE_TEXT.test(text)) return 'offline';
   return 'failed';
 }
 
@@ -139,6 +179,14 @@ export type UpdateState =
       manual: boolean;
       /** the version being downloaded or installed; null for a check */
       version: string | null;
+      /**
+       * Whether the card's button can try again in this run. False only for
+       * an install that failed after electron-updater had started it, which
+       * it does once a run (C.94): the card then points at the release page,
+       * and Restart now comes back after the app has been opened again and a
+       * check has found the update.
+       */
+      retry: boolean;
     };
 
 /** What `update:get` answers and `update:state` pushes. */
@@ -252,7 +300,10 @@ function failedLine(state: Extract<UpdateState, { phase: 'failed' }>): string {
       ? `${version} could not be downloaded: GitHub could not be reached. Check the internet connection, then press Download to try again.`
       : `${version} could not be downloaded. Press Download to try again; the log has the details.`;
   }
-  return `${version} could not be installed, and ${APP_NAME} is still running as it was. Press Restart now to try again, or install it from the release page.`;
+  const next = state.retry
+    ? 'Press Restart now to try again, or install it from the release page.'
+    : `Install it from the release page, or close ${APP_NAME}, open it again and check for updates to try once more.`;
+  return `${version} could not be installed, and ${APP_NAME} is still running as it was. ${next}`;
 }
 
 /**
@@ -285,8 +336,13 @@ export function updateCardFor(status: UpdateStatus): UpdateCard | null {
     case 'failed':
       if (state.stage === 'download')
         return { tone: 'warn', text: failedLine(state), action: 'update-download' };
-      if (state.stage === 'install')
-        return { tone: 'error', text: failedLine(state), action: 'update-restart' };
+      if (state.stage === 'install') {
+        return {
+          tone: 'error',
+          text: failedLine(state),
+          action: state.retry ? 'update-restart' : 'update-open-page'
+        };
+      }
       return null;
     default:
       return null;
@@ -333,7 +389,10 @@ export type FakeUpdateOutcome =
   | 'available'
   /** the version is found, and its download breaks off */
   | 'download-fails'
-  /** the version is found and downloads, and its installer cannot be started */
+  /**
+   * the version is found and downloads, and its installer cannot be started,
+   * which electron-updater reports after `quitAndInstall` has returned
+   */
   | 'install-fails'
   /** the check finds nothing newer */
   | 'up-to-date'

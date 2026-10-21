@@ -24,7 +24,10 @@ import type { LogLevel } from './log';
  *
  * When the install cannot start, the allowance is taken back (the function
  * `allowNextClose` returned, `apply.8`), the watcher starts again, and the
- * caller shows the error card: the app goes on as it was.
+ * caller shows the error card: the app goes on as it was. electron-updater
+ * reports most installers that cannot start only after `quitAndInstall` has
+ * returned, and the caller handles those (`failInstallLate` in updates.ts,
+ * PLAN C.94).
  *
  * No electron import, so test/main/updateInstall.test.ts drives every step.
  */
