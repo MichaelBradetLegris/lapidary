@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   dialogTakesEscape,
+  firstFound,
+  focusBeforeOpening,
   focusReturnTarget,
   inOtherDialog,
   MANUAL_REVIEW_BUTTON_SELECTOR,
@@ -8,6 +10,8 @@ import {
   REVIEW_BUTTON_SELECTOR,
   SETTINGS_BUTTON_SELECTOR,
   shellInert,
+  UPDATE_CARD_BUTTON_SELECTOR,
+  UPDATE_OVERLAY_FOCUS_FALLBACK,
   type DialogOwner,
   type Focusable
 } from '../../src/shared/ui/dialog';
@@ -17,34 +21,46 @@ import {
    the hooks themselves are checked in test/renderer/dialog.test.ts. */
 
 const escape = { key: 'Escape', isComposing: false, defaultPrevented: false };
+const NOTHING = { question: false, overlay: false };
+const QUESTION = { question: true, overlay: false };
+const OVERLAY = { question: false, overlay: true };
 
 describe('dialogTakesEscape (ui.1)', () => {
   it('closes the dialog on Escape with nothing over it', () => {
-    expect(dialogTakesEscape(escape, false, false)).toBe(true);
+    expect(dialogTakesEscape(escape, NOTHING, false)).toBe(true);
   });
 
   it('ignores every other key', () => {
     for (const key of ['Enter', 'f', 'a', 'ArrowDown', 'Esc', 'escape']) {
-      expect(dialogTakesEscape({ ...escape, key }, false, false), key).toBe(false);
+      expect(dialogTakesEscape({ ...escape, key }, NOTHING, false), key).toBe(false);
     }
   });
 
   it('leaves Escape to a question asked over the dialog', () => {
-    expect(dialogTakesEscape(escape, true, false)).toBe(false);
+    expect(dialogTakesEscape(escape, QUESTION, false)).toBe(false);
   });
 
   it('stays open when the question answered first and has gone by the time it looks', () => {
     // The question cancels on Escape and calls preventDefault, so a dialog
     // whose listener runs after it does not close as well.
-    expect(dialogTakesEscape({ ...escape, defaultPrevented: true }, false, false)).toBe(false);
+    expect(dialogTakesEscape({ ...escape, defaultPrevented: true }, NOTHING, false)).toBe(false);
   });
 
   it('leaves Escape pressed in another dialog, such as a question over it, to that dialog', () => {
-    expect(dialogTakesEscape(escape, false, true)).toBe(false);
+    expect(dialogTakesEscape(escape, NOTHING, true)).toBe(false);
   });
 
   it('lets Escape end an IME composition without closing the dialog', () => {
-    expect(dialogTakesEscape({ ...escape, isComposing: true }, false, false)).toBe(false);
+    expect(dialogTakesEscape({ ...escape, isComposing: true }, NOTHING, false)).toBe(false);
+  });
+
+  /* release.9 review: Escape under Restart now's overlay closed About, the one
+     dialog Restart now can be pressed from. The key is pressed on the
+     overlay's box, which is no role="dialog", so inOtherDialog said no. */
+  it("leaves the dialog open under Restart now's overlay, with or without a question over both", () => {
+    expect(dialogTakesEscape(escape, OVERLAY, false)).toBe(false);
+    expect(dialogTakesEscape(escape, { question: true, overlay: true }, false)).toBe(false);
+    expect(dialogTakesEscape(escape, OVERLAY, true)).toBe(false);
   });
 });
 
@@ -75,6 +91,58 @@ describe('inOtherDialog (ui.1 review)', () => {
   });
 });
 
+describe('firstFound (release.9 review)', () => {
+  // A page as querySelector sees it: the selectors it finds, in the page's order.
+  const page =
+    (...present: string[]) =>
+    (selector: string) =>
+      present.includes(selector) ? selector : null;
+
+  it('takes the first selector found in the order given, not the order of the page', () => {
+    expect(firstFound(['a', 'b', 'c'], page('c', 'b'))).toBe('b');
+    expect(firstFound(['a', 'b', 'c'], page('c'))).toBe('c');
+    expect(
+      firstFound(UPDATE_OVERLAY_FOCUS_FALLBACK, page(SETTINGS_BUTTON_SELECTOR, '.app-shell__dialogs .modal'))
+    ).toBe('.app-shell__dialogs .modal');
+  });
+
+  it('takes one selector as a list of one, and finds nothing when nothing is there', () => {
+    expect(firstFound(SETTINGS_BUTTON_SELECTOR, page(SETTINGS_BUTTON_SELECTOR))).toBe(
+      SETTINGS_BUTTON_SELECTOR
+    );
+    expect(firstFound(SETTINGS_BUTTON_SELECTOR, page())).toBeNull();
+    expect(firstFound(['a', 'b'], page())).toBeNull();
+    expect(firstFound([], page('a'))).toBeNull();
+  });
+
+  it('asks for no selector after the first one found', () => {
+    const asked: string[] = [];
+    firstFound(['a', 'b', 'c'], (s) => {
+      asked.push(s);
+      return s === 'b' ? s : null;
+    });
+    expect(asked).toEqual(['a', 'b']);
+  });
+});
+
+/* release.9 review: in a development window the focus never went back where
+   it was, only to each dialog's fallback, because StrictMode opens a dialog
+   twice and the second time the focus was in the dialog already. */
+describe('focusBeforeOpening (release.9 review)', () => {
+  const button = { name: 'Restart now' };
+  const box = { name: 'overlay box' };
+
+  it('notes what has the focus as the dialog opens', () => {
+    expect(focusBeforeOpening(button, false, null)).toBe(button);
+    expect(focusBeforeOpening(null, false, button)).toBeNull();
+  });
+
+  it('keeps what it noted when the focus is in the dialog already, as on StrictMode’s second opening', () => {
+    expect(focusBeforeOpening(box, true, button)).toBe(button);
+    expect(focusBeforeOpening(box, true, null)).toBeNull();
+  });
+});
+
 describe('focusReturnTarget (ui.1)', () => {
   const element = (isConnected: boolean): Focusable => ({ isConnected, focus: () => undefined });
   const body = element(true);
@@ -98,6 +166,15 @@ describe('focusReturnTarget (ui.1)', () => {
 
   it('names the toolbar Settings button as the fallback for Settings', () => {
     expect(SETTINGS_BUTTON_SELECTOR).toBe('[data-opens="settings"]');
+  });
+
+  it("hands the focus from Restart now's overlay to a dialog's box, the update card's button or Settings, in that order (release.9 review)", () => {
+    expect(UPDATE_CARD_BUTTON_SELECTOR).toBe('.note--update .note__action');
+    expect(UPDATE_OVERLAY_FOCUS_FALLBACK).toEqual([
+      '.app-shell__dialogs .modal',
+      UPDATE_CARD_BUTTON_SELECTOR,
+      SETTINGS_BUTTON_SELECTOR
+    ]);
   });
 
   it('names the opener of each other dialog as its fallback, one selector each (ui.4)', () => {

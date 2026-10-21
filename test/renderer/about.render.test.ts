@@ -144,7 +144,7 @@ describe('About (release.9)', () => {
     expect(buttons(view({ update: available })).slice(0, 2)).toEqual(['Check for updates', 'Download']);
     expect(text(view({ update: available }))).toContain(updateStatusLine(available));
     expect(buttons(view({ update: status({ phase: 'downloaded', version: '1.0.1' }) })).slice(0, 2)).toEqual([
-      'Check for updates',
+      'Check for updates [held]',
       'Restart now'
     ]);
     expect(buttons(view({ update: status({ phase: 'checking', manual: true }) }))[0]).toBe(
@@ -157,6 +157,68 @@ describe('About (release.9)', () => {
     const off = view({ update: status({ phase: 'idle' }, { mode: 'off', offReason: 'development' }) });
     expect(buttons(off)[0]).toBe('Check for updates [disabled]');
     expect(text(off)).toContain('Updates are off in a development run.');
+    expect(decode(off)).not.toMatch(/<button[^>]*title=/);
+  });
+
+  /* release.9 review: pressed here, Check for updates did nothing, since
+     main's check() answers without checking; seen in a window after a failed
+     install. It is held, not disabled, so a press that resumes a download
+     keeps the focus on it, and its title says why. */
+  it('holds Check for updates where main would not check, with a title that says why', () => {
+    const check = (update: UpdateStatus): string =>
+      /<button type="button"[^>]*>Check for updates<\/button>/.exec(decode(view({ update })))?.[0] ?? '';
+    const cases: [UpdateStatus, string, string][] = [
+      [
+        status({ phase: 'downloading', version: '1.0.1', percent: 40, transferred: 0, total: 1 }),
+        `Not while ${APP_NAME} 1.0.1 is downloading.`,
+        'Licences and notices'
+      ],
+      [
+        status({ phase: 'downloaded', version: '1.0.1' }),
+        `Not while ${APP_NAME} 1.0.1 is ready to install. Restart now installs it.`,
+        'Restart now'
+      ],
+      [
+        status({
+          phase: 'failed',
+          stage: 'install',
+          kind: 'failed',
+          manual: false,
+          version: '1.0.1',
+          retry: false
+        }),
+        `Close ${APP_NAME} and open it again to check for updates.`,
+        'Open the release page'
+      ]
+    ];
+    for (const [update, why, second] of cases) {
+      const html = view({ update });
+      expect(buttons(html)[0], update.state.phase).toBe('Check for updates [held]');
+      expect(check(update)).toContain(`title="${why}"`);
+      expect(check(update)).not.toContain('disabled=""');
+      expect(buttons(html)[1]).toBe(second);
+    }
+    // While Restart now runs, under the overlay, both are held, and Restart now stays for the focus to come back to.
+    const installing = view({ update: status({ phase: 'installing', version: '1.0.1' }) });
+    expect(buttons(installing).slice(0, 2)).toEqual(['Check for updates [held]', 'Restart now [held]']);
+    expect(check(status({ phase: 'installing', version: '1.0.1' }))).toContain(
+      `title="Not while ${APP_NAME} 1.0.1 is installing."`
+    );
+    // Where main checks, it is live, with no title.
+    for (const update of [
+      status({ phase: 'available', version: '1.0.1', size: 1 }),
+      status({
+        phase: 'failed',
+        stage: 'install',
+        kind: 'failed',
+        manual: false,
+        version: '1.0.1',
+        retry: true
+      })
+    ]) {
+      expect(buttons(view({ update }))[0]).toBe('Check for updates');
+      expect(check(update)).not.toContain('title=');
+    }
   });
 
   it("links What's new to the version's release page, and has Licences and notices", () => {

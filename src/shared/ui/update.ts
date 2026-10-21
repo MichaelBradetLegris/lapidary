@@ -65,9 +65,52 @@ export const AUTO_CHECK_NOTE =
 export const RESTART_AFTER_REVIEW =
   'Restart after the review finishes. Restarting now would stop the review that is running.';
 
-/** Whether Check for updates can do anything: not while updates are off (a development run, or no feed). */
+/**
+ * Whether Check for updates is off (disabled): until main has said where the
+ * updater is, and while updates are off (a development run, or no feed),
+ * which the status line beside it says.
+ */
+export function checkForUpdatesOff(status: UpdateStatus | null): boolean {
+  return status === null || status.mode === 'off';
+}
+
+/**
+ * Why Check for updates would do nothing now although updates are on, for
+ * its title, or null when a check can run (release.9 review). Main's `check`
+ * (src/main/updates.ts) answers with the status as it is, checking nothing,
+ * while an update downloads, waits for Restart now or installs, and after an
+ * install that failed once started, which Restart now cannot try again until
+ * the app has been opened again (C.94). Pressed then, the button did nothing
+ * the page could show. About holds it then rather than disabling it, so a
+ * press that resumes a download leaves the focus on it (`heldButton`).
+ */
+export function checkForUpdatesWaits(status: UpdateStatus | null): string | null {
+  if (status === null || checkForUpdatesOff(status)) return null;
+  const state = status.state;
+  switch (state.phase) {
+    case 'downloading':
+      return `Not while ${APP_NAME} ${state.version} is downloading.`;
+    case 'downloaded':
+      return `Not while ${APP_NAME} ${state.version} is ready to install. Restart now installs it.`;
+    case 'installing':
+      return `Not while ${APP_NAME} ${state.version} is installing.`;
+    case 'failed':
+      return state.stage === 'install' && !state.retry
+        ? `Close ${APP_NAME} and open it again to check for updates.`
+        : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Whether Check for updates can do anything, as main's `check` decides: not
+ * while it is off (`checkForUpdatesOff`), and not while main would answer it
+ * without checking (`checkForUpdatesWaits`). test/main/updates.test.ts holds
+ * it against the controller in every state.
+ */
 export function canCheckForUpdates(status: UpdateStatus | null): boolean {
-  return status !== null && status.mode !== 'off';
+  return !checkForUpdatesOff(status) && checkForUpdatesWaits(status) === null;
 }
 
 /** Check for updates is held, not disabled, while a check runs, so it keeps the focus (`heldButton`). */
@@ -80,9 +123,23 @@ export function aboutUpdateLine(status: UpdateStatus | null): string {
   return status ? updateStatusLine(status) : 'Not checked yet.';
 }
 
-/** The button About shows beside its status line: the one the card has, so a closed card is not the only way to it. */
+/**
+ * The button About shows beside its status line: the one the card has, so a
+ * closed card is not the only way to it. While Restart now runs, the card
+ * stays as it was (`updateCardStep`), and so does this button, Restart now,
+ * held under the overlay (`updateActionHeld`): it is the button the focus goes
+ * back to when the install fails, which then offers Restart now again or Open
+ * the release page (release.9 review). Taken away, it took the focus with it.
+ */
 export function updateActionFor(status: UpdateStatus | null): UpdateAction | null {
-  return status ? (updateCardFor(status)?.action ?? null) : null;
+  if (status === null) return null;
+  if (status.state.phase === 'installing') return 'update-restart';
+  return updateCardFor(status)?.action ?? null;
+}
+
+/** About's update button is held, not pressed, while Restart now runs. */
+export function updateActionHeld(status: UpdateStatus | null): boolean {
+  return status?.state.phase === 'installing';
 }
 
 /** The version Download fetches: the one on offer, or the one whose download failed. */

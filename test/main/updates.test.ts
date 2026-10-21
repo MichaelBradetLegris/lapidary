@@ -20,6 +20,7 @@ import {
   type UpdaterLogger,
   type UpdateSettings
 } from '../../src/main/updates';
+import { canCheckForUpdates } from '../../src/shared/ui/update';
 import type { UpdateMode, UpdateState, UpdateStatus } from '../../src/shared/updates';
 
 /* release.8b: the updater's controller (PLAN 11.1 Updates, 11.3 n), driven
@@ -528,6 +529,129 @@ describe('a check', () => {
     expect(h.updater.checks).toBe(checks);
     expect(state(h)).toEqual({ phase: 'installing', version: '1.0.1' });
     h.controller.stop();
+  });
+});
+
+/* release.9 review: About's Check for updates stayed on where check() answers
+   without checking, so a press did nothing the page could show. The page's
+   rule, canCheckForUpdates, is held here against the controller: in each
+   state, Check for updates is on exactly when check() asks the updater. While
+   a check runs, check() shares it and About holds the button (checkHeld). */
+describe("About's Check for updates against check()", () => {
+  const failInstallInside = (h: Harness): void => {
+    h.updater.onInstall = () => {
+      h.updater.emitError(new Error('No update filepath provided, can’t quit and install'));
+      return false;
+    };
+  };
+  const failInstallLate = (h: Harness): void => {
+    h.updater.onInstall = () => {
+      process.nextTick(() => h.updater.emitError(new Error('spawn EPERM')));
+      return true;
+    };
+  };
+  const reach: [string, (h: Harness) => Promise<void>][] = [
+    ['idle', () => Promise.resolve()],
+    [
+      'up to date',
+      async (h) => {
+        h.updater.answer = () => Promise.resolve(upToDate());
+        await h.controller.check(true);
+      }
+    ],
+    ['an update on offer', async (h) => void (await h.controller.check(true))],
+    [
+      'a failed check',
+      async (h) => {
+        h.updater.answer = () => Promise.reject(new Error('net::ERR_INTERNET_DISCONNECTED'));
+        await h.controller.check(true);
+      }
+    ],
+    ['a download under way', (h) => downloading(h)],
+    [
+      'a failed download',
+      async (h) => {
+        await downloading(h);
+        h.updater.failDownload?.(new Error('net::ERR_CONNECTION_RESET'));
+        await vi.advanceTimersByTimeAsync(0);
+      }
+    ],
+    ['an update downloaded', (h) => downloaded(h)],
+    [
+      'Restart now under way',
+      async (h) => {
+        await downloaded(h);
+        await h.controller.install();
+        await vi.advanceTimersByTimeAsync(INSTALL_QUIT_WAIT_MS * 2);
+      }
+    ],
+    [
+      'an install that failed inside the call, which Restart now can try again',
+      async (h) => {
+        await downloaded(h);
+        failInstallInside(h);
+        await h.controller.install();
+        await vi.advanceTimersByTimeAsync(INSTALL_QUIT_WAIT_MS * 2);
+      }
+    ],
+    [
+      'an install that failed once started, which it cannot',
+      async (h) => {
+        await downloaded(h);
+        failInstallLate(h);
+        await h.controller.install();
+        await vi.advanceTimersByTimeAsync(INSTALL_QUIT_WAIT_MS * 2);
+      }
+    ]
+  ];
+
+  for (const [name, reachState] of reach) {
+    it(`is on exactly when check() asks the updater: ${name}`, async () => {
+      const h = setup();
+      await reachState(h);
+      const offered = canCheckForUpdates(h.controller.status());
+      const checks = h.updater.checks;
+      h.updater.answer = () => Promise.resolve(upToDate());
+      await h.controller.check(true);
+      expect(h.updater.checks - checks, JSON.stringify(state(h))).toBe(offered ? 1 : 0);
+    });
+  }
+
+  it('covers every state the controller can be in but a check under way', async () => {
+    const seen = new Set<string>();
+    for (const [, reachState] of reach) {
+      const h = setup();
+      await reachState(h);
+      const s = state(h);
+      seen.add(s.phase === 'failed' ? `failed ${s.stage} ${s.retry ? 'retry' : 'spent'}` : s.phase);
+    }
+    expect([...seen].sort()).toEqual(
+      [
+        'idle',
+        'up-to-date',
+        'available',
+        'failed check retry',
+        'downloading',
+        'failed download retry',
+        'downloaded',
+        'installing',
+        'failed install retry',
+        'failed install spent'
+      ].sort()
+    );
+  });
+
+  it('is on in notify mode, and off with updates off, as check() is', async () => {
+    const notify = setup({ mode: 'notify' });
+    await notify.controller.check(true);
+    expect(state(notify).phase).toBe('notify');
+    expect(canCheckForUpdates(notify.controller.status())).toBe(true);
+    await notify.controller.check(true);
+    expect(notify.updater.checks).toBe(2);
+    const off = setup({ mode: 'off' });
+    expect(canCheckForUpdates(off.controller.status())).toBe(false);
+    await off.controller.check(true);
+    expect(off.loads()).toBe(0);
   });
 });
 

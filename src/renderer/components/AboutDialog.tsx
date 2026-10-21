@@ -20,9 +20,11 @@ import {
   CHECK_FOR_UPDATES,
   UPDATE_ACTION_LABELS,
   aboutUpdateLine,
-  canCheckForUpdates,
+  checkForUpdatesOff,
+  checkForUpdatesWaits,
   checkHeld,
   updateActionFor,
+  updateActionHeld,
   type UpdateAction
 } from '../../shared/ui/update';
 import type { UpdateStatus } from '../../shared/updates';
@@ -139,16 +141,19 @@ export interface AboutViewProps {
 
 /**
  * What About shows, from the top: the icon, the name, the version and the
- * tagline; Check for updates, held while a check runs and off while updates
- * are, with the updater's status line (`updateStatusLine`) and the update
- * card's own button beside it, so a card closed with its X is not the only
- * way to Download or Restart now; Check for updates automatically, with what
- * a check sends; What's new, the release page of the version running, and
- * Licences and notices, which main opens (`app:open-notices`); what the app
- * is (`DISCLAIMER`) and the caution that goes with every review
- * (`AI_OUTPUT_NOTICE`); the versions it runs on, the user's Claude Code from
- * Claude's live status (`componentLines`); and Diagnostics, its Copy a plain
- * button, as Close is the blue one, with Open log folder and Open data folder.
+ * tagline; Check for updates, off while updates are, and held while a check
+ * runs and while main would answer one without checking, such as while an
+ * update downloads (`checkForUpdatesWaits`), with the updater's status line
+ * (`updateStatusLine`) and the update card's own button beside it, so a card
+ * closed with its X is not the only way to Download or Restart now, and
+ * Restart now, held, while it runs (`updateActionFor`); Check for updates
+ * automatically, with what a check sends; What's new, the release page of
+ * the version running, and Licences and notices, which main opens
+ * (`app:open-notices`); what the app is (`DISCLAIMER`) and the caution that
+ * goes with every review (`AI_OUTPUT_NOTICE`); the versions it runs on, the
+ * user's Claude Code from Claude's live status (`componentLines`); and
+ * Diagnostics, its Copy a plain button, as Close is the blue one, with Open
+ * log folder and Open data folder.
  */
 export function AboutView({
   boxRef,
@@ -169,6 +174,11 @@ export function AboutView({
   const toggleId = useId();
   const version = info?.version ?? update?.current ?? null;
   const action = updateActionFor(update);
+  /* Check for updates is off while updates are. While a check runs, and while
+     main would answer one without checking, it is held, not disabled
+     (`heldButton`), so a press that resumes a download leaves the focus on it;
+     in the second case its title says why (release.9 review). */
+  const waits = checkForUpdatesWaits(update);
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={ABOUT_TITLE}>
@@ -187,13 +197,14 @@ export function AboutView({
           <div className="about__update">
             <button
               type="button"
-              disabled={!canCheckForUpdates(update)}
-              {...heldButton(checking || checkHeld(update), onCheck)}
+              disabled={checkForUpdatesOff(update)}
+              title={waits ?? undefined}
+              {...heldButton(checking || checkHeld(update) || waits !== null, onCheck)}
             >
               {CHECK_FOR_UPDATES}
             </button>
             {action ? (
-              <button type="button" onClick={() => onUpdateAction(action)}>
+              <button type="button" {...heldButton(updateActionHeld(update), () => onUpdateAction(action))}>
                 {UPDATE_ACTION_LABELS[action]}
               </button>
             ) : null}

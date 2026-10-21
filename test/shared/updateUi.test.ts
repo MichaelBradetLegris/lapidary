@@ -9,10 +9,13 @@ import {
   aboutUpdateLine,
   actionKeepsCard,
   canCheckForUpdates,
+  checkForUpdatesOff,
+  checkForUpdatesWaits,
   checkHeld,
   isUpdateAction,
   overlayEnds,
   updateActionFor,
+  updateActionHeld,
   updateCardStateKey,
   updateCardStep,
   updateOverlayText,
@@ -186,6 +189,12 @@ describe("the card's buttons", () => {
     expect(updateActionFor(INSTALL_FAILED)).toBe('update-open-page');
     expect(updateActionFor(downloading(5))).toBeNull();
     expect(updateActionFor(null)).toBeNull();
+    // release.9 review: Restart now stays, held, while it runs, so the focus can go back to it.
+    expect(updateActionFor(INSTALLING)).toBe('update-restart');
+    expect(updateActionHeld(INSTALLING)).toBe(true);
+    for (const s of [AVAILABLE, DOWNLOADED, INSTALL_FAILED, downloading(5), null]) {
+      expect(updateActionHeld(s)).toBe(false);
+    }
     expect(versionToDownload(AVAILABLE)).toBe('1.0.1');
     expect(
       versionToDownload(
@@ -213,6 +222,22 @@ describe("About's update controls", () => {
   });
 
   it('turns Check for updates off while updates are, and holds it while a check runs', () => {
+    expect(checkForUpdatesOff(null)).toBe(true);
+    expect(checkForUpdatesOff(status({ phase: 'idle' }, { mode: 'off', offReason: 'development' }))).toBe(
+      true
+    );
+    expect(checkForUpdatesOff(status({ phase: 'idle' }, { mode: 'off', offReason: 'no-feed' }))).toBe(true);
+    for (const s of [
+      status({ phase: 'idle' }),
+      downloading(40),
+      DOWNLOADED,
+      INSTALLING,
+      INSTALL_FAILED,
+      CHECKING
+    ]) {
+      expect(checkForUpdatesOff(s), s.state.phase).toBe(false);
+    }
+    expect(checkForUpdatesOff(status({ phase: 'notify', version: '1.0.1' }, { mode: 'notify' }))).toBe(false);
     expect(canCheckForUpdates(null)).toBe(false);
     expect(canCheckForUpdates(status({ phase: 'idle' }, { mode: 'off', offReason: 'development' }))).toBe(
       false
@@ -222,6 +247,49 @@ describe("About's update controls", () => {
     expect(checkHeld(CHECKING)).toBe(true);
     expect(checkHeld(AVAILABLE)).toBe(false);
     expect(checkHeld(null)).toBe(false);
+  });
+
+  /* release.9 review: in these states main's check() answers with the status
+     as it is and checks nothing, so About's Check for updates did nothing the
+     page could show. test/main/updates.test.ts holds the two together. */
+  it('holds Check for updates where main would answer without checking, and says why', () => {
+    const failed = (stage: 'check' | 'download' | 'install', retry: boolean): UpdateStatus =>
+      status({
+        phase: 'failed',
+        stage,
+        kind: 'failed',
+        manual: false,
+        version: stage === 'check' ? null : '1.0.1',
+        retry
+      });
+    const waits: [UpdateStatus, string][] = [
+      [downloading(40), `Not while ${APP_NAME} 1.0.1 is downloading.`],
+      [DOWNLOADED, `Not while ${APP_NAME} 1.0.1 is ready to install. Restart now installs it.`],
+      [INSTALLING, `Not while ${APP_NAME} 1.0.1 is installing.`],
+      [INSTALL_FAILED, `Close ${APP_NAME} and open it again to check for updates.`]
+    ];
+    for (const [s, why] of waits) {
+      expect(canCheckForUpdates(s), s.state.phase).toBe(false);
+      expect(checkForUpdatesWaits(s), s.state.phase).toBe(why);
+    }
+    const checks = [
+      status({ phase: 'idle' }),
+      CHECKING,
+      UP_TO_DATE,
+      AVAILABLE,
+      status({ phase: 'notify', version: '1.0.1' }, { mode: 'notify' }),
+      failed('check', true),
+      failed('download', true),
+      failed('install', true)
+    ];
+    for (const s of checks) {
+      expect(canCheckForUpdates(s), JSON.stringify(s.state)).toBe(true);
+      expect(checkForUpdatesWaits(s), JSON.stringify(s.state)).toBeNull();
+    }
+    // Updates off: the status line says why, and no title is needed.
+    expect(checkForUpdatesWaits(null)).toBeNull();
+    expect(checkForUpdatesWaits(status(DOWNLOADED.state, { mode: 'off', offReason: 'no-feed' }))).toBeNull();
+    expect(canCheckForUpdates(status(DOWNLOADED.state, { mode: 'off', offReason: 'no-feed' }))).toBe(false);
   });
 
   it("says where the updater is in updateStatusLine's words, or that nothing is known yet", () => {
