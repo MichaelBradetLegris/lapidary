@@ -48,7 +48,8 @@ function accountRow(runtime: RuntimeStatus | null): string {
         onKeyChanged: () => undefined,
         onClose: () => undefined,
         onOpenSetup: () => undefined,
-        onShowWelcome: () => undefined
+        onShowWelcome: () => undefined,
+        onAbout: () => undefined
       })
     )
   );

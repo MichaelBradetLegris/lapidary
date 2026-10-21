@@ -40,7 +40,11 @@ export interface DevSwitches {
   openAiBaseUrl: string | null;
   /** behave as if Claude Code were not installed, to test the Setup screen */
   noClaudeCode: boolean;
-  /** pretend this version is available, to exercise the update UI */
+  /**
+   * the fake update's plan, such as `1.0.1` or `1.0.1 install-fails`, played
+   * in electron-updater's place with no request to GitHub (`parseFakeUpdate`,
+   * src/main/fakeUpdater.ts, release.8b)
+   */
   fakeUpdate: string | null;
   /**
    * a test window that never takes the foreground and keeps rendering while it

@@ -44,9 +44,18 @@ describe('Settings is a modal (ui.1)', () => {
     const end = hook.indexOf('}, [box, first]);');
     expect(end).toBeGreaterThan(-1);
     const opening = hook.slice(hook.indexOf('useLayoutEffect('), end);
-    const noted = opening.indexOf('const active = document.activeElement;');
-    expect(noted).toBeGreaterThan(-1);
-    expect(opening).toContain('returnTo.current = active instanceof HTMLElement ? active : null;');
+    const active = opening.indexOf(
+      'const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;'
+    );
+    expect(active).toBeGreaterThan(-1);
+    const noted = opening.indexOf(
+      'returnTo.current = focusBeforeOpening(active, inDialog, returnTo.current);'
+    );
+    expect(noted).toBeGreaterThan(active);
+    // release.9 review: the focus already in the box, as on StrictMode's second opening, keeps what was noted.
+    expect(opening).toContain(
+      'const inDialog = active !== null && (box.current?.contains(active) ?? false);'
+    );
     expect(
       opening.indexOf('(first?.current ?? box.current)?.focus({ preventScroll: true });')
     ).toBeGreaterThan(noted);
@@ -57,12 +66,14 @@ describe('Settings is a modal (ui.1)', () => {
     const closing = hook.slice(hook.indexOf('useEffect('));
     expect(closing).toMatch(/^useEffect\(\s*\(\) => \(\) => \{/);
     const fallback = closing.indexOf(
-      'const fallback = document.querySelector<HTMLElement>(fallbackSelector);'
+      'const fallback = firstFound(fallbackSelector, (s) => document.querySelector<HTMLElement>(s));'
     );
     expect(fallback).toBeGreaterThan(-1);
     expect(
       closing.indexOf('focusReturnTarget(returnTo.current, document.body, fallback)?.focus(')
     ).toBeGreaterThan(fallback);
+    // StrictMode's pretend close runs the cleanup too: where the focus was is kept for the real one.
+    expect(closing).not.toContain('returnTo.current = null');
   });
 
   it('finds the dialog a key was pressed in by the nearest role="dialog" around it', () => {
@@ -86,14 +97,32 @@ describe('Settings is a modal (ui.1)', () => {
     expect(dialog).toContain("window.addEventListener('keydown', onKeyDown, true);");
     const listener = dialog.slice(dialog.indexOf('const onKeyDown'));
     const guard = listener.indexOf(
-      'if (!dialogTakesEscape(event, questionOpen, pressedInOtherDialog(event, box.current))) return;'
+      'if (!dialogTakesEscape(event, over, pressedInOtherDialog(event, box.current))) return;'
     );
     expect(guard).toBeGreaterThan(-1);
-    expect(listener).toContain('const questionOpen = useApp.getState().confirmSpec !== null;');
+    const read = listener.indexOf('const { confirmSpec, updateOverlay } = useApp.getState();');
+    const over = listener.indexOf('const over = { question: confirmSpec !== null, overlay: updateOverlay };');
+    expect(read).toBeGreaterThan(-1);
+    expect(over).toBeGreaterThan(read);
+    expect(guard).toBeGreaterThan(over);
     expect(listener.indexOf('event.stopPropagation();')).toBeGreaterThan(guard);
     expect(listener.indexOf('close.current();')).toBeGreaterThan(
       listener.indexOf('event.stopPropagation();')
     );
+  });
+
+  /* release.9 review: Escape under Restart now's overlay closed About under
+     it, since the overlay is a role="alertdialog" beside the dialogs' layer
+     and the rule saw no other dialog. The listener now reads the overlay from
+     the store, as it reads the question, when the key comes. */
+  it("leaves the dialog open under Restart now's overlay, read from the store when the key comes", () => {
+    const listener = dialog.slice(
+      dialog.indexOf('const onKeyDown'),
+      dialog.indexOf("window.addEventListener('keydown'")
+    );
+    expect(listener).toContain('updateOverlay');
+    expect(listener).toContain('overlay: updateOverlay');
+    expect(read('components/UpdateOverlay.tsx')).toContain('role="alertdialog"');
   });
 
   it('adds the listener once, so a re-render cannot put it after a question', () => {
@@ -143,6 +172,18 @@ describe('Every dialog takes the focus and hands it back (ui.4)', () => {
       file: 'components/NewChapterDialog.tsx',
       hook: 'useDialogFocus(boxRef, NEW_CHAPTER_BUTTON_SELECTOR, nameRef);',
       box: '<div className="modal" ref={boxRef} tabIndex={-1}>'
+    },
+    // About replaces Settings, so the focus goes back to Settings' toolbar button (release.9).
+    {
+      file: 'components/AboutDialog.tsx',
+      hook: 'useDialogFocus(boxRef, SETTINGS_BUTTON_SELECTOR);',
+      box: '<div className="modal modal--about" ref={boxRef} tabIndex={-1}>'
+    },
+    // Restart now's overlay hands the focus back to the Restart now pressed, when an install fails (release.9 review).
+    {
+      file: 'components/UpdateOverlay.tsx',
+      hook: 'useDialogFocus(boxRef, UPDATE_OVERLAY_FOCUS_FALLBACK);',
+      box: '<div className="modal modal--narrow update-overlay" ref={boxRef} tabIndex={-1} aria-busy="true">'
     }
   ];
 
@@ -154,6 +195,22 @@ describe('Every dialog takes the focus and hands it back (ui.4)', () => {
       expect(source.match(/useDialogFocus\(/g)).toHaveLength(1);
     });
   }
+
+  it("puts the focus in Restart now's overlay through the hook only, so it is handed back when the overlay goes", () => {
+    const source = read('components/UpdateOverlay.tsx');
+    expect(source).not.toMatch(/\.focus\(/);
+    expect(source).not.toContain('useLayoutEffect');
+  });
+
+  it("finds the overlay's fallbacks: About's box in the dialogs' layer, and the update card's button", () => {
+    const app = read('App.tsx');
+    expect(app).toMatch(
+      /<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>[^<]*(\{\w+\}\s*)*\{aboutDialog\}/
+    );
+    const cards = read('components/NotificationCards.tsx');
+    expect(cards).toContain("note.key === UPDATE_CARD_KEY ? ' note--update' : ''");
+    expect(cards).toContain('className="link note__action"');
+  });
 
   it('puts the focus of New chapter in its name field through the hook only', () => {
     const source = read('components/NewChapterDialog.tsx');

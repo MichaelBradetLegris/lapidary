@@ -56,7 +56,11 @@ const TAKE_NOTHING: readonly RequestChannel[] = [
   'secrets:openai-status',
   'secrets:openai-clear',
   'app:info',
-  'app:diagnostics'
+  'app:diagnostics',
+  'app:open-notices',
+  'update:get',
+  'update:check',
+  'update:install'
 ];
 const TAKE_SOMETHING = REQUEST_CHANNELS.filter((channel) => !TAKE_NOTHING.includes(channel));
 

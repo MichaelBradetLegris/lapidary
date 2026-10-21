@@ -40,7 +40,11 @@ const TAKES_NOTHING = {
   'secrets:openai-status': true,
   'secrets:openai-clear': true,
   'app:info': true,
-  'app:diagnostics': true
+  'app:diagnostics': true,
+  'app:open-notices': true,
+  'update:get': true,
+  'update:check': true,
+  'update:install': true
 } as const satisfies Record<ChannelTakingNothing, true>;
 
 export function takesNothing(channel: RequestChannel): boolean {

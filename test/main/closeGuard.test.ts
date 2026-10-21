@@ -1218,7 +1218,14 @@ describe('the wiring (apply.8)', () => {
   });
 
   it('tells the guard when the app quits, and awaits nothing', () => {
-    expect(INDEX).toContain("app.on('before-quit', () => closeGuard.onBeforeQuit());");
+    expect(INDEX.match(/app\.on\('before-quit'/g)).toHaveLength(1);
+    const handler = between(INDEX, "app.on('before-quit', (event) => {", '\n  });\n');
+    expect(handler).toContain('closeGuard.onBeforeQuit();');
+    expect(handler).not.toMatch(/\bawait\b|\basync\b/);
+    // The one quit cancelled is the one the updater holds (release.8b, C.94); the guard is then not told.
+    expect(handler).toMatch(
+      /if \(updateHoldsQuit\(\)\) \{\s*event\.preventDefault\(\);\s*return;\s*\}\s*closeGuard\.onBeforeQuit\(\);/
+    );
   });
 
   it('registers the three requests inside registerCoreHandlers', () => {

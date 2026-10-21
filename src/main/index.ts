@@ -14,24 +14,27 @@ import { abortAll } from './providers/controllers';
 import { loadSettings } from './settings';
 import { SHELL_STUB_PREFIX } from './shellApi';
 import { applyTheme, currentWindowBackground, installTheme } from './theme';
+import { startUpdates, updateHoldsQuit } from './updates';
+import { windowIconPath } from './windowIcon';
 import { installZoom } from './zoom';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
 
 /**
- * The window and taskbar icon. Packaged builds get it beside the executable
- * through electron-builder's extraResources; a dev run reads it out of the repo,
- * so `npm run dev` shows the real icon rather than Electron's default.
+ * The window's icon (src/main/windowIcon.ts): on Windows icon.ico, beside the
+ * asar when packaged and from the repository in a dev run, so the title bar
+ * gets the frame drawn for its size and `npm run dev` shows the real icon
+ * rather than Electron's.
  */
 function iconPath(): string | undefined {
-  const candidates = app.isPackaged
-    ? [path.join(process.resourcesPath, 'icon.png')]
-    : [
-        path.join(app.getAppPath(), 'resources', 'icon', 'icon-256.png'),
-        path.join(dirname, '../../resources/icon/icon-256.png')
-      ];
-  return candidates.find((candidate) => existsSync(candidate));
+  return windowIconPath({
+    platform: process.platform,
+    packaged: app.isPackaged,
+    roots: [app.getAppPath(), path.join(dirname, '..', '..')],
+    resourcesPath: process.resourcesPath,
+    exists: existsSync
+  });
 }
 
 /**
@@ -247,8 +250,16 @@ function start(): void {
 
   /* The app, not only its window, is closing: a close the page then agrees to
      goes on quitting, since holding the close cancelled the quit (apply.8).
-     Awaits nothing (11.3 a). */
-  app.on('before-quit', () => closeGuard.onBeforeQuit());
+     Awaits nothing (11.3 a). The one quit cancelled here is the one
+     electron-updater queued before it said the installer could not start, so
+     the app goes on as it was (release.8b, C.94). */
+  app.on('before-quit', (event) => {
+    if (updateHoldsQuit()) {
+      event.preventDefault();
+      return;
+    }
+    closeGuard.onBeforeQuit();
+  });
 
   // Synchronous on purpose: nothing may be awaited once the app is quitting.
   app.on('will-quit', () => {
@@ -268,6 +279,8 @@ function start(): void {
     applyTheme(settings.theme);
     installTheme();
     createWindow();
+    // The first check 15 s from now, then daily; nothing in a development run (11.3 a and n).
+    startUpdates();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

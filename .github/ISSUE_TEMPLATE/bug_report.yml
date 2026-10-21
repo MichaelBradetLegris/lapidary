@@ -13,7 +13,7 @@ body:
     attributes:
       label: App version
       description: |
-        There is no About window yet. Use the version number in the file name of the installer or portable exe you ran, such as 0.1.0. Or press Windows+R, paste `%APPDATA%\ai-grammar-checker\logs\main.log`, press Enter, and find the last line that contains `app.start version=`. If you cloned the repository with Git, the commit (`git rev-parse --short HEAD` in its folder) helps too.
+        There is no About window yet. Use the version number in the file name of the installer you ran, such as 0.1.0. Or press Windows+R, paste `%APPDATA%\ai-grammar-checker\logs\main.log`, press Enter, and find the last line that contains `app.start version=`. If you cloned the repository with Git, the commit (`git rev-parse --short HEAD` in its folder) helps too.
       placeholder: 0.1.0
     validations:
       required: true
@@ -23,7 +23,6 @@ body:
       label: How you run it
       options:
         - Installer
-        - Portable exe
         - Development run (npm run dev or dev:clean)
     validations:
       required: false

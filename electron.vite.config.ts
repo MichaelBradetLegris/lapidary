@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import { APP_NAME } from './src/shared/branding';
+import { bundledPackages } from './scripts/bundled-packages';
 
 const root = process.cwd();
 
@@ -19,7 +20,7 @@ const appNamePlugin = {
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin(), bundledPackages(root)],
     build: {
       rollupOptions: {
         input: { index: resolve(root, 'src/main/index.ts') }
@@ -27,7 +28,7 @@ export default defineConfig({
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin(), bundledPackages(root)],
     build: {
       rollupOptions: {
         input: { index: resolve(root, 'src/preload/index.ts') },
@@ -40,7 +41,7 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(root, 'src/renderer'),
-    plugins: [react(), appNamePlugin],
+    plugins: [react(), appNamePlugin, bundledPackages(root)],
     // Declared up front so the dev server never discovers a dependency mid-session
     // and reloads with two copies of React live at once.
     optimizeDeps: {

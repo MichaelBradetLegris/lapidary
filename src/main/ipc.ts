@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme, safeStorage, screen, 
 import { existsSync, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { APP_REPOSITORY } from '../shared/branding';
 import { diagnosticsReport, type DisplayFacts } from '../shared/diagnostics/report';
 import type { Settings } from '../shared/types';
 import type {
@@ -41,7 +42,7 @@ import {
   providers
 } from './providers';
 import { testConnection } from './providers/connectionTest';
-import { registerController } from './providers/controllers';
+import { abortAll, registerController } from './providers/controllers';
 import { clearOpenAiKey, openAiKeyStatus, storeOpenAiKey } from './secrets';
 import {
   OpenedChapters,
@@ -64,6 +65,7 @@ import {
 } from './guidelines';
 import { runHandler } from './ipcEnvelope';
 import { log, logWriting, tail } from './log';
+import { openNotices } from './notices';
 import { openGuidelines } from './openGuidelines';
 import { pickShell, type ShellApi } from './shellApi';
 import {
@@ -80,7 +82,9 @@ import {
 import { loadSettings, loadSettingsChecked, saveSettings } from './settings';
 import { SETTINGS_FILE, settingsAnswer } from './settingsStore';
 import { applyTheme } from './theme';
+import { checkedUpdateSettings, registerUpdateHandlers } from './updates';
 import { createManuscriptWatcher, listAndWatch } from './watcher';
+import { trackWrite, writesSettled } from './writes';
 import { applyZoom, changeZoom } from './zoom';
 
 type Handler<C extends RequestChannel> = (payload: RequestPayload<C>) => Promise<ResponsePayload<C>>;
@@ -94,6 +98,16 @@ const handlers = new Map<RequestChannel, (payload: unknown) => Promise<unknown>>
  */
 export function handle<C extends RequestChannel>(channel: C, fn: Handler<C>): void {
   handlers.set(channel, (payload) => fn(payload as RequestPayload<C>));
+}
+
+/**
+ * Register a handler whose work writes the author's files or settings, so
+ * that Restart now can let it end before the installer stops the app
+ * (`trackWrite` and `writesSettled` in writes.ts, release.8b). The request
+ * starts and answers exactly as it would otherwise.
+ */
+function handleWrite<C extends RequestChannel>(channel: C, fn: Handler<C>): void {
+  handle(channel, (payload) => trackWrite(() => fn(payload)));
 }
 
 /** Push a typed event to every open window. */
@@ -163,7 +177,7 @@ export function registerCoreHandlers(): void {
     return settingsAnswer(read);
   });
 
-  handle('settings:set', async (patch) => {
+  handleWrite('settings:set', async (patch) => {
     const settings = await saveSettings(patch);
     startWatching(settings.manuscriptFolder);
     // A changed Appearance setting takes effect at once, title bar and all
@@ -218,6 +232,43 @@ export function registerCoreHandlers(): void {
   registerSecretHandlers();
   registerCloseGuardHandlers();
   registerDiagnosticsHandlers();
+  registerUpdates();
+}
+
+/**
+ * The updater (release.8b, PLAN 11.3 n): its four channels and the app's one
+ * controller, which `startUpdates()` (src/main/updates.ts) sets going once the
+ * window exists. A development run, and an installed build with no
+ * `resources/app-update.yml`, never check; `MANUSCRIPT_REVIEW_DEV_FAKE_UPDATE`
+ * puts the fake in electron-updater's place in a development run.
+ */
+function registerUpdates(): void {
+  registerUpdateHandlers({
+    handle,
+    push: (status) => broadcast('update:state', status),
+    app: {
+      version: app.getVersion(),
+      packaged: app.isPackaged,
+      platform: process.platform,
+      feedExists: () => existsSync(path.join(process.resourcesPath, 'app-update.yml')),
+      quit: () => app.quit()
+    },
+    fakeUpdate: getDevSwitches().fakeUpdate,
+    repository: APP_REPOSITORY,
+    settings: checkedUpdateSettings(loadSettingsChecked),
+    saveConsent: (version) => trackWrite(() => saveSettings({ updateDownloadConsent: version })),
+    install: {
+      allowNextClose: (reason) => closeGuard.allowNextClose(reason),
+      abortAll,
+      writesSettled,
+      stopWatching,
+      resumeWatching: () => {
+        void loadSettings().then((settings) => startWatching(settings.manuscriptFolder));
+      }
+    },
+    log,
+    say: (line) => console.log(line)
+  });
 }
 
 /** The versions, read now: the app's, Electron's, the openai package's and the user's Claude Code (hardening.5). */
@@ -289,6 +340,16 @@ function registerDiagnosticsHandlers(): void {
     });
     return { text: diagnosticsReport(data, { home: os.homedir() }) };
   });
+  // About's Licences and notices (release.9): the file beside the installed app.
+  handle('app:open-notices', () =>
+    openNotices({
+      packaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      appPath: app.getAppPath(),
+      exists: existsSync,
+      shell: systemShell()
+    })
+  );
 }
 
 /**
@@ -462,7 +523,7 @@ function registerFileHandlers(): void {
     return content;
   });
 
-  handle('files:save', async (request) => {
+  handleWrite('files:save', async (request) => {
     const started = Date.now();
     const settings = await loadSettings();
     assertSavableChapter(request.path, {
@@ -494,7 +555,7 @@ function registerFileHandlers(): void {
     return checkChapterNameOnDisk(settings.manuscriptFolder, name, extension);
   });
 
-  handle('files:create', async ({ name, extension, text }) => {
+  handleWrite('files:create', async ({ name, extension, text }) => {
     const settings = await loadSettings();
     if (!settings.manuscriptFolder) {
       throw fail('not-configured', 'Choose a manuscript folder before creating a chapter.');
@@ -546,14 +607,16 @@ function registerFileHandlers(): void {
       if (problem) system.showItemInFolder(text);
       return { path: text };
     }
+    /* About's Open data folder (release.9): the folder itself, opened, or
+       shown in its parent should it fail to open. */
+    if (target === 'data') {
+      const folder = await userDataTarget('data');
+      const problem = await system.openPath(folder);
+      if (problem) system.showItemInFolder(folder);
+      return { path: folder };
+    }
     let file: string | null;
-    if (
-      target === 'data' ||
-      target === 'settings' ||
-      target === 'logs' ||
-      target === 'backups' ||
-      target === 'drafts'
-    ) {
+    if (target === 'settings' || target === 'logs' || target === 'backups' || target === 'drafts') {
       file = await userDataTarget(target);
     } else {
       const settings = await loadSettings();
@@ -605,7 +668,9 @@ function registerReviewHandlers(): void {
     loadLatestReview(await reviewsFolder(), sourcePath, hash === undefined ? {} : { hash })
   );
 
-  handle('reviews:save', async ({ review, path: file }) => saveReview(await reviewsFolder(), review, file));
+  handleWrite('reviews:save', async ({ review, path: file }) =>
+    saveReview(await reviewsFolder(), review, file)
+  );
 
   // The review on screen is the one its chapter opens with next (apply.26).
   handle('reviews:shown', async ({ sourcePath, path: file }) => {

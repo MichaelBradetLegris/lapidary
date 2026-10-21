@@ -80,7 +80,8 @@ function settingsDialog(keyStatus: OpenAiKeyStatus | null): string {
         onKeyChanged: () => undefined,
         onClose: () => undefined,
         onOpenSetup: () => undefined,
-        onShowWelcome: () => undefined
+        onShowWelcome: () => undefined,
+        onAbout: () => undefined
       })
     )
   );

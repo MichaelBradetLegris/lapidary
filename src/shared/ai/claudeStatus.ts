@@ -42,7 +42,8 @@ export function isOutdated(version: string, minimum: string = MIN_CLAUDE_CODE): 
  * How Claude Code words usage-limit messages. They arrive as prose, so they are
  * matched by their start. Copied from the Agent SDK 0.3.283's exported
  * USAGE_*_PREFIXES on 2026-10-14, when the app stopped depending on the SDK
- * (C.42); `release.10`'s per-release check looks at them again.
+ * (C.42); the Claude Code check of each release (docs/RELEASING.md,
+ * `release.10`) looks at them again.
  */
 export const USAGE_LIMIT_ERROR_PREFIXES: readonly string[] = [
   "You've hit your",
@@ -83,8 +84,9 @@ export function isUsageNotice(text: string): boolean {
  * works if it is at least `MIN_CLAUDE_CODE`, but it may not offer the newest
  * models: 2.1.266 lists Opus 5 where 2.1.283 lists Opus 5.5. The review dialog
  * says so and shows the update command. Claude Code has no "check without
- * installing" command, so this is the app's own yardstick; `release.10`'s
- * per-release check moves it to the current version after a live review.
+ * installing" command, so this is the app's own yardstick; the Claude Code
+ * check of each release (docs/RELEASING.md, `release.10`) moves it to the
+ * current version after a live review.
  */
 export const RECOMMENDED_CLAUDE_CODE = '2.1.283';
 

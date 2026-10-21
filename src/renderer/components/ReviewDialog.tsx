@@ -10,6 +10,7 @@ import type {
   RuntimeStatus
 } from '../../shared/ipc';
 import { defaultIsOpus, proPlanNote } from '../../shared/ai/claudeModels';
+import { AI_OUTPUT_NOTICE } from '../../shared/branding';
 import { claudeUpdateAdvice } from '../../shared/ai/claudeStatus';
 import { reviewDialogWarning, type LastFailure } from '../../shared/ui/setup';
 import { chapterStats, reviewSizeAdvice } from '../../shared/text/stats';
@@ -374,6 +375,10 @@ export function ReviewDialog({
             {saving ? 'Saving…' : labels.primary}
           </button>
         </div>
+        {/* The caution that goes with every review (release.9), under Start review. */}
+        <p className="modal__note modal__ai-notice" data-testid="ai-output-notice">
+          {AI_OUTPUT_NOTICE}
+        </p>
       </div>
     </div>
   );

@@ -59,6 +59,8 @@ beforeEach(() => {
     settingsOpen: false,
     setupOpen: false,
     diagnosticsOpen: null,
+    aboutOpen: false,
+    updateOverlay: false,
     settings: null,
     newChapterOpen: false,
     manualReviewOpen: false,
@@ -82,6 +84,9 @@ describe('reviewKeysActive (apply.20 review)', () => {
     // From a card's Show diagnostics, over the chapter (hardening.5).
     ['Diagnostics', { diagnosticsOpen: 'show' }],
     ['Diagnostics from Copy diagnostics', { diagnosticsOpen: 'copy' }],
+    // From Settings' About, and Restart now's overlay over everything (release.9).
+    ['About', { aboutOpen: true }],
+    ["Restart now's overlay", { updateOverlay: true }],
     // Shown again from Settings with a chapter open (setup.11).
     [
       'the welcome guide',

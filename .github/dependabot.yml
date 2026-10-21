@@ -1,0 +1,37 @@
+# Dependabot version updates (PLAN release.10). Four times a year it opens
+# pull requests for the four npm packages below and for the actions the
+# workflows use. Nothing merges on its own: no workflow turns on auto-merge,
+# and each pull request is merged by hand once CI has passed and the checks
+# docs/RELEASING.md gives for its package are done.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: quarterly
+    # Only these four. Every other package moves when a task moves it.
+    allow:
+      - dependency-name: openai
+      - dependency-name: electron
+      - dependency-name: electron-builder
+      - dependency-name: electron-updater
+    # A new major of these three changes the runtime, the installer or the
+    # updater under every installed copy, so it is a planned task with its own
+    # tests, never a pull request from here. Their patches and minors still
+    # come, each written as an exact version, as package.json pins them
+    # (PLAN 11.1, release.2).
+    ignore:
+      - dependency-name: electron
+        update-types: ['version-update:semver-major']
+      - dependency-name: electron-builder
+        update-types: ['version-update:semver-major']
+      - dependency-name: electron-updater
+        update-types: ['version-update:semver-major']
+
+  # The release workflow pins each action by its commit with the version in a
+  # comment, which Dependabot moves together (PLAN C.93); ci.yml names major
+  # tags.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: quarterly

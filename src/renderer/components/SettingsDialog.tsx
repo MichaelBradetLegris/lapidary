@@ -8,6 +8,7 @@ import type {
   RuntimeStatus
 } from '../../shared/ipc';
 import { EFFORT_LEVELS, type EffortLevel, type Settings } from '../../shared/types';
+import { ABOUT_BUTTON } from '../../shared/ui/about';
 import { BACKUPS_NOTE } from '../../shared/ui/backups';
 import { SETTINGS_BUTTON_SELECTOR } from '../../shared/ui/dialog';
 import { openedGuidelinesNote } from '../../shared/ui/guidelines';
@@ -32,6 +33,8 @@ interface Props {
   onOpenSetup: () => void;
   /** Show the welcome guide again (setup.11): it comes back in place of the main view */
   onShowWelcome: () => void;
+  /** About (release.9): it opens in place of Settings */
+  onAbout: () => void;
 }
 
 /**
@@ -52,7 +55,8 @@ export function SettingsDialog({
   onKeyChanged,
   onClose,
   onOpenSetup,
-  onShowWelcome
+  onShowWelcome,
+  onAbout
 }: Props): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -363,7 +367,11 @@ export function SettingsDialog({
         </div>
         <p className="modal__note">{WELCOME_GUIDE_NOTE}</p>
 
+        {/* About opens in place of Settings, as Setup does (release.9). */}
         <div className="modal__actions">
+          <button type="button" onClick={onAbout}>
+            {ABOUT_BUTTON}
+          </button>
           <span className="spacer" />
           <button type="button" className="primary" onClick={onClose}>
             Done

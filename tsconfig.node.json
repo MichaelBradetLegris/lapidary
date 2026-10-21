@@ -26,6 +26,7 @@
     "src/renderer/state/mergeMarkers.ts",
     "src/renderer/state/errorReport.ts",
     "src/renderer/state/crashPage.ts",
+    "src/renderer/state/updates.ts",
     "scripts/**/*.ts",
     "test/**/*.ts",
     "electron.vite.config.ts",

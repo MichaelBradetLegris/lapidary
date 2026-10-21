@@ -103,7 +103,7 @@ describe('the question holds the keyboard (apply.7 review), and so does every di
     expect(APP).toContain('const questionOpen = useApp((s) => s.confirmSpec !== null);');
     // What is open is what is drawn, so the page is never inert under nothing.
     expect(APP).toMatch(
-      /const inert = shellInert\(\{\s*dialog: \[newChapterDialog, manualReviewDialog, reviewDialog, settingsDialog, diagnosticsDialog\]\.some\(\s*\(d\) => d !== null\s*\),\s*question: questionOpen\s*\}\);/
+      /const inert = shellInert\(\{\s*dialog: \[\s*newChapterDialog,\s*manualReviewDialog,\s*reviewDialog,\s*settingsDialog,\s*diagnosticsDialog,\s*aboutDialog\s*\]\.some\(\(d\) => d !== null\),\s*question: questionOpen,\s*overlay: updateOverlay !== null\s*\}\);/
     );
     expect(main.indexOf(page)).toBeGreaterThan(main.indexOf('<div className="app-shell">'));
     const inside = main.slice(main.indexOf(page), main.indexOf(dialogs));
@@ -124,7 +124,7 @@ describe('the question holds the keyboard (apply.7 review), and so does every di
     // dialogs and closes just before the question, which stays outside both
     // (each `{}` is a JSX comment with its text taken out).
     expect(main).toMatch(
-      /<\/div>\s*(\{\s*\}\s*)?<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*\{diagnosticsDialog\}\s*<\/div>\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*<\/div>\s*\);\s*\}\s*$/
+      /<\/div>\s*(\{\s*\}\s*)?<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*\{diagnosticsDialog\}\s*\{aboutDialog\}\s*<\/div>\s*\{updateOverlay\}\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*<\/div>\s*\);\s*\}\s*$/
     );
     for (const name of ['<NewChapterDialog', '<ManualReviewDialog', '<ReviewDialog', '<SettingsDialog']) {
       expect(main, name).not.toContain(name);

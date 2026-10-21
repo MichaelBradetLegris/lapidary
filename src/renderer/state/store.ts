@@ -7,6 +7,7 @@ import { splitParagraphs } from '../../shared/text/paragraphs';
 import { stepIndex } from '../../shared/ui/find';
 import { stepFocus, type StepOptions } from '../../shared/ui/navigate';
 import type { SaveShortcutContext } from '../../shared/ui/save';
+import type { UpdateStatus } from '../../shared/updates';
 import { welcomeShown } from '../../shared/ui/welcome';
 import type { ChangeCategory, Hunk, HunkStatus, Review, ReviewComment, Settings } from '../../shared/types';
 
@@ -180,16 +181,17 @@ export function changedParagraphCount(drafts: Record<number, ParagraphDraft>): n
  * guide covers the page (`SaveShortcutContext.modalOpen`). The welcome guide
  * shows while the settings say it is not done, unless Start or Skip closed it
  * this session (`welcomeShown`, setup.11 and its review); a state without
- * settings has none. Diagnostics counts once it is open (hardening.5); a
- * state that does not say has it closed. The suggestion editor is a floating
- * panel, not a modal, and is not counted.
+ * settings has none. Diagnostics counts once it is open (hardening.5), and so
+ * do About and Restart now's overlay (release.9); a state that does not say
+ * has them closed. The suggestion editor is a floating panel, not a modal,
+ * and is not counted.
  */
 export function isModalOpen(
   state: Pick<
     AppState,
     'confirmSpec' | 'settingsOpen' | 'setupOpen' | 'newChapterOpen' | 'manualReviewOpen' | 'reviewDialogOpen'
   > &
-    Partial<Pick<AppState, 'settings' | 'welcomeClosed' | 'diagnosticsOpen'>>
+    Partial<Pick<AppState, 'settings' | 'welcomeClosed' | 'diagnosticsOpen' | 'aboutOpen' | 'updateOverlay'>>
 ): boolean {
   return (
     state.confirmSpec !== null ||
@@ -199,7 +201,9 @@ export function isModalOpen(
     state.newChapterOpen ||
     state.manualReviewOpen ||
     state.reviewDialogOpen ||
-    (state.diagnosticsOpen ?? null) !== null
+    (state.diagnosticsOpen ?? null) !== null ||
+    (state.aboutOpen ?? false) ||
+    (state.updateOverlay ?? false)
   );
 }
 
@@ -226,7 +230,7 @@ export function reviewKeysActive(
     | 'manualReviewOpen'
     | 'reviewDialogOpen'
   > &
-    Partial<Pick<AppState, 'settings' | 'welcomeClosed' | 'diagnosticsOpen'>>
+    Partial<Pick<AppState, 'settings' | 'welcomeClosed' | 'diagnosticsOpen' | 'aboutOpen' | 'updateOverlay'>>
 ): boolean {
   return state.review !== null && state.editor === null && !isModalOpen(state) && !isLocked(state);
 }
@@ -351,6 +355,19 @@ export interface AppState {
    * Show diagnostics; null when closed
    */
   diagnosticsOpen: 'copy' | 'show' | null;
+  /** the About dialog is open (release.9), from Settings' About */
+  aboutOpen: boolean;
+  /**
+   * Where the updater is, as main last said (`update:get`, then each
+   * `update:state`; release.9); null until main has answered. The update
+   * card and About's status line are drawn from it.
+   */
+  updateStatus: UpdateStatus | null;
+  /**
+   * Restart now's overlay covers the window (release.9): from the moment the
+   * page has agreed to go until the app quits, or the install fails.
+   */
+  updateOverlay: boolean;
   /**
    * Start or Skip closed the welcome guide in this run (setup.11 review). It
    * keeps the guide away even while the settings still say it is not done,
@@ -429,6 +446,9 @@ export interface AppState {
   setSettingsOpen: (open: boolean) => void;
   setSetupOpen: (open: boolean) => void;
   setDiagnosticsOpen: (open: 'copy' | 'show' | null) => void;
+  setAboutOpen: (open: boolean) => void;
+  setUpdateStatus: (status: UpdateStatus) => void;
+  setUpdateOverlay: (shown: boolean) => void;
   setWelcomeClosed: (closed: boolean) => void;
   setChapterSaving: (saving: boolean) => void;
   /** say whether a dialog holds text the author typed; unchanged state sets nothing */
@@ -512,6 +532,9 @@ export const useApp = create<AppState>()((set, get) => ({
   settingsOpen: false,
   setupOpen: false,
   diagnosticsOpen: null,
+  aboutOpen: false,
+  updateStatus: null,
+  updateOverlay: false,
   welcomeClosed: false,
   chapterSaving: false,
   drafts: {},
@@ -712,6 +735,9 @@ export const useApp = create<AppState>()((set, get) => ({
 
   setSetupOpen: (setupOpen) => set({ setupOpen }),
   setDiagnosticsOpen: (diagnosticsOpen) => set({ diagnosticsOpen }),
+  setAboutOpen: (aboutOpen) => set({ aboutOpen }),
+  setUpdateStatus: (updateStatus) => set({ updateStatus }),
+  setUpdateOverlay: (updateOverlay) => set({ updateOverlay }),
   setWelcomeClosed: (welcomeClosed) => set({ welcomeClosed }),
 
   setChapterSaving: (chapterSaving) => set({ chapterSaving }),

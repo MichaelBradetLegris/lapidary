@@ -21,8 +21,10 @@ import { welcomeNotKept, welcomeShown } from '../shared/ui/welcome';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
 import { bodyClassName, columnClassName } from '../shared/ui/columns';
 import { shellInert } from '../shared/ui/dialog';
+import type { UpdateAction } from '../shared/ui/update';
 import type { ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
 import { PROVIDER_NAMES, type Provider, type Review } from '../shared/types';
+import { AboutDialog } from './components/AboutDialog';
 import { ColumnStrip } from './components/ColumnStrip';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { DiagnosticsDialog } from './components/DiagnosticsDialog';
@@ -43,9 +45,10 @@ import { SetupScreen } from './components/SetupScreen';
 import { SidePanel } from './components/SidePanel';
 import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
+import { UpdateOverlay } from './components/UpdateOverlay';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { ApiError, call, errorMessage } from './state/client';
-import { installCloseGuard, type CloseGuardDeps } from './state/closeGuard';
+import { installCloseGuard, prepareToLeaveApp, type CloseGuardDeps } from './state/closeGuard';
 import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state/drafts';
 import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
 import { dismissHint, type HintIo } from './state/hints';
@@ -68,6 +71,13 @@ import {
 } from './state/reviewPersistence';
 import { baseFrom, useSaveChapter, type SaveDeps } from './state/saveChapter';
 import { useAi } from './state/useAi';
+import {
+  checkForUpdates,
+  downloadUpdate,
+  installUpdateCards,
+  restartNow,
+  type UpdateIo
+} from './state/updates';
 
 /** How kept paragraph boxes reach main (apply.16, state/drafts.ts). */
 const DRAFT_IO: DraftIo = {
@@ -89,6 +99,16 @@ const SETTINGS_READ_IO: SettingsReadIo = {
 /** How Start, Skip and Show the welcome guide again write the settings (setup.11, state/welcome.ts). */
 const WELCOME_IO: WelcomeIo = {
   setSettings: (patch) => call('settings:set', patch)
+};
+
+/** How the update card, About and Restart now reach main's updater (release.9, state/updates.ts). */
+const UPDATE_IO: UpdateIo = {
+  get: () => call('update:get', undefined),
+  check: () => call('update:check', undefined),
+  download: (version) => call('update:download', { version }),
+  install: () => call('update:install', undefined),
+  onState: (listener) =>
+    typeof window.api?.on === 'function' ? window.api.on('update:state', listener) : () => undefined
 };
 
 /**
@@ -130,6 +150,10 @@ export function App(): React.JSX.Element {
   const setSetupOpen = useApp((s) => s.setSetupOpen);
   const diagnosticsOpen = useApp((s) => s.diagnosticsOpen);
   const setDiagnosticsOpen = useApp((s) => s.setDiagnosticsOpen);
+  const aboutOpen = useApp((s) => s.aboutOpen);
+  const setAboutOpen = useApp((s) => s.setAboutOpen);
+  const updateStatus = useApp((s) => s.updateStatus);
+  const updateOverlayShown = useApp((s) => s.updateOverlay);
   const welcomeClosed = useApp((s) => s.welcomeClosed);
   const settingsReadFailed = useSettingsRead((s) => s.failed);
   const settingsTrying = useSettingsRead((s) => s.trying);
@@ -600,6 +624,28 @@ export function App(): React.JSX.Element {
   );
   useEffect(() => installCloseGuard(closeDeps), [closeDeps]);
 
+  /* ---------------- updates (release.9, state/updates.ts) ---------------- */
+
+  /* Main pushes where the updater is (`update:state`); the page keeps it for
+     About and shows the one update card from it, in place from Download to
+     Restart now. */
+  useEffect(() => installUpdateCards(UPDATE_IO), []);
+
+  /* The update card's button, and the same beside About's status line:
+     Download; Restart now, which asks the close question first and is refused
+     while a review runs; or the release page, in the browser, through the
+     window's open handler. */
+  const onUpdateAction = useCallback((action: UpdateAction) => {
+    if (action === 'update-download') {
+      void downloadUpdate(UPDATE_IO);
+    } else if (action === 'update-restart') {
+      void restartNow({ io: UPDATE_IO, prepare: prepareToLeaveApp });
+    } else {
+      const url = useApp.getState().updateStatus?.releaseUrl;
+      if (url) window.open(url, '_blank', 'noreferrer');
+    }
+  }, []);
+
   /* ---------------- actions ---------------- */
 
   const copyResult = useCallback(() => {
@@ -943,12 +989,14 @@ export function App(): React.JSX.Element {
           // Shows the report; only Setup's Copy diagnostics copies it at once (hardening.5).
           setDiagnosticsOpen('show');
           break;
-        default:
-          // Updates (release.9) wire theirs in when they land.
+        case 'update-download':
+        case 'update-restart':
+        case 'update-open-page':
+          onUpdateAction(action);
           break;
       }
     },
-    [openSettings, openSetup, fail, revealBackups, setDiagnosticsOpen]
+    [openSettings, openSetup, fail, revealBackups, setDiagnosticsOpen, onUpdateAction]
   );
 
   /* The status bar's runtime label is a button: Setup for Claude, Settings
@@ -1037,6 +1085,10 @@ export function App(): React.JSX.Element {
         onClose={() => setSettingsOpen(false)}
         onOpenSetup={openSetup}
         onShowWelcome={showWelcomeAgain}
+        onAbout={() => {
+          setSettingsOpen(false);
+          setAboutOpen(true);
+        }}
       />
     ) : null;
   /* Diagnostics (hardening.5): from Setup's Copy diagnostics, which copies
@@ -1044,11 +1096,33 @@ export function App(): React.JSX.Element {
   const diagnosticsDialog = diagnosticsOpen ? (
     <DiagnosticsDialog copyOnOpen={diagnosticsOpen === 'copy'} onClose={() => setDiagnosticsOpen(null)} />
   ) : null;
+  /* About (release.9), from Settings' About, which it replaces. */
+  const aboutDialog =
+    aboutOpen && settings ? (
+      <AboutDialog
+        settings={settings}
+        runtime={claudeRuntime}
+        update={updateStatus}
+        onApply={setSettings}
+        onCheck={() => checkForUpdates(UPDATE_IO)}
+        onUpdateAction={onUpdateAction}
+        onClose={() => setAboutOpen(false)}
+      />
+    ) : null;
+  /* Restart now's overlay (release.9), over the page and the dialogs from the
+     moment the page has agreed to go until the app closes for the installer. */
+  const updateOverlay = updateOverlayShown ? <UpdateOverlay update={updateStatus} /> : null;
   const inert = shellInert({
-    dialog: [newChapterDialog, manualReviewDialog, reviewDialog, settingsDialog, diagnosticsDialog].some(
-      (d) => d !== null
-    ),
-    question: questionOpen
+    dialog: [
+      newChapterDialog,
+      manualReviewDialog,
+      reviewDialog,
+      settingsDialog,
+      diagnosticsDialog,
+      aboutDialog
+    ].some((d) => d !== null),
+    question: questionOpen,
+    overlay: updateOverlay !== null
   });
 
   /* settings.json could not be read (hardening.15, C.86): one card says so,
@@ -1063,7 +1137,11 @@ export function App(): React.JSX.Element {
      hardening.15 review). A read that works puts the settings in the store,
      and the page is drawn as usual. */
   if (settingsReadFailed && settings === null) {
-    const cardInert = shellInert({ dialog: diagnosticsDialog !== null, question: questionOpen });
+    const cardInert = shellInert({
+      dialog: diagnosticsDialog !== null,
+      question: questionOpen,
+      overlay: updateOverlay !== null
+    });
     return (
       <div className="app-shell">
         <div className="app-shell__page" inert={cardInert.page}>
@@ -1082,6 +1160,7 @@ export function App(): React.JSX.Element {
         <div className="app-shell__dialogs" inert={cardInert.dialogs}>
           {diagnosticsDialog}
         </div>
+        {updateOverlay}
         <ConfirmDialog />
       </div>
     );
@@ -1120,6 +1199,7 @@ export function App(): React.JSX.Element {
                 testOutcome={ai.testOutcomes.claude ?? null}
                 rateLimit={ai.rateLimit}
                 onCopyDiagnostics={() => setDiagnosticsOpen('copy')}
+                version={updateStatus?.current ?? null}
               />
             ) : settings ? (
               <WelcomeScreen
@@ -1149,7 +1229,9 @@ export function App(): React.JSX.Element {
           {reviewDialog}
           {settingsDialog}
           {diagnosticsDialog}
+          {aboutDialog}
         </div>
+        {updateOverlay}
         <ConfirmDialog />
       </div>
     );
@@ -1268,7 +1350,9 @@ export function App(): React.JSX.Element {
         {reviewDialog}
         {settingsDialog}
         {diagnosticsDialog}
+        {aboutDialog}
       </div>
+      {updateOverlay}
       {/* Last, above everything: a question can be asked from any dialog above. */}
       <ConfirmDialog />
     </div>
