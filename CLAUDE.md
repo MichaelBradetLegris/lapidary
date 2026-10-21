@@ -15,16 +15,25 @@ npm install
 npm run dev        # electron-vite dev with HMR
 npm run dev:clean  # the same with Claude variables removed and scratch userData, for verification runs (C.43)
 npm test           # vitest
+npm run test:slow  # the watcher's timing tests in test/slow/
+npm run typecheck
 npm run lint
-npm run build      # electron-vite build
-npm run package    # sync productName, build, then electron-builder into dist/
-npm run package:dir     # the same, but only dist/win-unpacked: no installer, no portable exe
+npm run format:check
+npm run build      # typecheck, then electron-vite build
+npm run package    # sync productName, build, notices, electron-builder into dist/, then verify:package --installer
+npm run package:dir     # the same, but only dist/win-unpacked: no installer, and so no app-update.yml
+npm run notices         # out/THIRD_PARTY_NOTICES.txt from the build's records; needs build first
+npm run verify:package  # check dist/win-unpacked; -- --installer also the installer, latest.yml and app-update.yml
+npm run release:check -- v<x.y.z>  # can this tag be released? The release workflow's first step
+npm run release:notes -- v<x.y.z>  # that version's CHANGELOG section and .github/release-footer.md
 npm run icons      # regenerate resources/icon/ from scripts/make-icons.py (needs Pillow)
 npm run branding:check  # exit 1 if package.json has drifted from src/shared/branding.ts; writes nothing
 npm run check:public    # exit 1 if a file git would commit holds a profile path, an email or a key shape
 ```
 
 `npm run dev:clean -- <flags>` (`scripts/dev-clean.cjs`, C.43) removes every variable whose name starts with `CLAUDE`, `ANTHROPIC` or `DISABLE_`, printing their names and never their values, sets `MANUSCRIPT_REVIEW_USER_DATA` to the git-ignored `.dev-userdata`, and sets `REMOTE_DEBUGGING_PORT=9222`, which electron-vite passes to Electron as `--remote-debugging-port`, so DevTools listens on port 9222. Its flags: `--user-data <dir>`, or `--user-data-fresh` for a new empty folder in the system's temp folder, in place of `.dev-userdata`; `--claude-config <dir>`, or `--claude-config-empty` for a new empty folder (Claude Code signed out), as `CLAUDE_CONFIG_DIR`; `--api-key-dummy` and `--auth-token-dummy`, a dummy `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (C.71); `--no-claude-code`, `--quiet` and `--shell-stub`, which turn on `MANUSCRIPT_REVIEW_DEV_NO_CLAUDE_CODE`, `MANUSCRIPT_REVIEW_DEV_QUIET_WINDOW` and `MANUSCRIPT_REVIEW_DEV_SHELL_STUB` (below); and `--exe <path>`, which runs a packaged build with `--isolated-user-data=<dir>` and `--remote-debugging-port=9222` instead of `electron-vite dev`, and on which those three do nothing. `--help` prints the list. Set `V8_INSPECTOR_PORT=9229` before `dev:clean` to open main's inspector: electron-vite passes it to a development run as `--inspect` (C.81).
+
+`docs/RELEASING.md` is the release routine (`release.10`): versioning, cutting a release, fixing forward, the Claude Code check and the packages checked by hand each release, and the smoke checklist. Dependabot (`.github/dependabot.yml`) proposes openai, electron, electron-builder and electron-updater, and the workflows' actions, quarterly; nothing merges on its own.
 
 Test fixtures stay fit to publish: emails use `@example.com`, and a line with a placeholder profile path (`C:\Users\<name>`, `/home/<name>`) ends with a comment that starts with `check-public: allow`, as does a line with a long dummy key. The marker exempts its own line only, and only right after a comment opener (`//`, `/*`, `#`, `<!--` or a leading `*`), so prose that names it is still scanned.
 
