@@ -22,6 +22,7 @@ import {
   type LastFailure,
   type SetupOs
 } from '../../shared/ui/setup';
+import { setupFooterText } from '../../shared/ui/about';
 import { COPY_DIAGNOSTICS, SETUP_DIAGNOSTICS_TEXT } from '../../shared/ui/diagnostics';
 import { heldButton } from '../state/heldButton';
 import { Command } from './Command';
@@ -54,6 +55,8 @@ interface Props {
   rateLimit?: RateLimitInfo | null;
   /** Copy diagnostics (hardening.5): opens the Diagnostics dialog, which copies the report; shown when given */
   onCopyDiagnostics?: () => void;
+  /** the app's version, for the last line, the name and the version (release.9); no line while it is not known */
+  version?: string | null;
 }
 
 const SYSTEMS: ReadonlyArray<{ id: SetupOs; label: string }> = [
@@ -71,7 +74,8 @@ const SETUP_DOCS = 'https://code.claude.com/docs/en/setup';
  * very small request and says under the buttons how it went (setup.8); then,
  * for the view, the steps on the chosen system, each command with a Copy
  * that says when it fails; troubleshooting; Advanced, with the Claude Code
- * path and version; Copy diagnostics (hardening.5); and the privacy footer.
+ * path and version; Copy diagnostics (hardening.5); the privacy footer; and
+ * the app's name and version (release.9).
  * Everything it says comes from `src/shared/ui/setup.ts`, and the
  * diagnostics line from `src/shared/ui/diagnostics.ts`.
  *
@@ -92,7 +96,8 @@ export function SetupScreen({
   testing = false,
   testOutcome = null,
   rateLimit = null,
-  onCopyDiagnostics
+  onCopyDiagnostics,
+  version = null
 }: Props): React.JSX.Element {
   const host = givenHost ?? osFromUserAgent(navigator.userAgent);
   const [os, setOs] = useState<SetupOs>(() => initialOs ?? host);
@@ -255,6 +260,7 @@ export function SetupScreen({
             Anthropic&apos;s setup guide for Claude Code
           </a>
         </p>
+        {version ? <p className="setup__version">{setupFooterText(version)}</p> : null}
       </div>
     </div>
   );

@@ -34,7 +34,7 @@ describe('every layout has the cards, the dialogs and the question (setup.7)', (
       expect(layout).toContain('<div className="app-shell__page" inert={inert.page}>');
       expect(layout).toMatch(
         // (each `{}` is a JSX comment with its text taken out)
-        /<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*\{diagnosticsDialog\}\s*<\/div>\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*<\/div>\s*\);/
+        /<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*\{diagnosticsDialog\}\s*\{aboutDialog\}\s*<\/div>\s*\{updateOverlay\}\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*<\/div>\s*\);/
       );
       expect(layout).toMatch(
         /<StatusBar\s+review=\{review\}\s+\{\.\.\.statusRuntime\}\s+rateLimit=\{usageNotice\}\s+plan=\{claudeRuntime\?\.subscriptionType\}\s*\/>/
@@ -175,7 +175,7 @@ describe('Copy says when it fails (setup.7)', () => {
 describe('Test the connection, from the button to main and back (setup.8)', () => {
   it('gives the Setup screen the test, whether one is running and how the last went', () => {
     expect(SETUP).toMatch(
-      /onTest=\{testClaude\}\s*testing=\{ai\.testing\.claude \?\? false\}\s*testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*(rateLimit=\{ai\.rateLimit\}\s*)?(onCopyDiagnostics=\{\(\) => setDiagnosticsOpen\('copy'\)\}\s*)?\/>/
+      /onTest=\{testClaude\}\s*testing=\{ai\.testing\.claude \?\? false\}\s*testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*(rateLimit=\{ai\.rateLimit\}\s*)?(onCopyDiagnostics=\{\(\) => setDiagnosticsOpen\('copy'\)\}\s*)?(version=\{updateStatus\?\.current \?\? null\}\s*)?\/>/
     );
     const test = APP.slice(APP.indexOf('const testClaude = '), APP.indexOf('const refuseWhileEditing = '));
     expect(test).toContain("void testConnection('claude').then((result) => {");
@@ -240,7 +240,7 @@ describe("Claude's usage on the page (setup.9)", () => {
     expect(APP).toContain('const usageNotice = claudeInUse ? ai.rateLimit : null;');
     expect(APP).toContain("const claudeInUse = activeProvider === 'claude' || setupOpen;");
     expect(SETUP).toMatch(
-      /testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*rateLimit=\{ai\.rateLimit\}\s*(onCopyDiagnostics=\{\(\) => setDiagnosticsOpen\('copy'\)\}\s*)?\/>/
+      /testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*rateLimit=\{ai\.rateLimit\}\s*(onCopyDiagnostics=\{\(\) => setDiagnosticsOpen\('copy'\)\}\s*)?(version=\{updateStatus\?\.current \?\? null\}\s*)?\/>/
     );
     const bar = read('components/StatusBar.tsx');
     // With the plan, on which the weekly Sonnet limit's name depends (setup.9 review).

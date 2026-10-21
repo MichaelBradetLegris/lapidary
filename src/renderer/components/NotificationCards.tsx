@@ -1,4 +1,5 @@
 import { SHOW_ALL_BACKUPS, SHOW_BACKUPS } from '../../shared/ui/backups';
+import { UPDATE_ACTION_LABELS, UPDATE_CARD_KEY, actionKeepsCard } from '../../shared/ui/update';
 import { useApp, type NotificationAction } from '../state/store';
 import { IconX } from './icons';
 
@@ -9,9 +10,7 @@ const ACTION_LABELS: Record<NotificationAction, string> = {
   'reveal-drafts': 'Show the text',
   'reveal-backups': SHOW_BACKUPS,
   'reveal-all-backups': SHOW_ALL_BACKUPS,
-  'update-download': 'Download',
-  'update-restart': 'Restart now',
-  'update-open-page': 'Open the release page'
+  ...UPDATE_ACTION_LABELS
 };
 
 interface Props {
@@ -23,7 +22,10 @@ interface Props {
  * The message stack in the top-right corner of the manuscript pane (item 1).
  * Cards are sized to their text, stack downwards, and only ever close on the X:
  * no click-away and no timeout, so a save error stays until it is read. A card
- * may carry one button, which closes it after doing its job.
+ * may carry one button, which closes it after doing its job, except the update
+ * card's Download and Restart now, whose card goes on to show what follows in
+ * place (`actionKeepsCard`, release.9). The update card keeps one width
+ * (`note--update`).
  */
 export function NotificationCards({ onAction }: Props): React.JSX.Element | null {
   const notifications = useApp((s) => s.notifications);
@@ -34,7 +36,10 @@ export function NotificationCards({ onAction }: Props): React.JSX.Element | null
   return (
     <div className="notes" role="status" aria-live="polite">
       {notifications.map((note) => (
-        <div key={note.id} className={`note note--${note.tone}`}>
+        <div
+          key={note.id}
+          className={`note note--${note.tone}${note.key === UPDATE_CARD_KEY ? ' note--update' : ''}`}
+        >
           <span className="note__text">
             {note.text}
             {note.action && onAction ? (
@@ -45,7 +50,7 @@ export function NotificationCards({ onAction }: Props): React.JSX.Element | null
                   className="link note__action"
                   onClick={() => {
                     const action = note.action;
-                    dismiss(note.id);
+                    if (!action || !actionKeepsCard(action)) dismiss(note.id);
                     if (action) onAction(action, note.actionArg);
                   }}
                 >

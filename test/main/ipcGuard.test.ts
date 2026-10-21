@@ -57,6 +57,7 @@ const TAKE_NOTHING: readonly RequestChannel[] = [
   'secrets:openai-clear',
   'app:info',
   'app:diagnostics',
+  'app:open-notices',
   'update:get',
   'update:check',
   'update:install'

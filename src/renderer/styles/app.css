@@ -3556,3 +3556,138 @@ input[type='text'] {
   border-right: 1px solid var(--border) !important;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- About and the update (release.9) ---------- */
+
+/* About: the icon beside the name, the version and the tagline; then the
+   updates, what the app is, the versions it runs on and Diagnostics, each a
+   section under a hairline. It scrolls inside the window as Settings does. */
+.modal--about {
+  width: min(680px, 100%);
+}
+
+.about__head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.about__icon {
+  flex: none;
+  width: 64px;
+  height: 64px;
+}
+
+.about__head h2 {
+  font-size: 18px;
+}
+
+.about__version,
+.about__tagline {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.about__section {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+
+.about__section h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.about__update {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+}
+
+.about__update button {
+  white-space: nowrap;
+}
+
+.about__status {
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.about__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.about__toggle-note {
+  margin: 2px 0 8px 22px;
+}
+
+.about__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+}
+
+.about__text {
+  margin: 0 0 8px;
+  line-height: 1.45;
+}
+
+.about__components {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.about__folders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* The update card keeps one width from Download to Restart now, so neither
+   its left edge nor the cards under it move as the percentage grows a digit
+   (release.9). */
+.note--update {
+  width: 24em;
+  max-width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Restart now's overlay covers the page and every dialog while the app
+   closes for the installer. It sits under the question's layer (45), so a
+   question, should one ever come, can still be answered. */
+.modal-backdrop--overlay {
+  z-index: 44;
+}
+
+.update-overlay__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.update-overlay__head h2 {
+  margin: 0;
+}
+
+/* The Setup screen's last line: the app's name and version. */
+.setup__version {
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Review with AI's caution under Start review (release.9): the last line of
+   the dialog, after its buttons. */
+.modal__ai-notice {
+  margin: 10px 0 0;
+}

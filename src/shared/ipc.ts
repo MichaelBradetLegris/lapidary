@@ -625,6 +625,13 @@ export interface ApiRequestMap {
    * new check of Claude or OpenAI, and nothing of the chapters but their count
    */
   'app:diagnostics': { request: void; response: DiagnosticsReport };
+  /**
+   * About's Licences and notices (release.9): `THIRD_PARTY_NOTICES.txt` beside
+   * the installed app, opened in the system's app for .txt files, or shown in
+   * its folder when none is set; answers with the file's path. The page names
+   * no file, so it cannot ask for any other.
+   */
+  'app:open-notices': { request: void; response: { path: string } };
   /** an error the page did not expect, for the log (hardening.4); main writes at most 30 a minute */
   'log:renderer': { request: RendererLogLine; response: void };
   /* The updater (release.8b, PLAN 11.3 n): where it is, and what the author
@@ -693,6 +700,7 @@ const REQUEST_CHANNEL_FLAGS = {
   'app:close-decision': true,
   'app:info': true,
   'app:diagnostics': true,
+  'app:open-notices': true,
   'log:renderer': true,
   'update:get': true,
   'update:check': true,

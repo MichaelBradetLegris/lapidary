@@ -21,7 +21,7 @@ export const NEW_CHAPTER_BUTTON_SELECTOR = '[data-opens="new-chapter"]';
 export interface ShellInert {
   /** everything but the dialogs and the question */
   page: boolean;
-  /** Settings, New chapter, Review with AI and Submit manual review */
+  /** Settings, New chapter, Review with AI, Submit manual review, Diagnostics and About */
   dialogs: boolean;
 }
 
@@ -31,10 +31,13 @@ export interface ShellInert {
  * a screen reader, and Tab and Shift+Tab, finding nothing else in the window,
  * go round the open dialog's controls, from the last to the first and back.
  * A question is asked over everything, a dialog included, so the dialogs are
- * inert under it too (apply.7 review). The question itself never is.
+ * inert under it too (apply.7 review). The question itself never is. Restart
+ * now's overlay (`overlay`, release.9) covers the page and the dialogs while
+ * the app is about to close for the installer, so both are inert under it.
  */
-export function shellInert(open: { dialog: boolean; question: boolean }): ShellInert {
-  return { page: open.dialog || open.question, dialogs: open.question };
+export function shellInert(open: { dialog: boolean; question: boolean; overlay?: boolean }): ShellInert {
+  const overlay = open.overlay ?? false;
+  return { page: open.dialog || open.question || overlay, dialogs: open.question || overlay };
 }
 
 /** The parts of a keydown event the Escape rule reads. */

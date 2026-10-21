@@ -41,6 +41,7 @@ const TAKES_NOTHING = {
   'secrets:openai-clear': true,
   'app:info': true,
   'app:diagnostics': true,
+  'app:open-notices': true,
   'update:get': true,
   'update:check': true,
   'update:install': true

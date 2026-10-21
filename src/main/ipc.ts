@@ -65,6 +65,7 @@ import {
 } from './guidelines';
 import { runHandler } from './ipcEnvelope';
 import { log, logWriting, tail } from './log';
+import { openNotices } from './notices';
 import { openGuidelines } from './openGuidelines';
 import { pickShell, type ShellApi } from './shellApi';
 import {
@@ -339,6 +340,16 @@ function registerDiagnosticsHandlers(): void {
     });
     return { text: diagnosticsReport(data, { home: os.homedir() }) };
   });
+  // About's Licences and notices (release.9): the file beside the installed app.
+  handle('app:open-notices', () =>
+    openNotices({
+      packaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      appPath: app.getAppPath(),
+      exists: existsSync,
+      shell: systemShell()
+    })
+  );
 }
 
 /**
@@ -596,14 +607,16 @@ function registerFileHandlers(): void {
       if (problem) system.showItemInFolder(text);
       return { path: text };
     }
+    /* About's Open data folder (release.9): the folder itself, opened, or
+       shown in its parent should it fail to open. */
+    if (target === 'data') {
+      const folder = await userDataTarget('data');
+      const problem = await system.openPath(folder);
+      if (problem) system.showItemInFolder(folder);
+      return { path: folder };
+    }
     let file: string | null;
-    if (
-      target === 'data' ||
-      target === 'settings' ||
-      target === 'logs' ||
-      target === 'backups' ||
-      target === 'drafts'
-    ) {
+    if (target === 'settings' || target === 'logs' || target === 'backups' || target === 'drafts') {
       file = await userDataTarget(target);
     } else {
       const settings = await loadSettings();

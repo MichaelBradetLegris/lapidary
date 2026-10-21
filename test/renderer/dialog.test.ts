@@ -143,6 +143,12 @@ describe('Every dialog takes the focus and hands it back (ui.4)', () => {
       file: 'components/NewChapterDialog.tsx',
       hook: 'useDialogFocus(boxRef, NEW_CHAPTER_BUTTON_SELECTOR, nameRef);',
       box: '<div className="modal" ref={boxRef} tabIndex={-1}>'
+    },
+    // About replaces Settings, so the focus goes back to Settings' toolbar button (release.9).
+    {
+      file: 'components/AboutDialog.tsx',
+      hook: 'useDialogFocus(boxRef, SETTINGS_BUTTON_SELECTOR);',
+      box: '<div className="modal modal--about" ref={boxRef} tabIndex={-1}>'
     }
   ];
 

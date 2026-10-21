@@ -268,12 +268,14 @@ describe("Settings' Show the welcome guide again", () => {
         onKeyChanged: () => undefined,
         onClose: () => undefined,
         onOpenSetup: () => undefined,
-        onShowWelcome: () => undefined
+        onShowWelcome: () => undefined,
+        onAbout: () => undefined
       })
     );
     expect(decode(html)).toContain(
       `<div class="modal__row"><span>Welcome guide</span><span></span><span class="modal__buttons"><button type="button">${SHOW_WELCOME_AGAIN}</button></span></div><p class="modal__note">${WELCOME_GUIDE_NOTE}</p>`
     );
-    expect(buttons(html).slice(-2)).toEqual([SHOW_WELCOME_AGAIN, 'Done [blue]']);
+    // About (release.9) sits at the foot, beside Done.
+    expect(buttons(html).slice(-3)).toEqual([SHOW_WELCOME_AGAIN, 'About', 'Done [blue]']);
   });
 });

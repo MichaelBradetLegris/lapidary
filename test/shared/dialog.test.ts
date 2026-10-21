@@ -131,6 +131,15 @@ describe('shellInert (ui.4)', () => {
     expect(shellInert({ dialog: true, question: true })).toEqual({ page: true, dialogs: true });
   });
 
+  it("makes the page and the dialogs inert under Restart now's overlay (release.9)", () => {
+    for (const dialog of [false, true]) {
+      for (const question of [false, true]) {
+        expect(shellInert({ dialog, question, overlay: true })).toEqual({ page: true, dialogs: true });
+        expect(shellInert({ dialog, question, overlay: false })).toEqual(shellInert({ dialog, question }));
+      }
+    }
+  });
+
   it('never leaves the page live while anything covers it, nor makes a dialog inert with no question over it', () => {
     for (const dialog of [false, true]) {
       for (const question of [false, true]) {
