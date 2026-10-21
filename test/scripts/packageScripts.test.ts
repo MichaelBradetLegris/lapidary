@@ -32,18 +32,18 @@ const scripts = pkg.scripts ?? {};
  * Packages pinned to one version, never a range, each with a floor: the pin
  * must stay on the floor's major and must not go below it. PLAN 11.1's
  * "Updates" row names electron-builder 26.17.0 and electron-updater 6.8.10 on
- * the v26 line; its "Electron" row asks for the latest 44.x, and
- * `release.21`, which takes Electron there, raises the floor from 44.3.0. A
- * later patch or minor on the same major passes, since `release.21`, the
- * release checklist (11.4, step 2) and `release.10`'s Dependabot all expect
- * one. npm's `latest` tag for electron-builder is 26.15.3 and for
- * electron-updater 6.8.9, so `npm i -E electron-updater` without the version
- * goes back, and `npm audit fix --force` would take electron-builder to
- * 26.5.0 (`opensource.3`). A deliberate bump edits PLAN 11.1 (CLAUDE.md rule
- * 7) and raises the floor here with it.
+ * the v26 line; its "Electron" row asks for the latest 44.x, which
+ * `release.21` took on 2026-10-21, raising the floor from 44.3.0 to 44.9.3. A
+ * later patch or minor on the same major passes, since the release checklist
+ * (11.4, step 2) and `release.10`'s Dependabot both expect one. npm's `latest`
+ * tag for electron-builder is 26.15.3 and for electron-updater 6.8.9, so
+ * `npm i -E electron-updater` without the version goes back, and `npm audit
+ * fix --force` would take electron-builder to 26.5.0 (`opensource.3`); for
+ * electron it is 45.0.0, a new major, which this test refuses. A deliberate
+ * bump edits PLAN 11.1 (CLAUDE.md rule 7) and raises the floor here with it.
  */
 const EXACT_PINS: Record<string, string> = {
-  electron: '44.3.0',
+  electron: '44.9.3',
   'electron-builder': '26.17.0',
   'electron-updater': '6.8.10'
 };
