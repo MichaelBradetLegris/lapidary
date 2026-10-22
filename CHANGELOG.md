@@ -100,7 +100,7 @@ Work towards 1.0.
 - The icon is larger at small sizes: the pebble fills nearly all of its square, as the other icons on the taskbar do, and at 40 pixels and below its line of type and its dots are bigger, so they are easier to make out.
 - The main button in each place, such as Save to chapter, Start review, Done and Close, is now the turquoise of Lapidary's icon instead of blue, and so are the system chosen on the Setup screen and the ticks in checkboxes and option buttons. In the dark theme the button is the icon's bright turquoise with dark text. Links and other blue text stay blue, and so does the frame round a paragraph you are editing, whose glow in the dark theme now matches its border.
 - Lapidary now runs on Electron 44.9.3, with Chromium 152.0.7977.167 and Node.js 24.22.0, as About shows under Versions. It ran on Electron 44.3.0; the newer version has the security and crash fixes Electron and Chromium have released since.
-- The category chips now sit above the chapter's text only, not across the whole window, so the chapter list and the side panel start right under the toolbar and the side panel has their height for suggestions and comments. The chips stay on one row and scroll sideways when they do not fit: with the scrollbar under them, the mouse wheel turned over them, or Tab.
+- The category chips now sit above the chapter's text only, not across the whole window, so the chapter list and the side panel start right under the toolbar and the side panel has their height for suggestions and comments. The chips are now on one row, which scrolls sideways when they do not fit, rather than wrapping onto several rows: use the scrollbar under them, turn the mouse wheel over them, or press Tab.
 
 ### Fixed
 
