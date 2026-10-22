@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 
 const SRC = path.join(__dirname, '../../src/renderer');
 const HELP = readFileSync(path.join(SRC, 'components/HelpTip.tsx'), 'utf8');
+const SETTINGS = readFileSync(path.join(SRC, 'components/SettingsDialog.tsx'), 'utf8');
 const CSS = readFileSync(path.join(SRC, 'styles/app.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** Every declaration made for exactly this selector, across app.css. */
@@ -61,6 +62,30 @@ describe('the (?) (polish.4)', () => {
     expect(tip.get('position')).toBe('fixed');
     expect(Number(tip.get('z-index'))).toBeGreaterThan(Number(declsFor('.settings__foot').get('z-index')));
   });
+
+  /* polish.4 review: with the keyboard's focus on a (?), Page Down or the
+     wheel scrolled it under the head, and its card followed it over the
+     title. insideBand itself is tested in test/shared/ui.test.ts. */
+  it('hides its card, still open, while the box has scrolled the (?) out of the band between the head and the foot', () => {
+    // The band: from the bottom of the box's head to the top of its foot, or the box's own edges.
+    const band = HELP.slice(HELP.indexOf('function visibleBand('), HELP.indexOf('interface Props'));
+    expect(band).toContain("const box = button.closest('.modal');");
+    expect(band).toContain("box.querySelector('.settings__head')?.getBoundingClientRect()");
+    expect(band).toContain("box.querySelector('.settings__foot')?.getBoundingClientRect()");
+    expect(band).toContain('top: head ? head.bottom : edges.top, bottom: foot ? foot.top : edges.bottom');
+    // Every placing, the first and each one a scroll or a resize asks for, checks it first.
+    const place = HELP.slice(HELP.indexOf('const place = (): void => {'), HELP.indexOf('place();'));
+    const hide = place.indexOf("tip.style.visibility = 'hidden';");
+    const show = place.indexOf("tip.style.visibility = '';");
+    expect(place).toMatch(
+      /const band = visibleBand\(button\);\s*if \(band && !insideBand\(at, band\)\) \{\s*tip\.style\.visibility = 'hidden';\s*return;\s*\}/
+    );
+    expect(hide).toBeGreaterThan(0);
+    expect(show).toBeGreaterThan(hide);
+    expect(show).toBeLessThan(place.indexOf('placeTooltip('));
+    // Hidden by its style alone, so it stays open and the next scroll can show it again.
+    expect(place).not.toMatch(/set(Hovered|KeyFocus)\(/);
+  });
 });
 
 describe("Settings' head and foot (polish.4)", () => {
@@ -79,9 +104,24 @@ describe("Settings' head and foot (polish.4)", () => {
     expect(box.has('overflow')).toBe(false);
   });
 
-  it('keeps a control the keyboard moves to clear of them', () => {
+  it('keeps a control the keyboard moves to clear of them, by their measured height', () => {
+    // The starting values, for the head with no message and the foot.
     const box = declsFor('.modal--settings');
     expect(parseInt(box.get('scroll-padding-top') ?? '0', 10)).toBeGreaterThanOrEqual(48);
     expect(parseInt(box.get('scroll-padding-bottom') ?? '0', 10)).toBeGreaterThanOrEqual(60);
+    /* polish.4 review: the head grows with a message, so the padding is set
+       from the head's and the foot's measured height, again whenever either
+       changes size. */
+    expect(SETTINGS).toContain('<div className="settings__head" ref={headRef}>');
+    expect(SETTINGS).toContain('<div className="modal__actions settings__foot" ref={footRef}>');
+    expect(SETTINGS).toContain('const STICKY_CLEARANCE_PX = 8;');
+    const effect = SETTINGS.slice(SETTINGS.indexOf('useLayoutEffect(() => {'));
+    const fit = effect.slice(0, effect.indexOf('}, []);'));
+    expect(fit).toContain('box.style.scrollPaddingTop = `${head.offsetHeight + STICKY_CLEARANCE_PX}px`;');
+    expect(fit).toContain('box.style.scrollPaddingBottom = `${foot.offsetHeight + STICKY_CLEARANCE_PX}px`;');
+    expect(fit).toMatch(/\};\s*fit\(\);\s*const observer = new ResizeObserver\(fit\);/);
+    expect(fit).toContain('observer.observe(head);');
+    expect(fit).toContain('observer.observe(foot);');
+    expect(fit).toContain('return () => observer.disconnect();');
   });
 });

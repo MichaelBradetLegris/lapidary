@@ -6,7 +6,7 @@ import { indexesOf, matchLabel, stepIndex } from '../../src/shared/ui/find';
 import { formatElapsed, PROGRESS_TICK_MS, progressLabel } from '../../src/shared/ui/progress';
 import { stackCards } from '../../src/shared/ui/stack';
 import { groupSuggestions, summaryLine } from '../../src/shared/ui/suggestions';
-import { placeTooltip, TOOLTIP_DELAY_MS } from '../../src/shared/ui/tooltip';
+import { insideBand, placeTooltip, TOOLTIP_DELAY_MS } from '../../src/shared/ui/tooltip';
 import type { Hunk } from '../../src/shared/types';
 
 function hunk(partial: Partial<Hunk> & Pick<Hunk, 'id'>): Hunk {
@@ -219,6 +219,24 @@ describe('tooltip placement', () => {
       top: 634,
       placement: 'above'
     });
+  });
+
+  /* polish.4 review: a (?) shows its card only while it lies wholly between
+     Settings' head and foot, so a (?) the box scrolled under either, or out
+     of sight, leaves no card over the title. */
+  it('tells whether the anchor lies wholly inside the band, to half a pixel', () => {
+    const band = { top: 92, bottom: 470 };
+    expect(insideBand({ top: 120, bottom: 138 }, band)).toBe(true);
+    expect(insideBand({ top: 92, bottom: 110 }, band)).toBe(true);
+    expect(insideBand({ top: 452, bottom: 470 }, band)).toBe(true);
+    expect(insideBand({ top: 91.6, bottom: 109.6 }, band)).toBe(true);
+    expect(insideBand({ top: 470.4, bottom: 470.4 }, band)).toBe(true);
+    // Partly under the head or the foot, then out of sight.
+    expect(insideBand({ top: 80, bottom: 98 }, band)).toBe(false);
+    expect(insideBand({ top: 91, bottom: 109 }, band)).toBe(false);
+    expect(insideBand({ top: 460, bottom: 478 }, band)).toBe(false);
+    expect(insideBand({ top: 12, bottom: 30 }, band)).toBe(false);
+    expect(insideBand({ top: 600, bottom: 618 }, band)).toBe(false);
   });
 });
 

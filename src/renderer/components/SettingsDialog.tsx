@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { openAiKeyLine, openAiKeyRowLabel } from '../../shared/ai/openai';
 import type {
   EffectivePaths,
@@ -40,6 +40,9 @@ import { modelOptions } from '../state/models';
 import { GuidelinesButtons } from './Guidelines';
 import { HelpTip } from './HelpTip';
 
+/** How far a control the keyboard moves to stays from the head and the foot, in CSS px. */
+const STICKY_CLEARANCE_PX = 8;
+
 interface Props {
   settings: Settings;
   /** Claude's model list */
@@ -73,7 +76,8 @@ interface Props {
  * control names its row's path, status line, note or tooltip as its
  * description. The box still scrolls when the window is too short for it,
  * with its title and any message at the top, and its buttons at the foot,
- * held in view.
+ * held in view, and a scroll padding of their measured height keeps a control
+ * Tab or Shift+Tab reaches clear of them.
  */
 export function SettingsDialog({
   settings,
@@ -97,8 +101,33 @@ export function SettingsDialog({
   const uid = useId();
   const id = (part: string): string => `${uid}-${part}`;
   const boxRef = useRef<HTMLDivElement>(null);
+  const headRef = useRef<HTMLDivElement>(null);
+  const footRef = useRef<HTMLDivElement>(null);
   useDialogEscape(boxRef, onClose);
   useDialogFocus(boxRef, SETTINGS_BUTTON_SELECTOR);
+
+  /* The scroll padding keeps a control the keyboard moves to clear of the head
+     and the foot, which stay in view (polish.4). The head grows with a message,
+     an error and a note at once, or a path that wraps, and both change with
+     the zoom, so the padding is each one's measured height and a little more,
+     set again whenever either changes size; app.css's values are the start
+     (polish.4 review: a fixed 56 px covered only a head with no message, so
+     Shift+Tab could stop on a control under a taller one). */
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const head = headRef.current;
+    const foot = footRef.current;
+    if (!box || !head || !foot) return;
+    const fit = (): void => {
+      box.style.scrollPaddingTop = `${head.offsetHeight + STICKY_CLEARANCE_PX}px`;
+      box.style.scrollPaddingBottom = `${foot.offsetHeight + STICKY_CLEARANCE_PX}px`;
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(head);
+    observer.observe(foot);
+    return () => observer.disconnect();
+  }, []);
 
   const saveKey = (): void => {
     const key = keyDraft;
@@ -193,7 +222,7 @@ export function SettingsDialog({
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Settings">
       <div className="modal modal--settings" ref={boxRef} tabIndex={-1}>
         {/* The title and any message stay in view while the box scrolls (polish.4). */}
-        <div className="settings__head">
+        <div className="settings__head" ref={headRef}>
           <h2>Settings</h2>
           {error ? <p className="modal__hint modal__hint--error">{error}</p> : null}
           {note ? <p className="modal__hint">{note}</p> : null}
@@ -471,7 +500,7 @@ export function SettingsDialog({
         {/* The guide comes back in place of the main view, and Settings closes
             so that it shows (setup.11); About opens in place of Settings, as
             Setup does (release.9). The row stays in view while the box scrolls. */}
-        <div className="modal__actions settings__foot">
+        <div className="modal__actions settings__foot" ref={footRef}>
           <button type="button" title={WELCOME_GUIDE_NOTE} onClick={onShowWelcome}>
             {SHOW_WELCOME_AGAIN}
           </button>

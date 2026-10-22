@@ -58,3 +58,21 @@ export function placeTooltip(
 
   return { left, top, placement };
 }
+
+/** A stretch of the window from a top edge to a bottom edge, in CSS pixels. */
+export interface Span {
+  top: number;
+  bottom: number;
+}
+
+/**
+ * Whether `anchor` lies wholly inside `band`, to half a pixel either way.
+ * Settings' (?) shows its card only while it does, the band being the part of
+ * the box between its head and its foot, which stay in view as it scrolls
+ * (`HelpTip`, polish.4 review): a (?) that the box has scrolled under the head
+ * or the foot, or out of sight, has its card hidden, so that no card stands
+ * over the title with nothing to show which row it belongs to.
+ */
+export function insideBand(anchor: Span, band: Span): boolean {
+  return anchor.top >= band.top - 0.5 && anchor.bottom <= band.bottom + 0.5;
+}

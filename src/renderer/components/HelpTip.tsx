@@ -1,9 +1,23 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { placeTooltip } from '../../shared/ui/tooltip';
+import { insideBand, placeTooltip, type Span } from '../../shared/ui/tooltip';
 import { helpButtonLabel } from '../../shared/ui/settingsDialog';
 
 /** How long the card waits after the pointer leaves, so the pointer can cross the gap onto it. */
 const LEAVE_DELAY_MS = 150;
+
+/**
+ * The part of the dialog's box where a (?) can be seen: between Settings'
+ * head and foot, which stay in view as the box scrolls (polish.4), or the
+ * box's own edges where it has none. Null outside a box.
+ */
+function visibleBand(button: HTMLElement): Span | null {
+  const box = button.closest('.modal');
+  if (!box) return null;
+  const edges = box.getBoundingClientRect();
+  const head = box.querySelector('.settings__head')?.getBoundingClientRect();
+  const foot = box.querySelector('.settings__foot')?.getBoundingClientRect();
+  return { top: head ? head.bottom : edges.top, bottom: foot ? foot.top : edges.bottom };
+}
 
 interface Props {
   /** the card's id, which the row's control may also name in its `aria-describedby` */
@@ -25,7 +39,11 @@ interface Props {
  * Placed like the suggestions' hover card (HunkTooltip): `position: fixed`,
  * measured and moved in a layout effect, so showing it never scrolls the
  * dialog, and placed again when anything scrolls or the window is resized.
- * Its left edge is under the (?)'s, below it unless there is no room.
+ * Its left edge is under the (?)'s, below it unless there is no room. While
+ * the box has scrolled the (?) under the head or the foot, or out of sight,
+ * the card is hidden, though still open, and it shows again once the (?) is
+ * back (polish.4 review): the keyboard's focus stays on a (?) that Page Down
+ * or the wheel scrolls away, and the card would follow it over the title.
  */
 export function HelpTip({ id, topic, text }: Props): React.JSX.Element {
   const [hovered, setHovered] = useState(false);
@@ -63,10 +81,16 @@ export function HelpTip({ id, topic, text }: Props): React.JSX.Element {
       const tip = tipRef.current;
       const button = buttonRef.current;
       if (!tip || !button) return;
+      const at = button.getBoundingClientRect();
+      const band = visibleBand(button);
+      if (band && !insideBand(at, band)) {
+        tip.style.visibility = 'hidden';
+        return;
+      }
+      tip.style.visibility = '';
       tip.style.left = '0px';
       tip.style.top = '0px';
       const size = tip.getBoundingClientRect();
-      const at = button.getBoundingClientRect();
       const placed = placeTooltip(
         { left: at.left, top: at.top, width: at.width, height: at.height },
         { width: size.width, height: size.height },

@@ -2072,7 +2072,9 @@ input[type='text'] {
    box still scrolls in a short window, between its head (the title and any
    message) and its foot (the welcome guide, About and Done), which stay in
    view, each with a hairline on its inner side; the scroll padding keeps a
-   control the keyboard moves to clear of them. The box has no padding of its
+   control the keyboard moves to clear of them. These two values are only the
+   start: SettingsDialog sets the padding from the head's and the foot's
+   measured height, which grows with a message. The box has no padding of its
    own at the top and the foot, which the head and the foot give instead, so
    nothing shows above or below them. */
 .modal--settings {
