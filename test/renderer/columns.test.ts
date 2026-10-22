@@ -93,6 +93,8 @@ describe('each column is in place, or a strip and a drawer (ui.3)', () => {
       '<ColumnStrip column="files"',
       "id={drawerId('files')}",
       '<FileList',
+      '<div className="center-col">',
+      '<FilterChips',
       '<div className={`center-wrap',
       '<ColumnStrip column="side"',
       "id={drawerId('side')}",
@@ -232,7 +234,7 @@ describe('the first-use hint keeps to the side panel wherever it is drawn (ui.3)
 
   it('is placed again when the columns are laid out again, which the toolbar may not notice', () => {
     expect(HINT).toMatch(
-      /for \(const column of document\.querySelectorAll\('\.body \.side, \.body > \.center-wrap'\)\) \{\s*observer\.observe\(column\);\s*\}/
+      /for \(const column of document\.querySelectorAll\('\.body \.side, \.body > \.center-col'\)\) \{\s*observer\.observe\(column\);\s*\}/
     );
   });
 });

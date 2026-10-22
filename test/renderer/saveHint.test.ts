@@ -139,22 +139,27 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
     expect(zIndexes().filter((n) => n === z)).toHaveLength(1);
   });
 
-  it('stays clear of the cards and the find bar, which live in the centre column beside the side panel', () => {
-    // The hint keeps to `.body .side` (above). The find bar and the cards are
-    // in `.center-wrap`, the column before it, and never reach out of it: the
-    // find bar is a strip in its flow, and the cards are pinned inside it.
+  it('stays clear of the chips, the cards and the find bar, which live in the centre column beside the side panel', () => {
+    // The hint keeps to `.body .side` (above). The chips are a strip at the
+    // top of `.center-col`, the column before it, since polish.6; the find bar
+    // and the cards are in `.center-wrap` under them, and never reach out of
+    // it: the find bar is a strip in its flow, and the cards are pinned inside it.
     // With the side panel folded to a strip (ui.3), its drawer's column lies
     // over the prose's edge, so there the hint may meet them: see
     // test/renderer/columns.test.ts.
     // The main layout, the last App returns: the Setup screen's has its
     // cards in its own column (setup.7, below).
     const main = APP.slice(APP.lastIndexOf('return ('));
+    const column = main.indexOf('<div className="center-col">');
+    const chips = main.indexOf('<FilterChips');
     const wrap = main.indexOf('<div className={`center-wrap');
     const find = main.indexOf('<FindBar />');
     const cards = main.indexOf('<NotificationCards');
     const lock = main.indexOf('<LockCard');
     const side = main.indexOf('<SidePanel');
-    expect(wrap).toBeGreaterThan(0);
+    expect(column).toBeGreaterThan(0);
+    expect(chips).toBeGreaterThan(column);
+    expect(wrap).toBeGreaterThan(chips);
     expect(find).toBeGreaterThan(wrap);
     expect(cards).toBeGreaterThan(find);
     expect(lock).toBeGreaterThan(cards);

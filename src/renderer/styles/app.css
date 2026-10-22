@@ -351,10 +351,10 @@ input[type='text'] {
 /* The first-use hint (apply.12): a note under the toolbar with its arrow on
    Save to chapter. It hangs below the toolbar's last row, so it never covers
    one of its buttons whichever row Save has wrapped onto, and keeps to the
-   side panel's column, so it never meets the notification cards or the find
-   bar beside it; it may cover the top of the side panel, the chips at that end
-   of their strip, and the find bar's last buttons where a narrow centre column
-   lets them spill into the side panel's (PLAN 7). Got it is the way out.
+   side panel's column, so it never meets the chips, the notification cards or
+   the find bar beside it; it may cover the top of the side panel, and the find
+   bar's last buttons where a narrow centre column lets them spill into the
+   side panel's (PLAN 7). Got it is the way out.
    SaveHint.tsx sets `left`, `width` and the arrow's place from
    `saveHintPlacement`, and it stays hidden until then, like the hover card.
    Under the notification cards (12), so a card wins should the two ever meet,
@@ -569,10 +569,23 @@ input[type='text'] {
   overflow: clip;
 }
 
+/* The centre column of the grid: the category chips, then the manuscript pane
+   under them (polish.6). The chips were a row across the whole window under
+   the toolbar, which took their height from the chapter list and the side
+   panel as well; here only the prose gives it. */
+.center-col {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 /* The scroller lives inside a positioned wrapper so the notification cards can
-   be pinned to the top-right of the manuscript pane without scrolling away. */
+   be pinned to the top-right of the manuscript pane without scrolling away. It
+   starts under the chips, so the cards and the find bar never cover them. */
 .center-wrap {
   position: relative;
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -715,17 +728,25 @@ input[type='text'] {
 
 /* ---------- filter chips ---------- */
 
+/* One row at the top of the centre column, under the toolbar (polish.6). When
+   the chips do not fit they scroll sideways rather than wrap: wrapped, thirteen
+   categories took three rows in the smallest window at 100% and six at 200%,
+   where the prose had no height left. Opaque, as every scroller is (theme.1). */
 .chips {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
   padding: 6px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
   border-bottom: 1px solid var(--border);
   background: var(--panel-alt);
   flex: 0 0 auto;
 }
 
 .chip {
+  flex: 0 0 auto;
+  white-space: nowrap;
   display: inline-flex;
   align-items: stretch;
   border: 1px solid var(--border);
@@ -1543,8 +1564,8 @@ input[type='text'] {
    Should the two limits cross, in a panel under about 196 px, the least wins,
    and it is never more than the usual split's 55%: the region below then has
    no less than under the usual split with a full list (PLAN C.59). A share,
-   so the line keeps its place as the window, the zoom or the chips change the
-   height. */
+   so the line keeps its place as the window, the zoom or the status bar change
+   the height. */
 .side__regions[data-split] > .side__list {
   flex: none;
   max-height: none;
@@ -1639,15 +1660,17 @@ input[type='text'] {
 /* A short window: the whole panel scrolls as one, with the list at its full
    length. The test is the window's height in CSS pixels, which zoom changes and
    a chapter does not; a test on the panel's own height switched layouts between
-   chapters in the same window, as the filter chips take one to three rows and
-   the status bar one or two. Window sizes below are outer sizes, set on the
+   chapters in the same window, as the filter chips then took one to three rows
+   above the panel (they are the centre column's alone since polish.6) and the
+   status bar takes one or two. Window sizes below are outer sizes, set on the
    real window (PLAN C.49). The smallest window, 900 by 600, is 561 px high
-   inside: two regions at 100%, with a panel of 374 to 451 px, and one scroller
-   from 110% (510 px). The default 1440 by 940 is 901 px: two regions up to
-   150% (601 px), one scroller at 175% (515 px) and 200%. The focused
-   suggestion's box (ui.5) is then the first thing in the one scroller, at the
-   same height, and scrolls away with it: pinned above it, it would leave the
-   list and comments a few pixels in the default window at 200%. */
+   inside: two regions at 100%, with a panel of 468 to 487 px (374 to 451
+   before polish.6), and one scroller from 110% (510 px). The default 1440 by
+   940 is 901 px: two regions up to 150% (601 px), one scroller at 175%
+   (515 px) and 200%. The focused suggestion's box (ui.5) is then the first
+   thing in the one scroller, at the same height, and scrolls away with it:
+   pinned above it, it would leave the list and comments a few pixels in the
+   default window at 200%. */
 @media (height < 540px) {
   .side__body {
     display: block;

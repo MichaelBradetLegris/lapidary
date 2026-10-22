@@ -608,7 +608,9 @@ describe('scrollers (theme.1, panel.1)', () => {
       '.rows',
       '.side__lower',
       '.side__body',
-      '.side__focus-body'
+      '.side__focus-body',
+      // The category chips' one row, sideways (polish.6).
+      '.chips'
     ]) {
       expect(SCROLLERS).toContain(name);
     }
@@ -661,7 +663,8 @@ describe('scrollers (theme.1, panel.1)', () => {
 
   it('makes the panel one scroller on the window height, which no chapter changes', () => {
     // A query on the panel's own height switched layouts between chapters in the
-    // same window, as the filter chips wrap onto one to three rows (PLAN C.49).
+    // same window, as the filter chips then wrapped onto one to three rows above
+    // the panel (PLAN C.49), and the status bar still takes one row or two.
     expect(CSS).not.toMatch(/@container/);
     const block = /@media \(height < (\d+)px\) \{([\s\S]*?)\n\}/.exec(CSS);
     expect(block?.[1]).toBe('540');

@@ -1245,7 +1245,6 @@ export function App(): React.JSX.Element {
           dialogs; the question is apply.6's). It lays out nothing of its own. */}
       <div className="app-shell__page" inert={inert.page}>
         {toolbar}
-        {review ? <FilterChips review={review} /> : null}
 
         {/* Each side column is drawn in place, its wrapper laying out nothing,
             or, in a narrow window, folded to a strip whose button opens it as
@@ -1275,34 +1274,43 @@ export function App(): React.JSX.Element {
             />
           </div>
 
-          {/* The find bar is a strip above the scroller, not a sticky bar inside
-            it: inside, it scrolled out of view once the author was more than
-            a screen down, and Ctrl+F then seemed to do nothing (round 4). */}
-          <div className={`center-wrap ${findOpen ? 'center-wrap--find' : ''}`}>
-            {review ? <FindBar /> : null}
-            {/* A press in the prose closes an open drawer, as a click
-                outside a menu closes it (ui.3), and does what it would anyway. */}
-            <main
-              className="center"
-              onPointerDown={() => {
-                if (useDrawer.getState().open !== null) useDrawer.getState().setOpen(null);
-              }}
-            >
-              {review ? (
-                <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
-              ) : (
-                <div className="empty">
-                  <h1>Nothing open</h1>
-                  <p>
-                    Pick a chapter on the left, or start one with the + beside Chapters. Review with AI asks
-                    for suggestions; Submit manual review turns a corrected copy into the same kind of list.
-                    You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
-                  </p>
-                </div>
-              )}
-            </main>
-            <NotificationCards onAction={onCardAction} />
-            <LockCard label={progressLabel} onCancel={ai.cancel} />
+          {/* The centre column: the category chips on one row that scrolls
+              sideways, then the manuscript pane. The chips are the centre
+              column's alone, so the chapter list and the side panel start at
+              the toolbar's foot (polish.6). */}
+          <div className="center-col">
+            {review ? <FilterChips review={review} /> : null}
+            {/* The find bar is a strip above the scroller, not a sticky bar inside
+              it: inside, it scrolled out of view once the author was more than
+              a screen down, and Ctrl+F then seemed to do nothing (round 4). The
+              notification cards and the lock card are pinned to this wrapper,
+              under the chips. */}
+            <div className={`center-wrap ${findOpen ? 'center-wrap--find' : ''}`}>
+              {review ? <FindBar /> : null}
+              {/* A press in the prose closes an open drawer, as a click
+                  outside a menu closes it (ui.3), and does what it would anyway. */}
+              <main
+                className="center"
+                onPointerDown={() => {
+                  if (useDrawer.getState().open !== null) useDrawer.getState().setOpen(null);
+                }}
+              >
+                {review ? (
+                  <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
+                ) : (
+                  <div className="empty">
+                    <h1>Nothing open</h1>
+                    <p>
+                      Pick a chapter on the left, or start one with the + beside Chapters. Review with AI asks
+                      for suggestions; Submit manual review turns a corrected copy into the same kind of list.
+                      You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
+                    </p>
+                  </div>
+                )}
+              </main>
+              <NotificationCards onAction={onCardAction} />
+              <LockCard label={progressLabel} onCancel={ai.cancel} />
+            </div>
           </div>
 
           {layout.side === 'strip' ? (

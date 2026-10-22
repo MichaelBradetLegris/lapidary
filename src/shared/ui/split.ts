@@ -8,7 +8,7 @@
  * of the height the two regions and the handle share, which is the panel under
  * the focused suggestion's box; null is the usual split, where the list takes
  * what it needs up to 55% of that height. A share rather than pixels, so the
- * line keeps its place as the window, the zoom or the filter chips change that
+ * line keeps its place as the window, the zoom or the status bar change that
  * height. app.css draws a share with `clamp()`, with the least and the most
  * the list may have measured by the page; `splitHeight` here is the same sum.
  *

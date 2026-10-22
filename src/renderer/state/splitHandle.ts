@@ -33,8 +33,8 @@ import { useApp } from './store';
  * The rules are in src/shared/ui/split.ts; this measures the regions, follows
  * the pointer and the keys, and hands the split to app.css as custom
  * properties on `.side__regions`. The split is drawn by CSS from the share,
- * so the line keeps its place as the window, the zoom or the chips change the
- * panel's height, with no script. In the short window's one scroller the
+ * so the line keeps its place as the window, the zoom or the status bar change
+ * the panel's height, with no script. In the short window's one scroller the
  * handle is hidden and app.css ignores the split (C.49). In a panel too short
  * for it to move an arrow step, it is the plain line it replaced: disabled,
  * out of the Tab order, and still to the pointer (C.59).
@@ -124,7 +124,7 @@ export function useSplit(): Split {
 
   /* After every render, before the frame is painted, so the limits app.css
      clamps with are there from the first frame; and whenever the panel or
-     the list changes size, as the window, the zoom or the chips change it. */
+     the list changes size, as the window, the zoom or the status bar change it. */
   useLayoutEffect(update);
   useEffect(() => {
     const regions = regionsRef.current;
