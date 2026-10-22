@@ -208,7 +208,7 @@ describe('how a drawer closes (ui.3)', () => {
     expect(HOOK).toMatch(
       /export function popupTakesEscape\(\): boolean \{\s*return document\.querySelector\(CLOSES_ON_ESCAPE\) !== null;\s*\}/
     );
-    expect(MENU).toMatch(/<div className="menu__list" role="menu" [^>]*onKeyDown=\{onListKey\}>/);
+    expect(MENU).toMatch(/<div\s+className="menu__list"\s+role="menu"\s[^>]*onKeyDown=\{onListKey\}[^>]*>/);
     expect(STATUS).toContain('<div className="legend" ref={ref} role="dialog"');
     // Each takes the press it closes on, so it closes no drawer whichever runs first.
     for (const source of [MENU, STATUS]) {

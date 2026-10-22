@@ -43,6 +43,15 @@ export type MenuKeyAction =
   | { kind: 'pass' };
 
 /**
+ * Which items can be used now, in order: every item but one marked disabled.
+ * What the arrows, Home, End, a letter and the opening of the list read, so
+ * none of them stops on a greyed-out item (`polish.7` review).
+ */
+export function enabledItems(items: readonly { readonly disabled?: boolean | undefined }[]): boolean[] {
+  return items.map((item) => item.disabled !== true);
+}
+
+/**
  * The next item that can be used, `step` (1 or -1) from `from`, going round
  * the end of the list; -1 when there is none. From -1 forwards it is the
  * first, and from the list's length backwards the last.

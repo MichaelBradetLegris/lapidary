@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { firstEnabled, lastEnabled, menuButtonKey, menuItemKey } from '../../shared/ui/menu';
+import { enabledItems, firstEnabled, lastEnabled, menuButtonKey, menuItemKey } from '../../shared/ui/menu';
 import { IconChevronDown } from './icons';
 
 /** One entry of a toolbar menu. */
@@ -36,7 +36,9 @@ interface Props {
  * a letter move in it, Escape closes it and gives the focus back to the
  * button, Tab closes it and goes on from the button, and a click outside it
  * closes it. Keys pressed in it are its own, so a, d, j and the arrows never
- * act on the chapter behind it (keyboard.ts); Ctrl+S still saves.
+ * act on the chapter behind it (keyboard.ts); Ctrl+S still saves. A press in
+ * it leaves the focus in it (`onListPress`), so a click on a greyed-out item
+ * or between the items does not take its keys away.
  *
  * An item goes with the menu, so the focus moves to the button first: a
  * question or a dialog the item opens then hands it back there when it
@@ -51,7 +53,7 @@ export function ToolbarMenu({ label, items, disabled = false, title, opens }: Pr
   // A button that turns disabled while its list is open, as Review does when
   // a review of this chapter starts, takes its list with it.
   const shown = open && !disabled;
-  const enabled = items.map((item) => item.disabled !== true);
+  const enabled = enabledItems(items);
 
   useEffect(() => {
     if (!shown) return;
@@ -125,6 +127,17 @@ export function ToolbarMenu({ label, items, disabled = false, title, opens }: Pr
     else if (action.kind === 'focus') focusItem(action.index);
   };
 
+  /* A press in the list keeps the focus where it is. One that lands on
+     nothing that takes the focus, the separator, the list's padding or a
+     greyed-out item, would otherwise move it to the page's body with the list
+     still open, and the list's keys would then reach the chapter behind it.
+     The pointerdown, not the mousedown: Chromium sends a disabled button no
+     mousedown, only the pointer events. A click on an item still comes, and
+     `run` then puts the focus on the button (`polish.7` review). */
+  const onListPress = (event: React.PointerEvent<HTMLDivElement>): void => {
+    event.preventDefault();
+  };
+
   return (
     <span
       className="menu"
@@ -150,7 +163,14 @@ export function ToolbarMenu({ label, items, disabled = false, title, opens }: Pr
         {label} <IconChevronDown size={10} />
       </button>
       {shown ? (
-        <div className="menu__list" role="menu" id={listId} aria-label={label} onKeyDown={onListKey}>
+        <div
+          className="menu__list"
+          role="menu"
+          id={listId}
+          aria-label={label}
+          onKeyDown={onListKey}
+          onPointerDown={onListPress}
+        >
           {items.map((item, index) => (
             <Fragment key={item.label}>
               {item.separated === true ? <div className="menu__sep" role="separator" /> : null}

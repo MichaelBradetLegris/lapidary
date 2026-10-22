@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ACTIONS_MENU,
+  enabledItems,
   firstEnabled,
   lastEnabled,
   menuButtonKey,
@@ -33,6 +34,33 @@ describe('the menus and their names (polish.7)', () => {
     expect(REVIEW_MENU).toEqual({ label: 'Review', withAi: 'With AI', manual: 'Manual' });
     expect(ACTIONS_MENU).toBe('Actions');
     expect(WITH_AI_IN_MENU).toBe('With AI, in the Review menu,');
+  });
+});
+
+describe('enabledItems (polish.7 review)', () => {
+  it('counts every item usable but one marked disabled', () => {
+    const editing = [
+      { label: 'Accept all', disabled: true },
+      { label: 'Dismiss all', disabled: true },
+      { label: 'Reset', disabled: true },
+      { label: 'Copy result' },
+      { label: 'Show backups', disabled: undefined }
+    ];
+    expect(enabledItems(editing)).toEqual(EDITING);
+    expect(enabledItems(ACTIONS.map((label) => ({ label, disabled: false })))).toEqual(ALL);
+    expect(enabledItems([])).toEqual([]);
+  });
+
+  it('so a menu opens on, and the keys stop at, only the items that can be used', () => {
+    // While a review runs, Review holds a greyed-out With AI and Manual.
+    const running = enabledItems([{ disabled: true }, {}]);
+    expect(firstEnabled(running)).toBe(1);
+    expect(lastEnabled(running)).toBe(1);
+    expect(menuItemKey(key('ArrowDown'), 1, running, ['With AI', 'Manual'])).toEqual({
+      kind: 'focus',
+      index: 1
+    });
+    expect(menuItemKey(key('w'), 1, running, ['With AI', 'Manual'])).toEqual({ kind: 'swallow' });
   });
 });
 

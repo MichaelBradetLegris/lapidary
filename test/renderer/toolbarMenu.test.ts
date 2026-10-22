@@ -52,7 +52,7 @@ describe("the menus' items (polish.7)", () => {
 describe('ToolbarMenu behaves as a menu (polish.7)', () => {
   it('draws a menu of menu items that only the arrows reach, with a separator where an item asks for one', () => {
     expect(MENU).toMatch(
-      /<div className="menu__list" role="menu" id=\{listId\} aria-label=\{label\} onKeyDown=\{onListKey\}>/
+      /<div\s+className="menu__list"\s+role="menu"\s+id=\{listId\}\s+aria-label=\{label\}\s+onKeyDown=\{onListKey\}\s+onPointerDown=\{onListPress\}\s*>/
     );
     expect(MENU).toMatch(
       /type="button"\s+role="menuitem"\s+tabIndex=\{-1\}\s+disabled=\{item\.disabled === true\}/
@@ -88,6 +88,30 @@ describe('ToolbarMenu behaves as a menu (polish.7)', () => {
     expect(list).toMatch(
       /if \(action\.kind === 'close'\) close\(true\);\s*else if \(action\.kind === 'focus'\) focusItem\(action\.index\);/
     );
+  });
+
+  it('reads which items can be used from each item, wherever it opens or moves (polish.7 review)', () => {
+    // Every item counts as usable once this reads anything else, and the menu
+    // then opens on a greyed-out item and the arrows stop on one.
+    expect(MENU).toContain('const enabled = enabledItems(items);');
+    expect(MENU).not.toMatch(/\bconst enabled = (?!enabledItems\(items\);)/);
+    expect(MENU).toMatch(
+      /if \(shown\) focusItem\(where === 'first' \? firstEnabled\(enabled\) : lastEnabled\(enabled\)\);\s*else openOn\(where\);/
+    );
+    expect(MENU).toMatch(
+      /const action = menuItemKey\(\s*event,\s*current,\s*enabled,\s*items\.map\(\(item\) => item\.label\)\s*\);/
+    );
+  });
+
+  it('keeps the focus in the list on a press there, a greyed-out item, the separator or the padding included (polish.7 review)', () => {
+    // Prevented on the pointerdown: Chromium sends a disabled button no mousedown.
+    expect(MENU).toMatch(
+      /const onListPress = \(event: React\.PointerEvent<HTMLDivElement>\): void => \{\s*event\.preventDefault\(\);\s*\};/
+    );
+    expect(MENU).not.toContain('onMouseDown');
+    // An item still runs from its click, which puts the focus on the button.
+    expect(MENU).toContain('onClick={() => run(item)}');
+    expect(MENU).toMatch(/const run = \(item: MenuItem\): void => \{\s*close\(true\);\s*item\.onSelect\(\);/);
   });
 
   it('closes on a click outside it and when the focus goes elsewhere in the page, and with its button turned off', () => {
