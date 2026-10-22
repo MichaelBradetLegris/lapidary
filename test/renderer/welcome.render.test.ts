@@ -257,7 +257,8 @@ describe('the screen before its reads are in', () => {
 });
 
 describe("Settings' Show the welcome guide again", () => {
-  it('is a row of its own near the foot, with its note', () => {
+  // At the foot beside About since polish.4; its note is its tooltip, and so its description.
+  it('is at the foot, before About and Done, with its note as its tooltip', () => {
     const html = renderToStaticMarkup(
       createElement(SettingsDialog, {
         settings: DEFAULT_SETTINGS,
@@ -273,8 +274,9 @@ describe("Settings' Show the welcome guide again", () => {
       })
     );
     expect(decode(html)).toContain(
-      `<div class="modal__row"><span>Welcome guide</span><span></span><span class="modal__buttons"><button type="button">${SHOW_WELCOME_AGAIN}</button></span></div><p class="modal__note">${WELCOME_GUIDE_NOTE}</p>`
+      `<div class="modal__actions settings__foot"><button type="button" title="${WELCOME_GUIDE_NOTE}">${SHOW_WELCOME_AGAIN}</button>`
     );
+    expect(decode(html)).not.toContain('<span>Welcome guide</span>');
     // About (release.9) sits at the foot, beside Done.
     expect(buttons(html).slice(-3)).toEqual([SHOW_WELCOME_AGAIN, 'About', 'Done [blue]']);
   });

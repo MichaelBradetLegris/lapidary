@@ -53,13 +53,17 @@ function accountRow(runtime: RuntimeStatus | null): string {
       })
     )
   );
-  const row = /<div class="modal__row"><span>Claude account<\/span>[\s\S]*?<\/div>/.exec(html)?.[0];
+  // The name has its (?) beside it since polish.4 (settingsDialog.render.test.ts).
+  const row =
+    /<div class="modal__row"><span class="modal__name"><span>Claude account<\/span>[\s\S]*?<\/div>/.exec(
+      html
+    )?.[0];
   expect(row).toBeDefined();
   return row ?? '';
 }
 
-const line = (text: string): string =>
-  `<span class="modal__path" data-testid="claude-account-line">${text}</span>`;
+/** The line, after its id, which the Setup button names as its description (polish.4). */
+const line = (text: string): string => `data-testid="claude-account-line">${text}</span>`;
 
 describe("Settings' Claude account row (setup.17)", () => {
   it('names the account and its plan, and no key, for a plan s sign-in', () => {
@@ -74,7 +78,7 @@ describe("Settings' Claude account row (setup.17)", () => {
       const row = accountRow(runtime);
       expect(row).toContain(line('ann@example.com (Claude Max)'));
       expect(row).not.toMatch(/key from|none/);
-      expect(row).toContain('<button type="button">Setup</button>');
+      expect(row).toMatch(/<button type="button" aria-describedby="[^"]+">Setup<\/button>/);
     }
   });
 

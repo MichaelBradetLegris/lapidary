@@ -13,6 +13,12 @@ interface ButtonsProps {
   openLabel: string;
   /** `guidelines:open`, which creates the file from the template first when it is missing */
   onOpen: (via: OpenGuidelinesVia) => void;
+  /**
+   * What describes a button that has no tooltip, which is while there is no
+   * file to open: Settings gives its path line, which says to choose a
+   * manuscript folder first (polish.4).
+   */
+  describedBy?: string;
 }
 
 /**
@@ -22,13 +28,16 @@ interface ButtonsProps {
  * Open in Obsidian is disabled for one, and each button's tooltip says where
  * the file opens.
  */
-export function GuidelinesButtons({ path, openLabel, onOpen }: ButtonsProps): React.JSX.Element {
+export function GuidelinesButtons({ path, openLabel, onOpen, describedBy }: ButtonsProps): React.JSX.Element {
+  const obsidianTitle = openGuidelinesTitle(path, 'obsidian');
+  const defaultTitle = openGuidelinesTitle(path, 'default');
   return (
     <span className="modal__buttons">
       <button
         type="button"
         disabled={!canOpenInObsidian(path)}
-        title={openGuidelinesTitle(path, 'obsidian')}
+        title={obsidianTitle}
+        aria-describedby={obsidianTitle === undefined ? describedBy : undefined}
         onClick={() => onOpen('obsidian')}
       >
         {OPEN_IN_OBSIDIAN}
@@ -36,7 +45,8 @@ export function GuidelinesButtons({ path, openLabel, onOpen }: ButtonsProps): Re
       <button
         type="button"
         disabled={path === null}
-        title={openGuidelinesTitle(path, 'default')}
+        title={defaultTitle}
+        aria-describedby={defaultTitle === undefined ? describedBy : undefined}
         onClick={() => onOpen('default')}
       >
         {openLabel}

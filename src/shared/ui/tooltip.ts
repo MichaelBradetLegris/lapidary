@@ -29,8 +29,18 @@ export interface Placement {
  * Place `tip` against `anchor` inside `viewport`. Below the anchor when it fits,
  * otherwise above it, and always clamped so the whole card stays on screen. The
  * caller positions the tooltip with `position: fixed`, so nothing scrolls.
+ * `align` puts the card's middle under the anchor's, or, with `start`, its
+ * left edge under the anchor's, as Settings' (?) does (`HelpTip`, polish.4),
+ * so that its card runs over the row it explains rather than out of the dialog.
  */
-export function placeTooltip(anchor: Box, tip: Size, viewport: Size, gap = 10, margin = 8): Placement {
+export function placeTooltip(
+  anchor: Box,
+  tip: Size,
+  viewport: Size,
+  gap = 10,
+  margin = 8,
+  align: 'middle' | 'start' = 'middle'
+): Placement {
   const below = anchor.top + anchor.height + gap;
   const above = anchor.top - tip.height - gap;
   const fitsBelow = below + tip.height + margin <= viewport.height;
@@ -42,9 +52,9 @@ export function placeTooltip(anchor: Box, tip: Size, viewport: Size, gap = 10, m
   const maxTop = Math.max(margin, viewport.height - tip.height - margin);
   const top = Math.min(Math.max(margin, rawTop), maxTop);
 
-  const centred = anchor.left + anchor.width / 2 - tip.width / 2;
+  const wanted = align === 'start' ? anchor.left : anchor.left + anchor.width / 2 - tip.width / 2;
   const maxLeft = Math.max(margin, viewport.width - tip.width - margin);
-  const left = Math.min(Math.max(margin, centred), maxLeft);
+  const left = Math.min(Math.max(margin, wanted), maxLeft);
 
   return { left, top, placement };
 }

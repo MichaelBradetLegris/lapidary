@@ -72,9 +72,8 @@ export const WELCOME_TITLE = `Welcome to ${APP_NAME}`;
 /** Settings' button that brings the guide back, and the name the guide gives it. */
 export const SHOW_WELCOME_AGAIN = 'Show the welcome guide again';
 
-/** The note under it in Settings. */
-export const WELCOME_GUIDE_NOTE =
-  'The steps shown at the first start: Claude, the manuscript folder and the style sheet, each saying whether it is done.';
+/** Its tooltip and description at the foot of Settings (polish.4; a note under its row before). */
+export const WELCOME_GUIDE_NOTE = 'The first-start steps: Claude, the manuscript folder and the style sheet.';
 
 export const WELCOME_INTRO = `Three steps get ${APP_NAME} ready to review your chapters. Each one says when it is done, and you can do them in any order. Skip leaves the guide; Settings has ${SHOW_WELCOME_AGAIN}.`;
 

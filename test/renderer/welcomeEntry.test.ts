@@ -95,8 +95,9 @@ describe('Start, Skip and Show the welcome guide again', () => {
     );
     expect(APP).toContain('onShowWelcome={showWelcomeAgain}');
     const settings = read('components/SettingsDialog.tsx');
+    // At the foot since polish.4, with its note as its tooltip.
     expect(settings).toMatch(
-      /<button type="button" onClick=\{onShowWelcome\}>\s*\{SHOW_WELCOME_AGAIN\}\s*<\/button>/
+      /<button type="button" title=\{WELCOME_GUIDE_NOTE\} onClick=\{onShowWelcome\}>\s*\{SHOW_WELCOME_AGAIN\}\s*<\/button>/
     );
   });
 });

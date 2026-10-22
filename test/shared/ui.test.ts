@@ -204,6 +204,22 @@ describe('tooltip placement', () => {
     expect(tall.top).toBeGreaterThanOrEqual(8);
     expect(tall.top + 780).toBeLessThanOrEqual(800);
   });
+
+  /* polish.4: Settings' (?) puts its card's left edge under its own, so the
+     card runs over the row it explains rather than out of the dialog. */
+  it("lines the card's left edge up with the anchor's when asked, still on screen", () => {
+    const anchor = { left: 400, top: 300, width: 18, height: 18 };
+    const start = placeTooltip(anchor, tip, viewport, 6, 8, 'start');
+    expect(start).toEqual({ left: 400, top: 324, placement: 'below' });
+    expect(placeTooltip(anchor, tip, viewport, 6, 8).left).toBe(259);
+    // Near the right edge it moves left, as the middle does.
+    expect(placeTooltip({ ...anchor, left: 900 }, tip, viewport, 6, 8, 'start').left).toBe(692);
+    expect(placeTooltip({ ...anchor, top: 760 }, tip, viewport, 6, 8, 'start')).toEqual({
+      left: 400,
+      top: 634,
+      placement: 'above'
+    });
+  });
 });
 
 describe('margin note stacking', () => {

@@ -120,7 +120,10 @@ describe('Show backups on the save card (apply.11)', () => {
 });
 
 describe('the Backups row in Settings (apply.11)', () => {
-  it('shows the backups folder, Show in folder and the note, after the reviews folder', () => {
+  /* polish.4: the note is one short line, and apply.11's note, with the
+     20-and-30-days rule, is the tooltip of the (?) beside the row's name
+     (test/renderer/settingsDialog.render.test.ts renders it). */
+  it('shows the backups folder, Show in folder, the (?) and the short note, after the reviews folder', () => {
     const reviews = SETTINGS.indexOf('<span>Reviews folder</span>');
     const backups = SETTINGS.indexOf('<span>Backups</span>');
     const guidelines = SETTINGS.indexOf('<span>Guidelines file</span>');
@@ -128,9 +131,12 @@ describe('the Backups row in Settings (apply.11)', () => {
     expect(backups).toBeGreaterThan(reviews);
     expect(guidelines).toBeGreaterThan(backups);
     const row = SETTINGS.slice(backups, guidelines);
+    expect(row).toContain(`<HelpTip id={id('backups-tip')} topic="backups" text={BACKUPS_TIP} />`);
     expect(row).toContain("{paths?.backupsFolder ?? '…'}");
-    expect(row).toMatch(/onClick=\{\(\) => reveal\('backups'\)\}>\s*Show in folder\s*</);
-    expect(row).toContain('<p className="modal__note">{BACKUPS_NOTE}</p>');
+    expect(row).toMatch(/onClick=\{\(\) => reveal\('backups'\)\}\s*>\s*Show in folder\s*</);
+    expect(row).toMatch(
+      /<p className="modal__note" id=\{id\('backups-note'\)\}>\s*\{BACKUPS_ROW_NOTE\}\s*<\/p>/
+    );
   });
 });
 

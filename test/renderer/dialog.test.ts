@@ -36,7 +36,8 @@ describe('Settings is a modal (ui.1)', () => {
   it('puts the Escape and focus hooks on its box, which can take the focus', () => {
     expect(settings).toContain('useDialogEscape(boxRef, onClose);');
     expect(settings).toContain('useDialogFocus(boxRef, SETTINGS_BUTTON_SELECTOR);');
-    expect(settings).toContain('<div className="modal" ref={boxRef} tabIndex={-1}>');
+    // Its own class since polish.4, for the head and the foot that stay in view.
+    expect(settings).toContain('<div className="modal modal--settings" ref={boxRef} tabIndex={-1}>');
   });
 
   it('notes where the focus was, then moves it into the box, or onto the field given, as the dialog opens', () => {
@@ -156,7 +157,7 @@ describe('Every dialog takes the focus and hands it back (ui.4)', () => {
     {
       file: 'components/SettingsDialog.tsx',
       hook: 'useDialogFocus(boxRef, SETTINGS_BUTTON_SELECTOR);',
-      box: '<div className="modal" ref={boxRef} tabIndex={-1}>'
+      box: '<div className="modal modal--settings" ref={boxRef} tabIndex={-1}>'
     },
     {
       file: 'components/ReviewDialog.tsx',

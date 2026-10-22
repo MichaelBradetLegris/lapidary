@@ -2068,6 +2068,102 @@ input[type='text'] {
   min-width: 0;
 }
 
+/* Settings (polish.4): three sections under hairlines, as About's are. The
+   box still scrolls in a short window, between its head (the title and any
+   message) and its foot (the welcome guide, About and Done), which stay in
+   view, each with a hairline on its inner side; the scroll padding keeps a
+   control the keyboard moves to clear of them. The box has no padding of its
+   own at the top and the foot, which the head and the foot give instead, so
+   nothing shows above or below them. */
+.modal--settings {
+  padding: 0 18px;
+  scroll-padding-top: 56px;
+  scroll-padding-bottom: 64px;
+}
+
+.settings__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+  padding: 16px 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings__head .modal__hint {
+  margin: 6px 0 0;
+}
+
+.settings__section {
+  padding-top: 8px;
+}
+
+.settings__section + .settings__section {
+  border-top: 1px solid var(--border);
+}
+
+.settings__section h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.settings__section .modal__note {
+  margin-bottom: 8px;
+}
+
+.settings__foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: var(--panel);
+  margin-top: 4px;
+  padding: 10px 0 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* A row's name, and in Settings the (?) after it, in the line of the text, so
+   that it follows a name that wraps, as "OpenAI API key (experimental)" does. */
+.modal__name {
+  min-width: 0;
+}
+
+/* The (?) (HelpTip): a small round button in the grey of the row's name. Its
+   focus ring is the browser's own. */
+button.help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0;
+  border-color: var(--border-strong);
+  border-radius: 50%;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Its card, placed by HelpTip under the (?) with its left edge under the (?)'s,
+   above the head and the foot of the box. */
+.help__tip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  max-width: 340px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / 20%);
+}
+
 .note__action {
   margin-left: 2px;
   font-weight: 600;
