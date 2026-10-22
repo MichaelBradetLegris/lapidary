@@ -7,6 +7,7 @@ import {
   type Settings
 } from './types';
 import { extensionOf, hasNul, isAbsolutePath } from './paths';
+import { normalizeColumnWidths } from './ui/columns';
 import { normalizeSplit } from './ui/split';
 import { normalizeTheme } from './ui/theme';
 import { normalizeZoom } from './ui/zoom';
@@ -110,7 +111,8 @@ export function normalizeSettings(input: unknown): Settings {
     checkForUpdates:
       typeof raw['checkForUpdates'] === 'boolean' ? raw['checkForUpdates'] : DEFAULT_SETTINGS.checkForUpdates,
     updateDownloadConsent: nullableString(raw['updateDownloadConsent'], null),
-    sideSplit: normalizeSplit(raw['sideSplit'])
+    sideSplit: normalizeSplit(raw['sideSplit']),
+    columnWidths: normalizeColumnWidths(raw['columnWidths'])
   };
 }
 

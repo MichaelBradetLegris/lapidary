@@ -1,12 +1,17 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import type { ColumnShares } from '../../src/shared/types';
 import {
   bodyClassName,
   columnClassName,
   columnLayout,
+  COLUMN_WIDTHS,
   DRAWER_MARGIN,
   FILES_WIDTHS,
+  keptWidth,
   NARROW_PANE_PADDING,
+  normalizeColumnShare,
+  normalizeColumnWidths,
   preferredWidth,
   PROSE_MIN,
   shownDrawer,
@@ -14,6 +19,7 @@ import {
   STRIP_WIDTH,
   stripText,
   toggledDrawer,
+  USUAL_COLUMN_WIDTHS,
   type ColumnLayout
 } from '../../src/shared/ui/columns';
 
@@ -252,5 +258,150 @@ describe('stripText (ui.3)', () => {
       title: 'Show suggestions, comments and history'
     });
     expect(stripText('side', true).title).toBe('Hide suggestions, comments and history');
+  });
+});
+
+/* polish.5: the widths the author sets by moving the columns' inner edges,
+   each a share of the window's width, take the place of the usual widths
+   before anything gives way. The handles' rules are in
+   test/shared/columnHandle.test.ts. */
+
+/** The shares the handles write for the default window's limits (1424 px, PLAN 7 "Column widths"). */
+const FILES_LEAST = 0.105337; // 150 px
+const FILES_MOST = 0.438202; // 624 px, beside the side panel's usual 320
+const SIDE_MOST = 0.501404; // 714 px, beside the chapter list's usual 230
+
+describe('the widths set (polish.5)', () => {
+  it('reads a share strictly between 0 and 1, and anything else as the usual width', () => {
+    expect(normalizeColumnShare(0.2)).toBe(0.2);
+    for (const bad of [0, 1, -0.1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '0.2', null, undefined, {}]) {
+      expect(normalizeColumnShare(bad)).toBeNull();
+    }
+    expect(normalizeColumnWidths({ files: 0.2, side: 2 })).toEqual({ files: 0.2, side: null });
+    expect(normalizeColumnWidths(undefined)).toEqual(USUAL_COLUMN_WIDTHS);
+    expect(COLUMN_WIDTHS).toEqual({ files: FILES_WIDTHS, side: SIDE_WIDTHS });
+  });
+
+  it('takes a share of the window to the nearest pixel, never under the floor, and the usual width for none', () => {
+    expect(keptWidth(FILES_WIDTHS, null, 1424)).toBe(preferredWidth(FILES_WIDTHS, 1424));
+    expect(keptWidth(FILES_WIDTHS, FILES_LEAST, 1424)).toBe(150);
+    expect(keptWidth(FILES_WIDTHS, FILES_MOST, 1424)).toBe(624);
+    expect(keptWidth(SIDE_WIDTHS, SIDE_MOST, 1424)).toBe(714);
+    // A share keeps its share of a wider window, beyond the usual limit.
+    expect(keptWidth(SIDE_WIDTHS, SIDE_MOST, 2560)).toBe(1284);
+    // And never goes under the floor in a narrow one.
+    expect(keptWidth(FILES_WIDTHS, FILES_LEAST, 884)).toBe(150);
+    expect(keptWidth(SIDE_WIDTHS, 0.1, 884)).toBe(200);
+  });
+
+  it('draws the widths set where they leave the prose its 480 px', () => {
+    expect(summary(columnLayout(at(DEFAULT, 1), { files: FILES_LEAST, side: SIDE_MOST }))).toBe(
+      'full 150 | 560 | full 714'
+    );
+    expect(summary(columnLayout(at(DEFAULT, 1), { files: FILES_MOST, side: null }))).toBe(
+      'full 624 | 480 | full 320'
+    );
+    expect(summary(columnLayout(at(DEFAULT, 1), { files: null, side: SIDE_MOST }))).toBe(
+      'full 230 | 480 | full 714'
+    );
+    expect(summary(columnLayout(2560, { files: FILES_LEAST, side: SIDE_MOST }))).toBe(
+      'full 270 | 1006 | full 1284'
+    );
+    // Both null is the layout of ui.3.
+    expect(columnLayout(at(DEFAULT, 1), USUAL_COLUMN_WIDTHS)).toEqual(columnLayout(at(DEFAULT, 1)));
+  });
+
+  it('gives way as ui.3 does where they do not, and folds at the same widths', () => {
+    // The smallest window: the panel set at half the default window shrinks with the list.
+    expect(summary(columnLayout(at(SMALL, 1), { files: null, side: SIDE_MOST }))).toBe(
+      'full 154 | 481 | full 249'
+    );
+    // At 110% the list folds as before, and the panel keeps what the prose leaves it.
+    expect(summary(columnLayout(at(SMALL, 1.1), { files: null, side: SIDE_MOST }))).toBe(
+      'strip 32 | 481 | full 291'
+    );
+    // The default window at 200%: the list folds as before; the panel at its floor.
+    expect(summary(columnLayout(at(DEFAULT, 2), { files: FILES_MOST, side: null }))).toBe(
+      'strip 32 | 480 | full 200'
+    );
+  });
+
+  it('opens a drawer at the width set, leaving its strip, the other column and some prose', () => {
+    // The default window at 175%: the list folded, the panel in place at 301 px.
+    const layout = columnLayout(at(DEFAULT, 1.75), { files: FILES_MOST, side: SIDE_MOST });
+    expect(summary(layout)).toBe('strip 32 | 481 | full 301');
+    expect(layout.filesDrawer).toBe(keptWidth(FILES_WIDTHS, FILES_MOST, at(DEFAULT, 1.75)));
+    // A list set wider than the prose can spare stops short of the side panel.
+    const wide = columnLayout(750, { files: 0.66, side: null });
+    expect(wide.files).toBe('strip');
+    expect(wide.filesDrawer).toBe(Math.floor(750 - STRIP_WIDTH - wide.sideWidth - DRAWER_MARGIN));
+  });
+});
+
+describe('columnLayout properties with the widths set (polish.5)', () => {
+  const width = fc.double({ min: 0, max: 4000, noNaN: true });
+  const share = fc.option(fc.double({ min: 0.000001, max: 0.999999, noNaN: true }), { nil: null });
+  const shares: fc.Arbitrary<ColumnShares> = fc.record({ files: share, side: share });
+
+  it('splits the whole width, and leaves the centre PROSE_MIN unless both columns are folded', () => {
+    fc.assert(
+      fc.property(width, shares, (w, kept) => {
+        const l = columnLayout(w, kept);
+        expect(l.width).toBe(w);
+        expect(l.filesWidth + l.centre + l.sideWidth).toBeCloseTo(w, 6);
+        expect(Number.isInteger(l.filesWidth) && Number.isInteger(l.sideWidth)).toBe(true);
+        if (l.files === 'full' || l.side === 'full') expect(l.centre).toBeGreaterThanOrEqual(PROSE_MIN);
+        expect(l.narrow).toBe(l.centre < PROSE_MIN);
+      })
+    );
+  });
+
+  it('folds a column at the window width it folds at with the usual widths, whatever was set', () => {
+    fc.assert(
+      fc.property(width, shares, (w, kept) => {
+        const set = columnLayout(w, kept);
+        const usual = columnLayout(w);
+        expect(set.files).toBe(usual.files);
+        expect(set.side).toBe(usual.side);
+      })
+    );
+  });
+
+  it('draws both widths set exactly when they leave the prose its width, and never a column under its floor', () => {
+    fc.assert(
+      fc.property(width, shares, (w, kept) => {
+        const l = columnLayout(w, kept);
+        const files = keptWidth(FILES_WIDTHS, kept.files, w);
+        const side = keptWidth(SIDE_WIDTHS, kept.side, w);
+        if (w - files - side >= PROSE_MIN) {
+          expect([l.files, l.filesWidth, l.side, l.sideWidth]).toEqual(['full', files, 'full', side]);
+        }
+        // A column in place is between its floor and the width set.
+        if (l.files === 'full') {
+          expect(l.filesWidth).toBeGreaterThanOrEqual(FILES_WIDTHS.floor);
+          expect(l.filesWidth).toBeLessThanOrEqual(files);
+        }
+        if (l.side === 'full') {
+          expect(l.sideWidth).toBeGreaterThanOrEqual(SIDE_WIDTHS.floor);
+          expect(l.sideWidth).toBeLessThanOrEqual(side);
+        }
+      })
+    );
+  });
+
+  it('opens a drawer no wider than its column was set, never over the other column or all the prose', () => {
+    fc.assert(
+      fc.property(width, shares, (w, kept) => {
+        const l = columnLayout(w, kept);
+        expect(l.filesDrawer).toBeLessThanOrEqual(keptWidth(FILES_WIDTHS, kept.files, w));
+        expect(l.sideDrawer).toBeLessThanOrEqual(keptWidth(SIDE_WIDTHS, kept.side, w));
+        if (l.files === 'strip' && l.filesDrawer > 0) {
+          expect(STRIP_WIDTH + l.filesDrawer + DRAWER_MARGIN + l.sideWidth).toBeLessThanOrEqual(w + 1e-9);
+        }
+        if (l.side === 'strip' && l.sideDrawer > 0) {
+          expect(l.filesWidth + DRAWER_MARGIN + l.sideDrawer + STRIP_WIDTH).toBeLessThanOrEqual(w + 1e-9);
+        }
+      })
+    );
   });
 });

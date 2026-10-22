@@ -46,7 +46,9 @@ describe('the page measures itself and lays the columns out (ui.3)', () => {
     expect(HOOK).toMatch(
       /new ResizeObserver\(\(\) => flushSync\(\(\) => setWidth\(element\.clientWidth\)\)\);\s*observer\.observe\(element\);\s*return \(\) => observer\.disconnect\(\);/
     );
-    expect(HOOK).toContain('const layout = useMemo(() => columnLayout(width), [width]);');
+    // With the widths kept in settings, or a drag's while it lasts (polish.5).
+    expect(HOOK).toContain('const kept = live ?? saved;');
+    expect(HOOK).toContain('const layout = useMemo(() => columnLayout(width, kept), [width, kept]);');
     expect(APP).toContain('<div className={bodyClassName(layout)} style={columnStyle} ref={measureBody}>');
   });
 

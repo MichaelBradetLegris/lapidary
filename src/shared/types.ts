@@ -220,6 +220,18 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
 /** The short name, for the status bar and the history badges. */
 export const PROVIDER_NAMES: Record<Provider, string> = { claude: 'Claude', openai: 'OpenAI' };
 
+/**
+ * The side columns' widths the author set by moving their inner edges
+ * (polish.5): each a share of the window's width, strictly between 0 and 1,
+ * or null for the column's usual width (shared/ui/columns.ts).
+ */
+export interface ColumnShares {
+  /** the chapter list */
+  files: number | null;
+  /** the side panel */
+  side: number | null;
+}
+
 export interface Settings {
   manuscriptFolder: string | null;
   reviewsFolder: string | null;
@@ -258,6 +270,8 @@ export interface Settings {
    * is the usual split (shared/ui/split.ts)
    */
   sideSplit: number | null;
+  /** the chapter list's and the side panel's widths (polish.5); null for either is its usual width */
+  columnWidths: ColumnShares;
 }
 
 /**
@@ -279,7 +293,8 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   dismissedHints: Object.freeze([]) as unknown as string[],
   checkForUpdates: true,
   updateDownloadConsent: null,
-  sideSplit: null
+  sideSplit: null,
+  columnWidths: Object.freeze({ files: null, side: null })
 });
 
 /** The model setting that belongs to a provider. */

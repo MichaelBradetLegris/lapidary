@@ -104,8 +104,8 @@ describe('App puts it away for good (apply.12)', () => {
 
   it('and a close waits for that write with the others', () => {
     // The page's writes moved to state/pageIo.ts with hardening.4, for the crash page too.
-    expect(read('state/pageIo.ts')).toContain(
-      'Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites(), flushSplitWrites()])'
+    expect(read('state/pageIo.ts')).toMatch(
+      /Promise\.all\(\[\s*flushReviewWrites\(\),\s*flushDraftWrites\(\),\s*flushHintWrites\(\),/
     );
     expect(APP).toContain('writes: PAGE_WRITES,');
   });

@@ -52,6 +52,31 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings({ sideSplit: null }).sideSplit).toBeNull();
   });
 
+  it("keeps each side column's width as a share of the window, and the usual width as null (polish.5)", () => {
+    expect(defaultSettings().columnWidths).toEqual({ files: null, side: null });
+    expect(normalizeSettings({ columnWidths: { files: 0.105337, side: 0.501404 } }).columnWidths).toEqual({
+      files: 0.105337,
+      side: 0.501404
+    });
+    // Each is read on its own: a bad one is the usual width, the other kept.
+    expect(normalizeSettings({ columnWidths: { files: 1.2, side: 0.3 } }).columnWidths).toEqual({
+      files: null,
+      side: 0.3
+    });
+    expect(normalizeSettings({ columnWidths: { files: '0.2', side: 0 } }).columnWidths).toEqual({
+      files: null,
+      side: null
+    });
+    // Anything but an object, and unknown keys, are dropped.
+    for (const bad of [null, 0.2, 'wide', [0.2, 0.3]]) {
+      expect(normalizeSettings({ columnWidths: bad }).columnWidths).toEqual({ files: null, side: null });
+    }
+    expect(normalizeSettings({ columnWidths: { files: 0.2, centre: 0.5 } }).columnWidths).toEqual({
+      files: 0.2,
+      side: null
+    });
+  });
+
   /* hardening.8: a folder or a guidelines file the app cannot use is dropped to null, the usual one. */
   const NUL = '\u0000';
   const FOLDERS = ['manuscriptFolder', 'reviewsFolder'] as const;

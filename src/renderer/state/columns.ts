@@ -1,19 +1,24 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { flushSync } from 'react-dom';
 import { create } from 'zustand';
+import type { ColumnShares } from '../../shared/types';
 import {
   columnLayout,
   shownDrawer,
   toggledDrawer,
+  USUAL_COLUMN_WIDTHS,
   type Column,
   type ColumnLayout
 } from '../../shared/ui/columns';
 import { saveHintGivesWay } from './hints';
+import { useApp } from './store';
 
 /**
  * The side columns at narrow widths (ui.3, PLAN 7 "Narrow windows"): the page's
- * width measured, the layout `columnLayout` gives for it, and the one drawer
- * the author has open. The rules are in `src/shared/ui/columns.ts`.
+ * width measured, the layout `columnLayout` gives for it with the widths the
+ * author set (polish.5, PLAN 7 "Column widths"), and the one drawer the author
+ * has open. The rules are in `src/shared/ui/columns.ts`; the handles that set
+ * the widths are `useColumnHandle` (state/columnHandles.ts).
  */
 
 interface DrawerState {
@@ -73,6 +78,12 @@ export function closeDrawer(column?: Column): void {
 
 export interface Columns {
   layout: ColumnLayout;
+  /**
+   * for the handles (`useColumnHandle`): the widths to lay the columns out
+   * with while a drag is under way, in place of those in settings; null when
+   * none is
+   */
+  setLive: (live: ColumnShares | null) => void;
   /** the drawer on screen: the one opened, while its column is folded */
   shown: Column | null;
   /** the ref callback for `.body`, measured as the window, and so the zoom, changes */
@@ -85,10 +96,11 @@ export interface Columns {
 
 /**
  * Measure `.body`, which spans the window, and lay the columns out for its
- * width. The first layout is worked out from the window's own width, so the
- * first paint already has it. A drawer the author opened is forgotten once its
- * column is drawn in place again, so it does not come back by itself when the
- * window next narrows.
+ * width, with the widths kept in settings (`columnWidths`), or those of a drag
+ * under way. The first layout is worked out from the window's own width, so
+ * the first paint already has it. A drawer the author opened is forgotten once
+ * its column is drawn in place again, so it does not come back by itself when
+ * the window next narrows.
  */
 export function useColumns(hasReview: boolean): Columns {
   const [width, setWidth] = useState(() => window.innerWidth);
@@ -102,7 +114,10 @@ export function useColumns(hasReview: boolean): Columns {
     return () => observer.disconnect();
   }, []);
 
-  const layout = useMemo(() => columnLayout(width), [width]);
+  const saved = useApp((s) => s.settings?.columnWidths ?? USUAL_COLUMN_WIDTHS);
+  const [live, setLive] = useState<ColumnShares | null>(null);
+  const kept = live ?? saved;
+  const layout = useMemo(() => columnLayout(width, kept), [width, kept]);
   const open = useDrawer((s) => s.open);
   const shown = shownDrawer(open, layout, hasReview);
 
@@ -130,5 +145,5 @@ export function useColumns(hasReview: boolean): Columns {
     [layout]
   );
 
-  return { layout, shown, measure, style, toggle };
+  return { layout, setLive, shown, measure, style, toggle };
 }

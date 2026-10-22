@@ -534,6 +534,91 @@ input[type='text'] {
   letter-spacing: 0.07em;
 }
 
+/* The handles on the side columns' inner edges (polish.5): dragged, or moved
+   with the left and right arrows in 24 px steps and with Home and End to the
+   limits, each makes its column wider or narrower, and a double-click or
+   Enter puts back the usual width. Each is a band 7 px wide laid over the
+   column's own border, which is its line, and over the 6 px beside it on the
+   side that has no scrollbar there: the prose's left edge for the chapter
+   list, the side panel's left edge for the side panel. So a press on either
+   column's scrollbar is never taken for a drag. A grip in the faint text's
+   grey, which has 3:1 on the page and the panels in both themes, sits on the
+   line halfway down, and the line and the grip darken under the pointer, as
+   on the split's handle in the side panel (ui.6). The band paints nothing of
+   its own, and the focus ring is the browser's. Above the page's columns, and
+   under the drawers (10) and everything that floats over them. */
+.column-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.column-handle--files {
+  left: calc(var(--files-col) - 1px);
+}
+
+.column-handle--side {
+  right: calc(var(--side-col) - 7px);
+}
+
+.column-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: var(--border);
+}
+
+.column-handle::after {
+  content: '';
+  position: absolute;
+  top: calc(50% - 14px);
+  left: -1px;
+  width: 3px;
+  height: 28px;
+  border-radius: 2px;
+  background: var(--ink-faint);
+}
+
+.column-handle:hover::before,
+.column-handle--dragging::before {
+  background: var(--border-strong);
+}
+
+.column-handle:hover::after,
+.column-handle--dragging::after {
+  background: var(--ink-soft);
+}
+
+/* A column that cannot move an arrow step (polish.5, as C.59 for the split):
+   the border it lies on, with no grip, the usual pointer, and no change under
+   it. */
+.column-handle[aria-disabled='true'] {
+  cursor: default;
+}
+
+.column-handle[aria-disabled='true']::after {
+  display: none;
+}
+
+.column-handle[aria-disabled='true']:hover::before {
+  background: var(--border);
+}
+
+/* While a handle is dragged, the pointer keeps its col-resize shape over
+   whatever it crosses, and nothing is selected. */
+:root.column-resizing,
+:root.column-resizing * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
 /* Every element that scrolls has an opaque background in a colour token, even
    where the same colour would show through anyway (theme.1). Measured on
    2026-10-14 at 96 DPI over 25 wheel steps: a transparent scroller got no layer

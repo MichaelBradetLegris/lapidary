@@ -50,6 +50,7 @@ import { WelcomeScreen } from './components/WelcomeScreen';
 import { ApiError, call, errorMessage } from './state/client';
 import { installCloseGuard, prepareToLeaveApp, type CloseGuardDeps } from './state/closeGuard';
 import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state/drafts';
+import { useColumnHandle } from './state/columnHandles';
 import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
 import { dismissHint, type HintIo } from './state/hints';
 import { CLOSE_GUARD_IO, PAGE_WRITES } from './state/pageIo';
@@ -348,14 +349,19 @@ export function App(): React.JSX.Element {
 
   /* The side columns give way to the prose in a narrow window, which is what
      zooming in makes: they shrink, then fold to strips that open them as
-     drawers over the edge of the prose (ui.3, state/columns.ts). */
+     drawers over the edge of the prose (ui.3, state/columns.ts). Each has a
+     handle on its inner edge while it is drawn in place, which sets its width
+     (polish.5, state/columnHandles.ts). */
   const {
     layout,
+    setLive: setLiveWidths,
     shown,
     measure: measureBody,
     style: columnStyle,
     toggle: toggleDrawer
   } = useColumns(review !== null);
+  const filesHandle = useColumnHandle('files', layout, setLiveWidths);
+  const sideHandle = useColumnHandle('side', layout, setLiveWidths);
 
   /* ---------------- leaving (apply.7, state/leave.ts) ---------------- */
 
@@ -1252,7 +1258,10 @@ export function App(): React.JSX.Element {
             or, in a narrow window, folded to a strip whose button opens it as
             a drawer over the edge of the prose (ui.3). The wrappers are always
             there, so a column keeps its state as the window narrows or widens;
-            a closed drawer is hidden and inert. */}
+            a closed drawer is hidden and inert. A column in place has a handle
+            on its inner edge, after it in the Tab order for the chapter list
+            and before it for the side panel, laid over the edge rather than
+            given a grid column of its own (polish.5). */}
         <div className={bodyClassName(layout)} style={columnStyle} ref={measureBody}>
           {layout.files === 'strip' ? (
             <ColumnStrip column="files" open={shown === 'files'} onToggle={() => toggleDrawer('files')} />
@@ -1275,6 +1284,7 @@ export function App(): React.JSX.Element {
               onNewChapter={() => setNewChapterOpen(true)}
             />
           </div>
+          {filesHandle ? <div {...filesHandle} /> : null}
 
           {/* The centre column: the category chips on one row that scrolls
               sideways, then the manuscript pane. The chips are the centre
@@ -1314,6 +1324,7 @@ export function App(): React.JSX.Element {
               <LockCard label={progressLabel} onCancel={ai.cancel} />
             </div>
           </div>
+          {sideHandle ? <div {...sideHandle} /> : null}
 
           {layout.side === 'strip' ? (
             review ? (
