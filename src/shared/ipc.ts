@@ -378,9 +378,6 @@ export interface RendererLogLine {
   fields: Record<string, string | number | boolean | null>;
 }
 
-/** How "Open" opens the guidelines file: in Obsidian, or in the system's app for .md (setup.10). */
-export type OpenGuidelinesVia = 'obsidian' | 'default';
-
 /** Where the guidelines file is and whether its style sheet is filled in; read-only (setup.10). */
 export interface GuidelinesStatus {
   /** null until a manuscript folder or a guidelines file is chosen */
@@ -581,8 +578,12 @@ export interface ApiRequestMap {
   'reviews:shown': { request: { sourcePath: string; path: string }; response: void };
   'reviews:index': { request: void; response: Record<string, ReviewSummary> };
   'guidelines:ensure': { request: void; response: GuidelinesInfo };
-  /** create the guidelines file if missing, then open it in Obsidian or the OS editor */
-  'guidelines:open': { request: { via: OpenGuidelinesVia }; response: { path: string; created: boolean } };
+  /**
+   * create the guidelines file if missing, then open it in the system's app
+   * for its type (polish.3); the file is the one the settings name, so the
+   * page sends nothing
+   */
+  'guidelines:open': { request: void; response: { path: string; created: boolean } };
   'guidelines:status': { request: void; response: GuidelinesStatus };
   /**
    * select one of the app's own folders or files in Explorer; `name` opens one

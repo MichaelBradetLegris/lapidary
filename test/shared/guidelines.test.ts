@@ -5,9 +5,10 @@ import { describe, expect, it } from 'vitest';
 import type { GuidelinesStatus } from '../../src/shared/ipc';
 import { styleSheetStatus } from '../../src/shared/prompt/guidelines';
 import {
-  OPEN_IN_OBSIDIAN,
+  OPEN_FOLDER,
+  OPEN_GUIDELINES,
   STYLE_SHEET_EMPTY,
-  canOpenInObsidian,
+  openFolderTitle,
   openGuidelinesTitle,
   openedGuidelinesNote,
   styleSheetNote
@@ -93,44 +94,47 @@ describe('styleSheetNote', () => {
   });
 });
 
-describe('the two ways to open the guidelines file', () => {
-  it('offers Open in Obsidian for a .md file only', () => {
-    expect(OPEN_IN_OBSIDIAN).toBe('Open in Obsidian');
-    expect(canOpenInObsidian('C:\\Vault\\GUIDELINES.md')).toBe(true);
-    expect(canOpenInObsidian('C:\\Vault\\GUIDELINES.txt')).toBe(false);
-    expect(canOpenInObsidian(null)).toBe(false);
+/* polish.3: Open and Open folder, in Review with AI, Settings and the welcome guide. */
+
+describe('Open and Open folder', () => {
+  it('are named as the author asked', () => {
+    expect(OPEN_GUIDELINES).toBe('Open');
+    expect(OPEN_FOLDER).toBe('Open folder');
   });
 
-  it('says in each tooltip where the file opens', () => {
-    expect(openGuidelinesTitle('C:\\Vault\\GUIDELINES.md', 'obsidian')).toBe(
-      'Open GUIDELINES.md in Obsidian, in the vault that holds it.'
-    );
-    expect(openGuidelinesTitle('/v/House style.txt', 'obsidian')).toBe(
-      'Obsidian opens .md files, and House style.txt is not one.'
-    );
-    expect(openGuidelinesTitle('C:\\Vault\\GUIDELINES.md', 'default')).toBe(
+  it("says in Open's tooltip that the file opens in the system's app for its type, never naming Obsidian", () => {
+    expect(openGuidelinesTitle('C:\\Vault\\GUIDELINES.md')).toBe(
       'Open GUIDELINES.md in the app this computer uses for .md files.'
     );
-    expect(openGuidelinesTitle('/v/Rules.TXT', 'default')).toBe(
+    expect(openGuidelinesTitle('/v/Rules.TXT')).toBe(
       'Open Rules.TXT in the app this computer uses for .txt files.'
     );
-    expect(openGuidelinesTitle(null, 'obsidian')).toBeUndefined();
-    expect(openGuidelinesTitle(null, 'default')).toBeUndefined();
+    expect(openGuidelinesTitle('/v/RULES')).toBe('Open RULES in the app this computer uses for it.');
+    expect(openGuidelinesTitle('/v/House style.md', true)).toBe(
+      'Create House style.md from the template, then open it in the app this computer uses for .md files.'
+    );
+    expect(openGuidelinesTitle(null)).toBeUndefined();
+    expect(openGuidelinesTitle(null, true)).toBeUndefined();
+    for (const file of ['C:\\Vault\\GUIDELINES.md', '/v/GUIDELINES.txt']) {
+      expect(openGuidelinesTitle(file)).not.toMatch(/obsidian/i);
+    }
   });
 
-  it("words Settings' note for each way, and for a file just created from the template", () => {
+  it("says in Open folder's tooltip that the folder opens with the file selected", () => {
+    expect(openFolderTitle('C:\\Vault\\GUIDELINES.md')).toBe(
+      'Open the folder that holds GUIDELINES.md, with the file selected.'
+    );
+    expect(openFolderTitle('/v/GUIDELINES.md', true)).toBe(
+      'Create GUIDELINES.md from the template, then open its folder with the file selected.'
+    );
+    expect(openFolderTitle(null)).toBeUndefined();
+  });
+
+  it('words the note after Open, and for a file just created from the template', () => {
     const file = 'C:\\Vault\\GUIDELINES.md';
-    expect(openedGuidelinesNote({ path: file, created: false }, 'obsidian')).toBe(
-      'Asked Obsidian to open C:\\Vault\\GUIDELINES.md.'
-    );
-    expect(openedGuidelinesNote({ path: file, created: true }, 'obsidian')).toBe(
-      'Created C:\\Vault\\GUIDELINES.md from the template and asked Obsidian to open it.'
-    );
-    expect(openedGuidelinesNote({ path: file, created: false }, 'default')).toBe(
-      'Opened C:\\Vault\\GUIDELINES.md.'
-    );
-    expect(openedGuidelinesNote({ path: file, created: true }, 'default')).toBe(
-      'Created C:\\Vault\\GUIDELINES.md from the template.'
+    expect(openedGuidelinesNote({ path: file, created: false })).toBe('Opened C:\\Vault\\GUIDELINES.md.');
+    expect(openedGuidelinesNote({ path: file, created: true })).toBe(
+      'Created C:\\Vault\\GUIDELINES.md from the template and opened it.'
     );
   });
 });

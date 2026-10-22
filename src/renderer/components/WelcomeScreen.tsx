@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { EffectivePaths, GuidelinesStatus, OpenGuidelinesVia, RuntimeStatus } from '../../shared/ipc';
+import type { EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../../shared/ipc';
 import type { Provider, Settings } from '../../shared/types';
 import { openedGuidelinesNote } from '../../shared/ui/guidelines';
 import type { LastFailure } from '../../shared/ui/setup';
@@ -146,10 +146,10 @@ interface Props {
  * file's status (`guidelines:status`) as the guide opens, whenever the folder
  * or the guidelines file changes in the settings, after each of the style
  * sheet's buttons, and whenever the window gets the focus back, as when the
- * author returns from filling the style sheet in. The style sheet's buttons
- * go through `guidelines:open` and `shell:reveal`, as Settings' do
- * (setup.10b), each creating the file from the template first when it is
- * missing.
+ * author returns from filling the style sheet in. The style sheet's buttons,
+ * Open and Open folder, go through `guidelines:open` and `shell:reveal`, as
+ * Settings' do (polish.3), each creating the file from the template first
+ * when it is missing.
  */
 export function WelcomeScreen({
   settings,
@@ -208,11 +208,11 @@ export function WelcomeScreen({
     return () => window.removeEventListener('focus', readGuidelines);
   }, [readGuidelines]);
 
-  const openGuidelines = (via: OpenGuidelinesVia): void => {
+  const openGuidelines = (): void => {
     setNote(null);
-    call('guidelines:open', { via }).then(
+    call('guidelines:open', undefined).then(
       (result) => {
-        setNote({ tone: 'info', text: openedGuidelinesNote(result, via) });
+        setNote({ tone: 'info', text: openedGuidelinesNote(result) });
         readGuidelines();
       },
       (err: unknown) => setNote({ tone: 'error', text: errorMessage(err) })
@@ -245,13 +245,10 @@ export function WelcomeScreen({
       case 'choose-folder':
         onChooseFolder();
         break;
-      case 'open-obsidian':
-        openGuidelines('obsidian');
+      case 'open-guidelines':
+        openGuidelines();
         break;
-      case 'open-default':
-        openGuidelines('default');
-        break;
-      case 'show-in-folder':
+      case 'open-guidelines-folder':
         showGuidelines();
         break;
     }

@@ -6,9 +6,9 @@ import { openGuidelinesFile } from '../../src/main/openGuidelines';
 import { SHELL_STUB_PREFIX, pickShell, recordingShell, type ShellApi } from '../../src/main/shellApi';
 
 /* setup.10b: under `dev:clean --shell-stub` main opens nothing outside the
-   app, so a verification run can press Open in Obsidian, Open and Show in
-   folder in a test window without starting Obsidian, an editor or Explorer
-   on the author's machine. What would have been opened is printed instead. */
+   app, so a verification run can press Open, Open folder and Show in folder
+   in a test window without starting Obsidian, an editor or Explorer on the
+   author's machine. What would have been opened is printed instead. */
 
 const MAIN = path.join(__dirname, '../../src/main');
 const withoutComments = (text: string): string =>
@@ -19,11 +19,11 @@ describe('recordingShell', () => {
   it('opens nothing and writes one line per call', async () => {
     const lines: string[] = [];
     const shell = recordingShell((line) => lines.push(line));
-    await shell.openExternal('obsidian://open?path=C%3A%5CVault%5CGUIDELINES.md');
+    await shell.openExternal('https://example.com/help');
     expect(await shell.openPath('C:\\Vault\\GUIDELINES.md')).toBe('');
     shell.showItemInFolder('C:\\Vault\\GUIDELINES.md');
     expect(lines).toEqual([
-      '[shell stub] openExternal obsidian://open?path=C%3A%5CVault%5CGUIDELINES.md',
+      '[shell stub] openExternal https://example.com/help',
       '[shell stub] openPath C:\\Vault\\GUIDELINES.md',
       '[shell stub] showItemInFolder C:\\Vault\\GUIDELINES.md'
     ]);
@@ -41,11 +41,10 @@ describe('recordingShell', () => {
     expect(pickShell(real, false, (line) => lines.push(line))).toBe(real);
     await openGuidelinesFile(
       'C:\\Vault\\GUIDELINES.md',
-      'obsidian',
       pickShell(real, true, (l) => lines.push(l))
     );
     expect(calls).toEqual([]);
-    expect(lines).toEqual(['[shell stub] openExternal obsidian://open?path=C%3A%5CVault%5CGUIDELINES.md']);
+    expect(lines).toEqual(['[shell stub] openPath C:\\Vault\\GUIDELINES.md']);
   });
 
   it('is a development switch, which a packaged build ignores', () => {
@@ -69,7 +68,7 @@ describe('where main hands things to the system', () => {
     }
     // guidelines:open is openGuidelines, tested in guidelines.test.ts, with the real shell or the stub.
     expect(ipc).toMatch(
-      /handle\('guidelines:open', async \(\{ via \}\) =>\s*openGuidelines\(await loadSettings\(\), via, guidelinesTemplate\(\), systemShell\(\)\)\s*\);/
+      /handle\('guidelines:open', async \(\) =>\s*openGuidelines\(await loadSettings\(\), guidelinesTemplate\(\), systemShell\(\)\)\s*\);/
     );
     expect(ipc).toContain('const system = systemShell();');
     expect(index.match(/void systemShell\(\)\.openExternal\(/g)).toHaveLength(2);

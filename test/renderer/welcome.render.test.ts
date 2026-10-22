@@ -126,9 +126,8 @@ describe('the welcome guide on a fresh install (setup.11)', () => {
       'Set up Claude [blue]',
       'Use OpenAI instead (experimental, pay per use)',
       'Choose folder [blue]',
-      'Open in Obsidian [disabled]',
-      'Open with default app [disabled]',
-      'Show in folder [disabled]',
+      'Open [disabled]',
+      'Open folder [disabled]',
       'Start [blue] [disabled]'
     ]);
     expect(text(html)).toContain('Choose a manuscript folder to start, or skip the guide for now.');
@@ -166,13 +165,15 @@ describe('the welcome guide with every step done', () => {
 
 describe('the style sheet note', () => {
   it("shows what the last of the style sheet's buttons did under that step only, an error as an alert", () => {
-    const info = decode(page(DONE, { tone: 'info', text: `Asked Obsidian to open ${GUIDELINES}.` }));
+    const info = decode(page(DONE, { tone: 'info', text: `Opened ${GUIDELINES}.` }));
     expect(info).toContain(
-      `<p class="welcome__note welcome__note--info" role="status">Asked Obsidian to open ${GUIDELINES}.</p></div></li></ol>`
+      `<p class="welcome__note welcome__note--info" role="status">Opened ${GUIDELINES}.</p></div></li></ol>`
     );
-    const error = decode(page(DONE, { tone: 'error', text: 'Obsidian could not be started.' }));
+    const error = decode(
+      page(DONE, { tone: 'error', text: 'No app is set to open .md files on this computer.' })
+    );
     expect(error).toContain(
-      '<p class="welcome__note welcome__note--error" role="alert">Obsidian could not be started.</p>'
+      '<p class="welcome__note welcome__note--error" role="alert">No app is set to open .md files on this computer.</p>'
     );
     expect(page(DONE)).not.toContain('welcome__note');
   });
@@ -208,9 +209,8 @@ describe('which call each button makes', () => {
       'set-up-claude',
       'use-openai',
       'choose-folder',
-      'open-obsidian',
-      'open-default',
-      'show-in-folder',
+      'open-guidelines',
+      'open-guidelines-folder',
       'start'
     ]);
     expect(press({ ...DONE, provider: 'openai' })).toContain('use-claude');

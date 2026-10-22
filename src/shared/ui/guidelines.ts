@@ -1,7 +1,8 @@
 /**
- * What Review with AI and Settings say about the guidelines file (setup.10b,
- * PLAN 5.5 and section 7): the note when its style sheet is still empty, the
- * two ways to open it and what each does.
+ * What Review with AI, Settings and the welcome guide say about the
+ * guidelines file (setup.10b, polish.3, PLAN 5.5 and section 7): the note
+ * when its style sheet is still empty, and its two buttons, Open and Open
+ * folder, and what each does.
  *
  * The reviewer follows the style sheet over its own defaults. Left as the
  * template has it, the reviewer may "fix" the author's spelling variant,
@@ -11,15 +12,17 @@
  * Pure (CLAUDE.md rule 4).
  */
 
-import type { GuidelinesStatus, OpenGuidelinesVia } from '../ipc';
-import { obsidianOpensFile } from '../obsidian';
+import type { GuidelinesStatus } from '../ipc';
 
 /** The note under Review with AI's Guidelines row, in the words of `setup.10b`. */
 export const STYLE_SHEET_EMPTY =
   'Your style sheet is still empty: spelling variant, character names, invented words. Without it the reviewer may "fix" them.';
 
-/** The button that opens the guidelines file in Obsidian, in Review with AI and Settings. */
-export const OPEN_IN_OBSIDIAN = 'Open in Obsidian';
+/** The button that opens the guidelines file in the system's app for it (`guidelines:open`, polish.3). */
+export const OPEN_GUIDELINES = 'Open';
+
+/** The button that shows the guidelines file in its folder (`shell:reveal`, polish.3). */
+export const OPEN_FOLDER = 'Open folder';
 
 /**
  * The note, while the style sheet is `blank`. A guidelines file that does not
@@ -44,35 +47,31 @@ function extension(file: string): string {
   return /(\.[^.\\/]+)$/.exec(fileName(file))?.[1]?.toLowerCase() ?? '';
 }
 
-/** Whether Open in Obsidian is offered for this file: it needs one, and a `.md` one. */
-export function canOpenInObsidian(file: string | null): boolean {
-  return file !== null && obsidianOpensFile(file);
-}
-
-/** The tooltip of Open in Obsidian, or of the button that opens the file in the system's app. */
-export function openGuidelinesTitle(file: string | null, via: OpenGuidelinesVia): string | undefined {
+/**
+ * Open's tooltip: the system's app for the file's type, which is Obsidian
+ * when the author has made it the app for .md files. `missing` says that the
+ * file is made from the template first, as the welcome guide knows.
+ */
+export function openGuidelinesTitle(file: string | null, missing = false): string | undefined {
   if (file === null) return undefined;
   const name = fileName(file);
-  if (via === 'obsidian') {
-    return canOpenInObsidian(file)
-      ? `Open ${name} in Obsidian, in the vault that holds it.`
-      : `Obsidian opens .md files, and ${name} is not one.`;
-  }
   const ext = extension(file);
-  return ext
-    ? `Open ${name} in the app this computer uses for ${ext} files.`
-    : `Open ${name} in the app this computer uses for it.`;
+  const app = ext ? `the app this computer uses for ${ext} files` : 'the app this computer uses for it';
+  return missing ? `Create ${name} from the template, then open it in ${app}.` : `Open ${name} in ${app}.`;
 }
 
-/** What Settings says once the file was handed over: `path` and `created` are `guidelines:open`'s answer. */
-export function openedGuidelinesNote(
-  result: { path: string; created: boolean },
-  via: OpenGuidelinesVia
-): string {
-  if (via === 'obsidian') {
-    return result.created
-      ? `Created ${result.path} from the template and asked Obsidian to open it.`
-      : `Asked Obsidian to open ${result.path}.`;
-  }
-  return result.created ? `Created ${result.path} from the template.` : `Opened ${result.path}.`;
+/** Open folder's tooltip: the folder opens with the file selected. */
+export function openFolderTitle(file: string | null, missing = false): string | undefined {
+  if (file === null) return undefined;
+  const name = fileName(file);
+  return missing
+    ? `Create ${name} from the template, then open its folder with the file selected.`
+    : `Open the folder that holds ${name}, with the file selected.`;
+}
+
+/** What Settings and the welcome guide say once Open has handed the file over: `guidelines:open`'s answer. */
+export function openedGuidelinesNote(result: { path: string; created: boolean }): string {
+  return result.created
+    ? `Created ${result.path} from the template and opened it.`
+    : `Opened ${result.path}.`;
 }

@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { openAiKeyLine, openAiKeyRowLabel } from '../../shared/ai/openai';
-import type {
-  EffectivePaths,
-  ModelInfo,
-  OpenAiKeyStatus,
-  OpenGuidelinesVia,
-  RuntimeStatus
-} from '../../shared/ipc';
+import type { EffectivePaths, ModelInfo, OpenAiKeyStatus, RuntimeStatus } from '../../shared/ipc';
 import { EFFORT_LEVELS, type EffortLevel, type Settings } from '../../shared/types';
 import { ABOUT_BUTTON } from '../../shared/ui/about';
 import { SETTINGS_BUTTON_SELECTOR } from '../../shared/ui/dialog';
@@ -199,11 +193,11 @@ export function SettingsDialog({
       .catch((err: unknown) => setError(errorMessage(err)));
   };
 
-  const openGuidelines = (via: OpenGuidelinesVia): void => {
+  const openGuidelines = (): void => {
     setError(null);
-    call('guidelines:open', { via })
+    call('guidelines:open', undefined)
       .then((result) => {
-        setNote(openedGuidelinesNote(result, via));
+        setNote(openedGuidelinesNote(result));
         refreshPaths();
       })
       .catch((err: unknown) => setError(errorMessage(err)));
@@ -372,9 +366,8 @@ export function SettingsDialog({
             {BACKUPS_ROW_NOTE}
           </p>
 
-          {/* Two rows, so the path keeps its room: Change and Show in folder
-              beside it, and under them the two ways to open the file, Open in
-              Obsidian and the system's app (setup.10b). */}
+          {/* Change, then Open, the system's app for the file, and Open
+              folder, which shows it in its folder (polish.3). */}
           <div className="modal__row">
             <span className="modal__name">
               <span>Guidelines file</span>
@@ -387,29 +380,16 @@ export function SettingsDialog({
             >
               {paths?.guidelinesPath ?? 'choose a manuscript folder first'}
             </span>
-            <span className="modal__buttons">
+            <GuidelinesButtons
+              path={paths?.guidelinesPath ?? null}
+              onOpen={openGuidelines}
+              onOpenFolder={() => reveal('guidelines')}
+              describedBy={id('guidelines-path')}
+            >
               <button type="button" aria-describedby={id('guidelines-path')} onClick={pickGuidelines}>
                 Change
               </button>
-              <button
-                type="button"
-                disabled={!paths?.guidelinesPath}
-                aria-describedby={id('guidelines-path')}
-                onClick={() => reveal('guidelines')}
-              >
-                Show in folder
-              </button>
-            </span>
-          </div>
-          <div className="modal__row">
-            <span />
-            <span />
-            <GuidelinesButtons
-              path={paths?.guidelinesPath ?? null}
-              openLabel="Open guidelines file"
-              onOpen={openGuidelines}
-              describedBy={id('guidelines-path')}
-            />
+            </GuidelinesButtons>
           </div>
         </section>
 

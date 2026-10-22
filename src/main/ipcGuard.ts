@@ -36,6 +36,7 @@ const TAKES_NOTHING = {
   'files:watching': true,
   'reviews:index': true,
   'guidelines:ensure': true,
+  'guidelines:open': true,
   'guidelines:status': true,
   'secrets:openai-status': true,
   'secrets:openai-clear': true,

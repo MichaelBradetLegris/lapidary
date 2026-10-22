@@ -1,15 +1,15 @@
 /**
  * The parts of Electron's `shell` that main uses to hand something to the
- * system: a link to the browser or to Obsidian, a file to its app, a file
- * shown in its folder. Electron-free, so tests stand in for it.
+ * system: a link to the browser, a file to its app, a file shown in its
+ * folder. Electron-free, so tests stand in for it.
  *
  * Under the development switch `MANUSCRIPT_REVIEW_DEV_SHELL_STUB`
  * (`dev:clean --shell-stub`, src/main/devSwitches.ts) main uses
  * `recordingShell` instead: it opens nothing and writes what it would have
- * opened to the terminal. A verification run can then press Open in
- * Obsidian, Open or Show in folder in a test window without starting
- * Obsidian, an editor or Explorer on the machine of an author who is working
- * at it (setup.10b, Appendix C "A shell that opens nothing").
+ * opened to the terminal. A verification run can then press Open, Open
+ * folder or Show in folder in a test window without starting Obsidian, an
+ * editor or Explorer on the machine of an author who is working at it
+ * (setup.10b, Appendix C "A shell that opens nothing").
  */
 export interface ShellApi {
   openExternal(url: string): Promise<void>;

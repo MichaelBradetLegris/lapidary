@@ -10,8 +10,8 @@
  * Setup screen's own words (`setupStatus`, setup.7), the manuscript folder in
  * the settings, and the guidelines file's status (`guidelines:status`,
  * setup.10), which the screen reads again whenever the window gets the focus
- * back. The style sheet's buttons are setup.10b's, worded for a file that may
- * not be there yet.
+ * back. The style sheet's buttons are Review with AI's, Open and Open folder
+ * (polish.3), worded for a file that may not be there yet.
  *
  * Pure (CLAUDE.md rule 4).
  */
@@ -27,10 +27,11 @@ import { APP_NAME } from '../branding';
 import type { EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../ipc';
 import type { Provider, Settings } from '../types';
 import {
-  OPEN_IN_OBSIDIAN,
+  OPEN_FOLDER,
+  OPEN_GUIDELINES,
   STYLE_SHEET_EMPTY,
-  canOpenInObsidian,
   fileName,
+  openFolderTitle,
   openGuidelinesTitle
 } from './guidelines';
 import { withHint } from './saveHint';
@@ -103,9 +104,8 @@ export type WelcomeActionId =
   | 'use-claude'
   | 'open-settings'
   | 'choose-folder'
-  | 'open-obsidian'
-  | 'open-default'
-  | 'show-in-folder';
+  | 'open-guidelines'
+  | 'open-guidelines-folder';
 
 export interface WelcomeAction {
   id: WelcomeActionId;
@@ -280,9 +280,8 @@ function folderStep(input: WelcomeInput): WelcomeStep {
 
 export const STYLE_SHEET_STEP_TITLE = 'Fill in your style sheet';
 
-export const OPEN_WITH_DEFAULT_APP = 'Open with default app';
-export const CREATE_AND_OPEN_IN_OBSIDIAN = 'Create and open in Obsidian';
-export const SHOW_IN_FOLDER = 'Show in folder';
+/** Open, while the guidelines file is not there yet: it is made from the template first (polish.3). */
+export const CREATE_AND_OPEN = 'Create and open';
 
 /** What the style sheet is for, in a step that has not said yet whether it is filled in. */
 function styleSheetPurpose(name: string): string {
@@ -322,7 +321,7 @@ function styleSheetState(
       status: `${name} is not there yet`,
       lines: [
         styleSheetPurpose(name),
-        `Each button below creates it from a template first. Fill in its Style sheet section, save it, and come back: this step is done once the section holds something.`
+        `Both buttons below create it from a template first. Fill in its Style sheet section, save it, and come back: this step is done once the section holds something.`
       ]
     };
   }
@@ -360,8 +359,6 @@ function styleSheetStep(input: WelcomeInput): WelcomeStep {
   const configured = input.manuscriptFolder !== null || input.guidelinesSetting !== null;
   const state = styleSheetState(path, input.guidelines, input.guidelinesProblem ?? null, configured);
   const missing = path !== null && input.guidelines !== null && !input.guidelines.exists;
-  const obsidian = canOpenInObsidian(path);
-  const name = path ? fileName(path) : null;
   return {
     id: 'style-sheet',
     title: STYLE_SHEET_STEP_TITLE,
@@ -371,28 +368,17 @@ function styleSheetStep(input: WelcomeInput): WelcomeStep {
     facts: [],
     actions: [
       {
-        id: 'open-obsidian',
-        label: missing ? CREATE_AND_OPEN_IN_OBSIDIAN : OPEN_IN_OBSIDIAN,
-        primary: !state.done && obsidian,
-        disabled: !obsidian,
-        ...titled(openGuidelinesTitle(path, 'obsidian'))
+        id: 'open-guidelines',
+        label: missing ? CREATE_AND_OPEN : OPEN_GUIDELINES,
+        primary: !state.done && path !== null,
+        disabled: path === null,
+        ...titled(openGuidelinesTitle(path, missing))
       },
       {
-        id: 'open-default',
-        label: OPEN_WITH_DEFAULT_APP,
-        primary: !state.done && path !== null && !obsidian,
+        id: 'open-guidelines-folder',
+        label: OPEN_FOLDER,
         disabled: path === null,
-        ...titled(openGuidelinesTitle(path, 'default'))
-      },
-      {
-        id: 'show-in-folder',
-        label: SHOW_IN_FOLDER,
-        disabled: path === null,
-        ...titled(
-          name
-            ? `Show ${name} in its folder${missing ? ', creating it from the template first' : ''}.`
-            : undefined
-        )
+        ...titled(openFolderTitle(path, missing))
       }
     ]
   };

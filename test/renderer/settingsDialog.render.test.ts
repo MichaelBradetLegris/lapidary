@@ -169,8 +169,8 @@ describe('the sections and rows (polish.4)', () => {
       '<span>Reviews folder</span>',
       '<span>Backups</span>',
       '<span>Guidelines file</span>',
-      '>Open in Obsidian</button>',
-      '>Open guidelines file</button>',
+      '>Open</button>',
+      '>Open folder</button>',
       '>Accounts</h3>',
       '<span>Claude account</span>',
       '<span>OpenAI API key (experimental)</span>',
@@ -304,7 +304,8 @@ describe('every control has a name and a description (polish.4)', () => {
     expect(find('Change', 1).description).toBe(`… ${reviewsFolderNote(false)}`);
     expect(find('Show in folder', 1).description).toBe(`… ${BACKUPS_ROW_NOTE}`);
     expect(find('Change', 2).description).toBe('choose a manuscript folder first');
-    expect(find('Open in Obsidian').description).toBe('choose a manuscript folder first');
+    expect(find('Open').description).toBe('choose a manuscript folder first');
+    expect(find('Open folder').description).toBe('choose a manuscript folder first');
     expect(find('Setup').description).toBe('ann@example.com (Claude Max)');
     expect(find('Remove key').description).toBe('saved in Settings, encrypted (ends abcd)');
     expect(find('OpenAI API key').description).toBe(`${OPENAI_KEY_NOTE} ${OPENAI_KEYS_PAGE}.`);

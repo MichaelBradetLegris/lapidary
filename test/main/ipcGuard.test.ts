@@ -52,6 +52,7 @@ const TAKE_NOTHING: readonly RequestChannel[] = [
   'files:watching',
   'reviews:index',
   'guidelines:ensure',
+  'guidelines:open',
   'guidelines:status',
   'secrets:openai-status',
   'secrets:openai-clear',

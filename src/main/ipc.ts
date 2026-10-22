@@ -567,9 +567,9 @@ function registerFileHandlers(): void {
 
   handle('guidelines:ensure', async () => ensureGuidelines(await loadSettings(), guidelinesTemplate()));
 
-  // openGuidelines refuses a file that cannot be opened this way before anything is created (setup.10b).
-  handle('guidelines:open', async ({ via }) =>
-    openGuidelines(await loadSettings(), via, guidelinesTemplate(), systemShell())
+  // openGuidelines refuses a file that is not .md or .txt before anything is created (setup.10b, polish.3).
+  handle('guidelines:open', async () =>
+    openGuidelines(await loadSettings(), guidelinesTemplate(), systemShell())
   );
 
   handle('guidelines:status', async () => guidelinesStatus(await loadSettings()));
