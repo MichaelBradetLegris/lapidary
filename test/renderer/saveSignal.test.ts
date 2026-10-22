@@ -55,6 +55,15 @@ describe('the Save button and the dot (apply.4)', () => {
     expect(TOOLBAR).not.toContain("'Save to chapter'");
   });
 
+  it('is a primary button only when saveButtonState says changes are waiting (polish.9)', () => {
+    expect(TOOLBAR).toMatch(
+      /<button\s+ref=\{saveRef\}\s+type="button"\s+className=\{save\.primary \? 'primary' : undefined\}\s+disabled=\{save\.disabled\}/
+    );
+    // No other class reaches it, and no other toolbar button is primary.
+    expect(TOOLBAR).not.toContain('className="primary"');
+    expect(TOOLBAR.match(/'primary'/g)).toHaveLength(1);
+  });
+
   it('puts the dot before the chapter name, labelled, only when saveButtonState says so', () => {
     const dot = TOOLBAR.indexOf('className="unsaved-dot"');
     const name = TOOLBAR.indexOf('className="toolbar__name"');

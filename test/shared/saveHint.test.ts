@@ -17,6 +17,7 @@ import {
   type SaveHintInput
 } from '../../src/shared/ui/saveHint';
 import { PRO_PRESELECT_HINT } from '../../src/shared/ai/claudeModels';
+import { saveButtonState } from '../../src/shared/ui/save';
 
 /* apply.12: the first-use hint beside Save to chapter (PLAN 7). Its wiring is
    checked in test/renderer/saveHint.test.ts, the setting it writes in
@@ -150,6 +151,43 @@ describe('when it shows (apply.12)', () => {
             !input.singleScreen &&
             !(input.sideFolded && (input.editingParagraph || input.setAside));
           expect(saveHintVisible(input)).toBe(expected);
+        }
+      ),
+      { numRuns: 300 }
+    );
+  });
+
+  /* polish.9: Save to chapter is a primary button only while changes are
+     waiting. The hint's arrow and its "Press Save to chapter" are on it only
+     then, so they always point at the turquoise button, enabled. */
+  it('shows only while Save to chapter is primary and enabled', () => {
+    fc.assert(
+      fc.property(
+        fc.record({
+          hasChapter: fc.boolean(),
+          unsavedDecisions: fc.nat(30),
+          changedParagraphs: fc.nat(3),
+          locked: fc.boolean(),
+          saving: fc.boolean(),
+          editingParagraph: fc.boolean()
+        }),
+        (input) => {
+          const shown = saveHintVisible({
+            ...base,
+            hasChapter: input.hasChapter,
+            unsavedDecisions: input.unsavedDecisions,
+            locked: input.locked,
+            saving: input.saving,
+            editingParagraph: input.editingParagraph
+          });
+          const button = saveButtonState({
+            hasChapter: input.hasChapter,
+            unsavedDecisions: input.unsavedDecisions,
+            changedParagraphs: input.changedParagraphs,
+            saving: input.saving,
+            locked: input.locked
+          });
+          if (shown) expect(button).toMatchObject({ primary: true, disabled: false });
         }
       ),
       { numRuns: 300 }

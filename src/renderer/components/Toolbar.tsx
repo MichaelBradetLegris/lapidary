@@ -53,7 +53,9 @@ interface Props {
  * Save to chapter and the dot before the chapter name come from
  * `saveButtonState` (apply.4), fed by `saveButtonInput` and counted by
  * `unsavedDecisionCount`: the changes the chapter file does not have yet, not
- * every decision made since the review opened.
+ * every decision made since the review opened. Save to chapter is a primary
+ * button only while there are some (`polish.9`): with nothing to save it is an
+ * ordinary one, so its turquoise says something is waiting.
  *
  * The first time one of those changes is waiting, a hint hangs under the
  * toolbar with its arrow on Save to chapter, until Got it or a save puts it
@@ -169,10 +171,11 @@ export function Toolbar({
         ]}
       />
 
+      {/* Primary, in the turquoise, only while changes are waiting (polish.9). */}
       <button
         ref={saveRef}
         type="button"
-        className="primary"
+        className={save.primary ? 'primary' : undefined}
         disabled={save.disabled}
         title={save.title}
         onClick={onSaveChapter}

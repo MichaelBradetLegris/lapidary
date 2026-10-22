@@ -47,7 +47,10 @@ describe('the toolbar shows the hint (apply.12)', () => {
   });
 
   it('points the hint at Save to chapter, with the chapter on screen in its words', () => {
-    expect(TOOLBAR).toMatch(/<button\s+ref=\{saveRef\}\s+type="button"\s+className="primary"/);
+    // Primary only while a change is waiting (polish.9), which the hint always is.
+    expect(TOOLBAR).toMatch(
+      /<button\s+ref=\{saveRef\}\s+type="button"\s+className=\{save\.primary \? 'primary' : undefined\}/
+    );
     expect(TOOLBAR).toMatch(
       /<SaveHint\s+anchor=\{saveRef\}\s+text=\{saveHintText\(review\.sourcePath\)\}\s+overProse=\{sideFolded\}\s+onGotIt=\{onSaveHintDone\}\s*\/>/
     );

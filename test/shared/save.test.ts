@@ -100,13 +100,15 @@ describe('saveButtonState', () => {
       label: 'Save 1 change to chapter',
       disabled: false,
       title: 'Write this change into the chapter file (Ctrl+S).',
-      dot: true
+      dot: true,
+      primary: true
     });
     expect(saveButtonState(button({ unsavedDecisions: 12 }))).toEqual({
       label: 'Save 12 changes to chapter',
       disabled: false,
       title: 'Write these 12 changes into the chapter file (Ctrl+S).',
-      dot: true
+      dot: true,
+      primary: true
     });
   });
 
@@ -115,7 +117,8 @@ describe('saveButtonState', () => {
       label: 'Save to chapter',
       disabled: false,
       title: CHAPTER_MATCHES_PAGE,
-      dot: false
+      dot: false,
+      primary: false
     });
     expect(CHAPTER_MATCHES_PAGE).toBe('The chapter already matches the page.');
   });
@@ -126,7 +129,8 @@ describe('saveButtonState', () => {
       disabled: false,
       title:
         'Write your decisions into the chapter file (Ctrl+S). You are asked first about the paragraph you are editing.',
-      dot: false
+      dot: false,
+      primary: false
     });
     const two = saveButtonState(button({ changedParagraphs: 2, unsavedDecisions: 3 }));
     expect(two.label).toBe('Save 3 changes to chapter');
@@ -141,19 +145,68 @@ describe('saveButtonState', () => {
       label: 'Saving…',
       disabled: true,
       title: 'Writing the chapter file.',
-      dot: true
+      dot: true,
+      primary: true
     });
     expect(saveButtonState(button({ locked: true, unsavedDecisions: 2 }))).toEqual({
       label: 'Save 2 changes to chapter',
       disabled: true,
       title: 'Wait for the review to finish, then save.',
-      dot: true
+      dot: true,
+      primary: true
     });
     expect(saveButtonState(button({ hasChapter: false, unsavedDecisions: 2 }))).toEqual({
       label: 'Save to chapter',
       disabled: true,
       title: 'Open a chapter to save to it.',
-      dot: false
+      dot: false,
+      primary: false
+    });
+  });
+
+  /* polish.9: the turquoise says something is waiting, so it comes and goes
+     with the count, as the dot does; disabled and saving keep the fade over
+     whichever button that gives. */
+  it('is primary exactly while changes are waiting, in every state', () => {
+    for (const hasChapter of [true, false]) {
+      for (const n of [0, 1, 4]) {
+        for (const p of [0, 1, 2]) {
+          for (const saving of [false, true]) {
+            for (const locked of [false, true]) {
+              const state = saveButtonState(
+                button({ hasChapter, unsavedDecisions: n, changedParagraphs: p, saving, locked })
+              );
+              const at = JSON.stringify({ hasChapter, n, p, saving, locked });
+              expect(state.primary, at).toBe(hasChapter && n > 0);
+              expect(state.primary, at).toBe(state.dot);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('is plain with nothing to save, enabled or not, and with only a paragraph box changed', () => {
+    expect(saveButtonState(button())).toMatchObject({ disabled: false, primary: false });
+    expect(saveButtonState(button({ changedParagraphs: 1 }))).toMatchObject({
+      disabled: false,
+      primary: false
+    });
+    expect(saveButtonState(button({ locked: true }))).toMatchObject({ disabled: true, primary: false });
+    expect(saveButtonState(button({ hasChapter: false }))).toMatchObject({
+      disabled: true,
+      primary: false
+    });
+    // A save starts only with something to write, so "Saving…" stays primary.
+    expect(saveButtonState(button({ saving: true, unsavedDecisions: 1 }))).toMatchObject({
+      label: 'Saving…',
+      disabled: true,
+      primary: true
+    });
+    expect(saveButtonState(button({ unsavedDecisions: 1 }))).toMatchObject({
+      label: 'Save 1 change to chapter',
+      disabled: false,
+      primary: true
     });
   });
 });
@@ -196,13 +249,15 @@ describe('saveButtonInput (apply.4)', () => {
       label: 'Saving…',
       disabled: true,
       title: 'Writing the chapter file.',
-      dot: true
+      dot: true,
+      primary: true
     });
     expect(saveButtonState(saveButtonInput(toolbar({ review, locked: true })))).toEqual({
       label: 'Save 2 changes to chapter',
       disabled: true,
       title: 'Wait for the review to finish, then save.',
-      dot: true
+      dot: true,
+      primary: true
     });
     expect(saveButtonState(saveButtonInput(toolbar({ review }))).disabled).toBe(false);
   });

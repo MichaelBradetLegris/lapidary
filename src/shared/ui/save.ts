@@ -125,6 +125,11 @@ export interface SaveButtonState {
   title: string;
   /** true when the chapter name in the toolbar gets the unsaved dot */
   dot: boolean;
+  /**
+   * true when the button is a primary one, filled in the turquoise: only while
+   * changes are waiting to be written (polish.9)
+   */
+  primary: boolean;
 }
 
 /**
@@ -134,19 +139,35 @@ export interface SaveButtonState {
  * (`CHAPTER_MATCHES_PAGE`), because a button that turns grey for no visible
  * reason is harder to read than one that answers. `dot` puts the unsaved dot
  * before the chapter name, labelled by `unsavedDotLabel`.
+ *
+ * `primary` goes with the dot (polish.9): with nothing to save the button is
+ * an ordinary one, and it turns primary only while changes are waiting, so
+ * the colour itself says so. Disabled and saving keep their looks, the fade
+ * over whichever button the count gives: a save starts only with changes to
+ * write, so "Saving…" stays turquoise, and with no chapter open, or a review
+ * running on one with nothing to save, the faded button is the plain one. An
+ * open paragraph box counts only once its Done makes it a change, as for the
+ * label and the dot.
  */
 export function saveButtonState(input: SaveButtonInput): SaveButtonState {
   const n = input.unsavedDecisions;
   if (!input.hasChapter) {
-    return { label: 'Save to chapter', disabled: true, title: 'Open a chapter to save to it.', dot: false };
+    return {
+      label: 'Save to chapter',
+      disabled: true,
+      title: 'Open a chapter to save to it.',
+      dot: false,
+      primary: false
+    };
   }
   const dot = n > 0;
+  const primary = dot;
   if (input.saving) {
-    return { label: 'Saving…', disabled: true, title: 'Writing the chapter file.', dot };
+    return { label: 'Saving…', disabled: true, title: 'Writing the chapter file.', dot, primary };
   }
   const label = n > 0 ? `Save ${changeCount(n)} to chapter` : 'Save to chapter';
   if (input.locked) {
-    return { label, disabled: true, title: 'Wait for the review to finish, then save.', dot };
+    return { label, disabled: true, title: 'Wait for the review to finish, then save.', dot, primary };
   }
   if (input.changedParagraphs > 0) {
     const boxes =
@@ -155,14 +176,15 @@ export function saveButtonState(input: SaveButtonInput): SaveButtonState {
       label,
       disabled: false,
       title: `Write your decisions into the chapter file (Ctrl+S). You are asked first about ${boxes} you are editing.`,
-      dot
+      dot,
+      primary
     };
   }
   if (n > 0) {
     const what = n === 1 ? 'this change' : `these ${n} changes`;
-    return { label, disabled: false, title: `Write ${what} into the chapter file (Ctrl+S).`, dot };
+    return { label, disabled: false, title: `Write ${what} into the chapter file (Ctrl+S).`, dot, primary };
   }
-  return { label, disabled: false, title: CHAPTER_MATCHES_PAGE, dot };
+  return { label, disabled: false, title: CHAPTER_MATCHES_PAGE, dot, primary };
 }
 
 /**

@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Toolbar } from '../../src/renderer/components/Toolbar';
 import { useApp } from '../../src/renderer/state/store';
+import { createDiffReview } from '../../src/shared/review';
 import type { Review } from '../../src/shared/types';
 
 /* polish.7: fewer toolbar buttons. Review with AI and Submit manual review
@@ -29,10 +30,16 @@ const REVIEW: Review = {
 type AppState = ReturnType<typeof useApp.getState>;
 let restore: Partial<AppState> = {};
 
-/** The server render reads the store's initial state, so a test puts what it needs there, and it is put back. */
+/**
+ * The server render reads the store's initial state, so a test puts what it
+ * needs there, and it is put back. Each field keeps the value it had before the
+ * test's first change to it, so a test may call this more than once.
+ */
 function storeWith(patch: Partial<AppState>): void {
   const initial = useApp.getInitialState();
-  restore = Object.fromEntries(Object.keys(patch).map((k) => [k, initial[k as keyof AppState]]));
+  for (const k of Object.keys(patch) as (keyof AppState)[]) {
+    if (!(k in restore)) restore = { ...restore, [k]: initial[k] };
+  }
   Object.assign(initial, patch);
 }
 
@@ -43,13 +50,13 @@ afterEach(() => {
 
 const noop = (): void => undefined;
 
-function render(review: Review | null, running = false): string {
+function render(review: Review | null, running = false, saving = false): string {
   return renderToStaticMarkup(
     createElement(Toolbar, {
       review,
       running,
       progressLabel: 'Waiting for the model (12s)',
-      saving: false,
+      saving,
       sideFolded: false,
       singleScreen: false,
       onReviewWithAi: noop,
@@ -140,5 +147,91 @@ describe('the toolbar holds Review, Actions, Save to chapter and Settings (polis
     expect(byText(html, 'Review')).toContain('disabled');
     // Copy result and Show backups still work while the chapter is read-only.
     expect(byText(html, 'Actions')).not.toContain('disabled');
+  });
+});
+
+/* polish.9: Save to chapter is an ordinary button while there is nothing to
+   save, and a primary one, in the turquoise, only while changes are waiting.
+   Disabled and saving keep the fade (app.css) over whichever that is. */
+describe('Save to chapter is primary only while changes are waiting (polish.9)', () => {
+  /** REVIEW with one change the chapter file does not have: its one suggestion, accepted. */
+  const ONE: Review = (() => {
+    const diff = createDiffReview({
+      originalRaw: 'The river had began.',
+      correctedRaw: 'The river had begun.'
+    });
+    expect(diff.hunks).toHaveLength(1);
+    return {
+      ...REVIEW,
+      base: diff.base,
+      hunks: diff.hunks.map((h) => ({ ...h, status: 'accepted' as const }))
+    };
+  })();
+
+  const save = (html: string): { text: string; attrs: string } => {
+    const found = buttons(html).find((b) => /^Sav/.test(b.text));
+    expect(found).toBeDefined();
+    return found ?? { text: '', attrs: '' };
+  };
+  const primary = (attrs: string): boolean => /\bclass="primary"/.test(attrs);
+
+  it('is plain with nothing to save, and primary at one change', () => {
+    storeWith({ review: REVIEW });
+    let button = save(render(REVIEW));
+    expect(button.text).toBe('Save to chapter');
+    expect(button.attrs).not.toContain('class=');
+    expect(button.attrs).not.toContain('disabled');
+
+    storeWith({ review: ONE });
+    button = save(render(ONE));
+    expect(button.text).toBe('Save 1 change to chapter');
+    expect(primary(button.attrs)).toBe(true);
+    expect(button.attrs).not.toContain('disabled');
+  });
+
+  it('is plain and disabled with no chapter open, as for pasted text', () => {
+    storeWith({ review: null });
+    let button = save(render(null));
+    expect(button.text).toBe('Save to chapter');
+    expect(button.attrs).toContain('disabled');
+    expect(button.attrs).not.toContain('class=');
+
+    const pasted: Review = { ...ONE, sourcePath: '' };
+    storeWith({ review: pasted });
+    button = save(render(pasted));
+    expect(button.attrs).toContain('disabled');
+    expect(primary(button.attrs)).toBe(false);
+  });
+
+  it('keeps the look the count gives while a review of the chapter runs, disabled', () => {
+    storeWith({ review: REVIEW, aiBusyPath: REVIEW.sourcePath });
+    let button = save(render(REVIEW, true));
+    expect(button.attrs).toContain('disabled');
+    expect(primary(button.attrs)).toBe(false);
+
+    storeWith({ review: ONE, aiBusyPath: ONE.sourcePath });
+    button = save(render(ONE, true));
+    expect(button.text).toBe('Save 1 change to chapter');
+    expect(button.attrs).toContain('disabled');
+    expect(primary(button.attrs)).toBe(true);
+  });
+
+  it('stays primary while saving, disabled', () => {
+    storeWith({ review: ONE });
+    const button = save(render(ONE, false, true));
+    expect(button.text).toBe('Saving…');
+    expect(button.attrs).toContain('disabled');
+    expect(primary(button.attrs)).toBe(true);
+  });
+
+  it('stays plain with only a paragraph box changed, until its Done makes it a change', () => {
+    storeWith({
+      review: REVIEW,
+      drafts: { 0: { key: 0, paragraphs: [0], initial: 'One.', text: 'One more.' } }
+    });
+    const button = save(render(REVIEW));
+    expect(button.text).toBe('Save to chapter');
+    expect(button.attrs).toContain('You are asked first about the paragraph you are editing.');
+    expect(primary(button.attrs)).toBe(false);
   });
 });
