@@ -8,7 +8,13 @@
  * `chipsRevealLeft` brings the whole chip in. Pure, so it runs in node.
  */
 
-/** Room kept between a chip brought into view and the row's edge: the row's own padding. */
+/**
+ * Room kept between a chip brought into view and the edge of the row's
+ * scrolling area: the row's own padding on the right. On the left that area
+ * starts inside a 6 px border, which keeps the row's scrollbar clear of the
+ * chapter list's handle (polish.5, app.css), so a chip brought in on that side
+ * sits 18 px from the row's edge, where the first chip sits 12 px from it.
+ */
 export const CHIPS_REVEAL_MARGIN = 12;
 
 /** Pixels per line for a wheel that counts in lines (`WheelEvent.DOM_DELTA_LINE`). */

@@ -210,7 +210,11 @@ describe('the handles on the page', () => {
       /onPointerDown:[\s\S]*?event\.preventDefault\(\);\s*const dragRoom = movableRoom\(\);\s*if \(!dragRoom\) return;[\s\S]*?setPointerCapture\(event\.pointerId\)/
     );
     expect(HANDLES).toMatch(
-      /onPointerMove:[\s\S]*?columnMove\(d\.room, columnDragTarget\(d\.room, event\.clientX - d\.startX\)\)/
+      /onPointerMove:[\s\S]*?showLive\(columnDragShare\(d\.room, event\.clientX - d\.startX\)\);/
+    );
+    // The other column stays as set while one is dragged (`columnLiveShares`).
+    expect(HANDLES).toMatch(
+      /const showLive = \(share: number \| null\): void => \{\s*liveShare\.current = share;\s*const saved = useApp\.getState\(\)\.settings\?\.columnWidths \?\? USUAL_COLUMN_WIDTHS;\s*setLive\(columnLiveShares\(saved, column, share\)\);/
     );
     expect(HANDLES).toContain(
       'onPointerUp: (event: PointerEvent<HTMLDivElement>) => finish(event.pointerId, true)'
@@ -220,7 +224,7 @@ describe('the handles on the page', () => {
       'onPointerCancel: (event: PointerEvent<HTMLDivElement>) => finish(event.pointerId, false)'
     );
     expect(HANDLES).toMatch(
-      /if \(keep && last !== undefined\) void saveColumnWidth\(column, last, COLUMN_IO\);/
+      /const last = liveShare\.current;\s*liveShare\.current = null;\s*if \(keep && last !== null\) void saveColumnWidth\(column, last, COLUMN_IO\);/
     );
     expect(HANDLES).toContain("setSettings: (patch) => call('settings:set', patch)");
     expect(HANDLES).toMatch(
@@ -232,11 +236,9 @@ describe('the handles on the page', () => {
     expect(HANDLES).toMatch(
       /onDoubleClick: \(\) => \{\s*if \(movableRoom\(\)\) void saveColumnWidth\(column, null, COLUMN_IO\);/
     );
+    // Enter and the moves write what `columnKeyWrite` says, for the column it names.
     expect(HANDLES).toMatch(
-      /action\.kind === 'reset'\) \{\s*void saveColumnWidth\(column, null, COLUMN_IO\);/
-    );
-    expect(HANDLES).toMatch(
-      /onKeyDown:[\s\S]*?const keyRoom = movableRoom\(\);\s*if \(!keyRoom\) return;\s*const action = columnKeyAction\(event, keyRoom\);\s*if \(!action\) return;\s*event\.preventDefault\(\);/
+      /onKeyDown:[\s\S]*?const keyRoom = movableRoom\(\);\s*if \(!keyRoom\) return;\s*const action = columnKeyAction\(event, keyRoom\);\s*if \(!action\) return;\s*event\.preventDefault\(\);\s*const write = columnKeyWrite\(action, keyRoom\);\s*if \(write\) void saveColumnWidth\(write\.column, write\.share, COLUMN_IO\);\s*\}/
     );
     expect(HANDLES).toContain(
       'const movableRoom = (): ColumnRoom | null => (columnMovable(room) ? room : null);'
@@ -245,7 +247,7 @@ describe('the handles on the page', () => {
 
   it('ends a drag whose handle a fold takes away, at the release, keeping nothing', () => {
     expect(HANDLES).toMatch(
-      /if \(!d \|\| d\.pointerId !== event\.pointerId \|\| d\.element\.isConnected\) return;\s*drag\.current = null;\s*liveShare\.current = undefined;\s*setDragging\(false\);\s*setLive\(null\);/
+      /if \(!d \|\| d\.pointerId !== event\.pointerId \|\| d\.element\.isConnected\) return;\s*drag\.current = null;\s*liveShare\.current = null;\s*setDragging\(false\);\s*setLive\(null\);/
     );
     expect(HANDLES).toContain("window.addEventListener('pointerup', release);");
   });
@@ -266,6 +268,28 @@ describe('the handles in app.css', () => {
     expect(declsFor('.column-handle--side').get('right')).toBe('calc(var(--side-col) - 7px)');
     expect(declsFor('.files').get('border-right')).toBe('1px solid var(--border)');
     expect(declsFor('.side').get('border-left')).toBe('1px solid var(--border)');
+  });
+
+  it("keeps the chip row's scrollbar beside the chapter list's band, not under it", () => {
+    // The band reaches from the list's border, its first pixel, 6 px into the prose.
+    const reach = Number.parseFloat(declsFor('.column-handle').get('width') ?? '') - 1;
+    expect(reach).toBe(6);
+    /* The chips at the top of the prose scroll sideways, and a scrollbar starts
+       inside its box's border: a left border as wide as the band's reach, in
+       the row's own colour, puts the scrollbar's left arrow beside the band. */
+    const chips = declsFor('.chips');
+    expect(chips.get('overflow-x')).toBe('auto');
+    expect(chips.get('border-left')).toBe(`${reach}px solid var(--panel-alt)`);
+    expect(chips.get('background')).toBe('var(--panel-alt)');
+    // The chips stay 12 px from the row's edge.
+    expect(chips.get('padding')).toBe(`6px 12px 6px ${12 - reach}px`);
+    // The line under the row is the wrapper's, as one of the row's own would taper where it met that border.
+    expect([...chips.keys()].filter((p) => p.startsWith('border') && p !== 'border-left')).toEqual([]);
+    expect(declsFor('.chips + .center-wrap').get('border-top')).toBe('1px solid var(--border)');
+    // The wrapper comes straight after the row (a comment between them read as `{}`).
+    expect(APP).toMatch(
+      /\{review \? <FilterChips review=\{review\} \/> : null\}\s*(\{\}\s*)?<div className=\{`center-wrap /
+    );
   });
 
   it('draws the line and a grip in the faint grey, both darker under the pointer, and the browser its focus ring', () => {

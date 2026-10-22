@@ -16,9 +16,12 @@
  * is not (C.59).
  *
  * Pure (CLAUDE.md rule 4). The page draws the handles and follows the pointer
- * and the keys (`src/renderer/state/columnHandles.ts`).
+ * and the keys (`src/renderer/state/columnHandles.ts`); what it draws during a
+ * drag and what it writes are decided here (`columnDragShare`,
+ * `columnLiveShares`, `columnKeyWrite`), so that they are tested.
  */
 
+import type { ColumnShares } from '../types';
 import { COLUMN_WIDTHS, PROSE_MIN, type Column, type ColumnLayout } from './columns';
 
 /** How far an arrow key moves a handle, in CSS px, as for the split (`SPLIT_STEP_PX`). */
@@ -93,6 +96,30 @@ export function columnShare(width: number, windowWidth: number): number {
   return Math.min(0.999999, Math.max(0.000001, share));
 }
 
+/**
+ * The share a drag `dx` CSS px to the right of where it started gives the
+ * column, or null while the handle would not move from where the drag found
+ * it: back where it started, or pressed on past a limit it was already at.
+ */
+export function columnDragShare(room: ColumnRoom, dx: number): number | null {
+  const next = columnMove(room, columnDragTarget(room, dx));
+  return next === null ? null : columnShare(next, room.width);
+}
+
+/**
+ * The widths to lay the columns out with while a drag is under way: those in
+ * settings with the dragged column's share in place of its own, so the other
+ * column stays where it is. Null, which lays them out from settings, when the
+ * drag has no share (`columnDragShare`).
+ */
+export function columnLiveShares(
+  saved: ColumnShares,
+  column: Column,
+  share: number | null
+): ColumnShares | null {
+  return share === null ? null : { ...saved, [column]: share };
+}
+
 export type ColumnKeyAction = { kind: 'move'; target: number } | { kind: 'reset' };
 
 /**
@@ -123,6 +150,23 @@ export function columnKeyAction(
     default:
       return null;
   }
+}
+
+/** A width to keep: the column, and its share of the window's width, null for its usual width. */
+export interface ColumnWrite {
+  column: Column;
+  share: number | null;
+}
+
+/**
+ * What a key the handle takes (`columnKeyAction`) writes: the column's new
+ * share for a move, and its usual width for Enter. Null when there is nothing
+ * to write, the column being at the limit the key moves it toward already.
+ */
+export function columnKeyWrite(action: ColumnKeyAction, room: ColumnRoom): ColumnWrite | null {
+  if (action.kind === 'reset') return { column: room.column, share: null };
+  const next = columnMove(room, action.target);
+  return next === null ? null : { column: room.column, share: columnShare(next, room.width) };
 }
 
 /** The column's name in a handle's words. */

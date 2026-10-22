@@ -9,13 +9,13 @@ import {
 import type { ColumnShares } from '../../shared/types';
 import {
   columnAria,
-  columnDragTarget,
+  columnDragShare,
   columnHandleText,
   columnKeyAction,
+  columnKeyWrite,
+  columnLiveShares,
   columnMovable,
-  columnMove,
   columnRoom,
-  columnShare,
   type ColumnRoom
 } from '../../shared/ui/columnHandle';
 import { USUAL_COLUMN_WIDTHS, type Column, type ColumnLayout } from '../../shared/ui/columns';
@@ -27,10 +27,11 @@ import { useApp } from './store';
 /*
  * The handles on the side columns' inner edges (polish.5, PLAN 7 "Column
  * widths"), built as the side panel's split is (ui.6, state/splitHandle.ts).
- * The rules are in src/shared/ui/columnHandle.ts; this follows the pointer and
- * the keys, and while a drag lasts hands its width to `useColumns` (its
- * `setLive`, which App passes on), which lays the columns out with it, so the
- * edge follows the pointer. The width reaches settings when the drag ends, or
+ * The rules are in src/shared/ui/columnHandle.ts, with what a drag draws and
+ * what a key writes; this follows the pointer and the keys, and while a drag
+ * lasts hands its widths to `useColumns` (its `setLive`, which App passes on),
+ * which lays the columns out with them, so the edge follows the pointer and
+ * the other column stays put. The width reaches settings when the drag ends, or
  * at once from the keys. A folded column has no handle; one that cannot move
  * an arrow step is the border it lies on: disabled, out of the Tab order, and
  * still to the pointer.
@@ -62,8 +63,8 @@ export function useColumnHandle(
 ): ColumnHandleProps | null {
   const [dragging, setDragging] = useState(false);
   const drag = useRef<Drag | null>(null);
-  /** the share a drag has reached; undefined when it is back where it started */
-  const liveShare = useRef<number | undefined>(undefined);
+  /** the share a drag has reached; null when it is back where it started (`columnDragShare`) */
+  const liveShare = useRef<number | null>(null);
 
   /* While a drag is under way the pointer keeps the col-resize shape wherever
      it goes, and no text is selected (app.css `.column-resizing`). A handle
@@ -78,7 +79,7 @@ export function useColumnHandle(
       const d = drag.current;
       if (!d || d.pointerId !== event.pointerId || d.element.isConnected) return;
       drag.current = null;
-      liveShare.current = undefined;
+      liveShare.current = null;
       setDragging(false);
       setLive(null);
     };
@@ -100,10 +101,11 @@ export function useColumnHandle(
   /** The room as the columns are drawn, when the handle can move; null when it cannot. */
   const movableRoom = (): ColumnRoom | null => (columnMovable(room) ? room : null);
 
-  const showLive = (share: number | undefined): void => {
+  // The other column stays as set while this one is dragged.
+  const showLive = (share: number | null): void => {
     liveShare.current = share;
     const saved = useApp.getState().settings?.columnWidths ?? USUAL_COLUMN_WIDTHS;
-    setLive(share === undefined ? null : { ...saved, [column]: share });
+    setLive(columnLiveShares(saved, column, share));
   };
 
   const finish = (pointerId: number, keep: boolean): void => {
@@ -112,9 +114,9 @@ export function useColumnHandle(
     drag.current = null;
     setDragging(false);
     const last = liveShare.current;
-    liveShare.current = undefined;
+    liveShare.current = null;
     // The store takes the width at once, so the edge stays where it was let go.
-    if (keep && last !== undefined) void saveColumnWidth(column, last, COLUMN_IO);
+    if (keep && last !== null) void saveColumnWidth(column, last, COLUMN_IO);
     setLive(null);
   };
 
@@ -152,8 +154,7 @@ export function useColumnHandle(
     onPointerMove: (event: PointerEvent<HTMLDivElement>) => {
       const d = drag.current;
       if (!d || d.pointerId !== event.pointerId) return;
-      const next = columnMove(d.room, columnDragTarget(d.room, event.clientX - d.startX));
-      showLive(next === null ? undefined : columnShare(next, d.room.width));
+      showLive(columnDragShare(d.room, event.clientX - d.startX));
     },
     onPointerUp: (event: PointerEvent<HTMLDivElement>) => finish(event.pointerId, true),
     onPointerCancel: (event: PointerEvent<HTMLDivElement>) => finish(event.pointerId, false),
@@ -168,12 +169,9 @@ export function useColumnHandle(
       const action = columnKeyAction(event, keyRoom);
       if (!action) return;
       event.preventDefault();
-      if (action.kind === 'reset') {
-        void saveColumnWidth(column, null, COLUMN_IO);
-        return;
-      }
-      const next = columnMove(keyRoom, action.target);
-      if (next !== null) void saveColumnWidth(column, columnShare(next, keyRoom.width), COLUMN_IO);
+      // Enter writes the usual width; a key at the limit it moves toward, nothing.
+      const write = columnKeyWrite(action, keyRoom);
+      if (write) void saveColumnWidth(write.column, write.share, COLUMN_IO);
     }
   };
 }

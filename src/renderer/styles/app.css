@@ -541,12 +541,13 @@ input[type='text'] {
    column's own border, which is its line, and over the 6 px beside it on the
    side that has no scrollbar there: the prose's left edge for the chapter
    list, the side panel's left edge for the side panel. So a press on either
-   column's scrollbar is never taken for a drag. A grip in the faint text's
-   grey, which has 3:1 on the page and the panels in both themes, sits on the
-   line halfway down, and the line and the grip darken under the pointer, as
-   on the split's handle in the side panel (ui.6). The band paints nothing of
-   its own, and the focus ring is the browser's. Above the page's columns, and
-   under the drawers (10) and everything that floats over them. */
+   column's scrollbar is never taken for a drag, nor one on the chip row's at
+   the top of the prose, which starts beside the band (.chips). A grip in the
+   faint text's grey, which has 3:1 on the page and the panels in both themes,
+   sits on the line halfway down, and the line and the grip darken under the
+   pointer, as on the split's handle in the side panel (ui.6). The band paints
+   nothing of its own, and the focus ring is the browser's. Above the page's
+   columns, and under the drawers (10) and everything that floats over them. */
 .column-handle {
   position: absolute;
   top: 0;
@@ -816,17 +817,27 @@ input[type='text'] {
 /* One row at the top of the centre column, under the toolbar (polish.6). When
    the chips do not fit they scroll sideways rather than wrap: wrapped, thirteen
    categories took three rows in the smallest window at 100% and six at 200%,
-   where the prose had no height left. Opaque, as every scroller is (theme.1). */
+   where the prose had no height left. Opaque, as every scroller is (theme.1).
+   The chapter list's handle reaches 6 px into the prose (polish.5), and a
+   scrollbar starts inside its box's border, so the row has a left border that
+   wide in its own colour, which puts the scrollbar's left arrow beside the
+   handle rather than under it; with 6 px of padding the chips stay 12 px from
+   the edge. The line under the row is the wrapper's below it: a line of the
+   row's own would meet that border at a corner and taper off along it. */
 .chips {
   display: flex;
   flex-wrap: nowrap;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 6px 12px 6px 6px;
   overflow-x: auto;
   overflow-y: hidden;
-  border-bottom: 1px solid var(--border);
+  border-left: 6px solid var(--panel-alt);
   background: var(--panel-alt);
   flex: 0 0 auto;
+}
+
+.chips + .center-wrap {
+  border-top: 1px solid var(--border);
 }
 
 .chip {

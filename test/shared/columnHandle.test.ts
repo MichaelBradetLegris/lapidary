@@ -5,9 +5,12 @@ import {
   COLUMN_STEP_PX,
   COLUMN_TITLE_STILL,
   columnAria,
+  columnDragShare,
   columnDragTarget,
   columnHandleText,
   columnKeyAction,
+  columnKeyWrite,
+  columnLiveShares,
   columnMovable,
   columnMove,
   columnRoom,
@@ -155,6 +158,66 @@ describe('the keys', () => {
     for (const modifier of ['ctrlKey', 'altKey', 'metaKey']) {
       expect(columnKeyAction({ key: 'ArrowRight', [modifier]: true }, files)).toBeNull();
     }
+  });
+});
+
+describe('what the page draws during a drag and writes', () => {
+  const files = room(DEFAULT, 'files');
+  const side = room(DEFAULT, 'side');
+  const keyWrite = (key: string, r: ColumnRoom) => {
+    const action = columnKeyAction({ key }, r);
+    return action ? columnKeyWrite(action, r) : 'not taken';
+  };
+
+  it("writes the key's column, at the width the key moves it to, as its share of the window", () => {
+    // In the default window: the list's 230 px a step right is 254 px, the panel's 320 a step left 344.
+    expect(keyWrite('ArrowRight', files)).toEqual({ column: 'files', share: 0.178371 });
+    expect(keyWrite('ArrowLeft', files)).toEqual({ column: 'files', share: 0.144663 });
+    expect(keyWrite('ArrowLeft', side)).toEqual({ column: 'side', share: 0.241573 });
+    expect(keyWrite('ArrowRight', side)).toEqual({ column: 'side', share: 0.207865 });
+    expect(keyWrite('Home', files)).toEqual({ column: 'files', share: 0.105337 });
+    expect(keyWrite('End', files)).toEqual({ column: 'files', share: 0.438202 });
+    expect(keyWrite('Home', side)).toEqual({ column: 'side', share: 0.140449 });
+    expect(keyWrite('End', side)).toEqual({ column: 'side', share: 0.501404 });
+  });
+
+  it('writes the usual width on Enter, and nothing for a key toward a limit the column is at', () => {
+    expect(keyWrite('Enter', files)).toEqual({ column: 'files', share: null });
+    expect(keyWrite('Enter', side)).toEqual({ column: 'side', share: null });
+    const listAtMost: ColumnRoom = { ...files, current: files.max };
+    expect(keyWrite('End', listAtMost)).toBeNull();
+    expect(keyWrite('ArrowRight', listAtMost)).toBeNull();
+    expect(keyWrite('ArrowLeft', listAtMost)).toEqual({ column: 'files', share: 0.421348 });
+    const panelAtLeast: ColumnRoom = { ...side, current: side.min };
+    expect(keyWrite('Home', panelAtLeast)).toBeNull();
+    expect(keyWrite('ArrowRight', panelAtLeast)).toBeNull();
+    expect(keyWrite('ArrowDown', files)).toBe('not taken');
+  });
+
+  it('gives a drag the share of the width it has reached, and none back where it started', () => {
+    // As in the window check (PLAN polish.5): the list's edge 80 px right is 310 px.
+    expect(columnDragShare(files, 80)).toBe(0.217697);
+    expect(columnDragShare(side, -100)).toBe(columnShare(420, DEFAULT));
+    expect(columnDragShare(files, 900)).toBe(columnShare(624, DEFAULT));
+    expect(columnDragShare(side, 900)).toBe(columnShare(200, DEFAULT));
+    expect(columnDragShare(files, 0)).toBeNull();
+    expect(columnDragShare(files, 0.4)).toBeNull();
+  });
+
+  it("draws the dragged column at the drag's width and the other where it is set", () => {
+    const saved: ColumnShares = { files: null, side: 0.3 };
+    const live = columnLiveShares(saved, 'files', 0.217697);
+    expect(live).toEqual({ files: 0.217697, side: 0.3 });
+    const before = columnLayout(DEFAULT, saved);
+    const during = columnLayout(DEFAULT, live ?? saved);
+    expect(during.filesWidth).toBe(310);
+    expect(during.sideWidth).toBe(before.sideWidth);
+    expect(before.sideWidth).toBe(427);
+    expect(columnLiveShares({ files: 0.2, side: null }, 'side', 0.25)).toEqual({ files: 0.2, side: 0.25 });
+    // Back where it started, the columns are laid out from settings.
+    expect(columnLiveShares(saved, 'files', null)).toBeNull();
+    // Settings' own object is left as it is.
+    expect(saved).toEqual({ files: null, side: 0.3 });
   });
 });
 
