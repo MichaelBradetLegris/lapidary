@@ -142,11 +142,12 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
     expect(zIndexes().filter((n) => n === z)).toHaveLength(1);
   });
 
-  it('stays clear of the chips, the cards and the find bar, which live in the centre column beside the side panel', () => {
-    // The hint keeps to `.body .side` (above). The chips are a strip at the
-    // top of `.center-col`, the column before it, since polish.6; the find bar
-    // and the cards are in `.center-wrap` under them, and never reach out of
-    // it: the find bar is a strip in its flow, and the cards are pinned inside it.
+  it('stays clear of the chips, the cards and the find bar: the chips in the toolbar, the rest in the centre column beside the side panel', () => {
+    // The hint keeps to `.body .side` (above). The chips are in the toolbar's
+    // row since polish.10 (the centre column's top from polish.6), and the hint
+    // hangs below the toolbar's last row; the find bar and the cards are in
+    // `.center-wrap`, and never reach out of it: the find bar is a strip in its
+    // flow, and the cards are pinned inside it.
     // With the side panel folded to a strip (ui.3), its drawer's column lies
     // over the prose's edge, so there the hint may meet them: see
     // test/renderer/columns.test.ts.
@@ -154,15 +155,16 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
     // cards in its own column (setup.7, below).
     const main = APP.slice(APP.lastIndexOf('return ('));
     const column = main.indexOf('<div className="center-col">');
-    const chips = main.indexOf('<FilterChips');
     const wrap = main.indexOf('<div className={`center-wrap');
     const find = main.indexOf('<FindBar />');
     const cards = main.indexOf('<NotificationCards');
     const lock = main.indexOf('<LockCard');
     const side = main.indexOf('<SidePanel');
+    expect(main).not.toContain('<FilterChips');
+    expect(TOOLBAR.indexOf('<FilterChips')).toBeGreaterThan(-1);
+    expect(TOOLBAR.indexOf('<FilterChips')).toBeLessThan(TOOLBAR.indexOf('<SaveHint'));
     expect(column).toBeGreaterThan(0);
-    expect(chips).toBeGreaterThan(column);
-    expect(wrap).toBeGreaterThan(chips);
+    expect(wrap).toBeGreaterThan(column);
     expect(find).toBeGreaterThan(wrap);
     expect(cards).toBeGreaterThan(find);
     expect(lock).toBeGreaterThan(cards);

@@ -19,7 +19,9 @@ const HOOK = read('state/columns.ts');
 const STRIP = read('components/ColumnStrip.tsx');
 const KEYS = read('state/keyboard.ts');
 const HINT = read('components/SaveHint.tsx');
-const MENU = read('components/ToolbarMenu.tsx');
+// A menu's behaviour is useMenu's since polish.10 (the toolbar's and a chip's).
+const MENU =
+  read('components/ToolbarMenu.tsx') + read('components/useMenu.ts') + read('components/MenuList.tsx');
 const STATUS = read('components/StatusBar.tsx');
 const FIND = read('components/FindBar.tsx');
 const CSS = read('styles/app.css');
@@ -96,7 +98,6 @@ describe('each column is in place, or a strip and a drawer (ui.3)', () => {
       "id={drawerId('files')}",
       '<FileList',
       '<div className="center-col">',
-      '<FilterChips',
       '<div className={`center-wrap',
       '<ColumnStrip column="side"',
       "id={drawerId('side')}",
@@ -210,7 +211,9 @@ describe('how a drawer closes (ui.3)', () => {
     expect(HOOK).toMatch(
       /export function popupTakesEscape\(\): boolean \{\s*return document\.querySelector\(CLOSES_ON_ESCAPE\) !== null;\s*\}/
     );
-    expect(MENU).toMatch(/<div\s+className="menu__list"\s+role="menu"\s[^>]*onKeyDown=\{onListKey\}[^>]*>/);
+    expect(MENU).toMatch(
+      /<div\s+ref=\{listRef\}\s+className=\{className \? `menu__list \$\{className\}` : 'menu__list'\}\s+role="menu"\s[^>]*onKeyDown=\{onListKey\}[^>]*>/
+    );
     expect(STATUS).toContain('<div className="legend" ref={ref} role="dialog"');
     // Each takes the press it closes on, so it closes no drawer whichever runs first.
     for (const source of [MENU, STATUS]) {

@@ -235,14 +235,18 @@ describe('Every dialog takes the focus and hands it back (ui.4)', () => {
   });
 
   it("moves the focus to the menu's button before its item goes, so a question or a dialog hands it back there", () => {
-    const menu = read('components/ToolbarMenu.tsx');
-    const close = menu.slice(menu.indexOf('const close = '), menu.indexOf('const run = '));
-    const focus = close.indexOf('if (giveFocusBack) buttonRef.current?.focus({ preventScroll: true });');
+    // How a menu behaves is useMenu's since polish.10, which a chip's menu shares;
+    // the toolbar's menus hand it their button.
+    const hook = read('components/useMenu.ts');
+    const close = hook.slice(hook.indexOf('const close = '), hook.indexOf('const run = '));
+    const focus = close.indexOf('if (giveFocusBack) invoker.current?.focus({ preventScroll: true });');
     expect(focus).toBeGreaterThan(-1);
     expect(close.indexOf('setOpen(false);')).toBeGreaterThan(focus);
-    expect(menu).toMatch(
+    expect(hook).toMatch(
       /const run = \(item: MenuItem\): void => \{\s*close\(true\);\s*item\.onSelect\(\);\s*\};/
     );
+    const menu = read('components/ToolbarMenu.tsx');
+    expect(menu).toMatch(/useMenu\(\s*items,\s*buttonRef,\s*disabled\s*\)/);
     expect(menu).toMatch(/<span\s+className="menu"\s+ref=\{ref\}[\s\S]*?>\s*<button\s+ref=\{buttonRef\}/);
   });
 

@@ -1,18 +1,31 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import type { Hunk } from '../../src/shared/types';
 import {
+  CHIPS_ARROW_WIDTH,
   CHIPS_REVEAL_MARGIN,
+  CHIPS_THUMB_MIN,
+  chipBulkLabel,
+  chipCategories,
+  chipMenuLabel,
+  chipMenuPlacement,
+  chipsEnds,
+  chipsIndicator,
+  chipsPageLeft,
   chipsRevealLeft,
   chipsWheelLeft,
+  chipTitle,
   WHEEL_LINE_PX,
   type ChipsRow,
   type ChipsWheel
 } from '../../src/shared/ui/chips';
 
-/* polish.6: the category chips are one row at the top of the centre column
-   that scrolls sideways when they do not fit. An up-and-down wheel turned over
-   it scrolls it sideways, other wheels are left to the browser, and a chip the
-   keyboard reaches comes wholly into view. */
+/* polish.6: the category chips are one row that scrolls sideways when they do
+   not fit. An up-and-down wheel turned over it scrolls it sideways, other
+   wheels are left to the browser, and a chip the keyboard reaches comes wholly
+   into view. polish.10: the row is in the toolbar, its chips compact, with a
+   menu each; it draws no scrollbar, and while the chips overflow, ‹ and › over
+   its ends page it and a 2 px line under it shows where it is. */
 
 const wheel = (over: Partial<ChipsWheel> = {}): ChipsWheel => ({
   deltaX: 0,
@@ -124,11 +137,12 @@ describe('a chip the keyboard reaches comes wholly into view (polish.6)', () => 
   it('always leaves the chip wholly in view when the row has room for it', () => {
     fc.assert(
       fc.property(
-        fc.double({ min: 100, max: 3000, noNaN: true }),
+        // Room for the widest chip between the two margins, the arrows' since polish.10.
+        fc.double({ min: 2 * CHIPS_REVEAL_MARGIN + 90, max: 3000, noNaN: true }),
         fc.double({ min: 0, max: 3000, noNaN: true }),
         fc.double({ min: 0, max: 1, noNaN: true }),
         fc.double({ min: 0, max: 1, noNaN: true }),
-        fc.double({ min: 1, max: 76, noNaN: true }),
+        fc.double({ min: 1, max: 90, noNaN: true }),
         (clientWidth, extra, at, where, width) => {
           const scrollWidth = clientWidth + extra;
           const row = { clientWidth, scrollWidth, scrollLeft: at * extra };
@@ -139,6 +153,150 @@ describe('a chip the keyboard reaches comes wholly into view (polish.6)', () => 
           expect(next).toBeLessThanOrEqual(extra + 1e-9);
           expect(chip.left).toBeGreaterThanOrEqual(next - 1e-6);
           expect(chip.right).toBeLessThanOrEqual(next + clientWidth + 1e-6);
+        }
+      )
+    );
+  });
+
+  it('keeps a chip brought in clear of the arrow over that end (polish.10)', () => {
+    expect(CHIPS_REVEAL_MARGIN).toBe(CHIPS_ARROW_WIDTH + 6);
+    // Cut off under the right arrow of the smallest window's 434 px row: it comes in clear of it.
+    const row = { scrollLeft: 0, scrollWidth: 958, clientWidth: 434 };
+    const left = chipsRevealLeft(row, { left: 400, right: 482 });
+    expect(left).not.toBeNull();
+    expect(482 - (left ?? 0)).toBeCloseTo(434 - CHIPS_REVEAL_MARGIN, 9);
+  });
+});
+
+describe('the chips, one per category in the text (polish.10)', () => {
+  const hunk = (
+    category: Hunk['category'],
+    anchor: Hunk['anchor'] = 'exact'
+  ): Pick<Hunk, 'anchor' | 'category'> => (category === undefined ? { anchor } : { anchor, category });
+
+  it('counts each category of a suggestion in the text, the most first, then by name', () => {
+    expect(
+      chipCategories([
+        hunk('typo'),
+        hunk('grammar'),
+        hunk('typo'),
+        hunk('awkward'),
+        hunk('grammar'),
+        hunk('spelling', 'stale'),
+        hunk(undefined),
+        hunk('punctuation', 'fuzzy'),
+        hunk('tense', 'ambiguous')
+      ])
+    ).toEqual([
+      ['grammar', 2],
+      ['typo', 2],
+      ['awkward', 1],
+      ['other', 1],
+      ['punctuation', 1],
+      ['tense', 1]
+    ]);
+    expect(chipCategories([])).toEqual([]);
+    expect(chipCategories([hunk('spelling', 'stale')])).toEqual([]);
+  });
+
+  it('names the menu, its items and what a click does', () => {
+    expect(chipBulkLabel('accept', 'punctuation')).toBe('Accept all punctuation');
+    expect(chipBulkLabel('dismiss', 'word-choice')).toBe('Dismiss all word-choice');
+    expect(chipMenuLabel('typo')).toBe('Accept or dismiss all typo');
+    expect(chipTitle(false)).toBe(
+      'Hide these. Right-click, or press the menu key, for Accept all and Dismiss all.'
+    );
+    expect(chipTitle(true)).toBe(
+      'Show these. Right-click, or press the menu key, for Accept all and Dismiss all.'
+    );
+  });
+
+  it('opens the menu under the chip, and keeps it in the window', () => {
+    expect(chipMenuPlacement({ left: 321, bottom: 31 }, 160, 1424)).toEqual({ left: 321, top: 35 });
+    // Near the right edge it moves left, to 4 px from the edge.
+    expect(chipMenuPlacement({ left: 800, bottom: 31 }, 160, 884)).toEqual({ left: 720, top: 35 });
+    // Never past the left edge.
+    expect(chipMenuPlacement({ left: -30, bottom: 31 }, 160, 884)).toEqual({ left: 4, top: 35 });
+    expect(chipMenuPlacement({ left: 10, bottom: 31 }, 900, 884)).toEqual({ left: 4, top: 35 });
+  });
+});
+
+describe('the arrows and the line, while the chips overflow (polish.10)', () => {
+  /** The smallest window at 100% with thirteen categories, as measured: 958 px of chips in 434. */
+  const SMALL: ChipsRow = { scrollLeft: 0, scrollWidth: 958, clientWidth: 434 };
+  const max = SMALL.scrollWidth - SMALL.clientWidth;
+  const FITS: ChipsRow = { scrollLeft: 0, scrollWidth: 974, clientWidth: 974 };
+
+  it('shows no arrow and no line while the chips fit', () => {
+    expect(chipsEnds(FITS)).toEqual({ start: false, end: false });
+    expect(chipsIndicator(FITS, 974)).toBeNull();
+    expect(chipsPageLeft(FITS, 1)).toBeNull();
+    // Less than a pixel over, as zoom can leave, counts as fitting.
+    expect(chipsEnds({ ...FITS, scrollWidth: 974.6 })).toEqual({ start: false, end: false });
+    expect(chipsIndicator({ ...FITS, scrollWidth: 974.6 }, 974)).toBeNull();
+  });
+
+  it('shows › at the start, both between, and ‹ at the end', () => {
+    expect(chipsEnds(SMALL)).toEqual({ start: false, end: true });
+    expect(chipsEnds({ ...SMALL, scrollLeft: 200 })).toEqual({ start: true, end: true });
+    expect(chipsEnds({ ...SMALL, scrollLeft: max })).toEqual({ start: true, end: false });
+    // A fractional position within a pixel of an end is at it.
+    expect(chipsEnds({ ...SMALL, scrollLeft: 0.4 })).toEqual({ start: false, end: true });
+    expect(chipsEnds({ ...SMALL, scrollLeft: max - 0.4 })).toEqual({ start: true, end: false });
+  });
+
+  it('pages by the row less the room kept at each end, and stops at the ends', () => {
+    const step = SMALL.clientWidth - 2 * CHIPS_REVEAL_MARGIN;
+    expect(chipsPageLeft(SMALL, 1)).toBe(step);
+    expect(chipsPageLeft({ ...SMALL, scrollLeft: step }, 1)).toBe(max);
+    expect(chipsPageLeft({ ...SMALL, scrollLeft: max }, 1)).toBeNull();
+    expect(chipsPageLeft({ ...SMALL, scrollLeft: max }, -1)).toBe(max - step);
+    expect(chipsPageLeft(SMALL, -1)).toBeNull();
+    // A row narrower than both margins still moves.
+    expect(chipsPageLeft({ scrollLeft: 0, scrollWidth: 958, clientWidth: 40 }, 1)).toBe(CHIPS_REVEAL_MARGIN);
+  });
+
+  it('draws the thumb as the share in view, where the row stands', () => {
+    const share = (434 * 434) / 958;
+    expect(chipsIndicator(SMALL, 434)).toEqual({ left: 0, width: share });
+    const end = chipsIndicator({ ...SMALL, scrollLeft: max }, 434);
+    expect((end?.left ?? 0) + (end?.width ?? 0)).toBeCloseTo(434, 9);
+    expect(chipsIndicator({ ...SMALL, scrollLeft: max / 2 }, 434)?.left).toBeCloseTo((434 - share) / 2, 9);
+    // Never shorter than its least, however many chips.
+    expect(chipsIndicator({ scrollLeft: 0, scrollWidth: 50_000, clientWidth: 100 }, 100)?.width).toBe(
+      CHIPS_THUMB_MIN
+    );
+  });
+
+  it('keeps the thumb on the line, and moves it the way the row scrolls', () => {
+    fc.assert(
+      fc.property(
+        fc.double({ min: 1, max: 3000, noNaN: true }),
+        fc.double({ min: 0, max: 5000, noNaN: true }),
+        fc.double({ min: 0, max: 1, noNaN: true }),
+        fc.double({ min: 0, max: 1, noNaN: true }),
+        fc.double({ min: 1, max: 3000, noNaN: true }),
+        (clientWidth, extra, a, b, width) => {
+          const scrollWidth = clientWidth + extra;
+          const max = scrollWidth - clientWidth;
+          const at = (t: number): ChipsRow => ({ clientWidth, scrollWidth, scrollLeft: t * max });
+          const one = chipsIndicator(at(Math.min(a, b)), width);
+          const two = chipsIndicator(at(Math.max(a, b)), width);
+          if (max < 1) {
+            expect(one).toBeNull();
+            expect(chipsEnds(at(a))).toEqual({ start: false, end: false });
+            return;
+          }
+          for (const thumb of [one, two]) {
+            expect(thumb).not.toBeNull();
+            expect(thumb?.left ?? -1).toBeGreaterThanOrEqual(0);
+            expect((thumb?.left ?? 0) + (thumb?.width ?? 0)).toBeLessThanOrEqual(width + 1e-6);
+            expect(thumb?.width ?? 0).toBeGreaterThan(0);
+          }
+          expect(two?.left ?? 0).toBeGreaterThanOrEqual((one?.left ?? 0) - 1e-9);
+          // An arrow shows at each end with chips out of sight that way.
+          const ends = chipsEnds(at(a));
+          expect(ends.start || ends.end).toBe(true);
         }
       )
     );

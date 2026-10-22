@@ -25,8 +25,8 @@ interface Props {
 /**
  * What the three states look like in the pane, since the swap can confuse
  * (item 6), how a small change is drawn and found (PLAN 11.7, `small.10`), and
- * what the unsaved dot means, in the toolbar (apply.4) and the chapter list
- * (apply.5).
+ * what the unsaved dot means, in the window's title (polish.10; in the toolbar
+ * from apply.4) and the chapter list (apply.5).
  */
 function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -93,7 +93,7 @@ function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
         </li>
         <li>
           <span className="legend__swatch legend__swatch--unsaved" /> <b>Not saved to chapter.</b> The dot
-          before a chapter&apos;s name, at the top of the window or under Chapters, means the chapter has
+          before a chapter&apos;s name, in the window&apos;s title or under Chapters, means the chapter has
           changes its file does not have yet. For the open chapter, Save to chapter and the status bar count
           them. Your decisions are kept automatically in the review, and the status bar says when they were
           last kept.

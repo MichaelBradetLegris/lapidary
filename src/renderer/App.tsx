@@ -6,6 +6,7 @@ import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
 import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
 import { mergeReloadRun, rebaseCardText, rebaseCardTone, type ReloadRun } from '../shared/ui/rebase';
 import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
+import { windowTitleFor } from '../shared/ui/title';
 import {
   CLAUDE_RUNTIME_CARD,
   canTryReviewAnyway,
@@ -30,7 +31,6 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { DiagnosticsDialog } from './components/DiagnosticsDialog';
 import { EditPopover } from './components/EditPopover';
 import { FileList } from './components/FileList';
-import { FilterChips } from './components/FilterChips';
 import { FindBar } from './components/FindBar';
 import { HunkTooltip } from './components/HunkTooltip';
 import { LockCard } from './components/LockCard';
@@ -172,6 +172,15 @@ export function App(): React.JSX.Element {
   const ai = useAi();
   const claudeRuntime = ai.runtimes.claude ?? null;
   const progressLabel = useProgressLabel(ai.running, ai.startedAt, ai.progress?.outputTokens);
+
+  /* The chapter's name, and the dot while changes are not saved to it, in
+     the window's own title (polish.10, `windowTitle`): Electron gives the
+     window the page's title, so they show in the title bar and on the
+     taskbar, and the toolbar's row is left to the chips. */
+  const title = useMemo(() => windowTitleFor(review), [review]);
+  useEffect(() => {
+    document.title = title;
+  }, [title]);
 
   /* The welcome guide, until Start or Skip (setup.11): a fresh install has no
      settings file, so `onboardingDone` is false. Start and Skip close it for
@@ -1286,17 +1295,15 @@ export function App(): React.JSX.Element {
           </div>
           {filesHandle ? <div {...filesHandle} /> : null}
 
-          {/* The centre column: the category chips on one row that scrolls
-              sideways, then the manuscript pane. The chips are the centre
-              column's alone, so the chapter list and the side panel start at
-              the toolbar's foot (polish.6). */}
+          {/* The centre column: the manuscript pane, from the toolbar's foot,
+              as the chapter list and the side panel are. The category chips
+              were at its top from polish.6 and are in the toolbar's row since
+              polish.10. */}
           <div className="center-col">
-            {review ? <FilterChips review={review} /> : null}
             {/* The find bar is a strip above the scroller, not a sticky bar inside
               it: inside, it scrolled out of view once the author was more than
               a screen down, and Ctrl+F then seemed to do nothing (round 4). The
-              notification cards and the lock card are pinned to this wrapper,
-              under the chips. */}
+              notification cards and the lock card are pinned to this wrapper. */}
             <div className={`center-wrap ${findOpen ? 'center-wrap--find' : ''}`}>
               {review ? <FindBar /> : null}
               {/* A press in the prose closes an open drawer, as a click

@@ -270,26 +270,22 @@ describe('the handles in app.css', () => {
     expect(declsFor('.side').get('border-left')).toBe('1px solid var(--border)');
   });
 
-  it("keeps the chip row's scrollbar beside the chapter list's band, not under it", () => {
+  it("leaves the band nothing to cover at the prose's top: the chips are in the toolbar, above the columns (polish.10)", () => {
     // The band reaches from the list's border, its first pixel, 6 px into the prose.
     const reach = Number.parseFloat(declsFor('.column-handle').get('width') ?? '') - 1;
     expect(reach).toBe(6);
-    /* The chips at the top of the prose scroll sideways, and a scrollbar starts
-       inside its box's border: a left border as wide as the band's reach, in
-       the row's own colour, puts the scrollbar's left arrow beside the band. */
+    expect(declsFor('.column-handle').get('top')).toBe('0');
+    /* From polish.6 the chips were at the top of the prose, and their row's
+       scrollbar started under the band, so the row had a left border as wide
+       as the band's reach (polish.5's review). Since polish.10 they are in the
+       toolbar, which the columns and their bands start under, and the row
+       draws no scrollbar: the border and the line under the row went. */
     const chips = declsFor('.chips');
-    expect(chips.get('overflow-x')).toBe('auto');
-    expect(chips.get('border-left')).toBe(`${reach}px solid var(--panel-alt)`);
-    expect(chips.get('background')).toBe('var(--panel-alt)');
-    // The chips stay 12 px from the row's edge.
-    expect(chips.get('padding')).toBe(`6px 12px 6px ${12 - reach}px`);
-    // The line under the row is the wrapper's, as one of the row's own would taper where it met that border.
-    expect([...chips.keys()].filter((p) => p.startsWith('border') && p !== 'border-left')).toEqual([]);
-    expect(declsFor('.chips + .center-wrap').get('border-top')).toBe('1px solid var(--border)');
-    // The wrapper comes straight after the row (a comment between them read as `{}`).
-    expect(APP).toMatch(
-      /\{review \? <FilterChips review=\{review\} \/> : null\}\s*(\{\}\s*)?<div className=\{`center-wrap /
-    );
+    expect([...chips.keys()].filter((p) => p.startsWith('border'))).toEqual([]);
+    expect(chips.get('scrollbar-width')).toBe('none');
+    expect(declsFor('.chips + .center-wrap').size).toBe(0);
+    expect(APP).not.toContain('<FilterChips');
+    expect(APP).toMatch(/<div className="center-col">\s*(\{\}\s*)?<div className=\{`center-wrap /);
   });
 
   it('draws the line and a grip in the faint grey, both darker under the pointer, and the browser its focus ring', () => {

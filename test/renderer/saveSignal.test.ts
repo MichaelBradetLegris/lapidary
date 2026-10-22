@@ -2,12 +2,14 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-/* apply.4: the count on the Save button, the dot before the chapter name and
+/* apply.4: the count on the Save button, the dot that marks the chapter and
    the status bar, all from `unsavedDecisionCount` through `src/shared/ui/save.ts`
    (whose words are tested in test/shared/save.test.ts), with `store.dirty` gone.
+   Since polish.10 the dot and the chapter's name are in the window's title
+   (`windowTitle`, tested in test/shared/title.test.ts), not the toolbar.
    These are source checks: the tests run without a DOM, and the window checks
    (1100 px at 125%, a 40-character chapter name, 0, 1 and 12 changes, both
-   themes) are in PLAN (apply.4). */
+   themes) are in PLAN (apply.4, polish.10). */
 
 const RENDERER = path.join(__dirname, '../../src/renderer');
 const withoutComments = (text: string): string =>
@@ -64,32 +66,31 @@ describe('the Save button and the dot (apply.4)', () => {
     expect(TOOLBAR.match(/'primary'/g)).toHaveLength(1);
   });
 
-  it('puts the dot before the chapter name, labelled, only when saveButtonState says so', () => {
-    const dot = TOOLBAR.indexOf('className="unsaved-dot"');
-    const name = TOOLBAR.indexOf('className="toolbar__name"');
-    expect(dot).toBeGreaterThan(0);
-    expect(name).toBeGreaterThan(dot);
-    expect(TOOLBAR).toMatch(/\{save\.dot \? <span className="unsaved-dot"/);
-    expect(TOOLBAR).toContain('aria-label={dotLabel}');
-    expect(TOOLBAR).toContain('unsavedDotLabel(input.unsavedDecisions)');
-    expect(TOOLBAR).toMatch(/className="toolbar__name" title=\{title\}/);
+  it("puts the chapter's name and the dot in the window's title, not the toolbar (polish.10)", () => {
+    expect(APP).toContain("import { windowTitleFor } from '../shared/ui/title';");
+    expect(APP).toContain('const title = useMemo(() => windowTitleFor(review), [review]);');
+    expect(APP).toMatch(/useEffect\(\(\) => \{\s*document\.title = title;\s*\}, \[title\]\);/);
+    // Before any early return, so the title follows the review in every layout.
+    expect(APP.indexOf('document.title = title;')).toBeLessThan(
+      APP.indexOf('if (settingsReadFailed && settings === null)')
+    );
+    for (const gone of ['unsaved-dot', 'toolbar__name', 'toolbar__title', 'chapterName', 'unsavedDotLabel']) {
+      expect(TOOLBAR, gone).not.toContain(gone);
+    }
+    expect(declsFor('.toolbar__title').size).toBe(0);
+    expect(declsFor('.toolbar__name').size).toBe(0);
   });
 
-  it('cuts the chapter name short with an ellipsis, then wraps the row, never a button', () => {
-    expect(Object.fromEntries(declsFor('.toolbar__title'))).toMatchObject({
+  it('gives the chips the room the buttons leave, then wraps the row, never a button', () => {
+    // The chips' bar took the chapter name's place and its rule (polish.10).
+    expect(Object.fromEntries(declsFor('.chips-bar'))).toMatchObject({
       flex: '1 1 8em',
       'min-width': '0'
-    });
-    expect(Object.fromEntries(declsFor('.toolbar__name'))).toMatchObject({
-      'min-width': '0',
-      overflow: 'hidden',
-      'text-overflow': 'ellipsis',
-      'white-space': 'nowrap'
     });
     expect(declsFor('.toolbar button').get('white-space')).toBe('nowrap');
     // Zoomed in, or with a review's progress showing, the last buttons move to
     // a second row on the right instead of running out of the window; the
-    // title grows into the room a spacer used to take.
+    // chips' bar grows into the room a spacer used to take.
     expect(Object.fromEntries(declsFor('.toolbar'))).toMatchObject({
       'flex-wrap': 'wrap',
       'justify-content': 'flex-end'
@@ -134,8 +135,8 @@ describe('the status bar (apply.4)', () => {
   it('has a legend that explains the dot and no longer offers the removed selection edit', () => {
     expect(STATUS_BAR).toContain('legend__swatch--unsaved');
     expect(STATUS_BAR).toContain('Not saved to chapter.');
-    // Both places the dot is drawn (apply.5).
-    expect(STATUS_BAR).toMatch(/at the top of the window or under\s+Chapters/);
+    // Both places the dot is drawn (apply.5, polish.10).
+    expect(STATUS_BAR).toMatch(/in the window&apos;s title or under\s+Chapters/);
     expect(STATUS_BAR).not.toMatch(/selecting words/i);
     expect(STATUS_BAR).not.toMatch(/pressing e\b/i);
     expect(STATUS_BAR).toContain('or the e key, lets you rewrite it');
@@ -182,8 +183,8 @@ describe('the chapter list (apply.5)', () => {
     expect(FILE_LIST).toContain('title={marks.dotLabel}');
     expect(FILE_LIST).toContain('{marks.pending}');
     expect(FILE_LIST).not.toContain('summary.pendingCount');
-    // The toolbar's dot, so the two look and read alike.
-    expect(TOOLBAR).toContain('className="unsaved-dot"');
+    // The only dot drawn in the page: the open chapter's is in the window's title (polish.10).
+    expect(TOOLBAR).not.toContain('className="unsaved-dot"');
   });
 
   it('reads the marks again when a chapter opens, after the one left is written, and before it shows', () => {

@@ -121,7 +121,8 @@ describe('chapterListMarks (apply.5)', () => {
     expect(chapterListMarks(undefined, review()).pending).toBe(3);
   });
 
-  it("shows the open chapter's dot exactly when the toolbar does, with the same words", () => {
+  it("shows the open chapter's dot exactly when Save to chapter's state does, with the same words", () => {
+    // That state's dot leads the window's title since polish.10 (test/shared/title.test.ts).
     const states = [
       review(),
       decided({ 0: 'accepted' }),

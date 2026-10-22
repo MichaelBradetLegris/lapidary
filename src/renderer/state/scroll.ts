@@ -23,25 +23,33 @@ function reducedMotion(): boolean {
   );
 }
 
-/** Animate a scroller to an absolute `scrollTop`. */
-export function scrollContainerTo(container: HTMLElement, top: number): void {
+/**
+ * Animate a scroller to an absolute `scrollTop`, or, with `axis` 'left', to an
+ * absolute `scrollLeft`, as the category chips' ‹ and › do (polish.10).
+ */
+export function scrollContainerTo(container: HTMLElement, to: number, axis: 'top' | 'left' = 'top'): void {
   const previous = inFlight.get(container);
   if (previous !== undefined) cancelAnimationFrame(previous);
   inFlight.delete(container);
   landing.delete(container);
 
-  const from = container.scrollTop;
-  const distance = top - from;
+  const read = (): number => (axis === 'top' ? container.scrollTop : container.scrollLeft);
+  const write = (value: number): void => {
+    if (axis === 'top') container.scrollTop = value;
+    else container.scrollLeft = value;
+  };
+  const from = read();
+  const distance = to - from;
   const duration = reducedMotion() ? 0 : scrollDuration(distance);
   if (duration === 0) {
-    container.scrollTop = top;
+    write(to);
     return;
   }
 
   const started = performance.now();
   const frame = (now: number): void => {
     const t = (now - started) / duration;
-    container.scrollTop = from + distance * easeOutCubic(t);
+    write(from + distance * easeOutCubic(t));
     if (t < 1) {
       inFlight.set(container, requestAnimationFrame(frame));
     } else {
@@ -50,7 +58,8 @@ export function scrollContainerTo(container: HTMLElement, top: number): void {
     }
   };
   inFlight.set(container, requestAnimationFrame(frame));
-  landing.set(container, top);
+  // Where a vertical scroll will stop, for `scrollRectIntoView`.
+  if (axis === 'top') landing.set(container, to);
 }
 
 /** The manuscript scroller, or whatever scrolls the element if it lives elsewhere. */

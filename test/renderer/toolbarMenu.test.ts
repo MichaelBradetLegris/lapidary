@@ -13,7 +13,9 @@ const withoutComments = (text: string): string =>
   text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
 const read = (file: string): string => withoutComments(readFileSync(path.join(RENDERER, file), 'utf8'));
 const TOOLBAR = read('components/Toolbar.tsx');
-const MENU = read('components/ToolbarMenu.tsx');
+// How a menu behaves is useMenu's since polish.10, which the toolbar's menus and a chip's share.
+const MENU =
+  read('components/ToolbarMenu.tsx') + read('components/useMenu.ts') + read('components/MenuList.tsx');
 
 describe("the menus' items (polish.7)", () => {
   it('gives Review With AI, off while a review runs, and Manual, with the tooltip Submit manual review had', () => {
@@ -52,7 +54,10 @@ describe("the menus' items (polish.7)", () => {
 describe('ToolbarMenu behaves as a menu (polish.7)', () => {
   it('draws a menu of menu items that only the arrows reach, with a separator where an item asks for one', () => {
     expect(MENU).toMatch(
-      /<div\s+className="menu__list"\s+role="menu"\s+id=\{listId\}\s+aria-label=\{label\}\s+onKeyDown=\{onListKey\}\s+onPointerDown=\{onListPress\}\s*>/
+      /<div\s+ref=\{listRef\}\s+className=\{className \? `menu__list \$\{className\}` : 'menu__list'\}\s+role="menu"\s+id=\{id\}\s+aria-label=\{label\}\s+style=\{style\}\s+onKeyDown=\{onListKey\}\s+onPointerDown=\{onListPress\}\s+onContextMenu=\{\(event\) => event\.preventDefault\(\)\}\s*>/
+    );
+    expect(MENU).toMatch(
+      /\{shown \? <MenuList id=\{listId\} label=\{label\} items=\{items\} \{\.\.\.list\} \/> : null\}/
     );
     expect(MENU).toMatch(
       /type="button"\s+role="menuitem"\s+tabIndex=\{-1\}\s+disabled=\{item\.disabled === true\}/
@@ -74,7 +79,7 @@ describe('ToolbarMenu behaves as a menu (polish.7)', () => {
   });
 
   it("keeps the keys it takes from the page's own, and lets Tab go on from the button", () => {
-    const list = MENU.slice(MENU.indexOf('const onListKey'), MENU.indexOf('<span'));
+    const list = MENU.slice(MENU.indexOf('const onListKey'), MENU.indexOf('const onListPress'));
     const pass = list.indexOf("if (action.kind === 'pass') return;");
     const stop = list.indexOf('event.stopPropagation();');
     const leave = list.indexOf("if (action.kind === 'leave') {");

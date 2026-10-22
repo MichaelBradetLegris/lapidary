@@ -1,14 +1,16 @@
 /**
  * The keys of the toolbar's two menus, Review and Actions (`polish.7`, PLAN
- * section 7): a menu button that opens a list of items, with the keyboard of
- * a proper menu. The button opens the list with Enter or Space, on its first
+ * section 7), and of a category chip's menu (`polish.10`, which opens it from
+ * the chip with `contextMenuKey` as well): a menu button that opens a list of
+ * items, with the keyboard of a proper menu. The button opens the list with Enter or Space, on its first
  * item, or with the down or up arrow, on its first or last; in the list the
  * arrows step through the items, round from the last to the first and back,
  * Home and End go to the first and the last, a letter goes to the next item
  * whose name starts with it, Escape closes the list and gives the focus back
  * to the button, and Tab closes it and goes on from the button. An item that
- * cannot be used now is skipped. Pure, so it is tested in node; the menu
- * itself is `src/renderer/components/ToolbarMenu.tsx`.
+ * cannot be used now is skipped. Pure, so it is tested in node; the menus
+ * themselves are `useMenu` in src/renderer/components/useMenu.tsx, which
+ * `ToolbarMenu` and a chip's menu (FilterChips) share.
  */
 
 /** The toolbar's Review menu and its two items, which open Review with AI and Submit manual review. */
@@ -131,4 +133,16 @@ export function menuButtonKey(event: MenuKey): 'first' | 'last' | null {
   if (event.key === 'ArrowDown') return 'first';
   if (event.key === 'ArrowUp') return 'last';
   return null;
+}
+
+/**
+ * Whether a key opens a context menu: the keyboard's menu key, alone, or
+ * Shift+F10, as on Windows (polish.10, a category chip's menu). Chromium also
+ * sends a `contextmenu` event for both, on the menu key's release and on
+ * Shift+F10's press, which the chip takes as well.
+ */
+export function contextMenuKey(event: MenuKey & { shiftKey: boolean }): boolean {
+  if (event.ctrlKey || event.altKey || event.metaKey || event.isComposing === true) return false;
+  if (event.key === 'ContextMenu') return !event.shiftKey;
+  return event.key === 'F10' && event.shiftKey;
 }

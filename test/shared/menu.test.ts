@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ACTIONS_MENU,
+  contextMenuKey,
   enabledItems,
   firstEnabled,
   lastEnabled,
@@ -13,8 +14,9 @@ import {
 } from '../../src/shared/ui/menu';
 
 /* polish.7: the toolbar's Review and Actions menus. The keys of a proper
-   menu, worked out here and applied by src/renderer/components/ToolbarMenu.tsx;
-   the window walk is in PLAN (polish.7). */
+   menu, worked out here and applied by src/renderer/components/useMenu.ts,
+   which the toolbar's menus and a category chip's (polish.10) share; the
+   window walks are in PLAN (polish.7, polish.10). */
 
 const key = (k: string, extra: Partial<MenuKey> = {}): MenuKey => ({
   key: k,
@@ -172,5 +174,30 @@ describe('menuButtonKey: a key pressed on the menu button', () => {
     }
     expect(menuButtonKey(key('ArrowDown', { ctrlKey: true }))).toBeNull();
     expect(menuButtonKey(key('ArrowDown', { isComposing: true }))).toBeNull();
+  });
+});
+
+describe("contextMenuKey: the keys that open a category chip's menu (polish.10)", () => {
+  const pressed = (k: string, extra: Partial<MenuKey & { shiftKey: boolean }> = {}) => ({
+    ...key(k),
+    shiftKey: false,
+    ...extra
+  });
+
+  it('opens on the menu key alone and on Shift+F10', () => {
+    expect(contextMenuKey(pressed('ContextMenu'))).toBe(true);
+    expect(contextMenuKey(pressed('F10', { shiftKey: true }))).toBe(true);
+  });
+
+  it('leaves F10 alone, every other key, and any key with Ctrl, Alt or the Windows key, or mid-composition', () => {
+    expect(contextMenuKey(pressed('F10'))).toBe(false);
+    expect(contextMenuKey(pressed('ContextMenu', { shiftKey: true }))).toBe(false);
+    for (const k of ['Enter', ' ', 'ArrowDown', 'a', 'Escape'])
+      expect(contextMenuKey(pressed(k)), k).toBe(false);
+    for (const mod of ['ctrlKey', 'altKey', 'metaKey'] as const) {
+      expect(contextMenuKey(pressed('ContextMenu', { [mod]: true })), mod).toBe(false);
+      expect(contextMenuKey(pressed('F10', { shiftKey: true, [mod]: true })), mod).toBe(false);
+    }
+    expect(contextMenuKey(pressed('ContextMenu', { isComposing: true }))).toBe(false);
   });
 });

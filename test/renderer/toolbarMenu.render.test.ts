@@ -50,7 +50,7 @@ afterEach(() => {
 
 const noop = (): void => undefined;
 
-function render(review: Review | null, running = false, saving = false): string {
+function render(review: Review | null, running = false, saving = false, singleScreen = false): string {
   return renderToStaticMarkup(
     createElement(Toolbar, {
       review,
@@ -58,7 +58,7 @@ function render(review: Review | null, running = false, saving = false): string 
       progressLabel: 'Waiting for the model (12s)',
       saving,
       sideFolded: false,
-      singleScreen: false,
+      singleScreen,
       onReviewWithAi: noop,
       onCancelReview: noop,
       onManualReview: noop,
@@ -241,5 +241,82 @@ describe('Save to chapter is primary only while changes are waiting or saving (p
     expect(button.text).toBe('Save to chapter');
     expect(button.attrs).toContain('You are asked first about the paragraph you are editing.');
     expect(primary(button.attrs)).toBe(false);
+  });
+});
+
+/* polish.10: one bar at the top. The chapter's name went to the window's
+   title, and the category chips took its place in the toolbar's row, before
+   the buttons: each chip one toggle named by its category and count, with a
+   ▾ that opens its menu and is no Tab stop. */
+describe('the category chips lead the toolbar (polish.10)', () => {
+  /** Three suggestions: two grammar, one punctuation. */
+  const CHIPPED: Review = (() => {
+    const diff = createDiffReview({
+      originalRaw: 'The river had began. Its late, she said.\n\nThey was there.',
+      correctedRaw: 'The river had begun. It is late, she said.\n\nThey were there.'
+    });
+    expect(diff.hunks).toHaveLength(3);
+    const categories = ['grammar', 'punctuation', 'grammar'] as const;
+    return {
+      ...REVIEW,
+      base: diff.base,
+      hunks: diff.hunks.map((h, i) => ({ ...h, category: categories[i] }))
+    };
+  })();
+
+  it('draws a chip for each category, the most first, before Review, and no chapter name', () => {
+    storeWith({ review: CHIPPED });
+    const html = render(CHIPPED);
+    expect(buttons(html).map((b) => b.text)).toEqual([
+      'grammar 2',
+      '',
+      'punctuation 1',
+      '',
+      'Review',
+      'Actions',
+      'Save to chapter',
+      'Settings'
+    ]);
+    expect(html).toContain('role="group" aria-label="Filter suggestions by category"');
+    expect(html).not.toContain('Chapter 01');
+    expect(html).not.toContain('toolbar__name');
+  });
+
+  it('makes each chip a toggle with its menu on a ▾ that is no Tab stop', () => {
+    storeWith({ review: CHIPPED });
+    const all = buttons(render(CHIPPED));
+    const toggle = all.find((b) => b.text === 'grammar 2')?.attrs ?? '';
+    expect(toggle).toContain('class="chip__toggle"');
+    expect(toggle).toContain('aria-pressed="true"');
+    expect(toggle).toContain(
+      'title="Hide these. Right-click, or press the menu key, for Accept all and Dismiss all."'
+    );
+    const more = all.filter((b) => b.attrs.includes('chip__more'));
+    expect(more).toHaveLength(2);
+    expect(more[0]?.attrs).toContain('tabindex="-1"');
+    expect(more[0]?.attrs).toContain('aria-haspopup="menu"');
+    expect(more[0]?.attrs).toContain('aria-expanded="false"');
+    expect(more[0]?.attrs).toContain('title="Accept or dismiss all grammar"');
+    // Closed, no list is drawn, and while the chips fit no arrow and no line.
+    expect(render(CHIPPED)).not.toContain('role="menu"');
+    expect(render(CHIPPED)).not.toContain('chips__arrow');
+    expect(render(CHIPPED)).not.toContain('chips__line');
+  });
+
+  it('marks a hidden category, and fades the row while a review of the chapter runs', () => {
+    storeWith({ review: CHIPPED, hiddenCategories: ['punctuation'] });
+    let html = render(CHIPPED);
+    expect(buttons(html).find((b) => b.text === 'punctuation 1')?.attrs).toContain('aria-pressed="false"');
+    expect(html).toContain('class="chip cat-punctuation chip--off"');
+    storeWith({ review: CHIPPED, hiddenCategories: [], aiBusyPath: CHIPPED.sourcePath });
+    html = render(CHIPPED, true);
+    expect(html).toContain('class="chips-bar chips--locked" inert=""');
+  });
+
+  it('draws none behind the Setup screen or the welcome guide, nor with no review open', () => {
+    storeWith({ review: CHIPPED });
+    expect(render(CHIPPED, false, false, true)).not.toContain('class="chip');
+    storeWith({ review: null });
+    expect(render(null)).not.toContain('class="chip');
   });
 });

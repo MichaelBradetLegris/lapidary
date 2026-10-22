@@ -123,7 +123,12 @@ export interface SaveButtonState {
   disabled: boolean;
   /** the tooltip */
   title: string;
-  /** true when the chapter name in the toolbar gets the unsaved dot */
+  /**
+   * true when the chapter is marked as having changes not saved to it: the
+   * dot that leads the window's title (`windowTitle`, polish.10; before it, a
+   * dot before the chapter name in the toolbar) and the one before its name in
+   * the chapter list
+   */
   dot: boolean;
   /**
    * true when the button is a primary one, filled in the turquoise: only while
@@ -137,8 +142,8 @@ export interface SaveButtonState {
  * something is not saved, plain "Save to chapter" when the file already reads
  * like the page. It stays enabled then, and a press says so
  * (`CHAPTER_MATCHES_PAGE`), because a button that turns grey for no visible
- * reason is harder to read than one that answers. `dot` puts the unsaved dot
- * before the chapter name, labelled by `unsavedDotLabel`.
+ * reason is harder to read than one that answers. `dot` says the chapter has
+ * changes not saved to it, which the window's title and the chapter list mark.
  *
  * `primary` (polish.9): with nothing to save the button is an ordinary one,
  * and it turns primary only while changes are waiting, so the colour itself
@@ -201,9 +206,9 @@ export function unsavedPhrase(n: number): string {
 }
 
 /**
- * The tooltip and spoken name of the dot before the chapter name (apply.4):
- * "3 changes are not saved to the chapter yet." Empty at zero, when there is
- * no dot.
+ * The tooltip and spoken name of the dot before a chapter's name in the
+ * chapter list (apply.4, apply.5): "3 changes are not saved to the chapter
+ * yet." Empty at zero, when there is no dot.
  */
 export function unsavedDotLabel(n: number): string {
   return n > 0 ? countLine(n) : '';
