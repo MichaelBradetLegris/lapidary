@@ -2,9 +2,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-/* apply.11: finding backups. Show backups in the side panel's footer and on
-   the save card, the Backups row in Settings, and main's `shell:reveal`
-   for a chapter. These are source checks: the tests run without a DOM or
+/* apply.11: finding backups. Show backups in the toolbar's Actions menu (in
+   the side panel's footer until polish.7) and on the save card, the Backups
+   row in Settings, and main's `shell:reveal` for a chapter. These are source
+   checks: the tests run without a DOM or
    Electron. What main finds is tested in test/main/backups.test.ts
    (`chapterBackups`), the card in test/renderer/saveChapter.test.ts, the words
    in test/shared/backups.test.ts, and the window steps are in PLAN (apply.11). */
@@ -19,6 +20,7 @@ const read = (file: string): string => withoutComments(readFileSync(path.join(SR
 
 const APP = read('renderer/App.tsx');
 const SIDE_PANEL = read('renderer/components/SidePanel.tsx');
+const TOOLBAR = read('renderer/components/Toolbar.tsx');
 const SETTINGS = read('renderer/components/SettingsDialog.tsx');
 const CARDS = read('renderer/components/NotificationCards.tsx');
 const MAIN_IPC = read('main/ipc.ts');
@@ -38,26 +40,37 @@ function declsFor(selector: string, css = CSS): Map<string, string> {
   return out;
 }
 
-describe('Show backups in the side panel (apply.11)', () => {
-  it('puts the button in a footer after both regions, only when App hands it the action', () => {
-    const body = SIDE_PANEL.indexOf('className="side__body"');
-    const lower = SIDE_PANEL.indexOf('className="side__lower"');
-    const foot = SIDE_PANEL.indexOf('className="side__foot"');
-    expect(body).toBeGreaterThan(-1);
-    expect(lower).toBeGreaterThan(body);
-    expect(foot).toBeGreaterThan(lower);
-    expect(SIDE_PANEL.lastIndexOf('</aside>')).toBeGreaterThan(foot);
-    expect(SIDE_PANEL).toMatch(/\{onShowBackups \? \(\s*<div className="side__foot">/);
-    expect(SIDE_PANEL).toMatch(
-      /<button type="button" title=\{SHOW_BACKUPS_TITLE\} onClick=\{onShowBackups\}>\s*\{SHOW_BACKUPS\}\s*<\/button>/
-    );
+/* polish.7: Show backups left the side panel's footer for the toolbar's
+   Actions menu, where it is the last item, after Copy result. */
+describe('Show backups in the Actions menu (apply.11, polish.7)', () => {
+  it('is the last item of Actions, with its tooltip, after the bulk items and Copy result', () => {
+    const actions = TOOLBAR.slice(TOOLBAR.indexOf('label={ACTIONS_MENU}'), TOOLBAR.indexOf('ref={saveRef}'));
+    const order = [
+      "label: 'Accept all'",
+      "label: 'Dismiss all'",
+      "label: 'Reset'",
+      "label: 'Copy result', onSelect: onCopyResult, separated: true",
+      'label: SHOW_BACKUPS, onSelect: onShowBackups, title: SHOW_BACKUPS_TITLE'
+    ].map((needle) => {
+      const i = actions.indexOf(needle);
+      expect(i, needle).toBeGreaterThan(-1);
+      return i;
+    });
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    // The Actions menu is there while a review is on screen, as the side panel was.
+    expect(TOOLBAR).toMatch(/<ToolbarMenu\s+label=\{ACTIONS_MENU\}\s+disabled=\{!review\}/);
+  });
+
+  it('leaves the side panel with no footer', () => {
+    expect(SIDE_PANEL).not.toContain('side__foot');
+    expect(SIDE_PANEL).not.toContain('onShowBackups');
+    expect(SIDE_PANEL).not.toContain('SHOW_BACKUPS');
   });
 
   it('is wired in App to the chapter on screen', () => {
-    // The side panel is drawn only while a chapter is open.
-    expect(APP).toMatch(
-      /\{review \? \(\s*<SidePanel[\s\S]*?onShowBackups=\{\(\) => revealBackups\(review\.sourcePath\)\}/
-    );
+    const toolbar = APP.slice(APP.indexOf('<Toolbar'), APP.indexOf('/>', APP.indexOf('<Toolbar')));
+    expect(toolbar).toContain('onShowBackups={() => revealBackups(review?.sourcePath)}');
+    expect(APP).not.toMatch(/<SidePanel[^>]*onShowBackups/);
     expect(APP).toContain(
       "call('shell:reveal', { target: 'backups', ...(sourcePath ? { sourcePath } : {}) })"
     );
@@ -77,7 +90,7 @@ describe('Show backups in the side panel (apply.11)', () => {
     expect(APP).toContain("import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';");
   });
 
-  it('keeps the footer pinned: the panel is a column, the regions take the rest, and the footer never scrolls', () => {
+  it('gives the footer its height back: the panel is a column and the regions take the rest', () => {
     const side = declsFor('.side');
     expect(side.get('display')).toBe('flex');
     expect(side.get('flex-direction')).toBe('column');
@@ -85,16 +98,11 @@ describe('Show backups in the side panel (apply.11)', () => {
     const body = declsFor('.side__body');
     expect(body.get('flex')).toBe('1 1 0');
     expect(body.get('min-height')).toBe('0');
-    // A full height would push the footer out of the clipped panel.
     expect(body.has('height')).toBe(false);
-    const foot = declsFor('.side__foot');
-    expect(foot.get('flex')).toBe('none');
-    expect(foot.get('background')).toBe('var(--panel)');
-    expect([...foot.keys()].some((p) => p.startsWith('overflow'))).toBe(false);
-    // The short window's one scroller is the body, not the footer.
+    expect(CSS).not.toContain('.side__foot');
+    // The short window's one scroller is the body.
     const block = /@media \(height < \d+px\) \{([\s\S]*?)\n\}/.exec(CSS)?.[1] ?? '';
     expect(block).toMatch(/\.side__body \{[^}]*overflow-y: auto/);
-    expect(block).not.toContain('.side__foot');
   });
 });
 

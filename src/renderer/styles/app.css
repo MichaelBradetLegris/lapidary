@@ -400,8 +400,8 @@ input[type='text'] {
 }
 
 /* No part of Save to chapter in reach has nothing under it: wrapped onto a row
-   above Copy result and Settings, an arrow would point at one of them, so the
-   hint has none and its words name the button (`saveHintPlacement`). */
+   above Settings, an arrow would point at it, so the hint has none and its
+   words name the button (`saveHintPlacement`). */
 .save-hint[data-arrow='none']::before {
   display: none;
 }
@@ -1388,21 +1388,6 @@ input[type='text'] {
   display: flex;
   flex-direction: column;
   background: var(--panel);
-}
-
-/* The footer under both regions, with Show backups (apply.11). It never
-   scrolls, in the short window's one scroller either. */
-.side__foot {
-  flex: none;
-  display: flex;
-  gap: 6px;
-  padding: 6px 10px;
-  border-top: 1px solid var(--border);
-  background: var(--panel);
-}
-
-.side__foot button {
-  white-space: nowrap;
 }
 
 /* The review selector at the very top of the panel, above both regions (and
@@ -3315,7 +3300,7 @@ input[type='text'] {
   margin-top: 4px;
 }
 
-/* ---------- toolbar menu (item 6) ---------- */
+/* ---------- toolbar menus: Review and Actions (item 6, polish.7) ---------- */
 
 .menu {
   position: relative;
@@ -3349,6 +3334,13 @@ input[type='text'] {
   border-radius: 4px;
   text-align: left;
   padding: 5px 8px;
+}
+
+/* The line between Actions' bulk items and Copy result (polish.7). */
+.menu__sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
 }
 
 /* ---------- file list header (item 7a) ---------- */

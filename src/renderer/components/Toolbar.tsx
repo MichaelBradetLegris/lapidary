@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef } from 'react';
 import { chapterName } from '../../shared/review';
 import type { Review } from '../../shared/types';
+import { SHOW_BACKUPS, SHOW_BACKUPS_TITLE } from '../../shared/ui/backups';
+import { ACTIONS_MENU, REVIEW_MENU } from '../../shared/ui/menu';
 import { saveButtonInput, saveButtonState, unsavedDotLabel } from '../../shared/ui/save';
 import { SAVE_HINT_ID, saveHintText, saveHintVisible } from '../../shared/ui/saveHint';
 import { useBulkAction } from '../state/bulk';
 import { hintDismissedThisSession, useSaveHintAside } from '../state/hints';
 import { changedParagraphCount, isLocked, useApp } from '../state/store';
-import { IconChevronDown } from './icons';
 import { SaveHint } from './SaveHint';
+import { ToolbarMenu } from './ToolbarMenu';
 
 interface Props {
   review: Review | null;
@@ -26,78 +28,11 @@ interface Props {
   onManualReview: () => void;
   onSaveChapter: () => void;
   onCopyResult: () => void;
+  /** open the chapter's backup folder (apply.11), from Actions since `polish.7` */
+  onShowBackups: () => void;
   onSettings: () => void;
   /** Got it on the first-use hint: put it away for good (apply.12) */
   onSaveHintDone: () => void;
-}
-
-/**
- * The three bulk actions behind one button (item 6). They are rare, they all
- * ask for confirmation anyway, and each one used to cost a slot in a row that
- * had to fit on a 1100px window.
- */
-function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): React.JSX.Element {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const runBulk = useBulkAction();
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent): void => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return;
-      // The press is the menu's: it closes no drawer as well (keyboard.ts, ui.3).
-      event.preventDefault();
-      setOpen(false);
-    };
-    window.addEventListener('mousedown', onPointerDown);
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('mousedown', onPointerDown);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
-
-  /* The item goes with the menu, so the focus moves to Bulk first: the
-     question the action asks then hands it back there when it closes, not to
-     nothing (ui.4). */
-  const run = (action: 'accept' | 'dismiss' | 'reset'): void => {
-    buttonRef.current?.focus({ preventScroll: true });
-    setOpen(false);
-    runBulk(action);
-  };
-
-  return (
-    <span className="menu" ref={ref}>
-      <button
-        ref={buttonRef}
-        type="button"
-        disabled={disabled}
-        title={title}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        Bulk <IconChevronDown size={10} />
-      </button>
-      {open ? (
-        <div className="menu__list" role="menu">
-          <button type="button" role="menuitem" onClick={() => run('accept')}>
-            Accept all
-          </button>
-          <button type="button" role="menuitem" onClick={() => run('dismiss')}>
-            Dismiss all
-          </button>
-          <button type="button" role="menuitem" onClick={() => run('reset')}>
-            Reset
-          </button>
-        </div>
-      ) : null}
-    </span>
-  );
 }
 
 /**
@@ -107,6 +42,13 @@ function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): R
  * (item 6). The chapter name takes the room the buttons leave and gives way
  * first, cut short with an ellipsis; once it is down to about 8em, the last
  * buttons move to a second row instead (app.css, `.toolbar`).
+ *
+ * Four controls since `polish.7`: Review, a menu holding With AI and Manual
+ * (which open Review with AI and Submit manual review); Actions, a menu
+ * holding the three bulk actions, Copy result and Show backups, which left the
+ * side panel's footer; Save to chapter; and Settings (`ToolbarMenu`). While a
+ * review runs, its progress and Cancel come before Review, whose With AI waits
+ * until it ends.
  *
  * Save to chapter and the dot before the chapter name come from
  * `saveButtonState` (apply.4), fed by `saveButtonInput` and counted by
@@ -131,6 +73,7 @@ export function Toolbar({
   onManualReview,
   onSaveChapter,
   onCopyResult,
+  onShowBackups,
   onSettings,
   onSaveHintDone
 }: Props): React.JSX.Element {
@@ -138,6 +81,7 @@ export function Toolbar({
   const locked = useApp(isLocked);
   const editing = useApp((s) => Object.keys(s.drafts).length);
   const changedParagraphs = useApp((s) => changedParagraphCount(s.drafts));
+  const runBulk = useBulkAction();
 
   const input = saveButtonInput({ review, changedParagraphs, saving, locked });
   const save = saveButtonState(input);
@@ -158,6 +102,12 @@ export function Toolbar({
     singleScreen,
     setAside: hintSetAside
   });
+
+  /* The bulk actions wait while a review of this chapter runs, and while a
+     paragraph is open for editing, whose suggestions they would skip or change
+     under it (`useBulkAction`). */
+  const bulkOff = locked || editing > 0;
+  const bulkTitle = editing > 0 ? 'Finish or cancel the paragraphs you are editing first' : undefined;
 
   const title = review
     ? review.sourcePath
@@ -183,27 +133,40 @@ export function Toolbar({
             Cancel
           </button>
         </>
-      ) : (
-        // Where the focus goes when Review with AI closes (REVIEW_BUTTON_SELECTOR, ui.4).
-        <button type="button" data-opens="review" disabled={!review?.sourcePath} onClick={onReviewWithAi}>
-          Review with AI
-        </button>
-      )}
+      ) : null}
 
-      {/* The same for Submit manual review (MANUAL_REVIEW_BUTTON_SELECTOR, ui.4). */}
-      <button
-        type="button"
-        data-opens="manual-review"
+      {/* Where the focus goes when Review with AI or Submit manual review
+          closes (REVIEW_BUTTON_SELECTOR, ui.4). */}
+      <ToolbarMenu
+        label={REVIEW_MENU.label}
+        opens="review"
         disabled={!review?.sourcePath || locked}
-        title="Paste a corrected version of this chapter and turn the differences into suggestions"
-        onClick={onManualReview}
-      >
-        Submit manual review
-      </button>
+        items={[
+          {
+            label: REVIEW_MENU.withAi,
+            onSelect: onReviewWithAi,
+            // One review at a time: one of another chapter is running.
+            disabled: running,
+            title: running ? 'Wait until the review that is running ends, or cancel it' : undefined
+          },
+          {
+            label: REVIEW_MENU.manual,
+            onSelect: onManualReview,
+            title: 'Paste a corrected version of this chapter and turn the differences into suggestions'
+          }
+        ]}
+      />
 
-      <BulkMenu
-        disabled={!review || locked || editing > 0}
-        {...(editing > 0 ? { title: 'Finish or cancel the paragraphs you are editing first' } : {})}
+      <ToolbarMenu
+        label={ACTIONS_MENU}
+        disabled={!review}
+        items={[
+          { label: 'Accept all', onSelect: () => runBulk('accept'), disabled: bulkOff, title: bulkTitle },
+          { label: 'Dismiss all', onSelect: () => runBulk('dismiss'), disabled: bulkOff, title: bulkTitle },
+          { label: 'Reset', onSelect: () => runBulk('reset'), disabled: bulkOff, title: bulkTitle },
+          { label: 'Copy result', onSelect: onCopyResult, separated: true },
+          { label: SHOW_BACKUPS, onSelect: onShowBackups, title: SHOW_BACKUPS_TITLE }
+        ]}
       />
 
       <button
@@ -215,10 +178,6 @@ export function Toolbar({
         onClick={onSaveChapter}
       >
         {save.label}
-      </button>
-
-      <button type="button" disabled={!review} onClick={onCopyResult}>
-        Copy result
       </button>
 
       {/* Where the focus goes when Settings closes (SETTINGS_BUTTON_SELECTOR, ui.1). */}

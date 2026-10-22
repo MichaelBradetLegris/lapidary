@@ -71,8 +71,8 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
          closes one thing: an Escape something else has already taken closes
          no drawer, such as one in the find bar's box, which closes the bar
          before this listener runs (`preventDefault`), and nor does one
-         pressed while the Bulk menu or the legend is open, which close on it
-         in listeners of their own (`popupTakesEscape`). */
+         pressed while a toolbar menu or the legend is open, which close on
+         it in listeners of their own (`popupTakesEscape`). */
       const drawerEscape =
         event.key === 'Escape' &&
         useDrawer.getState().open !== null &&

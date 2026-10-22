@@ -124,9 +124,10 @@ describe('where the box is (ui.5)', () => {
       'className="side__regions"',
       'className="side__section side__list"',
       'className="side__lower"',
-      '<h3>{commentsHeading(review.comments)}</h3>',
-      'className="side__foot"'
+      '<h3>{commentsHeading(review.comments)}</h3>'
     ].map(at);
+    // Show backups left the panel's footer for the toolbar's Actions menu (polish.7).
+    expect(SIDE_PANEL).not.toContain('side__foot');
     expect(order).toEqual([...order].sort((a, b) => a - b));
     // The details are no longer between the list and the comments.
     expect(SIDE_PANEL.split('Focused suggestion').length).toBe(2);

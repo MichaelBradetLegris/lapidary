@@ -197,8 +197,8 @@ function subtract(span: Span, cuts: readonly Span[]): Span[] {
  * within the column, to bring its arrow over Save to chapter: to the button's
  * middle when it can, else to the nearest point of the button it can reach.
  * The arrow points only at a part of the button that has no toolbar item under
- * it, since the hint hangs below the last row and an arrow under Copy result
- * would point at Copy result; when no such part is in reach, the hint has no
+ * it, since the hint hangs below the last row and an arrow under Settings
+ * would point at Settings; when no such part is in reach, the hint has no
  * arrow.
  */
 export function saveHintPlacement(m: SaveHintMeasure): SaveHintPlacement {

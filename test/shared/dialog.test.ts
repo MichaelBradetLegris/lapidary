@@ -5,7 +5,6 @@ import {
   focusBeforeOpening,
   focusReturnTarget,
   inOtherDialog,
-  MANUAL_REVIEW_BUTTON_SELECTOR,
   NEW_CHAPTER_BUTTON_SELECTOR,
   REVIEW_BUTTON_SELECTOR,
   SETTINGS_BUTTON_SELECTOR,
@@ -177,16 +176,12 @@ describe('focusReturnTarget (ui.1)', () => {
     ]);
   });
 
+  /* polish.7: Review with AI and Submit manual review both open from the
+     toolbar's Review menu, so they share its selector. */
   it('names the opener of each other dialog as its fallback, one selector each (ui.4)', () => {
     expect(REVIEW_BUTTON_SELECTOR).toBe('[data-opens="review"]');
-    expect(MANUAL_REVIEW_BUTTON_SELECTOR).toBe('[data-opens="manual-review"]');
     expect(NEW_CHAPTER_BUTTON_SELECTOR).toBe('[data-opens="new-chapter"]');
-    const all = [
-      SETTINGS_BUTTON_SELECTOR,
-      REVIEW_BUTTON_SELECTOR,
-      MANUAL_REVIEW_BUTTON_SELECTOR,
-      NEW_CHAPTER_BUTTON_SELECTOR
-    ];
+    const all = [SETTINGS_BUTTON_SELECTOR, REVIEW_BUTTON_SELECTOR, NEW_CHAPTER_BUTTON_SELECTOR];
     expect(new Set(all).size).toBe(all.length);
   });
 });

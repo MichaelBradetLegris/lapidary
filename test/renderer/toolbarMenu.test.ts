@@ -1,0 +1,102 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+/* polish.7: the toolbar's Review and Actions menus, checked in their source,
+   since the tests run without a DOM: the items each menu holds, and how
+   ToolbarMenu applies the keys test/shared/menu.test.ts works out. The
+   toolbar as drawn is in toolbarMenu.render.test.ts, and the keyboard walk in
+   the window is in PLAN (polish.7). */
+
+const RENDERER = path.join(__dirname, '../../src/renderer');
+const withoutComments = (text: string): string =>
+  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
+const read = (file: string): string => withoutComments(readFileSync(path.join(RENDERER, file), 'utf8'));
+const TOOLBAR = read('components/Toolbar.tsx');
+const MENU = read('components/ToolbarMenu.tsx');
+
+describe("the menus' items (polish.7)", () => {
+  it('gives Review With AI, off while a review runs, and Manual, with the tooltip Submit manual review had', () => {
+    const review = TOOLBAR.slice(
+      TOOLBAR.indexOf('label={REVIEW_MENU.label}'),
+      TOOLBAR.indexOf('label={ACTIONS_MENU}')
+    );
+    expect(review).toMatch(
+      /label: REVIEW_MENU\.withAi,\s*onSelect: onReviewWithAi,\s*disabled: running,\s*title: running \? 'Wait until the review that is running ends, or cancel it' : undefined/
+    );
+    expect(review).toMatch(
+      /label: REVIEW_MENU\.manual,\s*onSelect: onManualReview,\s*title: 'Paste a corrected version of this chapter and turn the differences into suggestions'/
+    );
+    expect(review).toContain('disabled={!review?.sourcePath || locked}');
+  });
+
+  it('gives Actions the three bulk items, off while the chapter is read-only or a paragraph is open, then Copy result and Show backups', () => {
+    expect(TOOLBAR).toContain('const bulkOff = locked || editing > 0;');
+    expect(TOOLBAR).toContain(
+      "const bulkTitle = editing > 0 ? 'Finish or cancel the paragraphs you are editing first' : undefined;"
+    );
+    for (const [label, action] of [
+      ['Accept all', 'accept'],
+      ['Dismiss all', 'dismiss'],
+      ['Reset', 'reset']
+    ]) {
+      expect(TOOLBAR).toContain(
+        `{ label: '${label}', onSelect: () => runBulk('${action}'), disabled: bulkOff, title: bulkTitle }`
+      );
+    }
+    expect(TOOLBAR).toContain("{ label: 'Copy result', onSelect: onCopyResult, separated: true }");
+    expect(TOOLBAR).toContain('{ label: SHOW_BACKUPS, onSelect: onShowBackups, title: SHOW_BACKUPS_TITLE }');
+  });
+});
+
+describe('ToolbarMenu behaves as a menu (polish.7)', () => {
+  it('draws a menu of menu items that only the arrows reach, with a separator where an item asks for one', () => {
+    expect(MENU).toMatch(
+      /<div className="menu__list" role="menu" id=\{listId\} aria-label=\{label\} onKeyDown=\{onListKey\}>/
+    );
+    expect(MENU).toMatch(
+      /type="button"\s+role="menuitem"\s+tabIndex=\{-1\}\s+disabled=\{item\.disabled === true\}/
+    );
+    expect(MENU).toContain('<div className="menu__sep" role="separator" />');
+    expect(MENU).toMatch(
+      /aria-haspopup="menu"\s+aria-expanded=\{shown\}\s+aria-controls=\{shown \? listId : undefined\}/
+    );
+  });
+
+  it('opens on the first item by a click, Enter or Space, and on the first or last by the arrows, drawn before the focus moves', () => {
+    expect(MENU).toContain("onClick={() => (shown ? close(false) : openOn('first'))}");
+    expect(MENU).toMatch(
+      /const openOn = \(where: 'first' \| 'last'\): void => \{\s*flushSync\(\(\) => setOpen\(true\)\);\s*focusItem\(where === 'first' \? firstEnabled\(enabled\) : lastEnabled\(enabled\)\);/
+    );
+    expect(MENU).toMatch(
+      /const where = menuButtonKey\(event\);\s*if \(where === null\) return;\s*event\.preventDefault\(\);\s*event\.stopPropagation\(\);/
+    );
+  });
+
+  it("keeps the keys it takes from the page's own, and lets Tab go on from the button", () => {
+    const list = MENU.slice(MENU.indexOf('const onListKey'), MENU.indexOf('<span'));
+    const pass = list.indexOf("if (action.kind === 'pass') return;");
+    const stop = list.indexOf('event.stopPropagation();');
+    const leave = list.indexOf("if (action.kind === 'leave') {");
+    const prevent = list.indexOf('event.preventDefault();');
+    expect(pass).toBeGreaterThan(-1);
+    expect(stop).toBeGreaterThan(pass);
+    expect(leave).toBeGreaterThan(stop);
+    // Tab is not prevented: the browser moves on from the button the focus went back to.
+    expect(prevent).toBeGreaterThan(leave);
+    expect(list.slice(leave, prevent)).toMatch(/close\(true\);\s*return;/);
+    expect(list).toMatch(
+      /if \(action\.kind === 'close'\) close\(true\);\s*else if \(action\.kind === 'focus'\) focusItem\(action\.index\);/
+    );
+  });
+
+  it('closes on a click outside it and when the focus goes elsewhere in the page, and with its button turned off', () => {
+    expect(MENU).toMatch(
+      /const onPointerDown = \(event: MouseEvent\): void => \{\s*if \(!ref\.current\?\.contains\(event\.target as Node\)\) setOpen\(false\);/
+    );
+    expect(MENU).toMatch(
+      /const next = event\.relatedTarget;\s*if \(shown && next instanceof Node && !ref\.current\?\.contains\(next\)\) setOpen\(false\);/
+    );
+    expect(MENU).toContain('const shown = open && !disabled;');
+  });
+});

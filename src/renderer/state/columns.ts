@@ -35,13 +35,15 @@ export function drawerId(column: Column): string {
 
 /**
  * What closes on Escape in a window listener of its own, added after the
- * keyboard bindings' and so run after them: the Bulk menu and the status bar's
- * legend. While one of them is open, an Escape is theirs, and the drawer waits
- * for the next press (keyboard.ts).
+ * keyboard bindings' and so run after them: the toolbar's menus, Review and
+ * Actions (an Escape pressed in a menu's list never reaches the window,
+ * `ToolbarMenu`, polish.7), and the status bar's legend. While one of them is
+ * open, an Escape is theirs, and the drawer waits for the next press
+ * (keyboard.ts).
  */
 const CLOSES_ON_ESCAPE = '.menu__list, .legend';
 
-/** Whether the Bulk menu or the legend is open, which an Escape closes first. */
+/** Whether a toolbar menu or the legend is open, which an Escape closes first. */
 export function popupTakesEscape(): boolean {
   return document.querySelector(CLOSES_ON_ESCAPE) !== null;
 }

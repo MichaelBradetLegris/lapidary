@@ -19,7 +19,7 @@ const HOOK = read('state/columns.ts');
 const STRIP = read('components/ColumnStrip.tsx');
 const KEYS = read('state/keyboard.ts');
 const HINT = read('components/SaveHint.tsx');
-const TOOLBAR = read('components/Toolbar.tsx');
+const MENU = read('components/ToolbarMenu.tsx');
 const STATUS = read('components/StatusBar.tsx');
 const FIND = read('components/FindBar.tsx');
 const CSS = read('styles/app.css');
@@ -195,22 +195,23 @@ describe('how a drawer closes (ui.3)', () => {
   /* ui.3 review: with a drawer open and the focus in the find box, one Escape
      closed the find bar and the drawer. The box's own handler runs first, at
      React's root, and closes the bar; the window listener then found the bar
-     closed and went on to the drawer. With the Bulk menu or the legend open,
+     closed and went on to the drawer. With the Bulk menu (now Actions, and
+     Review beside it, polish.7) or the legend open,
      whose window listeners close them on Escape, the same press closed the
      drawer as well, or the drawer under the legend first. */
   it('with Escape, one thing a press: never behind a dialog, never one something else has taken, never under a menu', () => {
     expect(KEYS).toMatch(
       /const drawerEscape =\s*event\.key === 'Escape' &&\s*useDrawer\.getState\(\)\.open !== null &&\s*!isModalOpen\(state\) &&\s*!event\.defaultPrevented &&\s*!popupTakesEscape\(\);/
     );
-    // What popupTakesEscape looks for is what the Bulk menu and the legend draw.
+    // What popupTakesEscape looks for is what the toolbar's menus (polish.7) and the legend draw.
     expect(HOOK).toContain("const CLOSES_ON_ESCAPE = '.menu__list, .legend';");
     expect(HOOK).toMatch(
       /export function popupTakesEscape\(\): boolean \{\s*return document\.querySelector\(CLOSES_ON_ESCAPE\) !== null;\s*\}/
     );
-    expect(TOOLBAR).toContain('<div className="menu__list" role="menu">');
+    expect(MENU).toMatch(/<div className="menu__list" role="menu" [^>]*onKeyDown=\{onListKey\}>/);
     expect(STATUS).toContain('<div className="legend" ref={ref} role="dialog"');
     // Each takes the press it closes on, so it closes no drawer whichever runs first.
-    for (const source of [TOOLBAR, STATUS]) {
+    for (const source of [MENU, STATUS]) {
       expect(source).toMatch(
         /const onKeyDown = \(event: KeyboardEvent\): void => \{\s*if \(event\.key !== 'Escape'\) return;\s*event\.preventDefault\(\);/
       );

@@ -13,7 +13,6 @@ import {
 } from '../../shared/ui/history';
 import { changeInContext, isSmallChange, sideText, type ChangeInContext } from '../../shared/ui/small';
 import { groupSuggestions, summaryLine } from '../../shared/ui/suggestions';
-import { SHOW_BACKUPS, SHOW_BACKUPS_TITLE } from '../../shared/ui/backups';
 import { PROVIDER_NAMES, type Hunk, type Review, type ReviewComment } from '../../shared/types';
 import { editFromComment, editHunk } from '../state/edit';
 import { followFocus, scrollToElement } from '../state/scroll';
@@ -27,8 +26,6 @@ interface Props {
   activeReviewPath?: string | null;
   onSetCommentStatus: (id: string, status: ReviewComment['status']) => void;
   onOpenHistory?: (summary: ReviewSummary) => void;
-  /** open the chapter's backup folder (apply.11); the footer shows the button when given */
-  onShowBackups?: () => void;
 }
 
 const STATUS_MARK: Record<Hunk['status'], string> = {
@@ -66,8 +63,7 @@ export function SidePanel({
   history = [],
   activeReviewPath = null,
   onSetCommentStatus,
-  onOpenHistory,
-  onShowBackups
+  onOpenHistory
 }: Props): React.JSX.Element {
   const focusedHunkId = useApp((s) => s.focusedHunkId);
   const hiddenCategories = useApp((s) => s.hiddenCategories);
@@ -459,15 +455,6 @@ export function SidePanel({
           </div>
         </div>
       </div>
-      {/* Pinned below both regions, so it is in view however far either has
-          scrolled (apply.11). */}
-      {onShowBackups ? (
-        <div className="side__foot">
-          <button type="button" title={SHOW_BACKUPS_TITLE} onClick={onShowBackups}>
-            {SHOW_BACKUPS}
-          </button>
-        </div>
-      ) : null}
     </aside>
   );
 }

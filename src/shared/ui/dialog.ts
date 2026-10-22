@@ -8,11 +8,11 @@
 /** The toolbar's Settings button, where the focus goes when Settings closes and where it was is gone. */
 export const SETTINGS_BUTTON_SELECTOR = '[data-opens="settings"]';
 
-/** The toolbar's Review with AI button, the same for Review with AI (ui.4). */
+/**
+ * The toolbar's Review menu button, the same for Review with AI and Submit
+ * manual review, which its With AI and Manual open (ui.4, `polish.7`).
+ */
 export const REVIEW_BUTTON_SELECTOR = '[data-opens="review"]';
-
-/** The toolbar's Submit manual review button, the same for that dialog (ui.4). */
-export const MANUAL_REVIEW_BUTTON_SELECTOR = '[data-opens="manual-review"]';
 
 /** The + in the chapter list's header, the same for New chapter (ui.4). */
 export const NEW_CHAPTER_BUTTON_SELECTOR = '[data-opens="new-chapter"]';

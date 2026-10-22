@@ -153,8 +153,9 @@ export function ReviewDialog({
 
   /* Escape closes it, as in Settings (ui.1). A question asked over it, such
      as "Review without them", takes Escape for itself. The focus goes into
-     its box as it opens and back to Review with AI when it closes, and the
-     page behind it is inert meanwhile, so Tab stays inside it (ui.4). */
+     its box as it opens and back to the toolbar's Review menu when it closes,
+     and the page behind it is inert meanwhile, so Tab stays inside it (ui.4,
+     `polish.7`). */
   useDialogEscape(boxRef, onClose);
   useDialogFocus(boxRef, REVIEW_BUTTON_SELECTOR);
 

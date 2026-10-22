@@ -164,8 +164,9 @@ describe('Every dialog takes the focus and hands it back (ui.4)', () => {
       box: '<div className="modal" ref={boxRef} tabIndex={-1}>'
     },
     {
+      // Opened from the Review menu's Manual, as Review with AI from its With AI (polish.7).
       file: 'components/ManualReviewDialog.tsx',
-      hook: 'useDialogFocus(boxRef, MANUAL_REVIEW_BUTTON_SELECTOR);',
+      hook: 'useDialogFocus(boxRef, REVIEW_BUTTON_SELECTOR);',
       box: '<div className="modal modal--wide" ref={boxRef} tabIndex={-1}>'
     },
     {
@@ -219,25 +220,29 @@ describe('Every dialog takes the focus and hands it back (ui.4)', () => {
   });
 
   it('marks each opener for its selector', () => {
+    // polish.7: the Review menu's button, whose With AI and Manual open the two dialogs.
     const toolbar = read('components/Toolbar.tsx');
     expect(toolbar).toMatch(
-      /<button type="button" data-opens="review" disabled=\{!review\?\.sourcePath\} onClick=\{onReviewWithAi\}>\s*Review with AI\s*<\/button>/
+      /<ToolbarMenu\s+label=\{REVIEW_MENU\.label\}\s+opens="review"[\s\S]*?onSelect: onReviewWithAi,[\s\S]*?onSelect: onManualReview,/
     );
-    expect(toolbar).toMatch(
-      /<button\s+type="button"\s+data-opens="manual-review"[^>]*onClick=\{onManualReview\}\s*>\s*Submit manual review\s*<\/button>/
-    );
+    expect(toolbar).not.toContain('data-opens="manual-review"');
+    const menu = read('components/ToolbarMenu.tsx');
+    expect(menu).toMatch(/<button\s+ref=\{buttonRef\}\s+type="button"[^>]*\sdata-opens=\{opens\}/);
     expect(read('components/FileList.tsx')).toMatch(
       /<button\s+type="button"\s+className="files__act"\s+data-opens="new-chapter"\s+aria-label="New chapter"[^>]*onClick=\{onNewChapter\}\s*>/
     );
   });
 
-  it('moves the focus to Bulk before its menu item goes, so a question hands it back there', () => {
-    const toolbar = read('components/Toolbar.tsx');
-    const run = toolbar.slice(toolbar.indexOf('const run = '), toolbar.indexOf('runBulk(action);'));
-    const focus = run.indexOf('buttonRef.current?.focus({ preventScroll: true });');
+  it("moves the focus to the menu's button before its item goes, so a question or a dialog hands it back there", () => {
+    const menu = read('components/ToolbarMenu.tsx');
+    const close = menu.slice(menu.indexOf('const close = '), menu.indexOf('const run = '));
+    const focus = close.indexOf('if (giveFocusBack) buttonRef.current?.focus({ preventScroll: true });');
     expect(focus).toBeGreaterThan(-1);
-    expect(run.indexOf('setOpen(false);')).toBeGreaterThan(focus);
-    expect(toolbar).toMatch(/<span className="menu" ref=\{ref\}>\s*<button\s+ref=\{buttonRef\}/);
+    expect(close.indexOf('setOpen(false);')).toBeGreaterThan(focus);
+    expect(menu).toMatch(
+      /const run = \(item: MenuItem\): void => \{\s*close\(true\);\s*item\.onSelect\(\);\s*\};/
+    );
+    expect(menu).toMatch(/<span\s+className="menu"\s+ref=\{ref\}[\s\S]*?>\s*<button\s+ref=\{buttonRef\}/);
   });
 
   it('leaves Build review enabled while its question is open, so Cancel can hand the focus back to it', () => {

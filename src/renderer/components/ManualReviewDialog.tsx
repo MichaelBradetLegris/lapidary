@@ -4,7 +4,7 @@ import { diffToHunks } from '../../shared/diff/wordDiff';
 import { createReview } from '../../shared/review';
 import { normalizeText } from '../../shared/text/eol';
 import type { Review } from '../../shared/types';
-import { MANUAL_REVIEW_BUTTON_SELECTOR } from '../../shared/ui/dialog';
+import { REVIEW_BUTTON_SELECTOR } from '../../shared/ui/dialog';
 import { useDialogFocus } from '../state/dialog';
 import { buildManualReview } from '../state/reviewStart';
 import type { SaveOptions, SaveOutcome } from '../state/saveChapter';
@@ -32,9 +32,9 @@ interface Props {
  * that the file does not have yet are asked about before building: Save then
  * build, Build without them, or Cancel (apply.20, `buildManualReview`).
  *
- * The focus goes into its box as it opens and back to the toolbar button that
- * opened it when it closes; the page behind it is inert meanwhile, so Tab
- * stays among its controls (`useDialogFocus`, ui.4).
+ * The focus goes into its box as it opens and back to the toolbar's Review
+ * menu, whose Manual opened it, when it closes; the page behind it is inert
+ * meanwhile, so Tab stays among its controls (`useDialogFocus`, ui.4).
  */
 export function ManualReviewDialog({
   review,
@@ -47,7 +47,7 @@ export function ManualReviewDialog({
   const saving = useApp((s) => s.chapterSaving);
   const [corrected, setCorrected] = useState('');
   const boxRef = useRef<HTMLDivElement>(null);
-  useDialogFocus(boxRef, MANUAL_REVIEW_BUTTON_SELECTOR);
+  useDialogFocus(boxRef, REVIEW_BUTTON_SELECTOR);
   /* What a save before building said when it did not reach the chapter file.
      Its cards sit under this dialog's backdrop, so the dialog says it instead
      (apply.20 review). */

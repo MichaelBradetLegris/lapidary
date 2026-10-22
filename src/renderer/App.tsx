@@ -657,7 +657,8 @@ export function App(): React.JSX.Element {
       .catch((err: unknown) => notify('error', errorMessage(err)));
   }, [review, notify]);
 
-  /* Show backups (apply.11, PLAN 6.5): a chapter's own backup folder, with its
+  /* Show backups (apply.11, PLAN 6.5), in the toolbar's Actions menu since
+     `polish.7` and on the save card: a chapter's own backup folder, with its
      newest backup selected, which main works out from the chapter's path; with
      no path, the backups root. A chapter with no folder at its path gets a card
      saying so rather than an error, with Show all backups for the folders of
@@ -957,6 +958,7 @@ export function App(): React.JSX.Element {
       onManualReview={openManualReview}
       onSaveChapter={saveChapter}
       onCopyResult={copyResult}
+      onShowBackups={() => revealBackups(review?.sourcePath)}
       onSettings={() => setSettingsOpen(true)}
       onSaveHintDone={() => void dismissHint(SAVE_HINT_ID, HINT_IO)}
     />
@@ -1301,9 +1303,9 @@ export function App(): React.JSX.Element {
                   <div className="empty">
                     <h1>Nothing open</h1>
                     <p>
-                      Pick a chapter on the left, or start one with the + beside Chapters. Review with AI asks
-                      for suggestions; Submit manual review turns a corrected copy into the same kind of list.
-                      You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
+                      Pick a chapter on the left, or start one with the + beside Chapters. In the Review menu,
+                      With AI asks for suggestions and Manual turns a corrected copy into the same kind of
+                      list. You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
                     </p>
                   </div>
                 )}
@@ -1333,7 +1335,6 @@ export function App(): React.JSX.Element {
                 activeReviewPath={reviewPath}
                 onSetCommentStatus={setCommentStatus}
                 onOpenHistory={openHistoryEntry}
-                onShowBackups={() => revealBackups(review.sourcePath)}
               />
             ) : (
               <aside className="side" />

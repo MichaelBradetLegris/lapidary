@@ -21,6 +21,7 @@ import {
 import { APP_NAME } from '../branding';
 import type { ConnectionTestResult, RateLimitInfo, RuntimeStatus } from '../ipc';
 import type { ErrorCode } from '../types';
+import { WITH_AI_IN_MENU } from './menu';
 import { isPlanLimit, usageLimitAdvice } from './usage';
 
 export type SetupViewId =
@@ -254,11 +255,11 @@ export const PRIVACY_FOOTER = `${APP_NAME} never sees your Claude password or si
 /* ------------------------------------------------------------------ */
 
 /**
- * Where Review with AI goes when Claude is the provider (PLAN 11.3 f). Setup
- * stands in front of the review dialog only when Claude Code is missing or
- * says for certain that it is signed out. A check that failed or ran out of
- * time, or a Claude Code that is too old, opens the dialog with a warning: the
- * review may still go through, and if it does not, it says why.
+ * Where With AI, in the Review menu, goes when Claude is the provider (PLAN
+ * 11.3 f). Setup stands in front of the review dialog only when Claude Code is
+ * missing or says for certain that it is signed out. A check that failed or
+ * ran out of time, or a Claude Code that is too old, opens the dialog with a
+ * warning: the review may still go through, and if it does not, it says why.
  */
 export function reviewGate(runtime: RuntimeStatus | null | undefined): 'setup' | 'dialog' {
   return runtime?.state === 'missing-binary' || runtime?.state === 'not-signed-in' ? 'setup' : 'dialog';
@@ -474,18 +475,18 @@ function claudeCode(runtime: RuntimeStatus | null | undefined): string {
 function readyLines(runtime: RuntimeStatus | null | undefined): string[] {
   if (runtime?.credential === 'cloud') {
     return [
-      `${claudeCode(runtime)} is signed in through your cloud provider. Review with AI can use Claude.`
+      `${claudeCode(runtime)} is signed in through your cloud provider. ${WITH_AI_IN_MENU} can use Claude.`
     ];
   }
   if (runtime?.credential === 'auth-token') {
     return [
-      `${claudeCode(runtime)} signs in with the token in ${AUTH_TOKEN_VARIABLE}, such as a gateway or proxy hands out, so reviews are billed to the account behind that token, not through your Claude sign-in. Review with AI can use Claude.`,
+      `${claudeCode(runtime)} signs in with the token in ${AUTH_TOKEN_VARIABLE}, such as a gateway or proxy hands out, so reviews are billed to the account behind that token, not through your Claude sign-in. ${WITH_AI_IN_MENU} can use Claude.`,
       `To use your Claude sign-in instead, remove ${AUTH_TOKEN_VARIABLE} from your environment and start ${APP_NAME} again.`
     ];
   }
   const who = runtime?.email ? ` as ${runtime.email}` : '';
   const plan = runtime?.subscriptionType ? ` (${runtime.subscriptionType})` : '';
-  return [`${claudeCode(runtime)} is signed in${who}${plan}. Review with AI can use Claude.`];
+  return [`${claudeCode(runtime)} is signed in${who}${plan}. ${WITH_AI_IN_MENU} can use Claude.`];
 }
 
 /**

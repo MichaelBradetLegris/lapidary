@@ -1,16 +1,17 @@
 /**
- * What the app says about finding backups (apply.11, PLAN 6.5): the side
- * panel's Show backups, the save card's button of the same name, the Backups
- * row in Settings, and the card when a chapter has none yet. Main builds that
- * last card's text, so the words live here, where both sides can import them.
+ * What the app says about finding backups (apply.11, PLAN 6.5): Show backups
+ * in the toolbar's Actions menu (`polish.7`), the save card's button of the
+ * same name, the Backups row in Settings, and the card when a chapter has none
+ * yet. Main builds that last card's text, so the words live here, where both
+ * sides can import them.
  *
  * Pure (CLAUDE.md rule 4).
  */
 
-/** The side panel's button and the save card's, both of which open a chapter's backup folder. */
+/** The Actions menu's item and the save card's button, both of which open a chapter's backup folder. */
 export const SHOW_BACKUPS = 'Show backups';
 
-/** The side panel button's tooltip. */
+/** The Actions menu item's tooltip. */
 export const SHOW_BACKUPS_TITLE =
   "Open the folder of this chapter's backups, with the newest selected: each is the version a Save to chapter replaced.";
 
