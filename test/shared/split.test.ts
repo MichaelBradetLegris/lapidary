@@ -62,6 +62,16 @@ const SMALLEST_STATUS_TWO_ROWS = 245.11;
 const SMALLEST_STATUS_ONE_ROW = 264.11;
 const SHORT_TWO_ROWS_EACH = 194.96;
 
+/* The same windows since polish.8, as measured on Chapter 01 of the samples
+   (Chapter 02, with no review, for the status bar on one row): polish.7 took
+   the footer under the regions away (40 px) and put the toolbar on one row in
+   the 1000 by 985 window at 175%, and polish.8 took the category's line out
+   of the box (20 px). And the default window at 100%. */
+const P8_SMALLEST_STATUS_TWO_ROWS = 305.11;
+const P8_SMALLEST_STATUS_ONE_ROW = 324.11;
+const P8_SHORT_WINDOW = 287.25;
+const P8_DEFAULT_WINDOW = 664.11;
+
 describe('the setting (11.3 d)', () => {
   it('keeps a share strictly between 0 and 1, and anything else is the usual split', () => {
     expect(normalizeSplit(0.4)).toBe(0.4);
@@ -168,6 +178,23 @@ describe('the limits', () => {
     // A window just over the one scroller's 540 px with two-row bars is still too short.
     expect(splitMovable(room({ total: SHORT_TWO_ROWS_EACH }))).toBe(false);
     expect(splitTravel(room({ total: SHORT_TWO_ROWS_EACH }))).toBe(0);
+  });
+
+  it('moves further since the footer went (polish.7) and the box lost the category line (polish.8)', () => {
+    // The smallest window at 100%, with the status bar on two rows and on one.
+    expect(splitTravel(room({ total: P8_SMALLEST_STATUS_TWO_ROWS }))).toBeCloseTo(109.11, 6);
+    expect(splitTravel(room({ total: P8_SMALLEST_STATUS_ONE_ROW }))).toBeCloseTo(128.11, 6);
+    expect(P8_SMALLEST_STATUS_TWO_ROWS - SMALLEST_STATUS_TWO_ROWS).toBeCloseTo(40 + 20, 6);
+    // The window at the one scroller's limit that had no room for both now has.
+    const short = room({ total: P8_SHORT_WINDOW });
+    expect(short.total).toBeGreaterThan(short.min + short.gap);
+    expect(splitMovable(short)).toBe(true);
+    expect(splitTravel(short)).toBeCloseTo(91.25, 6);
+    // The default window at 100%: the list has 103 to 571 of the 664 px.
+    const usual = room({ total: P8_DEFAULT_WINDOW });
+    expect(splitMin(usual)).toBe(103);
+    expect(splitMax(usual)).toBeCloseTo(571.11, 6);
+    expect(splitTravel(usual)).toBeCloseTo(468.11, 6);
   });
 
   it('turns a height into a share and back to within a hundredth of a pixel', () => {

@@ -194,12 +194,28 @@ export function SidePanel({
         </div>
       ) : null}
       <div className="side__body">
-        {/* Its heading line holds the pencil, which opens the suggestion
-            editor as e does; a longer suggestion or explanation scrolls inside
-            the box. With nothing focused the box keeps its height. */}
+        {/* Its heading line names the category after the heading, in the
+            category's colour, with the anchor when it is not exact
+            ("Focused suggestion · punctuation", polish.8), and ends in the
+            pencil, which opens the suggestion editor as e does; a longer
+            suggestion or explanation scrolls inside the box. With nothing
+            focused the box keeps its height. In a narrow panel the heading's
+            words give way before the category's (app.css); the separator keeps
+            its spaces, so the heading reads as one phrase to a screen reader. */}
         <section className="side__focus">
           <div className="side__focus-head">
-            <h3>Focused suggestion</h3>
+            <h3>
+              <span className="side__focus-title">Focused suggestion</span>
+              {focused ? (
+                <span className={`side__focus-cat cat-${focused.category ?? 'other'}`}>
+                  <span className="side__focus-sep"> · </span>
+                  {isAuthored(focused) ? 'your edit' : (focused.category ?? 'change')}
+                  {focused.anchor !== 'exact' ? (
+                    <span className="detail__anchor"> {focused.anchor}</span>
+                  ) : null}
+                </span>
+              ) : null}
+            </h3>
             {focused ? (
               <button
                 type="button"
@@ -215,12 +231,6 @@ export function SidePanel({
           <div className="side__focus-body" ref={focusBodyRef}>
             {focused ? (
               <>
-                <div className={`detail__cat cat-${focused.category ?? 'other'}`}>
-                  {isAuthored(focused) ? 'your edit' : (focused.category ?? 'change')}
-                  {focused.anchor !== 'exact' ? (
-                    <span className="detail__anchor"> {focused.anchor}</span>
-                  ) : null}
-                </div>
                 <dl className="pair">
                   <dt>Original:</dt>
                   <dd className="pair__original">{sideText(focused.original)}</dd>

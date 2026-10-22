@@ -1426,21 +1426,21 @@ input[type='text'] {
    review selector, above the list, so that nothing below it moves when the
    focus does; with the box between the list and the comments, its height
    followed the explanation and the comments region grew and shrank as the
-   focus moved. The height fits the heading line with its pencil, the category,
-   Original and Suggested on a line each, and two lines of explanation. Every
-   line in it has its own line height, so the sum below does not depend on the
+   focus moved. The height fits the heading line, which names the category and
+   ends in the pencil, Original and Suggested on a line each, and two lines of
+   explanation; the category had a line of its own until polish.8. Every line
+   in it has its own line height, so the sum below does not depend on the
    font's metrics. Anything longer scrolls inside the box, below its heading
    line, which stays in view with the pencil. */
 .side__focus {
   --focus-head: 18px;
-  --focus-cat: 16px;
   --focus-pair: 19px;
   --focus-reason: 18px;
   flex: none;
-  /* The lines, 108 px, and 31 px between and around them: the padding (8 and
-     8), 4 under the heading line, under the category and above the
-     explanation, 2 between Original and Suggested, and the border. 139 px. */
-  height: calc(var(--focus-head) + var(--focus-cat) + 2 * var(--focus-pair) + 2 * var(--focus-reason) + 31px);
+  /* The lines, 92 px, and 27 px between and around them: the padding (8 and
+     8), 4 under the heading line and above the explanation, 2 between
+     Original and Suggested, and the border. 119 px. */
+  height: calc(var(--focus-head) + 2 * var(--focus-pair) + 2 * var(--focus-reason) + 27px);
   display: flex;
   flex-direction: column;
   padding: 8px 0;
@@ -1458,17 +1458,45 @@ input[type='text'] {
   padding: 0 8px 0 10px;
 }
 
+/* "Focused suggestion · punctuation" (polish.8): the heading's words, then the
+   separator and the category, in the category's colour as the list's dots
+   are, with the anchor in the warning colour when it is not exact. Where the
+   line is too narrow for all of it, the heading's words give way, to an
+   ellipsis and then to nothing; the category never shrinks, so it shows no
+   ellipsis for a fraction of a pixel, and is cut short only when it is wider
+   than the whole line by itself. The separator keeps its spaces, which the
+   start of a line would otherwise drop. */
 .side__focus-head h3 {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
   margin: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
   line-height: var(--focus-head);
   text-transform: uppercase;
   letter-spacing: 0.07em;
+  color: var(--ink-faint);
+}
+
+.side__focus-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.side__focus-cat {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cat, var(--ink-soft));
+}
+
+.side__focus-sep {
+  white-space: pre;
   color: var(--ink-faint);
 }
 
@@ -1487,12 +1515,8 @@ input[type='text'] {
   line-height: var(--focus-reason);
 }
 
-.side__focus-body .detail__cat {
-  line-height: var(--focus-cat);
-}
-
 .side__focus-body .pair {
-  margin: 4px 0 0;
+  margin: 0;
 }
 
 .side__focus-body .pair dd {
@@ -1691,13 +1715,6 @@ input[type='text'] {
   .side__lower {
     border-top: 1px solid var(--border);
   }
-}
-
-.detail__cat {
-  color: var(--cat, var(--ink-soft));
-  text-transform: uppercase;
-  font-size: 11px;
-  letter-spacing: 0.06em;
 }
 
 .detail__anchor {

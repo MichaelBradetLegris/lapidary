@@ -6,11 +6,13 @@ import { arrowsScrollBox, type KeyTarget } from '../../src/shared/ui/scroll';
 /* ui.5: the focused suggestion is a box of fixed height at the top of the side
    panel, directly under the review selector and above the list, so the list and
    the comments below it never move as the focus does. Its Edit is the pencil on
-   its heading line. Apart from the arrow rule in src/shared, which is called,
+   its heading line, which since polish.8 names the category too, so the box is
+   a line shorter. Apart from the arrow rule in src/shared, which is called,
    these are source checks, as the tests run without a DOM or Electron; the
-   window checks (both themes, a one-line and a five-line
-   explanation, Tab, the comments region's height as the focus moves) are in
-   PLAN (ui.5). */
+   heading line as drawn is in focusHead.render.test.ts, and the window checks
+   (both themes, a one-line and a five-line explanation, Tab, the comments
+   region's height as the focus moves, the accessibility tree) are in PLAN
+   (ui.5, polish.8). */
 
 const SRC = path.join(__dirname, '../../src');
 const withoutComments = (text: string): string =>
@@ -119,7 +121,9 @@ describe('where the box is (ui.5)', () => {
       'className="side__body"',
       'className="side__focus"',
       'className="side__focus-head"',
-      '<h3>Focused suggestion</h3>',
+      '<span className="side__focus-title">Focused suggestion</span>',
+      'className={`side__focus-cat',
+      'className="row__act side__focus-edit"',
       'className="side__focus-body"',
       'className="side__regions"',
       'className="side__section side__list"',
@@ -134,10 +138,13 @@ describe('where the box is (ui.5)', () => {
     expect(SIDE_PANEL).not.toContain('detail__actions');
   });
 
-  it('shows the category, Original, Suggested and the explanation in its body, and with nothing focused its present text', () => {
+  it('shows Original, Suggested and the explanation in its body, and with nothing focused its present text', () => {
     const body = SIDE_PANEL.slice(at('className="side__focus-body"'), at('className="side__regions"'));
+    // The category is on the heading line since polish.8, not on a line of its own.
+    expect(body).not.toContain('detail__cat');
+    expect(body).not.toContain('focused.category');
+    expect(body).toMatch(/\{focused \? \(\s*<>\s*<dl className="pair">/);
     for (const part of [
-      'className={`detail__cat',
       '<dt>Original:</dt>',
       '<dt>Suggested:</dt>',
       '<p className="detail__reason">{focused.reason}</p>',
@@ -153,6 +160,59 @@ describe('where the box is (ui.5)', () => {
     );
     expect(SCROLL).toContain('export function followFocus(row: Element | null | undefined): void {');
     expect(SIDE_PANEL).not.toContain('lowerRef');
+  });
+});
+
+/* polish.8: the author found the box "a bit big", and the heading and the
+   category line under it became one line. In a narrow panel the heading's
+   words give way before the category's, which ui.5 had kept on a line of its
+   own so that neither would be cut short. */
+describe('the category on the heading line (polish.8)', () => {
+  const head = (): string =>
+    SIDE_PANEL.slice(at('className="side__focus-head"'), at('className="side__focus-body"'));
+
+  it('reads "Focused suggestion · <category>", the category in its colour, with the anchor when it is not exact', () => {
+    expect(head()).toMatch(
+      /<h3>\s*<span className="side__focus-title">Focused suggestion<\/span>\s*\{focused \? \(\s*<span className=\{`side__focus-cat cat-\$\{focused\.category \?\? 'other'\}`\}>\s*<span className="side__focus-sep"> · <\/span>\s*\{isAuthored\(focused\) \? 'your edit' : \(focused\.category \?\? 'change'\)\}\s*\{focused\.anchor !== 'exact' \? \(\s*<span className="detail__anchor"> \{focused\.anchor\}<\/span>\s*\) : null\}\s*<\/span>\s*\) : null\}\s*<\/h3>/
+    );
+    // The pencil ends the line, after the heading.
+    expect(head().indexOf('</h3>')).toBeLessThan(head().indexOf('side__focus-edit'));
+  });
+
+  it('keeps the line to one row, the heading giving way before the category', () => {
+    const h3 = declsFor('.side__focus-head h3');
+    expect(h3.get('display')).toBe('flex');
+    expect(h3.get('white-space')).toBe('nowrap');
+    expect(h3.get('overflow')).toBe('hidden');
+    expect(h3.get('min-width')).toBe('0');
+    // The heading's words shrink, to an ellipsis and then to nothing.
+    const title = declsFor('.side__focus-title');
+    expect(title.get('flex')).toBe('0 1 auto');
+    expect(title.get('min-width')).toBe('0');
+    expect(title.get('overflow')).toBe('hidden');
+    expect(title.get('text-overflow')).toBe('ellipsis');
+    // The category does not: a share of the shrinking, however small, cut it
+    // short with an ellipsis for a fraction of a pixel ("word-choice
+    // ambiguous" in the default window, seen in the polish.8 window check).
+    // Wider than the whole line, it is cut at the line's end with an ellipsis.
+    const cat = declsFor('.side__focus-cat');
+    expect(cat.get('flex')).toBe('none');
+    expect(cat.get('max-width')).toBe('100%');
+    expect(cat.get('overflow')).toBe('hidden');
+    expect(cat.get('text-overflow')).toBe('ellipsis');
+    // The separator, at the start of the category's box, keeps the spaces
+    // round its dot, on screen and when spoken.
+    expect(declsFor('.side__focus-sep').get('white-space')).toBe('pre');
+  });
+
+  it("draws the category in the category's colour and the rest in the heading's", () => {
+    expect(declsFor('.side__focus-cat').get('color')).toBe('var(--cat, var(--ink-soft))');
+    expect(declsFor('.side__focus-head h3').get('color')).toBe('var(--ink-faint)');
+    expect(declsFor('.side__focus-sep').get('color')).toBe('var(--ink-faint)');
+    expect(declsFor('.detail__anchor').get('color')).toBe('var(--warn)');
+    // The category's own line and its rules are gone.
+    expect(CSS).not.toContain('.detail__cat');
+    expect(CSS).not.toContain('--focus-cat');
   });
 });
 
@@ -235,7 +295,12 @@ describe('the fixed height (ui.5)', () => {
 
   it('gives every line in it a line height of its own, so no font changes the sum', () => {
     expect(declsFor('.side__focus-head h3').get('line-height')).toBe('var(--focus-head)');
-    expect(declsFor('.side__focus-body .detail__cat').get('line-height')).toBe('var(--focus-cat)');
+    // The heading's parts take the h3's line height and add no box of their own.
+    for (const part of ['.side__focus-title', '.side__focus-sep', '.side__focus-cat']) {
+      const decls = declsFor(part);
+      for (const loose of ['line-height', 'font-size', 'padding', 'margin', 'border', 'height', 'display'])
+        expect(decls.has(loose), `${part} ${loose}`).toBe(false);
+    }
     expect(declsFor('.side__focus-body .pair dt').get('line-height')).toBe('var(--focus-pair)');
     expect(declsFor('.side__focus-body .pair dd').get('line-height')).toBe('var(--focus-pair)');
     expect(declsFor('.side__focus-body .detail__reason').get('line-height')).toBe('var(--focus-reason)');
@@ -249,8 +314,9 @@ describe('the fixed height (ui.5)', () => {
      the base rules (`.pair dt` has 2 px of padding on top, which the box
      takes off) and the box's own, around the lines and between them (ui.5
      review: the body's padding and that padding were left out, and a box 4 px
-     short of its text passed). */
-  it('is exactly the heading line, the category, Original and Suggested, two lines of explanation and what lies between', () => {
+     short of its text passed). Until polish.8 the category had a line of its
+     own, 16 px and the 4 under it, in a box of 139 px. */
+  it('is exactly the heading line, Original and Suggested, two lines of explanation and what lies between', () => {
     const line = (name: string): number => px(vars.get(name));
     const inBox = (base: string): string[] => [base, `.side__focus-body ${base}`];
     // Margins between blocks collapse to the larger; the body is a scroller,
@@ -264,7 +330,6 @@ describe('the fixed height (ui.5)', () => {
     const frame = around(['.side__focus']);
     const head = around(['.side__focus-head']);
     const body = around(['.side__focus-body']);
-    const cat = around(inBox('.detail__cat'));
     const pair = around(inBox('.pair'));
     const reason = around(inBox('.detail__reason'));
     // A row of the pair is as tall as the taller of its dt and its dd.
@@ -281,10 +346,7 @@ describe('the fixed height (ui.5)', () => {
     const headLine = head.margin[0] + line('--focus-head') + head.margin[1];
     const bodyText =
       body.inside +
-      cat.margin[0] +
-      cat.inside +
-      line('--focus-cat') +
-      collapse(cat.margin[1], pair.margin[0]) +
+      pair.margin[0] +
       pair.inside +
       2 * row +
       rowGap +
@@ -295,11 +357,16 @@ describe('the fixed height (ui.5)', () => {
     const whole = frame.inside + headLine + bodyText;
 
     expect(evalCalc(box.get('height') ?? '', vars)).toBe(whole);
-    expect(whole).toBe(139);
-    // The pieces the sum above relies on, spelt out.
+    expect(whole).toBe(119);
+    // The pieces the sum above relies on, spelt out: Original starts 4 px under
+    // the heading line, as the category did, and the explanation 4 px under
+    // Suggested.
     expect(declsFor('.side__focus-body .pair dt').get('padding-top')).toBe('0');
     expect(body.inside).toBe(0);
-    expect(cat).toEqual({ margin: [0, 0], inside: 0 });
+    expect(head.margin).toEqual([0, 4]);
+    expect(pair.margin).toEqual([0, 0]);
+    expect(reason.margin).toEqual([4, 0]);
+    expect([...vars.keys()].sort()).toEqual(['--focus-head', '--focus-pair', '--focus-reason']);
   });
 });
 
