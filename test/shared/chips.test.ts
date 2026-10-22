@@ -65,16 +65,31 @@ describe('an up-and-down wheel over the chips (polish.6)', () => {
         fc.double({ min: -2000, max: 2000, noNaN: true }),
         fc.constantFrom(0, 1, 2),
         (clientWidth, extra, at, deltaY, deltaMode) => {
+          // The bound is the row's own, scrollWidth - clientWidth, as the
+          // function computes it: in floating point (clientWidth + extra) -
+          // clientWidth can sit a few ulps from `extra`, which once failed this
+          // property on about one seed in a hundred (seed 11, pinned below).
           const scrollWidth = clientWidth + extra;
-          const row = { clientWidth, scrollWidth, scrollLeft: at * extra };
+          const max = scrollWidth - clientWidth;
+          const row = { clientWidth, scrollWidth, scrollLeft: at * max };
           const left = chipsWheelLeft(wheel({ deltaY, deltaMode }), row);
           if (left === null) return;
           expect(left).toBeGreaterThanOrEqual(0);
-          expect(left).toBeLessThanOrEqual(extra);
+          expect(left).toBeLessThanOrEqual(max);
           expect(Math.sign(left - row.scrollLeft)).toBe(Math.sign(deltaY));
         }
       )
     );
+  });
+
+  it('holds on the rounding case that once failed the property (fast-check seed 11)', () => {
+    const clientWidth = 15.93968089542875;
+    const extra = 0.5000000000803535;
+    const row = { clientWidth, scrollWidth: clientWidth + extra, scrollLeft: 0 };
+    const left = chipsWheelLeft(wheel({ deltaY: 0.01250000000200884, deltaMode: 1 }), row);
+    expect(left).not.toBeNull();
+    expect(left).toBeGreaterThanOrEqual(0);
+    expect(left).toBeLessThanOrEqual(row.scrollWidth - row.clientWidth);
   });
 });
 
