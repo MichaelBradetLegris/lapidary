@@ -47,7 +47,7 @@ describe('the toolbar shows the hint (apply.12)', () => {
   });
 
   it('points the hint at Save to chapter, with the chapter on screen in its words', () => {
-    // Primary only while a change is waiting (polish.9), which the hint always is.
+    // Primary while a change is waiting (polish.9), as one always is while the hint shows.
     expect(TOOLBAR).toMatch(
       /<button\s+ref=\{saveRef\}\s+type="button"\s+className=\{save\.primary \? 'primary' : undefined\}/
     );

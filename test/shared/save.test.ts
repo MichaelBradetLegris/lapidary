@@ -165,9 +165,9 @@ describe('saveButtonState', () => {
   });
 
   /* polish.9: the turquoise says something is waiting, so it comes and goes
-     with the count, as the dot does; disabled and saving keep the fade over
-     whichever button that gives. */
-  it('is primary exactly while changes are waiting, in every state', () => {
+     with the count, as the dot does, but a save keeps it until it ends;
+     disabled keeps the fade over whichever button that gives. */
+  it('is primary exactly while changes are waiting or a save is under way, in every state', () => {
     for (const hasChapter of [true, false]) {
       for (const n of [0, 1, 4]) {
         for (const p of [0, 1, 2]) {
@@ -177,13 +177,27 @@ describe('saveButtonState', () => {
                 button({ hasChapter, unsavedDecisions: n, changedParagraphs: p, saving, locked })
               );
               const at = JSON.stringify({ hasChapter, n, p, saving, locked });
-              expect(state.primary, at).toBe(hasChapter && n > 0);
-              expect(state.primary, at).toBe(state.dot);
+              expect(state.primary, at).toBe(hasChapter && (n > 0 || saving));
+              if (!saving) expect(state.primary, at).toBe(state.dot);
             }
           }
         }
       }
     }
+  });
+
+  /* A save folds the decisions into the new base as soon as the chapter file
+     is written (`markSaved`), so the count is 0 while it still writes the
+     review (`runSave`). "Saving…" stays turquoise until it ends, and the dot
+     goes with the count. */
+  it('stays primary while saving with the count at 0, after the chapter file is written', () => {
+    expect(saveButtonState(button({ saving: true }))).toEqual({
+      label: 'Saving…',
+      disabled: true,
+      title: 'Writing the chapter file.',
+      dot: false,
+      primary: true
+    });
   });
 
   it('is plain with nothing to save, enabled or not, and with only a paragraph box changed', () => {

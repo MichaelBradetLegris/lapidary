@@ -127,7 +127,7 @@ export interface SaveButtonState {
   dot: boolean;
   /**
    * true when the button is a primary one, filled in the turquoise: only while
-   * changes are waiting to be written (polish.9)
+   * changes are waiting to be written, or a save of them is under way (polish.9)
    */
   primary: boolean;
 }
@@ -140,14 +140,17 @@ export interface SaveButtonState {
  * reason is harder to read than one that answers. `dot` puts the unsaved dot
  * before the chapter name, labelled by `unsavedDotLabel`.
  *
- * `primary` goes with the dot (polish.9): with nothing to save the button is
- * an ordinary one, and it turns primary only while changes are waiting, so
- * the colour itself says so. Disabled and saving keep their looks, the fade
- * over whichever button the count gives: a save starts only with changes to
- * write, so "Saving…" stays turquoise, and with no chapter open, or a review
- * running on one with nothing to save, the faded button is the plain one. An
- * open paragraph box counts only once its Done makes it a change, as for the
- * label and the dot.
+ * `primary` (polish.9): with nothing to save the button is an ordinary one,
+ * and it turns primary only while changes are waiting, so the colour itself
+ * says so. Outside a save it goes with the dot. Disabled keeps its look, the
+ * fade over whichever button the count gives: with no chapter open, or a
+ * review running on one with nothing to save, the faded button is the plain
+ * one. "Saving…" is the faded turquoise from start to end, whatever the count:
+ * a save starts only with changes to write, and once the chapter file is
+ * written the count is 0 (`markSaved`) while the save still writes the review
+ * (`runSave`), which with the count would have turned "Saving…" plain for its
+ * last moments. An open paragraph box counts only once its Done makes it a
+ * change, as for the label and the dot.
  */
 export function saveButtonState(input: SaveButtonInput): SaveButtonState {
   const n = input.unsavedDecisions;
@@ -163,7 +166,8 @@ export function saveButtonState(input: SaveButtonInput): SaveButtonState {
   const dot = n > 0;
   const primary = dot;
   if (input.saving) {
-    return { label: 'Saving…', disabled: true, title: 'Writing the chapter file.', dot, primary };
+    // Primary until the save ends, though the count is 0 once the file is written.
+    return { label: 'Saving…', disabled: true, title: 'Writing the chapter file.', dot, primary: true };
   }
   const label = n > 0 ? `Save ${changeCount(n)} to chapter` : 'Save to chapter';
   if (input.locked) {

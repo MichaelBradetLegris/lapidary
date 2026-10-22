@@ -151,9 +151,10 @@ describe('the toolbar holds Review, Actions, Save to chapter and Settings (polis
 });
 
 /* polish.9: Save to chapter is an ordinary button while there is nothing to
-   save, and a primary one, in the turquoise, only while changes are waiting.
-   Disabled and saving keep the fade (app.css) over whichever that is. */
-describe('Save to chapter is primary only while changes are waiting (polish.9)', () => {
+   save, and a primary one, in the turquoise, only while changes are waiting,
+   or a save of them is under way. Disabled keeps the fade (app.css) over
+   whichever that is. */
+describe('Save to chapter is primary only while changes are waiting or saving (polish.9)', () => {
   /** REVIEW with one change the chapter file does not have: its one suggestion, accepted. */
   const ONE: Review = (() => {
     const diff = createDiffReview({
@@ -218,7 +219,14 @@ describe('Save to chapter is primary only while changes are waiting (polish.9)',
 
   it('stays primary while saving, disabled', () => {
     storeWith({ review: ONE });
-    const button = save(render(ONE, false, true));
+    let button = save(render(ONE, false, true));
+    expect(button.text).toBe('Saving…');
+    expect(button.attrs).toContain('disabled');
+    expect(primary(button.attrs)).toBe(true);
+
+    // The chapter written and the count at 0, while the save still writes the review.
+    storeWith({ review: REVIEW });
+    button = save(render(REVIEW, false, true));
     expect(button.text).toBe('Saving…');
     expect(button.attrs).toContain('disabled');
     expect(primary(button.attrs)).toBe(true);
