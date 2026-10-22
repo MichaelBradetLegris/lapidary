@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,7 +9,7 @@ import {
   ensureGuidelinesFile,
   guidelinesStatus
 } from '../../src/main/guidelines';
-import { openGuidelines, openGuidelinesFile } from '../../src/main/openGuidelines';
+import { openGuidelines, openGuidelinesFile, revealGuidelines } from '../../src/main/openGuidelines';
 import type { ShellApi } from '../../src/main/shellApi';
 import { normalizeSettings } from '../../src/shared/settings';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
@@ -224,15 +224,23 @@ describe('guidelinesStatus', () => {
 describe('opening the guidelines file', () => {
   /* polish.3: Open hands the file to the system's app for its type, which is
      Obsidian when the author has made it the app for .md files. Nothing is
-     handed to the system as a link. */
+     handed to the system as a link. The fake also notes every file it is
+     handed that is not on disk at that moment (`missing`): the real system,
+     handed a guidelines file before the template is copied, would answer that
+     no app is set for .md files (polish.3 review). */
   function fakeShell(openPathResult = '') {
     const calls: string[] = [];
+    const missing: string[] = [];
+    const handed = (call: string, file: string): void => {
+      calls.push(`${call} ${file}`);
+      if (!existsSync(file)) missing.push(`${call} ${file}`);
+    };
     const shell: ShellApi = {
       openExternal: (url) => (calls.push(`external ${url}`), Promise.resolve()),
-      openPath: (file) => (calls.push(`open ${file}`), Promise.resolve(openPathResult)),
-      showItemInFolder: (file) => void calls.push(`show ${file}`)
+      openPath: (file) => (handed('open', file), Promise.resolve(openPathResult)),
+      showItemInFolder: (file) => handed('show', file)
     };
-    return { calls, shell };
+    return { calls, missing, shell };
   }
 
   it('opens a .md or a .txt file with the system app, and hands the system no link', async () => {
@@ -266,11 +274,12 @@ describe('opening the guidelines file', () => {
 
   /* setup.10b review, polish.3: guidelines:open is openGuidelines with the
      settings, the template and systemShell(), so these pin its order on
-     disk: refuse, then create from the template, then open. */
+     disk: refuse, then create from the template, then open. `missing` empty
+     is what pins the create before the open. */
   describe('guidelines:open', () => {
     it('creates a missing GUIDELINES.md from the template and opens it, and leaves an existing one as it is', async () => {
       const md = path.join(root, 'Novel', 'GUIDELINES.md');
-      const { calls, shell } = fakeShell();
+      const { calls, missing, shell } = fakeShell();
       expect(await openGuidelines(settings(), template, shell)).toEqual({ path: md, created: true });
       expect(await fs.readFile(md, 'utf8')).toBe(await fs.readFile(template, 'utf8'));
       expect(calls).toEqual([`open ${md}`]);
@@ -278,17 +287,19 @@ describe('opening the guidelines file', () => {
       expect(await openGuidelines(settings(), template, shell)).toEqual({ path: md, created: false });
       expect(await fs.readFile(md, 'utf8')).toBe('My own rules.\n');
       expect(calls).toEqual([`open ${md}`, `open ${md}`]);
+      expect(missing).toEqual([]);
     });
 
     it('creates a missing .txt guidelines file from the template too, and opens it', async () => {
       const txt = path.join(root, 'Novel', 'GUIDELINES.txt');
-      const { calls, shell } = fakeShell();
+      const { calls, missing, shell } = fakeShell();
       expect(await openGuidelines(settings({ guidelinesPath: txt }), template, shell)).toEqual({
         path: txt,
         created: true
       });
       expect(await fs.readFile(txt, 'utf8')).toBe(await fs.readFile(template, 'utf8'));
       expect(calls).toEqual([`open ${txt}`]);
+      expect(missing).toEqual([]);
     });
 
     it('makes and opens nothing for a file that is not .md or .txt, or with no manuscript folder', async () => {
@@ -301,6 +312,54 @@ describe('opening the guidelines file', () => {
       );
       await expect(
         openGuidelines(settings({ manuscriptFolder: null }), template, shell)
+      ).rejects.toMatchObject({
+        code: 'not-configured'
+      });
+      await expect(fs.access(path.dirname(docx))).rejects.toThrow();
+      expect(calls).toEqual([]);
+    });
+  });
+
+  /* polish.3 review: Open folder, in Review with AI, Settings and the welcome
+     guide, is shell:reveal with `guidelines`, which is revealGuidelines with
+     the settings, the template and systemShell(): the file is made from the
+     template first when it is missing, as the guide's line and the tooltips
+     promise, so the folder is never shown without it. */
+  describe('shell:reveal with guidelines', () => {
+    it('creates a missing GUIDELINES.md from the template, then shows it, and leaves an existing one as it is', async () => {
+      const md = path.join(root, 'Novel', 'GUIDELINES.md');
+      const { calls, missing, shell } = fakeShell();
+      expect(await revealGuidelines(settings(), template, shell)).toEqual({ path: md });
+      expect(await fs.readFile(md, 'utf8')).toBe(await fs.readFile(template, 'utf8'));
+      expect(calls).toEqual([`show ${md}`]);
+      await fs.writeFile(md, 'My own rules.\n');
+      expect(await revealGuidelines(settings(), template, shell)).toEqual({ path: md });
+      expect(await fs.readFile(md, 'utf8')).toBe('My own rules.\n');
+      expect(calls).toEqual([`show ${md}`, `show ${md}`]);
+      expect(missing).toEqual([]);
+    });
+
+    it('creates a missing .txt guidelines file from the template too, then shows it', async () => {
+      const txt = path.join(root, 'Elsewhere', 'house style.txt');
+      const { calls, missing, shell } = fakeShell();
+      expect(await revealGuidelines(settings({ guidelinesPath: txt }), template, shell)).toEqual({
+        path: txt
+      });
+      expect(await fs.readFile(txt, 'utf8')).toBe(await fs.readFile(template, 'utf8'));
+      expect(calls).toEqual([`show ${txt}`]);
+      expect(missing).toEqual([]);
+    });
+
+    it('makes and shows nothing for a file that is not .md or .txt, or with no manuscript folder', async () => {
+      const docx = path.join(root, 'Novel', 'rules.docx');
+      const { calls, shell } = fakeShell();
+      await expect(
+        revealGuidelines(settings({ guidelinesPath: docx }), template, shell)
+      ).rejects.toMatchObject({
+        code: 'invalid-input'
+      });
+      await expect(
+        revealGuidelines(settings({ manuscriptFolder: null }), template, shell)
       ).rejects.toMatchObject({
         code: 'not-configured'
       });

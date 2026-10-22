@@ -71,6 +71,12 @@ describe('where main hands things to the system', () => {
       /handle\('guidelines:open', async \(\) =>\s*openGuidelines\(await loadSettings\(\), guidelinesTemplate\(\), systemShell\(\)\)\s*\);/
     );
     expect(ipc).toContain('const system = systemShell();');
+    // shell:reveal with guidelines (Open folder) is revealGuidelines, tested there too (polish.3 review).
+    expect(ipc).toMatch(
+      /if \(target === 'guidelines'\) return revealGuidelines\(await loadSettings\(\), guidelinesTemplate\(\), system\);/
+    );
+    expect(ipc.match(/'guidelines'/g)).toHaveLength(1);
+    expect(ipc).not.toMatch(/\bensureGuidelinesFile\b/);
     expect(index.match(/void systemShell\(\)\.openExternal\(/g)).toHaveLength(2);
     expect(index).not.toMatch(/import \{[^}]*\bshell\b[^}]*\} from 'electron'/);
     // Main says it is on as it starts, so a test run can wait for that before pressing anything.

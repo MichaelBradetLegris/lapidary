@@ -41,3 +41,21 @@ export async function openGuidelines(
   await openGuidelinesFile(info.path, shellApi);
   return info;
 }
+
+/**
+ * What Open folder does for the guidelines file (`shell:reveal` with
+ * `guidelines`), without Electron, like `openGuidelines`: the file the
+ * settings name is created from the template when it is missing, then shown
+ * in its folder, so the folder never opens without it (polish.3). A file that
+ * is not `.md` or `.txt`, or no manuscript folder, is refused by
+ * `ensureGuidelinesFile` before it makes anything, so nothing is shown either.
+ */
+export async function revealGuidelines(
+  settings: Settings,
+  template: string,
+  shellApi: ShellApi
+): Promise<{ path: string }> {
+  const { path: file } = await ensureGuidelinesFile(settings, template);
+  shellApi.showItemInFolder(file);
+  return { path: file };
+}

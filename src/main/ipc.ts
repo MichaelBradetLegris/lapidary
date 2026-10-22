@@ -56,17 +56,11 @@ import {
   saveLogFields,
   writeChapter
 } from './files';
-import {
-  GUIDELINES_TEMPLATE,
-  ensureGuidelines,
-  ensureGuidelinesFile,
-  guidelinesPathFor,
-  guidelinesStatus
-} from './guidelines';
+import { GUIDELINES_TEMPLATE, ensureGuidelines, guidelinesPathFor, guidelinesStatus } from './guidelines';
 import { runHandler } from './ipcEnvelope';
 import { log, logWriting, tail } from './log';
 import { openNotices } from './notices';
-import { openGuidelines } from './openGuidelines';
+import { openGuidelines, revealGuidelines } from './openGuidelines';
 import { pickShell, type ShellApi } from './shellApi';
 import {
   isDefaultReviewsFolder,
@@ -615,14 +609,16 @@ function registerFileHandlers(): void {
       if (problem) system.showItemInFolder(folder);
       return { path: folder };
     }
+    /* Open folder for the guidelines file (polish.3): the file the settings
+       name, made from the template first when it is missing, then shown. */
+    if (target === 'guidelines') return revealGuidelines(await loadSettings(), guidelinesTemplate(), system);
     let file: string | null;
     if (target === 'settings' || target === 'logs' || target === 'backups' || target === 'drafts') {
       file = await userDataTarget(target);
+    } else if (target === 'reviews') {
+      file = await reviewsFolder();
     } else {
-      const settings = await loadSettings();
-      if (target === 'reviews') file = await reviewsFolder();
-      else if (target === 'manuscript') file = settings.manuscriptFolder;
-      else file = (await ensureGuidelinesFile(settings, guidelinesTemplate())).path;
+      file = (await loadSettings()).manuscriptFolder;
     }
     if (!file) throw fail('not-configured', `There is no ${target} folder to show yet.`);
     system.showItemInFolder(file);
