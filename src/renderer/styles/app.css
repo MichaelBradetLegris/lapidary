@@ -17,13 +17,15 @@
   --ink-soft: #6d675e;
   --ink-faint: #8a8378;
   /* blue for text, links and small marks: a commented paragraph's number, the
-     information card's edge, the spinner, the open editor's border */
+     information card's edge, the spinner, the open editor's border and glow */
   --accent: #3b5bdb;
-  /* blue for filled buttons and the open editor's glow, with --on-accent on it */
-  --accent-fill: #3b5bdb;
-  /* a darker blue for hover and press on blue buttons, which keep their white text */
-  --accent-hover: #2d49b8;
-  --accent-active: #243c9a;
+  /* the icon's turquoise for filled buttons, the active Setup tab and ticked
+     checkboxes, with --on-accent on it (theme.12): the dark end of the icon's
+     rim, #178e9c, deepened until white on it holds 5:1 */
+  --accent-fill: #147a86;
+  /* deeper still for hover and press, under the same white text */
+  --accent-hover: #116670;
+  --accent-active: #0e555e;
   --on-accent: #ffffff;
   --accept: #2f7a4a;
   --dismiss: #8a8378;
@@ -100,10 +102,12 @@
     --ink-soft: #bdb5a8;
     --ink-faint: #968e82;
     --accent: #9db1ff;
-    --accent-fill: #4263eb;
-    --accent-hover: #3653d6;
-    --accent-active: #2c45b8;
-    --on-accent: #ffffff;
+    /* the icon's dots, with near-black text on them (theme.12); hover and
+       press take the icon's rim a fifth and half of the way down */
+    --accent-fill: #4fd8e0;
+    --accent-hover: #4dc5ce;
+    --accent-active: #39b1bc;
+    --on-accent: #16130f;
     --accept: #6cc28b;
     --dismiss: #968e82;
     --danger: #ff8a80;
@@ -168,7 +172,7 @@ body,
 body {
   background: var(--bg);
   color: var(--ink);
-  /* ticks in checkboxes and radio buttons, in the blue of the filled buttons */
+  /* ticks in checkboxes and radio buttons, in the turquoise of the filled buttons */
   accent-color: var(--accent-fill);
   font-family: var(--font-ui);
   font-size: 13px;
@@ -211,8 +215,8 @@ button.primary {
   color: var(--on-accent);
 }
 
-/* Blue buttons darken on hover instead of taking the generic near-white hover
-   above, which left their white text unreadable (round 5). The same goes for the
+/* Filled buttons darken on hover instead of taking the generic near-white hover
+   above, which left their text unreadable (round 5). The same goes for the
    active tab on the Setup screen. */
 button.primary:hover:not(:disabled, [aria-disabled='true']),
 button.setup__tab--active:hover:not(:disabled, [aria-disabled='true']) {
@@ -3128,12 +3132,14 @@ input[type='text'] {
   color: var(--ink);
   resize: none;
   overflow: hidden;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-fill) 12%, transparent);
+  /* The glow is the border's blue, not the buttons' turquoise, so the box has
+     one colour round it (theme.12, PLAN 11.3 e); stronger while it has the focus. */
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .para-editor__area:focus {
   outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-fill) 24%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 /* The hint, then Cancel and Done on the right. Where the column is too narrow

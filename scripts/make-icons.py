@@ -81,15 +81,17 @@ DOTS = "#4fd8e0"
 
 # The pebble, in fractions of the side: centre, half-width, half-heights above
 # and below the centre, superellipse exponent (2 is an ellipse, higher is
-# squarer) and the tilt in degrees. Since brand.6 (2026-10-21) it fills more of
-# the frame, as the other icons on the taskbar do: a was 0.46, b_top 0.42 and
-# b_bottom 0.36.
+# squarer) and the tilt in degrees. It fills the frame, as the other icons on
+# the taskbar do: brand.6 (2026-10-21) took a from 0.46 to 0.49, where it meets
+# the left and right edges, and b_top and b_bottom from 0.42 and 0.36 to 0.47
+# and 0.41; brand.7 (the same day) made it taller only, b_top 0.49 and b_bottom
+# 0.44, so the tilted outline spans about y 0.026 to 0.964 of the side.
 PEBBLE = {
     "cx": 0.50,
     "cy": 0.52,
     "a": 0.49,
-    "b_top": 0.47,
-    "b_bottom": 0.41,
+    "b_top": 0.49,
+    "b_bottom": 0.44,
     "n": 2.6,
     "rotation": -5.0,
 }
@@ -104,27 +106,30 @@ RIM_MIN_PX = 1.25
 #
 # The large spec (48 px and up) is the one drawn for the smaller pebble before
 # brand.6, scaled with the pebble so the 256 and 1024 px renders keep their
-# proportions: x' = 0.5 + sx (x - 0.5) and y' = 0.49 + sy (y - 0.49), about the
-# pebble's middle, where 0.49 is its vertical middle (cy - (b_top - b_bottom) / 2,
-# the same before and after). sx = 0.49 / 0.46 = 1.065, the pebble's width, and
-# sy = 0.88 / 0.78 = 1.128, its height. The bars take sx across and sy down. The
-# dots' diameter takes sqrt(sx sy), so they grow with the pebble's area, their
-# centres move as y' does, and their gap is set so the row's span takes sx.
-# Rounded to four decimals.
+# proportions: x' = 0.5 + sx (x - 0.5) and y' = 0.49 + sy (y - 0.49), about
+# y 0.49, the pebble's vertical middle (cy - (b_top - b_bottom) / 2) before
+# brand.7, which moved it to 0.495. sx = 0.49 / 0.46 = 1.065, the pebble's
+# width over the old one's, and sy = 0.93 / 0.78 = 1.192, its height
+# (b_top + b_bottom) over the old one's; brand.6's pebble, 0.88 tall, had
+# sy = 1.128. The bars take sx across and sy down. The dots' diameter takes
+# sqrt(sx sy), so they grow with the pebble's area, their centres move as y'
+# does, and their gap is set so the row's span takes sx. Rounded to four
+# decimals.
 LARGE = {
-    "ghost": {"x0": 0.3189, "x1": 0.6811, "top": 0.2982, "height": 0.0564},
-    "line": {"x0": 0.2337, "x1": 0.7663, "top": 0.4223, "height": 0.1241},
-    "dots": {"count": 5, "diameter": 0.0767, "gap": 0.0452, "top": 0.6378},
+    "ghost": {"x0": 0.3189, "x1": 0.6811, "top": 0.2873, "height": 0.0596},
+    "line": {"x0": 0.2337, "x1": 0.7663, "top": 0.4185, "height": 0.1312},
+    "dots": {"count": 5, "diameter": 0.0789, "gap": 0.0425, "top": 0.6473},
 }
 # The small spec (40 px and below) is not scaled but set for the taskbar's 24
-# and 32 px: a line 0.16 tall (0.13 before brand.6) and dots 0.13 wide (0.10),
-# the gap between them kept at 0.07 and the pair kept centred where it was, at
-# 0.55 of the side, so the line's top moves up from 0.40 to 0.37 and the dots
-# stay at 0.60. The line's width and the dots' gap are as they were.
+# and 32 px: since brand.7 a line 0.18 tall and dots 0.14 wide (0.16 and 0.13
+# in brand.6, 0.13 and 0.10 before it), the gap between them kept at 0.07 and
+# the pair kept centred where it was, at 0.55 of the side, so the line's top is
+# 0.355 and the dots' 0.605. The line's width and the dots' gap are as they
+# were.
 SMALL = {
     "ghost": None,
-    "line": {"x0": 0.25, "x1": 0.75, "top": 0.37, "height": 0.16},
-    "dots": {"count": 3, "diameter": 0.13, "gap": 0.07, "top": 0.60},
+    "line": {"x0": 0.25, "x1": 0.75, "top": 0.355, "height": 0.18},
+    "dots": {"count": 3, "diameter": 0.14, "gap": 0.07, "top": 0.605},
 }
 
 # The contact sheet's grounds: Windows 11's light and dark taskbars.

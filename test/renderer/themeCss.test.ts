@@ -307,14 +307,40 @@ describe('colour tokens (theme.4)', () => {
     expect(colourless).toEqual([]);
   });
 
-  it('fills blue buttons from --accent-fill with --on-accent text, and keeps --accent for text', () => {
+  it('fills primary buttons and the active Setup tab from --accent-fill with --on-accent text, and keeps --accent for text', () => {
     for (const selector of ['button.primary', '.setup__tab--active']) {
       const decls = declsFor(selector);
       expect(decls.get('background')).toBe('var(--accent-fill)');
       expect(decls.get('border-color')).toBe('var(--accent-fill)');
       expect(decls.get('color')).toBe('var(--on-accent)');
     }
+    // Hover and press darken both the same way, in one rule each (theme.12 keeps
+    // them in the fill's family). The rules' `:not(:disabled, ...)` holds a
+    // comma, so they are found by how their selectors start.
+    for (const [state, token] of [
+      ['hover', '--accent-hover'],
+      ['active', '--accent-active']
+    ] as const) {
+      const rule = RULES.find((r) =>
+        ['button.primary', 'button.setup__tab--active'].every((button) =>
+          r.selectors.some((s) => s.startsWith(`${button}:${state}:not(`))
+        )
+      );
+      expect(rule?.decls.get('background')).toBe(`var(${token})`);
+      expect(rule?.decls.get('border-color')).toBe(`var(${token})`);
+    }
     expect(declsFor('button.link').get('color')).toBe('var(--accent)');
+  });
+
+  it("draws the paragraph box's border and glow in --accent, not the buttons' fill (theme.12)", () => {
+    // One colour round the box: the turquoise of the buttons beside a blue border read as two.
+    const shadow = (selector: string): string =>
+      (declsFor(selector).get('box-shadow') ?? '').replace(/\s+/g, ' ');
+    expect(declsFor('.para-editor__area').get('border')).toBe('1px solid var(--accent)');
+    expect(shadow('.para-editor__area')).toBe('0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent)');
+    expect(shadow('.para-editor__area:focus')).toBe(
+      '0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent)'
+    );
   });
 });
 
@@ -408,8 +434,6 @@ const LIGHT_VALUES: Record<string, string> = {
   '--ink': '#23201c',
   '--ink-soft': '#6d675e',
   '--accent': '#3b5bdb',
-  '--accent-hover': '#2d49b8',
-  '--accent-active': '#243c9a',
   '--accept': '#2f7a4a',
   '--danger': '#b3261e',
   '--font-ui': "'Segoe UI', system-ui, -apple-system, sans-serif",
@@ -426,8 +450,13 @@ const LIGHT_VALUES: Record<string, string> = {
   '--dismiss': '#8a8378',
   '--warn': '#84681c',
   '--cat-word-choice': '#84681c',
+  // The icon's turquoise since theme.12, deepened under white text: --accent-fill
+  // was #3b5bdb (added by theme.4, the --accent blue), --accent-hover #2d49b8
+  // and --accent-active #243c9a.
+  '--accent-fill': '#147a86',
+  '--accent-hover': '#116670',
+  '--accent-active': '#0e555e',
   // Added by theme.4 (PLAN 11.3 e), each equal to the literal it replaced.
-  '--accent-fill': '#3b5bdb',
   '--on-accent': '#ffffff',
   '--focus-bg': '#fff3bf',
   '--para-active-bg': '#fff8dd',
@@ -465,8 +494,8 @@ const LIGHT_VALUES: Record<string, string> = {
 /**
  * Every dark value: PLAN 11.3 (e)'s starting values, with --find-bg darkened by
  * theme.5. theme.8 looked at every surface in both themes and kept them all,
- * the tint shares included (11.3 e says why). A value changes here and in
- * 11.3 (e) together.
+ * the tint shares included (11.3 e says why), and theme.12 turned the filled
+ * buttons turquoise. A value changes here and in 11.3 (e) together.
  */
 const DARK_VALUES: Record<string, string> = {
   '--bg': '#1c1a17',
@@ -478,10 +507,12 @@ const DARK_VALUES: Record<string, string> = {
   '--ink-soft': '#bdb5a8',
   '--ink-faint': '#968e82',
   '--accent': '#9db1ff',
-  '--accent-fill': '#4263eb',
-  '--accent-hover': '#3653d6',
-  '--accent-active': '#2c45b8',
-  '--on-accent': '#ffffff',
+  // theme.12: the icon's dots and rim under near-black text; they were #4263eb,
+  // #3653d6 and #2c45b8 under #ffffff.
+  '--accent-fill': '#4fd8e0',
+  '--accent-hover': '#4dc5ce',
+  '--accent-active': '#39b1bc',
+  '--on-accent': '#16130f',
   '--accept': '#6cc28b',
   '--dismiss': '#968e82',
   '--danger': '#ff8a80',

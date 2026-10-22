@@ -142,7 +142,7 @@ const TEXT_PAIRS: Pair[] = [
     ink: '--on-accent',
     on,
     min: 4.5,
-    why: 'a blue button, at rest, hovered and pressed'
+    why: 'a primary button or the active Setup tab, at rest, hovered and pressed'
   }))
 ];
 
