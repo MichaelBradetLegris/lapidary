@@ -29,12 +29,20 @@ const FILLS = ['--accent-fill', '--accent-hover', '--accent-active'];
 /**
  * A background: a token, or a tint painted over one the way app.css paints it,
  * `color-mix(in srgb, <colour> <share>, transparent)` over `base`, or an
- * overlay token such as `--hover-overlay` over `base`.
+ * overlay token such as `--hover-overlay` or the selection band over `base`,
+ * which may itself be painted.
  */
-type Background = string | { tint: string; share: string; base: string } | { overlay: string; base: string };
+type Background =
+  string | { tint: string; share: string; base: string } | { overlay: string; base: Background };
 
 interface Pair {
   ink: string;
+  /**
+   * An overlay painted over the ink as well as over its background: a mark
+   * such as a suggestion's underline lies under the selection band, while text
+   * is painted over it.
+   */
+  under?: string;
   on: Background;
   min: number;
   /** Where this pair is on screen. */
@@ -57,12 +65,18 @@ function paint(scheme: Scheme, on: Background): Rgb {
     const share = parseFloat(resolveToken(BLOCKS, scheme, on.share));
     return over(mixWithTransparent(colour(scheme, on.tint), share), opaque(scheme, on.base));
   }
-  return over(colour(scheme, on.overlay), opaque(scheme, on.base));
+  return over(colour(scheme, on.overlay), paint(scheme, on.base));
+}
+
+/** The ink as painted: itself, or under an overlay when it is a mark the overlay covers. */
+function paintInk(scheme: Scheme, { ink, under }: Pick<Pair, 'ink' | 'under'>): Rgb {
+  return under === undefined ? opaque(scheme, ink) : over(colour(scheme, under), opaque(scheme, ink));
 }
 
 function label(on: Background): string {
   if (typeof on === 'string') return on;
-  return 'tint' in on ? `${on.tint} at ${on.share} over ${on.base}` : `${on.overlay} over ${on.base}`;
+  if ('tint' in on) return `${on.tint} at ${on.share} over ${on.base}`;
+  return `${on.overlay} over ${typeof on.base === 'string' ? on.base : `(${label(on.base)})`}`;
 }
 
 const each = <T, U>(xs: readonly T[], ys: readonly U[]): [T, U][] =>
@@ -168,26 +182,128 @@ const FAINT_PAIRS: Pair[] = [
   }))
 ];
 
+/**
+ * polish.1: selected text lies on the app's own band, `--selection-bg`, a
+ * translucent turquoise over whatever the text sits on, so the pairs below
+ * paint it over each background. Outside the prose selected text takes
+ * `--selection-ink`; in the prose it keeps its own colour (`.prose ::selection`
+ * is `currentColor`), which there is `--ink`, the frontmatter's `--ink-faint`
+ * or the active find match's ink. A ghost is never selected: it is painted over
+ * the band in its own colour. A suggestion's underline and a small change's
+ * capsule lie under the band, which covers them as it covers the page around
+ * them. A filled button shows no band (`transparent`), so its pairs are the
+ * ones above.
+ */
+const BAND = '--selection-bg';
+const selected = (base: Background): Background => ({ overlay: BAND, base });
+/** What a selected line of the prose and the ghost above it can sit on. */
+const PROSE_LINES = ['--bg', ...PARAGRAPHS];
+
+const SELECTION_TEXT_PAIRS: Pair[] = [
+  ...[
+    ...SURFACES,
+    ...HIGHLIGHTS,
+    '--editor-bg',
+    '--warn-bg',
+    '--warn-bg-strong',
+    '--danger-bg',
+    '--badge-pending-bg',
+    '--badge-conflict-bg'
+  ].map((base) => ({
+    ink: '--selection-ink',
+    on: selected(base),
+    min: 4.5,
+    why: 'selected text outside the prose: the side panel, the margin notes, a dialog, the chapter list'
+  })),
+  ...[...PROSE_LINES, '--focus-bg', '--find-bg', '--editor-bg'].map((base) => ({
+    ink: '--ink',
+    on: selected(base),
+    min: 4.5,
+    why: 'selected prose in its own --ink, on a find match and in the paragraph box too'
+  })),
+  ...each(CATEGORIES, UNDER_SUGGESTIONS).flatMap(([tint, base]) =>
+    ['--tint-pending', '--tint-hover'].map((share) => ({
+      ink: '--ink',
+      on: selected({ tint, share, base }),
+      min: 4.5,
+      why: 'a selected pending suggestion, at rest and hovered'
+    }))
+  ),
+  ...UNDER_SUGGESTIONS.map((base) => ({
+    ink: '--ink',
+    on: selected({ tint: '--ink-faint', share: '--tint-decided-hover', base }),
+    min: 4.5,
+    why: 'a selected decided suggestion, hovered'
+  })),
+  ...CATEGORIES.map((tint) => ({
+    ink: '--ink',
+    on: selected({ tint, share: '--tint-small-hover', base: '--bg' }),
+    min: 4.5,
+    why: "a selected small change's capsule, hovered"
+  })),
+  {
+    ink: '--find-active-ink',
+    on: selected('--find-active-bg'),
+    min: 4.5,
+    why: 'the active find match, selected'
+  },
+  ...each(CATEGORIES, PROSE_LINES).map(([ink, base]) => ({
+    ink,
+    on: selected(base),
+    min: 4.5,
+    why: 'a ghost above a selected line, which keeps the 4.5:1 of a category as text'
+  }))
+];
+
+const SELECTION_FAINT_PAIRS: Pair[] = [
+  ...PROSE_LINES.map((base) => ({
+    ink: '--ink-faint',
+    on: selected(base),
+    min: 3,
+    why: 'the struck-through "was" ghost above a selected line'
+  })),
+  ...['--panel-alt', '--find-bg'].map((base) => ({
+    ink: '--ink-faint',
+    on: selected(base),
+    min: 3,
+    why: 'the frontmatter selected, and a find match in it'
+  })),
+  ...each(CATEGORIES, UNDER_SUGGESTIONS).map(([ink, base]) => ({
+    ink,
+    under: BAND,
+    on: selected(base),
+    min: 3,
+    why: "a pending suggestion's underline and a small change's foot line, under the band"
+  }))
+];
+
 function failures(scheme: Scheme, pairs: Pair[]): string[] {
-  return pairs.flatMap(({ ink, on, min, why }) => {
-    const fg = opaque(scheme, ink);
+  return pairs.flatMap((pair) => {
+    const { ink, under, on, min, why } = pair;
+    const fg = paintInk(scheme, pair);
     const bg = paint(scheme, on);
     const ratio = contrastRatio(fg, bg);
+    const name = under === undefined ? ink : `${ink} under ${under}`;
     return ratio >= min
       ? []
-      : [`${ink} ${toHex(fg)} on ${label(on)} ${toHex(bg)}: ${ratio.toFixed(2)} < ${min} (${why})`];
+      : [`${name} ${toHex(fg)} on ${label(on)} ${toHex(bg)}: ${ratio.toFixed(2)} < ${min} (${why})`];
   });
 }
 
 describe('contrast (theme.5, PLAN 11.3 e)', () => {
   it('reads every colour it checks in both themes', () => {
     for (const scheme of SCHEMES) {
-      for (const pair of [...TEXT_PAIRS, ...FAINT_PAIRS]) {
-        expect(() => opaque(scheme, pair.ink)).not.toThrow();
+      for (const pair of [...TEXT_PAIRS, ...FAINT_PAIRS, ...SELECTION_TEXT_PAIRS, ...SELECTION_FAINT_PAIRS]) {
+        expect(() => paintInk(scheme, pair)).not.toThrow();
         expect(() => paint(scheme, pair.on)).not.toThrow();
       }
     }
-    expect([TEXT_PAIRS.length, FAINT_PAIRS.length]).toEqual([148, 61]);
+    expect([
+      TEXT_PAIRS.length,
+      FAINT_PAIRS.length,
+      SELECTION_TEXT_PAIRS.length,
+      SELECTION_FAINT_PAIRS.length
+    ]).toEqual([148, 61, 109, 33]);
   });
 
   it('paints a tint the way color-mix() does, so the tinted pairs mean something', () => {
@@ -207,7 +323,40 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
     it(`gives faint text and category marks 3:1 in ${scheme}`, () => {
       expect(failures(scheme, FAINT_PAIRS)).toEqual([]);
     });
+
+    it(`gives selected text and the ghosts above it 4.5:1 on the selection band in ${scheme} (polish.1)`, () => {
+      expect(failures(scheme, SELECTION_TEXT_PAIRS)).toEqual([]);
+    });
+
+    it(`keeps faint text, the "was" ghost and the underline under the band at 3:1 in ${scheme} (polish.1)`, () => {
+      expect(failures(scheme, SELECTION_FAINT_PAIRS)).toEqual([]);
+    });
   }
+
+  /* polish.1. The band is translucent, so what marks a suggestion (its
+     underline and tint, the focus yellow, a small change's capsule) still
+     shows under it; an opaque band hid them all (11.3 e). */
+  it('lays a translucent band in both themes, and an opaque one would hide the underline', () => {
+    for (const scheme of SCHEMES) {
+      const band = colour(scheme, BAND);
+      expect(band.a).toBeGreaterThan(0);
+      expect(band.a).toBeLessThan(0.5);
+      // The same band made opaque covers the underline and the page alike.
+      const solid = { ...band, a: 1 };
+      const underline = over(solid, opaque(scheme, '--cat-spelling'));
+      expect(contrastRatio(underline, over(solid, opaque(scheme, '--bg')))).toBeCloseTo(1, 6);
+    }
+  });
+
+  it('paints a mark under the band and text over it, so the two kinds of pair differ', () => {
+    // 20% of the light band over the light spelling red, against the band over the page.
+    const ink = paintInk('light', { ink: '--cat-spelling', under: BAND });
+    const red = opaque('light', '--cat-spelling');
+    const band = colour('light', BAND);
+    expect(ink.r).toBeCloseTo(band.r * band.a + red.r * (1 - band.a), 6);
+    const page = paint('light', selected('--bg'));
+    expect(contrastRatio(ink, page)).toBeLessThan(contrastRatio(red, page));
+  });
 
   /* theme.8. A focused suggestion in the active comment's paragraph has the
      focus yellow on the paragraph's yellow, and a hairline in --active-ring

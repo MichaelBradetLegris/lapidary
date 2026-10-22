@@ -417,6 +417,47 @@ describe('dark block (theme.5)', () => {
   });
 });
 
+/* polish.1: selected text has the app's own band, `--selection-bg`, with
+   `--selection-ink` outside the prose, its own colour in the prose (so the
+   active find match keeps its dark ink on the dark orange), and no band on a
+   filled button. themeContrast.test.ts holds the pairs. */
+describe('selection (polish.1)', () => {
+  const FILLED = [
+    'button.primary::selection',
+    'button.primary ::selection',
+    '.setup__tab--active::selection',
+    '.setup__tab--active ::selection'
+  ];
+
+  it('paints every selection in the band with --selection-ink', () => {
+    const decls = declsFor('::selection');
+    expect(decls.get('background-color')).toBe('var(--selection-bg)');
+    expect(decls.get('color')).toBe('var(--selection-ink)');
+  });
+
+  it('keeps the prose in its own colour on the band', () => {
+    expect([...declsFor('.prose ::selection')]).toEqual([['color', 'currentColor']]);
+  });
+
+  it('draws no band on a filled button or the active Setup tab, whose text keeps --on-accent', () => {
+    const rule = RULES.find((r) => FILLED.every((s) => r.selectors.includes(s)));
+    expect(rule?.selectors).toEqual(FILLED);
+    expect(rule?.decls.get('background-color')).toBe('transparent');
+    expect(rule?.decls.get('color')).toBe('currentColor');
+  });
+
+  it('has no other ::selection rule', () => {
+    const selections = RULES.flatMap((r) => r.selectors).filter((s) => s.includes('::selection'));
+    expect(selections.sort()).toEqual(['::selection', '.prose ::selection', ...FILLED].sort());
+  });
+
+  it('keeps ghost text out of every selection', () => {
+    // A ghost drawn over the band is the reason the band is light (11.3 e).
+    expect(declsFor('.hunk__ghost').get('user-select')).toBe('none');
+    expect(declsFor('.para__rail').get('user-select')).toBe('none');
+  });
+});
+
 /**
  * Every light value. theme.4 changed nothing in light, so a light screenshot is
  * read against theme.4's list of deliberate light differences in PLAN.md. The
@@ -488,7 +529,10 @@ const LIGHT_VALUES: Record<string, string> = {
   // Added by files.11: the conflict copy badge in the chapter list.
   '--badge-conflict-bg': '#fde8e6',
   '--badge-conflict-border': '#f0c4bf',
-  '--badge-conflict-ink': '#9c2a1f'
+  '--badge-conflict-ink': '#9c2a1f',
+  // Added by polish.1: selected text, which had the browser's blue band and white text.
+  '--selection-bg': 'rgb(70 255 255 / 20%)',
+  '--selection-ink': 'var(--ink)'
 };
 
 /**
@@ -540,6 +584,9 @@ const DARK_VALUES: Record<string, string> = {
   '--warn-border': '#5c4a22',
   '--danger-bg': '#3a1f1c',
   '--editor-bg': '#20222b',
+  // polish.1: the selection band, the dots' hue deep, and its ink.
+  '--selection-bg': 'rgb(0 90 95 / 20%)',
+  '--selection-ink': 'var(--ink)',
   '--shadow-rgb': '0 0 0',
   '--backdrop': 'rgb(0 0 0 / 60%)',
   '--modal-shadow': 'rgb(0 0 0 / 45%)',

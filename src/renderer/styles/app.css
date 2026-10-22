@@ -59,6 +59,14 @@
   --danger-bg: #fdeceb;
   --editor-bg: #fbfaff;
 
+  /* Selected text (polish.1): a turquoise laid over whatever the text sits
+     on, translucent, so a suggestion's underline and tint, the focus and a
+     small change's capsule show through it. Over the page it comes out a pale
+     turquoise, #d4f7f4, light enough that a ghost above a selected line keeps
+     4.5:1 on it. --selection-ink is the selected text outside the prose. */
+  --selection-bg: rgb(70 255 255 / 20%);
+  --selection-ink: var(--ink);
+
   /* Shadows are rgb(var(--shadow-rgb) / N%), each with its own strength. */
   --shadow-rgb: 35 32 28;
   --backdrop: rgb(35 32 28 / 42%);
@@ -136,6 +144,10 @@
     --danger-bg: #3a1f1c;
     --editor-bg: #20222b;
 
+    /* a deep turquoise of the icon's dots' hue, #162725 over the page */
+    --selection-bg: rgb(0 90 95 / 20%);
+    --selection-ink: var(--ink);
+
     --shadow-rgb: 0 0 0;
     --backdrop: rgb(0 0 0 / 60%);
     --modal-shadow: rgb(0 0 0 / 45%);
@@ -184,6 +196,35 @@ body {
 a,
 a:visited {
   color: var(--accent);
+}
+
+/* Selected text in the app's own band (polish.1, PLAN 11.3 e) rather than the
+   browser's blue, everywhere text can be selected. The band is translucent, so
+   a suggestion's underline and tint, the focus yellow and a small change's
+   capsule still show under it. A ghost is never selected: it is drawn over the
+   band in its own colour, which keeps 4.5:1 on it. */
+::selection {
+  background-color: var(--selection-bg);
+  color: var(--selection-ink);
+}
+
+/* In the prose the text keeps its own colour on the band. currentColor in a
+   highlight is the colour of what lies beneath it, so the active find match
+   keeps its dark ink on the dark theme's bright orange, where --selection-ink
+   would come to 2.5:1, and the frontmatter keeps its grey. */
+.prose ::selection {
+  color: currentColor;
+}
+
+/* A filled button or the active Setup tab shows no band, and its text keeps
+   --on-accent: light's white on the band over the turquoise would come to
+   3.6:1. */
+button.primary::selection,
+button.primary ::selection,
+.setup__tab--active::selection,
+.setup__tab--active ::selection {
+  background-color: transparent;
+  color: currentColor;
 }
 
 button {
