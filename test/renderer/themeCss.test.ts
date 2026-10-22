@@ -418,9 +418,12 @@ describe('dark block (theme.5)', () => {
 });
 
 /* polish.1: selected text has the app's own band, `--selection-bg`, with
-   `--selection-ink` outside the prose, its own colour in the prose (so the
-   active find match keeps its dark ink on the dark orange), and no band on a
-   filled button. themeContrast.test.ts holds the pairs. */
+   `--selection-ink`; the prose has a faint band of its own,
+   `--selection-prose-bg`, where the text keeps its own colour (so the active
+   find match keeps its dark ink on the dark orange), except in a text field,
+   the paragraph box, which takes the first (the polish.1 review); and a filled
+   button has no band. themeContrast.test.ts holds the pairs and how plainly
+   each band shows. */
 describe('selection (polish.1)', () => {
   const FILLED = [
     'button.primary::selection',
@@ -428,6 +431,7 @@ describe('selection (polish.1)', () => {
     '.setup__tab--active::selection',
     '.setup__tab--active ::selection'
   ];
+  const PROSE_FIELDS = ['.prose input::selection', '.prose textarea::selection'];
 
   it('paints every selection in the band with --selection-ink', () => {
     const decls = declsFor('::selection');
@@ -435,8 +439,21 @@ describe('selection (polish.1)', () => {
     expect(decls.get('color')).toBe('var(--selection-ink)');
   });
 
-  it('keeps the prose in its own colour on the band', () => {
-    expect([...declsFor('.prose ::selection')]).toEqual([['color', 'currentColor']]);
+  it("keeps the prose in its own colour on the prose's faint band", () => {
+    expect([...declsFor('.prose ::selection')]).toEqual([
+      ['background-color', 'var(--selection-prose-bg)'],
+      ['color', 'currentColor']
+    ]);
+  });
+
+  it('gives the paragraph box, a field in the prose, the band of every other field', () => {
+    const rule = RULES.find((r) => PROSE_FIELDS.every((s) => r.selectors.includes(s)));
+    expect(rule?.selectors).toEqual(PROSE_FIELDS);
+    // `.prose textarea::selection` outweighs `.prose ::selection` by one element.
+    expect([...(rule?.decls ?? [])]).toEqual([
+      ['background-color', 'var(--selection-bg)'],
+      ['color', 'var(--selection-ink)']
+    ]);
   });
 
   it('draws no band on a filled button or the active Setup tab, whose text keeps --on-accent', () => {
@@ -448,11 +465,13 @@ describe('selection (polish.1)', () => {
 
   it('has no other ::selection rule', () => {
     const selections = RULES.flatMap((r) => r.selectors).filter((s) => s.includes('::selection'));
-    expect(selections.sort()).toEqual(['::selection', '.prose ::selection', ...FILLED].sort());
+    expect(selections.sort()).toEqual(
+      ['::selection', '.prose ::selection', ...PROSE_FIELDS, ...FILLED].sort()
+    );
   });
 
   it('keeps ghost text out of every selection', () => {
-    // A ghost drawn over the band is the reason the band is light (11.3 e).
+    // A ghost drawn over the prose's band is the reason that band is light (11.3 e).
     expect(declsFor('.hunk__ghost').get('user-select')).toBe('none');
     expect(declsFor('.para__rail').get('user-select')).toBe('none');
   });
@@ -530,8 +549,10 @@ const LIGHT_VALUES: Record<string, string> = {
   '--badge-conflict-bg': '#fde8e6',
   '--badge-conflict-border': '#f0c4bf',
   '--badge-conflict-ink': '#9c2a1f',
-  // Added by polish.1: selected text, which had the browser's blue band and white text.
-  '--selection-bg': 'rgb(70 255 255 / 20%)',
+  // Added by polish.1: selected text, which had the browser's blue band and white text;
+  // two bands since its review, the prose's the faint one.
+  '--selection-bg': 'rgb(0 190 200 / 45%)',
+  '--selection-prose-bg': 'rgb(70 255 255 / 20%)',
   '--selection-ink': 'var(--ink)'
 };
 
@@ -584,8 +605,9 @@ const DARK_VALUES: Record<string, string> = {
   '--warn-border': '#5c4a22',
   '--danger-bg': '#3a1f1c',
   '--editor-bg': '#20222b',
-  // polish.1: the selection band, the dots' hue deep, and its ink.
-  '--selection-bg': 'rgb(0 90 95 / 20%)',
+  // polish.1: the selection bands, the dots' hue deep, and the ink.
+  '--selection-bg': 'rgb(0 120 128 / 55%)',
+  '--selection-prose-bg': 'rgb(0 90 95 / 20%)',
   '--selection-ink': 'var(--ink)',
   '--shadow-rgb': '0 0 0',
   '--backdrop': 'rgb(0 0 0 / 60%)',

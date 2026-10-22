@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { contrastRatio, mixWithTransparent, over, parseColour, toHex, type Rgb } from '../helpers/contrast';
+import {
+  contrastRatio,
+  deltaE76,
+  mixWithTransparent,
+  over,
+  parseColour,
+  toHex,
+  type Rgb
+} from '../helpers/contrast';
 import { APP_CSS, SCHEMES, resolveToken, tokenBlocks, type Scheme } from '../helpers/themeTokens';
 
 /* theme.5: the contrast tiers of PLAN 11.3 (e), WCAG 2.x, in both themes, with the
@@ -183,73 +191,85 @@ const FAINT_PAIRS: Pair[] = [
 ];
 
 /**
- * polish.1: selected text lies on the app's own band, `--selection-bg`, a
- * translucent turquoise over whatever the text sits on, so the pairs below
- * paint it over each background. Outside the prose selected text takes
- * `--selection-ink`; in the prose it keeps its own colour (`.prose ::selection`
- * is `currentColor`), which there is `--ink`, the frontmatter's `--ink-faint`
- * or the active find match's ink. A ghost is never selected: it is painted over
- * the band in its own colour. A suggestion's underline and a small change's
- * capsule lie under the band, which covers them as it covers the page around
- * them. A filled button shows no band (`transparent`), so its pairs are the
- * ones above.
+ * polish.1: selected text lies on one of the app's two bands, translucent
+ * turquoises over whatever the text sits on, so the pairs below paint them over
+ * each background. `--selection-bg` is the band everywhere but the prose's
+ * lines, and in the paragraph box, with the selected text in `--selection-ink`.
+ * `--selection-prose-bg` is the faint band of the prose (`.prose ::selection`),
+ * where the text keeps its own colour (`currentColor`), which there is `--ink`,
+ * the frontmatter's `--ink-faint` or the active find match's ink. A ghost is
+ * never selected: it is painted over the prose's band in its own colour, which
+ * is why that band is faint. A suggestion's underline and a small change's
+ * capsule lie under it, which covers them as it covers the page around them. A
+ * filled button shows no band (`transparent`), so its pairs are the ones above.
  */
 const BAND = '--selection-bg';
+const PROSE_BAND = '--selection-prose-bg';
 const selected = (base: Background): Background => ({ overlay: BAND, base });
+const selectedInProse = (base: Background): Background => ({ overlay: PROSE_BAND, base });
 /** What a selected line of the prose and the ghost above it can sit on. */
 const PROSE_LINES = ['--bg', ...PARAGRAPHS];
+/** What the prose's band can lie on: its lines, the frontmatter, the focus and a find match. */
+const UNDER_PROSE_BAND = [...PROSE_LINES, '--panel-alt', '--focus-bg', '--find-bg'];
+/**
+ * What `--selection-bg` can lie on: the surfaces of the side panel, the chapter
+ * list, the margin notes, the dialogs and the fields, the focused and selected
+ * rows, the paragraph box, the warning and error cards and the badges.
+ */
+const UNDER_BAND = [
+  ...SURFACES,
+  '--focus-bg',
+  '--selected-bg',
+  '--editor-bg',
+  '--warn-bg',
+  '--warn-bg-strong',
+  '--danger-bg',
+  '--badge-pending-bg',
+  '--badge-conflict-bg'
+];
 
 const SELECTION_TEXT_PAIRS: Pair[] = [
-  ...[
-    ...SURFACES,
-    ...HIGHLIGHTS,
-    '--editor-bg',
-    '--warn-bg',
-    '--warn-bg-strong',
-    '--danger-bg',
-    '--badge-pending-bg',
-    '--badge-conflict-bg'
-  ].map((base) => ({
+  ...UNDER_BAND.map((base) => ({
     ink: '--selection-ink',
     on: selected(base),
     min: 4.5,
-    why: 'selected text outside the prose: the side panel, the margin notes, a dialog, the chapter list'
+    why: 'selected text outside the prose (the side panel, the margin notes, a dialog, a field) and in the paragraph box'
   })),
-  ...[...PROSE_LINES, '--focus-bg', '--find-bg', '--editor-bg'].map((base) => ({
+  ...[...PROSE_LINES, '--focus-bg', '--find-bg'].map((base) => ({
     ink: '--ink',
-    on: selected(base),
+    on: selectedInProse(base),
     min: 4.5,
-    why: 'selected prose in its own --ink, on a find match and in the paragraph box too'
+    why: 'selected prose in its own --ink, on the focus and a find match too'
   })),
   ...each(CATEGORIES, UNDER_SUGGESTIONS).flatMap(([tint, base]) =>
     ['--tint-pending', '--tint-hover'].map((share) => ({
       ink: '--ink',
-      on: selected({ tint, share, base }),
+      on: selectedInProse({ tint, share, base }),
       min: 4.5,
       why: 'a selected pending suggestion, at rest and hovered'
     }))
   ),
   ...UNDER_SUGGESTIONS.map((base) => ({
     ink: '--ink',
-    on: selected({ tint: '--ink-faint', share: '--tint-decided-hover', base }),
+    on: selectedInProse({ tint: '--ink-faint', share: '--tint-decided-hover', base }),
     min: 4.5,
     why: 'a selected decided suggestion, hovered'
   })),
   ...CATEGORIES.map((tint) => ({
     ink: '--ink',
-    on: selected({ tint, share: '--tint-small-hover', base: '--bg' }),
+    on: selectedInProse({ tint, share: '--tint-small-hover', base: '--bg' }),
     min: 4.5,
     why: "a selected small change's capsule, hovered"
   })),
   {
     ink: '--find-active-ink',
-    on: selected('--find-active-bg'),
+    on: selectedInProse('--find-active-bg'),
     min: 4.5,
     why: 'the active find match, selected'
   },
   ...each(CATEGORIES, PROSE_LINES).map(([ink, base]) => ({
     ink,
-    on: selected(base),
+    on: selectedInProse(base),
     min: 4.5,
     why: 'a ghost above a selected line, which keeps the 4.5:1 of a category as text'
   }))
@@ -258,24 +278,73 @@ const SELECTION_TEXT_PAIRS: Pair[] = [
 const SELECTION_FAINT_PAIRS: Pair[] = [
   ...PROSE_LINES.map((base) => ({
     ink: '--ink-faint',
-    on: selected(base),
+    on: selectedInProse(base),
     min: 3,
     why: 'the struck-through "was" ghost above a selected line'
   })),
   ...['--panel-alt', '--find-bg'].map((base) => ({
     ink: '--ink-faint',
-    on: selected(base),
+    on: selectedInProse(base),
     min: 3,
     why: 'the frontmatter selected, and a find match in it'
   })),
   ...each(CATEGORIES, UNDER_SUGGESTIONS).map(([ink, base]) => ({
     ink,
-    under: BAND,
-    on: selected(base),
+    under: PROSE_BAND,
+    on: selectedInProse(base),
     min: 3,
     why: "a pending suggestion's underline and a small change's foot line, under the band"
   }))
 ];
+
+/**
+ * The polish.1 review: how plainly each band shows on what it covers, as the
+ * band over a background against the background itself. polish.1 first laid
+ * the prose's faint band everywhere, where a selected word in the find field,
+ * the edit popover or the Setup page's command block could hardly be seen in
+ * dark (9.2 apart in CIELAB on the panel, 1.11:1). `--selection-bg` is held to
+ * a CIELAB difference and a luminance ratio both, the second for whoever tells
+ * colours apart less well, since the luminance difference reaches everyone.
+ * The prose's band is held to a difference only, as the ghosts keep it within
+ * a few hundredths of the page's luminance; the floor keeps it from fading any
+ * further.
+ */
+interface Floor {
+  band: string;
+  on: string[];
+  minDeltaE: number;
+  minLuminance: number;
+  why: string;
+}
+
+const BAND_FLOOR: Floor = {
+  band: BAND,
+  on: UNDER_BAND,
+  minDeltaE: 20,
+  minLuminance: 1.3,
+  why: 'the band of the fields, dialogs and panels'
+};
+const PROSE_FLOOR: Floor = {
+  band: PROSE_BAND,
+  on: UNDER_PROSE_BAND,
+  minDeltaE: 8,
+  minLuminance: 1,
+  why: "the prose's faint band"
+};
+
+function faded(scheme: Scheme, { band, on, minDeltaE, minLuminance, why }: Floor): string[] {
+  return on.flatMap((base) => {
+    const under = opaque(scheme, base);
+    const painted = over(colour(scheme, band), under);
+    const difference = deltaE76(painted, under);
+    const ratio = contrastRatio(painted, under);
+    return difference >= minDeltaE && ratio >= minLuminance
+      ? []
+      : [
+          `${band} over ${base} ${toHex(painted)} against ${toHex(under)}: ${difference.toFixed(1)} apart (at least ${minDeltaE}), ${ratio.toFixed(3)}:1 (at least ${minLuminance}) (${why})`
+        ];
+  });
+}
 
 function failures(scheme: Scheme, pairs: Pair[]): string[] {
   return pairs.flatMap((pair) => {
@@ -303,7 +372,7 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
       FAINT_PAIRS.length,
       SELECTION_TEXT_PAIRS.length,
       SELECTION_FAINT_PAIRS.length
-    ]).toEqual([148, 61, 109, 33]);
+    ]).toEqual([148, 61, 105, 33]);
   });
 
   it('paints a tint the way color-mix() does, so the tinted pairs mean something', () => {
@@ -331,30 +400,54 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
     it(`keeps faint text, the "was" ghost and the underline under the band at 3:1 in ${scheme} (polish.1)`, () => {
       expect(failures(scheme, SELECTION_FAINT_PAIRS)).toEqual([]);
     });
+
+    it(`shows each selection band plainly on what it covers in ${scheme} (polish.1 review)`, () => {
+      expect([BAND_FLOOR, PROSE_FLOOR].flatMap((floor) => faded(scheme, floor))).toEqual([]);
+    });
   }
 
-  /* polish.1. The band is translucent, so what marks a suggestion (its
-     underline and tint, the focus yellow, a small change's capsule) still
-     shows under it; an opaque band hid them all (11.3 e). */
-  it('lays a translucent band in both themes, and an opaque one would hide the underline', () => {
+  /* The polish.1 review: the prose's band laid everywhere, as polish.1 first
+     had it, is what the floor is there to stop. */
+  it("fails the prose's faint band as the band of the fields, so the floor can fail", () => {
+    for (const scheme of SCHEMES) {
+      expect(faded(scheme, { ...BAND_FLOOR, band: PROSE_BAND }).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('measures colour differences in CIELAB as CIE76 does', () => {
+    const [white, black] = [parseColour('#ffffff'), parseColour('#000000')];
+    expect(deltaE76(white, black)).toBeCloseTo(100, 3);
+    expect(deltaE76(white, white)).toBe(0);
+    // sRGB red is L 53.24, a 80.09, b 67.20 under D65.
+    expect(deltaE76(parseColour('#ff0000'), black)).toBeCloseTo(Math.hypot(53.24, 80.09, 67.2), 0);
+  });
+
+  /* polish.1. Both bands are translucent, so what lies under selected text
+     still shows: in the prose, what marks a suggestion (its underline and
+     tint, the focus yellow, a small change's capsule), which an opaque band
+     hid (11.3 e), and elsewhere a badge's or a focused row's colour. */
+  it('lays translucent bands in both themes, and an opaque one would hide the underline', () => {
     for (const scheme of SCHEMES) {
       const band = colour(scheme, BAND);
       expect(band.a).toBeGreaterThan(0);
-      expect(band.a).toBeLessThan(0.5);
-      // The same band made opaque covers the underline and the page alike.
-      const solid = { ...band, a: 1 };
+      expect(band.a).toBeLessThan(1);
+      const prose = colour(scheme, PROSE_BAND);
+      expect(prose.a).toBeGreaterThan(0);
+      expect(prose.a).toBeLessThan(0.5);
+      // The prose's band made opaque covers the underline and the page alike.
+      const solid = { ...prose, a: 1 };
       const underline = over(solid, opaque(scheme, '--cat-spelling'));
       expect(contrastRatio(underline, over(solid, opaque(scheme, '--bg')))).toBeCloseTo(1, 6);
     }
   });
 
   it('paints a mark under the band and text over it, so the two kinds of pair differ', () => {
-    // 20% of the light band over the light spelling red, against the band over the page.
-    const ink = paintInk('light', { ink: '--cat-spelling', under: BAND });
+    // 20% of the light prose band over the light spelling red, against the band over the page.
+    const ink = paintInk('light', { ink: '--cat-spelling', under: PROSE_BAND });
     const red = opaque('light', '--cat-spelling');
-    const band = colour('light', BAND);
+    const band = colour('light', PROSE_BAND);
     expect(ink.r).toBeCloseTo(band.r * band.a + red.r * (1 - band.a), 6);
-    const page = paint('light', selected('--bg'));
+    const page = paint('light', selectedInProse('--bg'));
     expect(contrastRatio(ink, page)).toBeLessThan(contrastRatio(red, page));
   });
 
