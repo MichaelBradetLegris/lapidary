@@ -508,6 +508,15 @@ function tooClose(scheme: Scheme, token: (key: string) => string = chipToken): s
   );
 }
 
+/**
+ * `tooClose`'s lines without the two colours and the distance measured, so a
+ * test can name the pair, its floor and whether it is one family's:
+ * "spelling and typo: at least 35 (one family)".
+ */
+function floorsBroken(lines: string[]): string[] {
+  return lines.map((line) => line.replace(/ #[0-9a-f]{6}/g, '').replace(/: \d+\.\d apart, /, ': '));
+}
+
 function failures(scheme: Scheme, pairs: Pair[]): string[] {
   return pairs.flatMap((pair) => {
     const { ink, under, on, min, why } = pair;
@@ -651,7 +660,13 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
 
   it("reads each chip's colour from its own rule, a token per category (polish.16)", () => {
     expect(CHIPS.map((key) => chipToken(key))).toEqual([...CATEGORIES, '--accent', '--ink-soft']);
-    // The task's four families, of categories that exist, none in two of them.
+    // The task's four families, as PLAN's polish.16 names them, of categories that exist, none in two.
+    expect(FAMILIES).toEqual([
+      ['spelling', 'typo', 'homophone'],
+      ['grammar', 'agreement', 'tense'],
+      ['word-choice', 'redundancy', 'awkward'],
+      ['formatting', 'other']
+    ]);
     const named = FAMILIES.flat();
     expect(named.filter((c) => !(CHANGE_CATEGORIES as readonly string[]).includes(c))).toEqual([]);
     expect(new Set(named).size).toBe(named.length);
@@ -669,23 +684,38 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
       awkward: '--cat-word-choice',
       formatting: '--cat-other'
     };
-    const pairs = (lines: string[]): string[] =>
-      lines.map((line) => (line.split(':')[0] ?? '').replace(/ #[0-9a-f]{6}/g, ''));
     for (const scheme of SCHEMES) {
-      expect(pairs(tooClose(scheme, (key) => shared[key] ?? chipToken(key))), scheme).toEqual([
-        'spelling and typo',
-        'grammar and agreement',
-        'grammar and tense',
-        'agreement and tense',
-        'word-choice and redundancy',
-        'word-choice and awkward',
-        'redundancy and awkward',
-        'formatting and other'
+      // Each pair under the family floor and marked as one family's.
+      expect(floorsBroken(tooClose(scheme, (key) => shared[key] ?? chipToken(key))), scheme).toEqual([
+        'spelling and typo: at least 35 (one family)',
+        'grammar and agreement: at least 35 (one family)',
+        'grammar and tense: at least 35 (one family)',
+        'agreement and tense: at least 35 (one family)',
+        'word-choice and redundancy: at least 35 (one family)',
+        'word-choice and awkward: at least 35 (one family)',
+        'redundancy and awkward: at least 35 (one family)',
+        'formatting and other: at least 35 (one family)'
       ]);
       expect(
-        pairs(tooClose(scheme, (key) => (key === 'other' ? '--ink-soft' : chipToken(key)))),
+        floorsBroken(tooClose(scheme, (key) => (key === 'other' ? '--ink-soft' : chipToken(key)))),
         scheme
-      ).toContain('other and comments');
+      ).toContain('other and comments: at least 15');
+    }
+  });
+
+  /* The polish.16 review: the old colours are 0 apart, under both floors, so
+     they cannot show that the family floor applies. Formatting in the ink's
+     colour stands more than 15 from every chip and less than 35 from other,
+     so it breaks the family floor and nothing else. */
+  it('fails formatting in the ink, a pair under the family floor alone, so that floor can fail', () => {
+    const inked = (key: string): string => (key === 'formatting' ? '--ink' : chipToken(key));
+    for (const scheme of SCHEMES) {
+      const apart = deltaE76(opaque(scheme, '--ink'), opaque(scheme, chipToken('other')));
+      expect(apart, scheme).toBeGreaterThanOrEqual(APART);
+      expect(apart, scheme).toBeLessThan(FAMILY_APART);
+      expect(floorsBroken(tooClose(scheme, inked)), scheme).toEqual([
+        'formatting and other: at least 35 (one family)'
+      ]);
     }
   });
 
