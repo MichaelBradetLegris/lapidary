@@ -267,11 +267,11 @@ button.primary ::selection,
    the prose, the chapter list, the side panel's regions, the dialogs, the
    Setup screen. A 16 px gutter in --scrollbar-track with a 1 px --border line
    on its inner edge, a square thumb 10 px wide between 3 px of clear track, a
-   shade off the track and a step darker under the pointer and again while
-   dragged, and an arrow at each end. The rules are bare on purpose: Chromium
-   drops a scrollbar part's state (:hover on the thumb, :single-button on the
-   buttons) when :root stands for an ancestor in the selector, so they are
-   never scoped with :root. A scroller given a scrollbar-color, or a
+   shade off the track and a step further from it under the pointer and again
+   while dragged, and an arrow at each end. The rules are bare on purpose:
+   Chromium drops a scrollbar part's state (:hover on the thumb, :single-button
+   on the buttons) when :root stands for an ancestor in the selector, so they
+   are never scoped with :root. A scroller given a scrollbar-color, or a
    scrollbar-width other than auto, leaves these rules for the browser's own
    bar: the chips' row draws none with scrollbar-width: none. */
 ::-webkit-scrollbar {

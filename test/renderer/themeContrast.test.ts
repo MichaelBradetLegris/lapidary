@@ -201,9 +201,10 @@ const FAINT_PAIRS: Pair[] = [
  * scrollbar's thumb is a square a shade off its gutter, `--scrollbar-thumb` on
  * `--scrollbar-track`: about 1.4:1 at rest and 1.6 under the pointer ("a tiny
  * bit darker" than the sheet's variant D, 1.24 and 1.58 in light, 1.21 and
- * 1.82 in dark), and a step darker again while dragged. Light comes to 1.41,
- * 1.60 and 1.86, dark to 1.41, 1.60 and 1.85, the same as the window's pixels
- * at 100% and 150%. The exception names these three tokens and no other, and
+ * 1.82 in dark), and a step further from the track again while dragged, each
+ * step darker in light and lighter in dark. Light comes to 1.41, 1.60 and
+ * 1.86, dark to 1.41, 1.60 and 1.85, the same as the window's pixels at 100%
+ * and 150%. The exception names these three tokens and no other, and
  * pins each to its band, so the thumb can neither fade into the track nor
  * drift unnoticed, and the 3:1 floor stands for every other mark. The arrows
  * and the resize handle keep it, above.
@@ -219,7 +220,7 @@ const THUMB_ON = '--scrollbar-track';
 const THUMB_EXCEPTION: Band[] = [
   { token: '--scrollbar-thumb', min: 1.3, max: 1.5, why: 'at rest' },
   { token: '--scrollbar-thumb-hover', min: 1.5, max: 1.7, why: 'under the pointer' },
-  { token: '--scrollbar-thumb-active', min: 1.7, max: 2, why: 'while dragged, a step darker again' }
+  { token: '--scrollbar-thumb-active', min: 1.7, max: 2, why: 'while dragged, a step further again' }
 ];
 
 function outOfBand(scheme: Scheme, bands: Band[]): string[] {

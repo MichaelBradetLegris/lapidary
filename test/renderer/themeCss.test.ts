@@ -487,7 +487,16 @@ describe('scrollbars (polish.2)', () => {
   const SCROLLBAR_SELECTORS = RULES.flatMap((r) => r.selectors).filter((s) =>
     s.includes('::-webkit-scrollbar')
   );
-  const ENDS = ['vertical:decrement', 'vertical:increment', 'horizontal:decrement', 'horizontal:increment'];
+  /* Each end's arrow: where its 78 degree wedge opens, from its point on the
+     edge the arrow points to, and the box it is drawn in, 8 by 5 px, 5 by 8
+     sideways. Without the box the wedge fills the whole 16 px button. */
+  const ARROWS: Record<string, { from: string; size: string }> = {
+    'vertical:decrement': { from: 'from 141deg at 50% 0', size: '8px 5px' },
+    'vertical:increment': { from: 'from -39deg at 50% 100%', size: '8px 5px' },
+    'horizontal:decrement': { from: 'from 51deg at 0 50%', size: '5px 8px' },
+    'horizontal:increment': { from: 'from 231deg at 100% 50%', size: '5px 8px' }
+  };
+  const ENDS = Object.keys(ARROWS);
 
   it('draws every scrollbar 16 px wide in its gutter, with a square thumb in the thumb tokens', () => {
     expect([...declsFor('::-webkit-scrollbar')]).toEqual([
@@ -516,19 +525,31 @@ describe('scrollbars (polish.2)', () => {
   });
 
   it('draws one arrow at each end, in --ink-faint and in --ink-soft under the pointer', () => {
-    const button = declsFor('::-webkit-scrollbar-button:single-button');
-    expect(button.get('display')).toBe('block');
-    expect(button.get('width')).toBe('16px');
-    expect(button.get('height')).toBe('16px');
-    expect(button.get('background-color')).toBe('var(--scrollbar-track)');
-    for (const end of ENDS) {
+    // One 16 px button at each end on the gutter, its arrow drawn once in the middle.
+    expect([...declsFor('::-webkit-scrollbar-button:single-button')]).toEqual([
+      ['display', 'block'],
+      ['width', '16px'],
+      ['height', '16px'],
+      ['background-color', 'var(--scrollbar-track)'],
+      ['background-repeat', 'no-repeat'],
+      ['background-position', 'center']
+    ]);
+    // The gutter's 1 px line runs on through the buttons to both ends of the bar.
+    expect([...declsFor('::-webkit-scrollbar-button:single-button:vertical')]).toEqual([
+      ['border-left', '1px solid var(--border)']
+    ]);
+    expect([...declsFor('::-webkit-scrollbar-button:single-button:horizontal')]).toEqual([
+      ['border-top', '1px solid var(--border)']
+    ]);
+    for (const [end, { from, size }] of Object.entries(ARROWS)) {
       const at = `::-webkit-scrollbar-button:single-button:${end}`;
-      expect(declsFor(at).get('background-image')).toMatch(
-        /^conic-gradient\([^()]*, var\(--ink-faint\) 78deg, transparent 0\)$/
-      );
-      expect(declsFor(`${at}:hover`).get('background-image')).toMatch(
-        /^conic-gradient\([^()]*, var\(--ink-soft\) 78deg, transparent 0\)$/
-      );
+      expect([...declsFor(at)]).toEqual([
+        ['background-image', `conic-gradient(${from}, var(--ink-faint) 78deg, transparent 0)`],
+        ['background-size', size]
+      ]);
+      expect([...declsFor(`${at}:hover`)]).toEqual([
+        ['background-image', `conic-gradient(${from}, var(--ink-soft) 78deg, transparent 0)`]
+      ]);
     }
   });
 
