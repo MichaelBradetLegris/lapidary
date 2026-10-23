@@ -2,10 +2,11 @@
  * The Settings dialog's words (`polish.4`). The dialog has three sections,
  * Review, Folders and Accounts, with the welcome guide and About at its foot.
  * A row has at most one note under it, one short line. What a note used to
- * say at length is now the tooltip of the small (?) beside the row's name
- * (`HelpTip`), which is also what a screen reader gives as the description of
- * the row's control, or is in the README. Nothing a note said that matters
- * for the author's files or key was dropped: the tooltips keep it.
+ * say at length is now the tooltip of the small (?) at the right end of the
+ * row (`HelpTip`, polish.15), which is also what a screen reader gives as the
+ * description of the row's control, or is in the README. Nothing a note said
+ * that matters for the author's files or key was dropped: the tooltips keep
+ * it.
  *
  * Pure (CLAUDE.md rule 4), tested in test/shared/settingsDialog.test.ts.
  */

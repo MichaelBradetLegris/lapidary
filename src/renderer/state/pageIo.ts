@@ -6,7 +6,6 @@ import type { CrashPageDeps } from './crashPage';
 import { draftWriteFailures, flushDraftWrites, retryDraftWrites } from './drafts';
 import { flushHintWrites } from './hints';
 import { flushReviewWrites, retryReviewWrites, reviewWriteFailures } from './reviewPersistence';
-import { flushRowStatesWrites } from './rowStates';
 import { flushSplitWrites } from './split';
 
 /*
@@ -40,10 +39,10 @@ export const CLOSE_GUARD_IO: CloseGuardIo = {
  * The review and paragraph writers, which a close and the end of a session
  * write out (apply.9), and a hint put away just before, such as the Save hint
  * that Save and close puts away (apply.12), and the side panel's split moved
- * just before (ui.6), a column's width (polish.5), or Show states
- * (polish.12). A hint, a split, a width or Show states that cannot be written
- * is not reported: the hint shows again at the next start, which has the
- * split, the widths and Show states last written.
+ * just before (ui.6), or a column's width (polish.5). A hint, a split or a
+ * width that cannot be written is not reported: the hint shows again at the
+ * next start, which has the split and the widths last written. (Show states,
+ * polish.12, was written here too until polish.17 took it away.)
  */
 export const PAGE_WRITES: PageWrites = {
   flush: async () => {
@@ -52,8 +51,7 @@ export const PAGE_WRITES: PageWrites = {
       flushDraftWrites(),
       flushHintWrites(),
       flushSplitWrites(),
-      flushColumnWrites(),
-      flushRowStatesWrites()
+      flushColumnWrites()
     ]);
   },
   retry: () => {

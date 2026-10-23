@@ -28,22 +28,30 @@ interface Props {
 }
 
 /**
- * The small (?) beside a row's name in Settings (`polish.4`), with the longer
- * explanation the row's one-line note leaves out. The card shows while the
- * pointer is over the (?) or over the card itself, and while the (?) has the
- * keyboard's focus (`:focus-visible`), not after a click. It is always in the
- * page, hidden when not shown, so that it is the (?)'s description for a
- * screen reader, and the row's control can point at it too. Escape still
- * closes Settings wherever the focus is (ui.1), the card with it.
+ * The small (?) of a row in Settings (`polish.4`), with the longer
+ * explanation the row's one-line note leaves out. It is the row's last cell,
+ * `.modal__help`, after the row's buttons, so that every (?) stands in one
+ * line at the right of the dialog (polish.15; a row without one keeps the
+ * cell empty), and the keyboard reaches it after the row's controls. The card
+ * shows while the pointer is over the (?) or over the card itself, and while
+ * the (?) has the keyboard's focus (`:focus-visible`), not after a click. It
+ * is always in the page, hidden when not shown, so that it is the (?)'s
+ * description for a screen reader, and the row's control can point at it
+ * too. Escape still closes Settings wherever the focus is (ui.1), the card
+ * with it.
  *
  * Placed like the suggestions' hover card (HunkTooltip): `position: fixed`,
  * measured and moved in a layout effect, so showing it never scrolls the
  * dialog, and placed again when anything scrolls or the window is resized.
- * Its left edge is under the (?)'s, below it unless there is no room. While
- * the box has scrolled the (?) under the head or the foot, or out of sight,
- * the card is hidden, though still open, and it shows again once the (?) is
- * back (polish.4 review): the keyboard's focus stays on a (?) that Page Down
- * or the wheel scrolls away, and the card would follow it over the title.
+ * It stands to the left of the (?), over its own row, its top at the (?)'s
+ * and kept between the box's head and foot, so it never covers the (?) above
+ * or below in the column (polish.19); only where the window is too narrow
+ * for it there does it go under the (?), its right edge under the (?)'s, or
+ * above when there is no room below (polish.15). While the box has scrolled
+ * the (?) under the head or the foot, or out of sight, the card is hidden,
+ * though still open, and it shows again once the (?) is back (polish.4
+ * review): the keyboard's focus stays on a (?) that Page Down or the wheel
+ * scrolls away, and the card would follow it over the title.
  */
 export function HelpTip({ id, topic, text }: Props): React.JSX.Element {
   const [hovered, setHovered] = useState(false);
@@ -97,7 +105,8 @@ export function HelpTip({ id, topic, text }: Props): React.JSX.Element {
         { width: window.innerWidth, height: window.innerHeight },
         6,
         8,
-        'start'
+        'end',
+        { side: 'left', gap: 10, band }
       );
       tip.style.left = `${placed.left}px`;
       tip.style.top = `${placed.top}px`;
@@ -112,7 +121,7 @@ export function HelpTip({ id, topic, text }: Props): React.JSX.Element {
   }, [open]);
 
   return (
-    <>
+    <span className="modal__help">
       <button
         type="button"
         className="help"
@@ -137,6 +146,6 @@ export function HelpTip({ id, topic, text }: Props): React.JSX.Element {
       >
         {text}
       </span>
-    </>
+    </span>
   );
 }

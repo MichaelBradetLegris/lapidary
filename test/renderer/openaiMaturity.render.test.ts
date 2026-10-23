@@ -131,9 +131,9 @@ describe("Settings' OpenAI key row (hardening.11)", () => {
   it('is named "OpenAI API key (experimental)", with the key or without one', () => {
     for (const key of [KEY, null]) {
       const html = settingsDialog(key);
-      // The (?) beside the name since polish.4, then the status line.
+      // The name, then the status line; the (?) at the row's right end since polish.15.
       expect(html).toMatch(
-        /<div class="modal__row"><span class="modal__name"><span>OpenAI API key \(experimental\)<\/span><button [^>]*aria-label="More about the OpenAI API key"[^>]*>\?<\/button><span role="tooltip"[^>]*>[^<]*<\/span><\/span><span class="modal__path/
+        /<div class="modal__row"><span>OpenAI API key \(experimental\)<\/span><span class="modal__path[^>]*>[^<]*<\/span><span class="modal__buttons">[\s\S]*?<\/span><span class="modal__help"><button [^>]*aria-label="More about the OpenAI API key"[^>]*>\?<\/button><span role="tooltip"[^>]*>[^<]*<\/span><\/span><\/div>/
       );
       expect(openAiKeyRowLabel()).toBe('OpenAI API key (experimental)');
       // The field keeps its own name, which says what it holds.

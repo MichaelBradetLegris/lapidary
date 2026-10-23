@@ -29,9 +29,9 @@ interface Props {
  * what the unsaved dot means, in the window's title (polish.10; in the toolbar
  * from apply.4) and the chapter list (apply.5), what the chips count and do,
  * You and the eye included (polish.11) and the comments' (polish.13), and how
- * the suggestions list shows a decision, with Show states and the heading's
- * count (polish.12), and what each row's three-letter tag stands for
- * (polish.14). Exported for its render test.
+ * the suggestions list shows a decision, by the row's buttons, and the
+ * heading's count (polish.12; Show states went in polish.17), and what each
+ * row's three-letter tag stands for (polish.14). Exported for its render test.
  */
 export function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -118,8 +118,7 @@ export function Legend({ onClose }: { onClose: () => void }): React.JSX.Element 
           <b>The suggestions list.</b> Each row starts with a tag in its chip&apos;s colour. Once you decide a
           suggestion, its tick turns a bold green if you accepted it, or its x red if you dismissed it, and
           the row&apos;s other buttons fade until the pointer is on them; click the tick or the x again to put
-          it back. Show states, beside the Suggestions heading, also writes ACCEPTED or DISMISSED on the row
-          where the panel is wide enough, and the heading counts the suggestions you have decided.
+          it back. The Suggestions heading counts the suggestions you have decided.
         </li>
         <li>
           <span className="legend__swatch legend__swatch--tag" /> <b>Tags.</b> Three letters name the

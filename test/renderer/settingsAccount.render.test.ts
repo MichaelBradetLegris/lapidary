@@ -53,11 +53,8 @@ function accountRow(runtime: RuntimeStatus | null): string {
       })
     )
   );
-  // The name has its (?) beside it since polish.4 (settingsDialog.render.test.ts).
-  const row =
-    /<div class="modal__row"><span class="modal__name"><span>Claude account<\/span>[\s\S]*?<\/div>/.exec(
-      html
-    )?.[0];
+  // The row ends with its (?) since polish.4, at its right end since polish.15 (settingsDialog.render.test.ts).
+  const row = /<div class="modal__row"><span>Claude account<\/span>[\s\S]*?<\/div>/.exec(html)?.[0];
   expect(row).toBeDefined();
   return row ?? '';
 }
