@@ -77,12 +77,16 @@ describe('normalizeSettings', () => {
     });
   });
 
-  it('keeps Show states, on unless the file says false (polish.12)', () => {
-    expect(defaultSettings().showRowStates).toBe(true);
-    expect(normalizeSettings({ showRowStates: false }).showRowStates).toBe(false);
-    expect(normalizeSettings({ showRowStates: true }).showRowStates).toBe(true);
-    for (const bad of ['false', 0, null, {}]) {
-      expect(normalizeSettings({ showRowStates: bad }).showRowStates).toBe(true);
+  /* polish.17: Show states went, and with it `showRowStates`, which polish.12
+     kept. A settings.json written in between still holds the key, and is read
+     as a file with any key the app does not know: the key is dropped, and
+     the rest is read as ever (settingsStore.test.ts: the next write leaves it out). */
+  it('drops showRowStates, which Show states kept until polish.17, whatever its value', () => {
+    expect(Object.keys(defaultSettings())).not.toContain('showRowStates');
+    for (const value of [false, true, 'false', 0, null, {}]) {
+      const read = normalizeSettings({ showRowStates: value, zoom: 1.25, sideSplit: 0.4 });
+      expect(Object.keys(read), JSON.stringify(value)).not.toContain('showRowStates');
+      expect(read).toEqual({ ...defaultSettings(), zoom: 1.25, sideSplit: 0.4 });
     }
   });
 

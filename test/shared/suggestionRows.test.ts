@@ -8,8 +8,6 @@ import {
   rowButtonLook,
   rowLabel,
   rowTag,
-  SHOW_STATES_LABEL,
-  SHOW_STATES_TITLE,
   suggestionsHeading,
   summaryLine,
   TAG_ABBREVIATIONS,
@@ -219,9 +217,7 @@ describe("a row's buttons (polish.12)", () => {
     expect(BUTTONS.map((b) => rowButtonLook('dismissed', b))).toEqual(['faded', 'faded', 'on']);
   });
 
-  it('say what the dismissed x does, and name the toggle', () => {
+  it('say what the dismissed x does', () => {
     expect(DISMISSED_TITLE).toBe('Dismissed. Click to put it back');
-    expect(SHOW_STATES_LABEL).toBe('Show states');
-    expect(SHOW_STATES_TITLE).toBe('Write ACCEPTED or DISMISSED on the rows you have decided');
   });
 });

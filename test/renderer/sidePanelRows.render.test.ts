@@ -105,9 +105,10 @@ afterEach(() => {
 describe('the side panel names small changes (small.5)', () => {
   it('shows a small change in its line, and a word-sized one as before', () => {
     const list = rows(render());
-    // Each after its tag (polish.12, three letters since polish.14).
+    // Each after its tag (polish.12, three letters since polish.14), and an accepted one without
+    // the ACCEPTED it ended in until polish.17.
     expect(list.map((r) => r.text)).toEqual([
-      'YOU\u2026a double- (hyphen)(space)standard, and\u2026accepted',
+      'YOU\u2026a double- (hyphen)(space)standard, and\u2026',
       'PUN\u2026with Mira, (comma) who had\u2026',
       'GRMbegan \u2192 begun'
     ]);

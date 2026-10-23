@@ -65,8 +65,8 @@ export function measureSplit(regions: HTMLElement): SplitMeasure | null {
   if (handleHeight === 0) return null;
   const listStyle = getComputedStyle(list);
   const lowerStyle = getComputedStyle(lower);
-  // The heading's line, with Show states beside it (polish.12).
-  const heading = list.querySelector<HTMLElement>(':scope > .side__list-head');
+  // The list's heading, alone on its line again since polish.17 took Show states from beside it.
+  const heading = list.querySelector<HTMLElement>(':scope > h3');
   const headingStyle = heading ? getComputedStyle(heading) : null;
   const row = list.querySelector<HTMLElement>('.rows > li');
   return {

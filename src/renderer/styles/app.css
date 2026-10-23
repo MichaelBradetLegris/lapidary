@@ -886,12 +886,11 @@ input[type='text'] {
    the other, so two scrollbars never sit side by side (panel.1). `clip` rather
    than `hidden`, so nothing can scroll the panel from script either. As `clip`
    does not make it a scroll container, `min-height: 0` is what keeps its grid
-   row from growing to the height of everything in it. It is the container
-   the suggestion rows' status word reads its width from (polish.12 review):
-   a width the column or the drawer sets and no chapter changes, never the
-   panel's height (C.49). */
+   row from growing to the height of everything in it. It is no container:
+   the query on its width that left the suggestion rows' status word out of
+   a narrow panel (polish.12 review) went with the word in polish.17, and one
+   on its height switched layouts between chapters (C.49). */
 .side {
-  container: side / inline-size;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -2081,44 +2080,12 @@ input[type='text'] {
   padding: 10px 0 6px;
 }
 
-.side__list > .side__list-head,
+/* The list's heading is alone on its line, as the split measures it
+   (`measureSplit`): Show states sat beside it from polish.12 until polish.17
+   and in a narrow panel went under it. */
+.side__list > h3,
 .side__list > .side__empty {
   padding: 0 10px;
-}
-
-/* The list's heading and Show states beside it (polish.12), on one line
-   where the panel is wide enough; in a narrow one Show states goes under the
-   heading rather than cutting it short. The line takes the heading's margin,
-   and the box beside it is no taller than the heading's line, so the line is
-   as tall as the heading alone was; the split measures this line as the
-   list's heading (`measureSplit`). */
-.side__list-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
-  margin: 0 0 6px;
-}
-
-.side__list-head > h3 {
-  margin: 0;
-  flex: 1 1 auto;
-}
-
-.side__states {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  line-height: 1;
-  color: var(--ink-soft);
-}
-
-.side__states input {
-  width: 12px;
-  height: 12px;
-  margin: 0;
 }
 
 /* With a split set (ui.6), the list has the share of the height the author
@@ -3297,14 +3264,14 @@ button.help {
   background: var(--focus-bg);
 }
 
-/* In a narrow panel the row's three parts give way in turn (polish.12
+/* In a narrow panel the row's two parts give way in turn (polish.12
    review): the change first, down to --row-text-floor, a few letters, then
-   the status word, then the tag, so some of the change always shows. The
-   change takes what the tag and the status word leave (its basis is 0, so
-   it never shrinks beside them), the status word is the only part that
-   shrinks, and the tag is never wider than the room the floor and the gap
-   leave it. The button clips what is left over, so nothing it holds is drawn
-   over the pencil. */
+   the tag, so some of the change always shows. The change takes what the tag
+   leaves (its basis is 0, so it never shrinks beside it), and the tag is
+   never wider than the room the floor and the gap leave it. The button clips
+   what is left over, so nothing it holds is drawn over the pencil. Until
+   polish.17 a decided row had a third part, its status word, ACCEPTED or
+   DISMISSED, which gave way between the two. */
 .row__main {
   --row-text-floor: 32px;
   flex: 1 1 auto;
@@ -3333,41 +3300,9 @@ button.help {
   font-family: var(--font-prose);
 }
 
-.row__status {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-faint);
-}
-
-/* Where the side panel is too narrow for two letters of the status word
-   beside the tag (34 px, every tag since polish.14; until then the widest,
-   WORD-CHOICE, about 77 px), the floor and two gaps, no row writes it, rather
-   than an ellipsis or a sliver of a letter; the buttons still say the
-   decision, and so does the row's name. The query reads the panel's width
-   inside its border, which no chapter changes (C.49): 203 px leaves a row's
-   button 101 px inside when the list has its scrollbar, 102 px less, and the
-   word 23 px, "AC…". In the smallest window the panel is 235 px inside, where
-   the word now shows, and at 200% in the default window 199, where it does
-   not. */
-@container side (width < 203px) {
-  .row__status {
-    display: none;
-  }
-}
-
 /* Matches the page: a decided suggestion is grey, not green (item 5). */
 .row--accepted .row__text {
   color: var(--ink-soft);
-}
-
-.row--accepted .row__status {
-  color: var(--ink-faint);
 }
 
 /* The tag of the chip a row's suggestion is under (polish.12), in place of

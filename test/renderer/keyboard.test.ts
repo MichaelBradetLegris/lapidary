@@ -168,11 +168,13 @@ describe('the key handler asks it (apply.20 review)', () => {
   });
 });
 
-/* polish.12 review: Show states is a checkbox that stays on screen once
-   clicked, and a click leaves the focus on it. Every INPUT counted as typing,
+/* polish.12 review: Show states was a checkbox that stayed on screen once
+   clicked, and a click left the focus on it. Every INPUT counted as typing,
    so the review keys did nothing after a click on it until the author clicked
    somewhere else. A checkbox is no longer typing; Space still ticks it, as the
-   switch returns before preventDefault on any key it does not know. */
+   switch returns before preventDefault on any key it does not know. The box
+   went in polish.17; the rule stays, for the comments' Resolve box reached
+   with Tab. */
 describe('a checkbox is not typing (polish.12 review)', () => {
   const field = (tagName: string, type?: string, isContentEditable = false) => ({
     tagName,

@@ -170,14 +170,12 @@ export function rowButtonLook(status: HunkStatus, button: RowButton): RowButtonL
  */
 export const DISMISSED_TITLE = 'Dismissed. Click to put it back';
 
-/** The toggle beside the list's heading (polish.12), and its tooltip. */
-export const SHOW_STATES_LABEL = 'Show states';
-export const SHOW_STATES_TITLE = 'Write ACCEPTED or DISMISSED on the rows you have decided';
-
 /**
  * A row's name for a screen reader (polish.12): its tag, its change as
- * `summaryLine` gives it, and its decision, which is spoken whether or not
- * Show states writes it on the row: "grammar, began → begun, accepted".
+ * `summaryLine` gives it, and its decision: "grammar, began → begun,
+ * accepted". The row shows the decision by its buttons alone since
+ * polish.17, which took away the ACCEPTED or DISMISSED that Show states
+ * wrote on it; the name still says it in words.
  */
 export function rowLabel(hunk: Hunk): string {
   const status = hunk.status === 'pending' ? '' : hunk.status;
