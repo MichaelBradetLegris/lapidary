@@ -4,7 +4,7 @@ import { applyBlockEdit, blockSpanFor, editSuggestion, liveTextIn, planBlockEdit
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import { remapAfterCommit } from '../../shared/review';
 import { splitParagraphs } from '../../shared/text/paragraphs';
-import { chipHidden, type ChipKey } from '../../shared/ui/chips';
+import { chipHidden, chipKeyOf, type ChipKey } from '../../shared/ui/chips';
 import { stepIndex } from '../../shared/ui/find';
 import { stepFocus, type StepOptions } from '../../shared/ui/navigate';
 import type { SaveShortcutContext } from '../../shared/ui/save';
@@ -909,9 +909,16 @@ export const useApp = create<AppState>()((set, get) => ({
 
     const accepted = plan.decided.filter((h) => h.status === 'accepted');
     const firstHunkId = plan.added[0]?.id ?? accepted[0]?.id ?? null;
+    /* What the box applied shows at once: You for the edits it added, and the
+       chip of a suggestion it accepted because the author typed exactly that.
+       Left hidden, the author's words vanished from the line as they landed,
+       while the card said they were added (the polish.11 review). */
+    const landed = new Set([...plan.added, ...accepted].map(chipKeyOf));
+    const hidden = state.hiddenCategories.filter((key) => !landed.has(key));
     set({
       review: withHunks(review, applyBlockEdit(review.hunks, plan)),
       drafts,
+      ...(hidden.length < state.hiddenCategories.length ? { hiddenCategories: hidden } : {}),
       ...(firstHunkId ? { focusedHunkId: firstHunkId } : {})
     });
     return {
