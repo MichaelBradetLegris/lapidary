@@ -5,7 +5,6 @@ import type {
   GuidelinesStatus,
   ModelInfo,
   OpenAiKeyStatus,
-  OpenGuidelinesVia,
   ReviewSummary,
   RuntimeStatus
 } from '../../shared/ipc';
@@ -153,8 +152,9 @@ export function ReviewDialog({
 
   /* Escape closes it, as in Settings (ui.1). A question asked over it, such
      as "Review without them", takes Escape for itself. The focus goes into
-     its box as it opens and back to Review with AI when it closes, and the
-     page behind it is inert meanwhile, so Tab stays inside it (ui.4). */
+     its box as it opens and back to the toolbar's Review menu when it closes,
+     and the page behind it is inert meanwhile, so Tab stays inside it (ui.4,
+     `polish.7`). */
   useDialogEscape(boxRef, onClose);
   useDialogFocus(boxRef, REVIEW_BUTTON_SELECTOR);
 
@@ -165,10 +165,10 @@ export function ReviewDialog({
   };
 
   /* Whether the style sheet is still empty (setup.10b): read as the dialog
-     opens, after an open, which may create the file, and whenever the window
-     gets the focus back, as when the author returns from filling it in. A
-     status that cannot be read shows no note; starting the review says what
-     is wrong with the file. */
+     opens, after Open or Open folder, either of which may create the file,
+     and whenever the window gets the focus back, as when the author returns
+     from filling it in. A status that cannot be read shows no note; starting
+     the review says what is wrong with the file. */
   const readGuidelines = useCallback((): void => {
     call('guidelines:status', undefined).then(setGuidelines, () => setGuidelines(null));
   }, []);
@@ -179,9 +179,18 @@ export function ReviewDialog({
     return () => window.removeEventListener('focus', readGuidelines);
   }, [readGuidelines]);
 
-  const openGuidelines = (via: OpenGuidelinesVia): void => {
+  const openGuidelines = (): void => {
     setError(null);
-    call('guidelines:open', { via }).then(
+    call('guidelines:open', undefined).then(
+      () => readGuidelines(),
+      (err: unknown) => setError(errorMessage(err))
+    );
+  };
+
+  // Main creates the file from the template first when it is missing (polish.3).
+  const openGuidelinesFolder = (): void => {
+    setError(null);
+    call('shell:reveal', { target: 'guidelines' }).then(
       () => readGuidelines(),
       (err: unknown) => setError(errorMessage(err))
     );
@@ -320,7 +329,12 @@ export function ReviewDialog({
           </p>
         ) : null}
 
-        <GuidelinesRow path={paths?.guidelinesPath ?? null} status={guidelines} onOpen={openGuidelines} />
+        <GuidelinesRow
+          path={paths?.guidelinesPath ?? null}
+          status={guidelines}
+          onOpen={openGuidelines}
+          onOpenFolder={openGuidelinesFolder}
+        />
 
         <p className="modal__note">
           {previous && previousCounts

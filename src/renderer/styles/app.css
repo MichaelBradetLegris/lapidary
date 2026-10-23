@@ -28,6 +28,10 @@
   --accent-active: #0e555e;
   --on-accent: #ffffff;
   --accept: #2f7a4a;
+  /* the accepted tick on a suggestion row (polish.12): a stronger green than
+     --accept, which keeps 3:1 as a mark on the row at rest, hovered and
+     focused, and on the tick's own hover */
+  --accept-strong: #12873b;
   --dismiss: #8a8378;
   --danger: #b3261e;
   --warn: #84681c;
@@ -59,6 +63,30 @@
   --danger-bg: #fdeceb;
   --editor-bg: #fbfaff;
 
+  /* Selected text (polish.1): a turquoise laid over whatever the text sits
+     on, translucent, so what lies under the text shows through it. Two
+     strengths of it. --selection-bg is the band everywhere but the prose's
+     lines, and in the paragraph box: #88dcdf over the page, plain to see on
+     anything it covers. --selection-prose-bg is the faint band of the prose,
+     #d4f7f4 over the page, light enough that a ghost above a selected line
+     keeps 4.5:1 on it and a suggestion's underline and tint, the focus and a
+     small change's capsule show through it. --selection-ink is the selected
+     text on --selection-bg; the prose keeps its own colours. */
+  --selection-bg: rgb(0 190 200 / 45%);
+  --selection-prose-bg: rgb(70 255 255 / 20%);
+  --selection-ink: var(--ink);
+
+  /* Scrollbars (polish.2, the author's pick): a gutter in --panel-alt and a
+     square thumb a shade off it, of the gutter's own warm grey, about 1.4:1 on
+     the track at rest, 1.6 under the pointer and 1.85 while dragged. That is
+     under the 3:1 of a mark on purpose; themeContrast.test.ts names the
+     exception and holds the thumb to it. The 1 px line and the arrows take
+     --border, --ink-faint and --ink-soft. */
+  --scrollbar-track: var(--panel-alt);
+  --scrollbar-thumb: #d0cabe;
+  --scrollbar-thumb-hover: #c5beb0;
+  --scrollbar-thumb-active: #b7b0a2;
+
   /* Shadows are rgb(var(--shadow-rgb) / N%), each with its own strength. */
   --shadow-rgb: 35 32 28;
   --backdrop: rgb(35 32 28 / 42%);
@@ -72,17 +100,35 @@
   --tint-decided-hover: 16%;
   --tint-small: 16%;
   --tint-small-hover: 26%;
+  /* How much of --ink-faint a decided row's two other buttons keep at rest
+     (polish.14), a color-mix() share: faint enough that the row reads as
+     done, under 3:1 by the author's choice (themeContrast.test.ts). */
+  --row-fade: 35%;
 
   --font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-prose: Literata, Georgia, 'Times New Roman', serif;
 
+  /* A colour for each category (polish.16), in the order of
+     CHANGE_CATEGORIES: hues spread round the wheel, and the ones close in
+     meaning far apart (spelling, typo and homophone; grammar, agreement and
+     tense; word-choice, redundancy and awkward; formatting and other), You's
+     --accent and the comments' --ink-soft counted among them. Formatting and
+     other are the two muted ones, a warm clay and a cool slate. Each colour is
+     one line here and one in the dark block; themeContrast.test.ts holds any
+     two of the fifteen 15 apart in CIELAB, and two of one family 35 apart. */
   --cat-spelling: #b3261e;
-  --cat-homophone: #a3341c;
+  --cat-typo: #576909;
+  --cat-homophone: #016dba;
   --cat-grammar: #1f6f8b;
+  --cat-agreement: #aa5106;
+  --cat-tense: #9f3887;
   --cat-punctuation: #7a4fb5;
   --cat-word-choice: #84681c;
+  --cat-redundancy: #2e756e;
+  --cat-awkward: #c11e59;
   --cat-consistency: #2f7a4a;
-  --cat-other: #6d675e;
+  --cat-formatting: #905f4d;
+  --cat-other: #484e70;
   color-scheme: light;
 }
 
@@ -109,6 +155,7 @@
     --accent-active: #39b1bc;
     --on-accent: #16130f;
     --accept: #6cc28b;
+    --accept-strong: #4fd483;
     --dismiss: #968e82;
     --danger: #ff8a80;
     --warn: #e0b955;
@@ -136,6 +183,18 @@
     --danger-bg: #3a1f1c;
     --editor-bg: #20222b;
 
+    /* deep turquoises of the icon's dots' hue: #0d4e51 over the page, and the
+       prose's faint band #162725 */
+    --selection-bg: rgb(0 120 128 / 55%);
+    --selection-prose-bg: rgb(0 90 95 / 20%);
+    --selection-ink: var(--ink);
+
+    /* the same steps off the dark gutter: about 1.4, 1.6 and 1.85:1 */
+    --scrollbar-track: var(--panel-alt);
+    --scrollbar-thumb: #454139;
+    --scrollbar-thumb-hover: #4e4940;
+    --scrollbar-thumb-active: #585248;
+
     --shadow-rgb: 0 0 0;
     --backdrop: rgb(0 0 0 / 60%);
     --modal-shadow: rgb(0 0 0 / 45%);
@@ -146,14 +205,22 @@
     --tint-decided-hover: 16%;
     --tint-small: 16%;
     --tint-small-hover: 26%;
+    --row-fade: 35%;
 
+    /* each category's own colour, on the same hues as in light (polish.16) */
     --cat-spelling: #ff7b72;
-    --cat-homophone: #f2875e;
+    --cat-typo: #b6c973;
+    --cat-homophone: #30a9ff;
     --cat-grammar: #5cc0e0;
+    --cat-agreement: #ef8e3e;
+    --cat-tense: #fe9dee;
     --cat-punctuation: #b994f5;
     --cat-word-choice: #d9b44a;
+    --cat-redundancy: #34b7af;
+    --cat-awkward: #ff78a8;
     --cat-consistency: #6cc28b;
-    --cat-other: #a8a092;
+    --cat-formatting: #f5b89c;
+    --cat-other: #a2a0ba;
     color-scheme: dark;
   }
 }
@@ -184,6 +251,216 @@ body {
 a,
 a:visited {
   color: var(--accent);
+}
+
+/* Selected text in the app's own band (polish.1, PLAN 11.3 e) rather than the
+   browser's blue, everywhere text can be selected: the side panel, the
+   dialogs, the fields, the Setup page's commands. */
+::selection {
+  background-color: var(--selection-bg);
+  color: var(--selection-ink);
+}
+
+/* The prose's lines take the faint band. A ghost is never selected, but it
+   sits in the gap above its line, which the band covers, so it is drawn over
+   the band in its own colour and keeps 4.5:1 only on a band this light; the
+   band is translucent, so a suggestion's underline and tint, the focus yellow
+   and a small change's capsule still show under it. The text keeps its own
+   colour: currentColor in a highlight is the colour of what lies beneath it,
+   so the active find match keeps its dark ink on the dark theme's bright
+   orange, where --selection-ink would come to 2.5:1, and the frontmatter
+   keeps its grey. */
+.prose ::selection {
+  background-color: var(--selection-prose-bg);
+  color: currentColor;
+}
+
+/* A text field in the prose, the paragraph box, has no ghost over it, so it
+   takes the band of every other field. */
+.prose input::selection,
+.prose textarea::selection {
+  background-color: var(--selection-bg);
+  color: var(--selection-ink);
+}
+
+/* A filled button or the active Setup tab shows no band, and its text keeps
+   --on-accent: light's white on the band over the turquoise would come to
+   3.45:1. */
+button.primary::selection,
+button.primary ::selection,
+.setup__tab--active::selection,
+.setup__tab--active ::selection {
+  background-color: transparent;
+  color: currentColor;
+}
+
+/* Scrollbars of the app's own (polish.2, PLAN 11.3 e), for every scroller:
+   the prose, the chapter list, the side panel's regions, the dialogs, the
+   Setup screen. A 16 px gutter in --scrollbar-track with a 1 px --border line
+   on its inner edge, a square thumb 10 px wide between 3 px of clear track, a
+   shade off the track and a step further from it under the pointer and again
+   while dragged, and an arrow at each end. The rules are bare on purpose:
+   Chromium drops a scrollbar part's state (:hover on the thumb, :single-button
+   on the buttons) when :root stands for an ancestor in the selector, so they
+   are never scoped with :root. A scroller given a scrollbar-color, or a
+   scrollbar-width other than auto, leaves these rules for the browser's own
+   bar: the chips' row draws none with scrollbar-width: none. */
+::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+  background: var(--scrollbar-track);
+}
+
+/* box-shadow does not paint on a scrollbar part, so the line is a border. */
+::-webkit-scrollbar-track:vertical {
+  border-left: 1px solid var(--border);
+}
+
+::-webkit-scrollbar-track:horizontal {
+  border-top: 1px solid var(--border);
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-active);
+}
+
+/* One button at each end; without :single-button two drew at the top. */
+::-webkit-scrollbar-button:single-button {
+  display: block;
+  width: 16px;
+  height: 16px;
+  background-color: var(--scrollbar-track);
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+::-webkit-scrollbar-button:single-button:vertical {
+  border-left: 1px solid var(--border);
+}
+
+::-webkit-scrollbar-button:single-button:horizontal {
+  border-top: 1px solid var(--border);
+}
+
+/* Each arrow is a triangle drawn with conic-gradient(), so there is no image
+   and no colour outside the tokens: a box 8 by 5 px (5 by 8 sideways) in the
+   middle of the button, its point on one edge and a 78 degree wedge opening
+   from it, in --ink-faint, --ink-soft under the pointer. */
+::-webkit-scrollbar-button:single-button:vertical:decrement {
+  background-image: conic-gradient(from 141deg at 50% 0, var(--ink-faint) 78deg, transparent 0);
+  background-size: 8px 5px;
+}
+
+::-webkit-scrollbar-button:single-button:vertical:decrement:hover {
+  background-image: conic-gradient(from 141deg at 50% 0, var(--ink-soft) 78deg, transparent 0);
+}
+
+::-webkit-scrollbar-button:single-button:vertical:increment {
+  background-image: conic-gradient(from -39deg at 50% 100%, var(--ink-faint) 78deg, transparent 0);
+  background-size: 8px 5px;
+}
+
+::-webkit-scrollbar-button:single-button:vertical:increment:hover {
+  background-image: conic-gradient(from -39deg at 50% 100%, var(--ink-soft) 78deg, transparent 0);
+}
+
+::-webkit-scrollbar-button:single-button:horizontal:decrement {
+  background-image: conic-gradient(from 51deg at 0 50%, var(--ink-faint) 78deg, transparent 0);
+  background-size: 5px 8px;
+}
+
+::-webkit-scrollbar-button:single-button:horizontal:decrement:hover {
+  background-image: conic-gradient(from 51deg at 0 50%, var(--ink-soft) 78deg, transparent 0);
+}
+
+::-webkit-scrollbar-button:single-button:horizontal:increment {
+  background-image: conic-gradient(from 231deg at 100% 50%, var(--ink-faint) 78deg, transparent 0);
+  background-size: 5px 8px;
+}
+
+::-webkit-scrollbar-button:single-button:horizontal:increment:hover {
+  background-image: conic-gradient(from 231deg at 100% 50%, var(--ink-soft) 78deg, transparent 0);
+}
+
+/* The corner under a bar, which holds a field's resize handle, continues the
+   gutter and its line. */
+::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
+  border-left: 1px solid var(--border);
+}
+
+/* The resize handle of a field that can be made taller (Submit manual review,
+   New chapter, the edit popover): two short diagonal lines in --ink-faint, as
+   the browser's own has. Drawn by the browser, it framed the corner with a
+   light grey line beside a bar, a white L in dark. */
+::-webkit-resizer {
+  background: linear-gradient(
+      135deg,
+      transparent 0 49%,
+      var(--ink-faint) 49% 57%,
+      transparent 57% 75%,
+      var(--ink-faint) 75% 83%,
+      transparent 83%
+    )
+    right 3px bottom 3px / 9px 9px no-repeat;
+}
+
+/* In a box with rounded corners the bar is drawn square, and its gutter shows
+   past the curve, so it takes the corners of the box inside its 1 px border:
+   the dialogs and the legend (8 px), the Copy diagnostics text (4 px), and the
+   fields that can be made taller (5 px), whose lower corner is the resize
+   handle's. `inherit` does not reach a scrollbar part, so each is written
+   out. */
+.modal::-webkit-scrollbar,
+.legend::-webkit-scrollbar {
+  border-radius: 0 7px 7px 0;
+}
+
+.modal::-webkit-scrollbar-button:single-button:vertical:decrement,
+.legend::-webkit-scrollbar-button:single-button:vertical:decrement {
+  border-top-right-radius: 7px;
+}
+
+.modal::-webkit-scrollbar-button:single-button:vertical:increment,
+.legend::-webkit-scrollbar-button:single-button:vertical:increment {
+  border-bottom-right-radius: 7px;
+}
+
+.diagnostics__text::-webkit-scrollbar {
+  border-radius: 0 3px 3px 0;
+}
+
+.diagnostics__text::-webkit-scrollbar-button:single-button:vertical:decrement {
+  border-top-right-radius: 3px;
+}
+
+.diagnostics__text::-webkit-scrollbar-button:single-button:vertical:increment {
+  border-bottom-right-radius: 3px;
+}
+
+.paste-field textarea::-webkit-scrollbar,
+.editor__area::-webkit-scrollbar,
+.paste-field textarea::-webkit-scrollbar-button:single-button:vertical:decrement,
+.editor__area::-webkit-scrollbar-button:single-button:vertical:decrement {
+  border-top-right-radius: 4px;
+}
+
+.paste-field textarea::-webkit-scrollbar-corner,
+.editor__area::-webkit-scrollbar-corner,
+.paste-field textarea::-webkit-resizer,
+.editor__area::-webkit-resizer {
+  border-bottom-right-radius: 4px;
 }
 
 button {
@@ -292,10 +569,12 @@ input[type='text'] {
   display: contents;
 }
 
-/* The row wraps, as the status bar does: when the buttons and the chapter name
-   at its narrowest do not fit, zoomed in or with a review's progress showing
-   in a narrow window, the last buttons move to a second row on the right
-   rather than running out of the window (apply.4). */
+/* The one bar at the top (polish.10). The row wraps, as the status bar does:
+   when the buttons and the category chips at their narrowest (.chips-bar) do
+   not fit, zoomed in or with a review's progress showing in a narrow window,
+   the last buttons move to a second row on the right rather than running out
+   of the window (apply.4). The chips themselves never wrap. With no chips the
+   buttons keep the right end. */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -310,26 +589,6 @@ input[type='text'] {
   position: relative;
 }
 
-/* The chapter name takes the room the buttons leave and is what gives way
-   first: it ends in an ellipsis, down to about 8em, before any button moves,
-   so a long name and "Save 12 changes to chapter" still share one row in a
-   1100 px window at 125% (apply.4). The full name is in the tooltip. */
-.toolbar__title {
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1 1 8em;
-  min-width: 0;
-}
-
-.toolbar__name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* No button label breaks in two. The progress label is left free to wrap: the
    row wraps first, so it keeps one line, and if it is ever given less room
    than its words they break inside its own box instead of spilling over the
@@ -338,8 +597,10 @@ input[type='text'] {
   white-space: nowrap;
 }
 
-/* Changes not saved to the chapter, before the chapter name in the toolbar
-   (apply.4) and before each such chapter's name in the chapter list (apply.5). */
+/* Changes not saved to the chapter, before each such chapter's name in the
+   chapter list (apply.5). The open chapter's is a dot in the window's title
+   since polish.10, where it was one of these before the name in the toolbar
+   (apply.4). */
 .unsaved-dot {
   flex: none;
   width: 8px;
@@ -350,11 +611,11 @@ input[type='text'] {
 
 /* The first-use hint (apply.12): a note under the toolbar with its arrow on
    Save to chapter. It hangs below the toolbar's last row, so it never covers
-   one of its buttons whichever row Save has wrapped onto, and keeps to the
-   side panel's column, so it never meets the notification cards or the find
-   bar beside it; it may cover the top of the side panel, the chips at that end
-   of their strip, and the find bar's last buttons where a narrow centre column
-   lets them spill into the side panel's (PLAN 7). Got it is the way out.
+   one of its buttons or chips whichever row Save has wrapped onto, and keeps
+   to the side panel's column, so it never meets the notification cards or the
+   find bar beside it; it may cover the top of the side panel, and the find
+   bar's last buttons where a narrow centre column lets them spill into the
+   side panel's (PLAN 7). Got it is the way out.
    SaveHint.tsx sets `left`, `width` and the arrow's place from
    `saveHintPlacement`, and it stays hidden until then, like the hover card.
    Under the notification cards (12), so a card wins should the two ever meet,
@@ -400,8 +661,8 @@ input[type='text'] {
 }
 
 /* No part of Save to chapter in reach has nothing under it: wrapped onto a row
-   above Copy result and Settings, an arrow would point at one of them, so the
-   hint has none and its words name the button (`saveHintPlacement`). */
+   above Settings, an arrow would point at it, so the hint has none and its
+   words name the button (`saveHintPlacement`). */
 .save-hint[data-arrow='none']::before {
   display: none;
 }
@@ -534,6 +795,93 @@ input[type='text'] {
   letter-spacing: 0.07em;
 }
 
+/* The handles on the side columns' inner edges (polish.5): dragged, or moved
+   with the left and right arrows in 24 px steps and with Home and End to the
+   limits, each makes its column wider or narrower, and a double-click or
+   Enter puts back the usual width. Each is a band 7 px wide laid over the
+   column's own border, which is its line, and over the 6 px beside it on the
+   side that has no scrollbar there: the prose's left edge for the chapter
+   list, the side panel's left edge for the side panel. So a press on either
+   column's scrollbar is never taken for a drag. (The chips' row, which had a
+   scrollbar at the top of the prose beside the band until polish.10, is in
+   the toolbar now, above the columns.) A grip in the
+   faint text's grey, which has 3:1 on the page and the panels in both themes,
+   sits on the line halfway down, and the line and the grip darken under the
+   pointer, as on the split's handle in the side panel (ui.6). The band paints
+   nothing of its own, and the focus ring is the browser's. Above the page's
+   columns, and under the drawers (10) and everything that floats over them. */
+.column-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.column-handle--files {
+  left: calc(var(--files-col) - 1px);
+}
+
+.column-handle--side {
+  right: calc(var(--side-col) - 7px);
+}
+
+.column-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: var(--border);
+}
+
+.column-handle::after {
+  content: '';
+  position: absolute;
+  top: calc(50% - 14px);
+  left: -1px;
+  width: 3px;
+  height: 28px;
+  border-radius: 2px;
+  background: var(--ink-faint);
+}
+
+.column-handle:hover::before,
+.column-handle--dragging::before {
+  background: var(--border-strong);
+}
+
+.column-handle:hover::after,
+.column-handle--dragging::after {
+  background: var(--ink-soft);
+}
+
+/* A column that cannot move an arrow step (polish.5, as C.59 for the split):
+   the border it lies on, with no grip, the usual pointer, and no change under
+   it. */
+.column-handle[aria-disabled='true'] {
+  cursor: default;
+}
+
+.column-handle[aria-disabled='true']::after {
+  display: none;
+}
+
+.column-handle[aria-disabled='true']:hover::before {
+  background: var(--border);
+}
+
+/* While a handle is dragged, the pointer keeps its col-resize shape over
+   whatever it crosses, and nothing is selected. */
+:root.column-resizing,
+:root.column-resizing * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
 /* Every element that scrolls has an opaque background in a colour token, even
    where the same colour would show through anyway (theme.1). Measured on
    2026-10-14 at 96 DPI over 25 wheel steps: a transparent scroller got no layer
@@ -559,7 +907,10 @@ input[type='text'] {
    the other, so two scrollbars never sit side by side (panel.1). `clip` rather
    than `hidden`, so nothing can scroll the panel from script either. As `clip`
    does not make it a scroll container, `min-height: 0` is what keeps its grid
-   row from growing to the height of everything in it. */
+   row from growing to the height of everything in it. It is no container:
+   the query on its width that left the suggestion rows' status word out of
+   a narrow panel (polish.12 review) went with the word in polish.17, and one
+   on its height switched layouts between chapters (C.49). */
 .side {
   min-height: 0;
   display: flex;
@@ -569,10 +920,22 @@ input[type='text'] {
   overflow: clip;
 }
 
+/* The centre column of the grid: the manuscript pane. From polish.6 the
+   category chips were at its top, and before that a row across the whole
+   window under the toolbar; since polish.10 they are in the toolbar's row,
+   so all three columns start at its foot. */
+.center-col {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 /* The scroller lives inside a positioned wrapper so the notification cards can
    be pinned to the top-right of the manuscript pane without scrolling away. */
 .center-wrap {
   position: relative;
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -715,42 +1078,229 @@ input[type='text'] {
 
 /* ---------- filter chips ---------- */
 
-.chips {
+/* In the toolbar's row, where the chapter's name was before it moved to the
+   window's title (polish.10): the eye, then the chips (polish.11). The bar
+   takes the room the buttons leave and is what gives way first, down to about
+   8em, before any button moves to a second row, as the name did (apply.4). */
+.chips-bar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel-alt);
-  flex: 0 0 auto;
+  flex: 1 1 8em;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
 
-.chip {
+/* Open while every chip is shown and closed otherwise (polish.11): a toolbar
+   button round a 16 px eye, 30 by 26 CSS px at 100%. */
+.chips__eye {
+  flex: none;
   display: inline-flex;
-  align-items: stretch;
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  color: var(--ink-soft);
+}
+
+.chips__eye svg {
+  display: block;
+}
+
+/* The row, the ‹ and › laid over its ends, the line under it and the copy of
+   the chips out of sight. Its width is what the bar leaves beside the eye,
+   whatever the chips hold, so the step they are drawn at never changes it. */
+.chips-view {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* One row that never wraps (polish.6): wrapped, thirteen categories took
+   three rows in the smallest window at 100% and six at 200%. The chips shrink
+   in steps as far as they must to fit (polish.11, `chipsStep`); at the
+   smallest it scrolls sideways when they still do not fit, by the wheel
+   (`chipsWheelLeft`), the arrows and Tab, and draws no scrollbar of its own:
+   the line under it shows where it is (polish.10). Opaque, as every scroller
+   is (theme.1), in the toolbar's own colour. 2 px of room above and below and
+   3 px at each end keep a chip's focus ring inside what the row shows, and
+   keep the row as tall as a toolbar button at the largest step. */
+.chips {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  min-width: 0;
+  padding: 2px 3px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
   background: var(--panel);
 }
 
-.chip__label,
-.chip__bulk {
+/* A chip is its category's name, or You, and its count, in the category's
+   colour, the whole of it one menu button (polish.11). */
+.chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: stretch;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.chip__button {
   border: none;
-  border-radius: 0;
+  border-radius: 11px;
   background: none;
-  padding: 2px 8px;
   color: var(--cat, var(--ink));
 }
 
-.chip__bulk {
-  border-left: 1px solid var(--border);
-  color: var(--ink-soft);
-  padding: 2px 6px;
+.chip__count {
+  font-variant-numeric: tabular-nums;
 }
 
+/* The steps a chip is drawn at (polish.11, `CHIP_STEPS`), on the row and on
+   each row of its copy out of sight: the size the chips had before polish.10
+   (polish.6), two between, and polish.10's compact size. At the first the row
+   is as tall as a toolbar button, so no step changes the toolbar's height. */
+[data-chip-step='0'] {
+  gap: 6px;
+}
+
+[data-chip-step='0'] .chip__button {
+  padding: 2px 8px;
+  font-size: 13px;
+  line-height: normal;
+}
+
+[data-chip-step='1'] {
+  gap: 5px;
+}
+
+[data-chip-step='1'] .chip__button {
+  padding: 2px 7px;
+  font-size: 12.5px;
+  line-height: normal;
+}
+
+[data-chip-step='2'] {
+  gap: 5px;
+}
+
+[data-chip-step='2'] .chip__button {
+  padding: 1px 6px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+[data-chip-step='3'] {
+  gap: 4px;
+}
+
+[data-chip-step='3'] .chip__button {
+  padding: 1px 5px;
+  font-size: 11.5px;
+  line-height: 16px;
+}
+
+/* The copy the steps are measured from: laid out, never seen, and nothing
+   that reaches the pointer or a screen reader (aria-hidden). */
+.chips__measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.chips__measure-row {
+  display: flex;
+  width: max-content;
+}
+
+/* The chip whose menu is open is at the menus' own layer (30), as its list is
+   drawn inside it, over the notification cards (12), the lock card (20) and
+   the first-use hint (11), and stays lit as under the pointer. */
+.chip.chip--menu {
+  z-index: 30;
+}
+
+.chip--menu > .chip__button {
+  background: var(--panel-alt);
+}
+
+/* A hidden chip is faded, its menu, drawn inside it, not. */
 .chip--off {
+  border-color: color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+.chip--off > .chip__button {
   opacity: 0.4;
+}
+
+/* Placed in the window under its chip by FilterChips (`chipMenuPlacement`),
+   as the row clips what reaches out of it, and hidden until then. */
+.menu__list.chip__menu {
+  position: fixed;
+  top: 0;
+  right: auto;
+  left: 0;
+  visibility: hidden;
+}
+
+/* While the chips overflow: a translucent ‹ or › over each end that has chips
+   out of sight, which pages the row (`chipsPageLeft`), and a 2 px line under
+   it, its thumb where the row stands, in place of a scrollbar (the author's
+   design, polish.10). Over the chips, under the menus (30). */
+.chips__arrow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  color: var(--ink-soft);
+}
+
+.chips__arrow--start {
+  left: 0;
+}
+
+.chips__arrow--end {
+  right: 0;
+}
+
+.chips__arrow:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--panel-alt) 90%, transparent);
+  color: var(--ink);
+}
+
+.chips__line {
+  position: absolute;
+  right: 0;
+  bottom: -4px;
+  left: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--border);
+  pointer-events: none;
+}
+
+.chips__thumb {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 1px;
+  background: var(--ink-faint);
 }
 
 /* ---------- review pane ---------- */
@@ -1312,32 +1862,61 @@ input[type='text'] {
   box-shadow: 0 0 0 1px var(--active-ring);
 }
 
-.cat-spelling,
-.cat-typo {
+/* Each category in its own colour (polish.16), where typo shared spelling's,
+   agreement and tense grammar's, redundancy and awkward word-choice's and
+   formatting other's. The chips, the rows' tags, the focused box's category,
+   the prose's lines, tints and suggested words, the margin's bars, the
+   position strip and the hover card all take it from --cat. */
+.cat-spelling {
   --cat: var(--cat-spelling);
+}
+.cat-typo {
+  --cat: var(--cat-typo);
 }
 .cat-homophone {
   --cat: var(--cat-homophone);
 }
-.cat-grammar,
-.cat-agreement,
-.cat-tense {
+.cat-grammar {
   --cat: var(--cat-grammar);
+}
+.cat-agreement {
+  --cat: var(--cat-agreement);
+}
+.cat-tense {
+  --cat: var(--cat-tense);
 }
 .cat-punctuation {
   --cat: var(--cat-punctuation);
 }
-.cat-word-choice,
-.cat-redundancy,
-.cat-awkward {
+.cat-word-choice {
   --cat: var(--cat-word-choice);
+}
+.cat-redundancy {
+  --cat: var(--cat-redundancy);
+}
+.cat-awkward {
+  --cat: var(--cat-awkward);
 }
 .cat-consistency {
   --cat: var(--cat-consistency);
 }
-.cat-formatting,
+.cat-formatting {
+  --cat: var(--cat-formatting);
+}
 .cat-other {
   --cat: var(--cat-other);
+}
+/* The You chip, the author's own edits (polish.11), in the colour the YOU tag
+   on their rows had, which since polish.12 takes it from here (.row__cat). */
+.cat-you {
+  --cat: var(--accent);
+}
+/* The comments' chip (polish.13), in the colour of a margin card's head,
+   which a comment has unless its category has a colour of its own
+   (.note-card__cat): the cards have no hue, and --accent, the commented
+   paragraph's number, is You's. */
+.cat-comments {
+  --cat: var(--ink-soft);
 }
 
 /* ---------- side panel ---------- */
@@ -1367,21 +1946,6 @@ input[type='text'] {
   display: flex;
   flex-direction: column;
   background: var(--panel);
-}
-
-/* The footer under both regions, with Show backups (apply.11). It never
-   scrolls, in the short window's one scroller either. */
-.side__foot {
-  flex: none;
-  display: flex;
-  gap: 6px;
-  padding: 6px 10px;
-  border-top: 1px solid var(--border);
-  background: var(--panel);
-}
-
-.side__foot button {
-  white-space: nowrap;
 }
 
 /* The review selector at the very top of the panel, above both regions (and
@@ -1420,21 +1984,21 @@ input[type='text'] {
    review selector, above the list, so that nothing below it moves when the
    focus does; with the box between the list and the comments, its height
    followed the explanation and the comments region grew and shrank as the
-   focus moved. The height fits the heading line with its pencil, the category,
-   Original and Suggested on a line each, and two lines of explanation. Every
-   line in it has its own line height, so the sum below does not depend on the
+   focus moved. The height fits the heading line, which names the category and
+   ends in the pencil, Original and Suggested on a line each, and two lines of
+   explanation; the category had a line of its own until polish.8. Every line
+   in it has its own line height, so the sum below does not depend on the
    font's metrics. Anything longer scrolls inside the box, below its heading
    line, which stays in view with the pencil. */
 .side__focus {
   --focus-head: 18px;
-  --focus-cat: 16px;
   --focus-pair: 19px;
   --focus-reason: 18px;
   flex: none;
-  /* The lines, 108 px, and 31 px between and around them: the padding (8 and
-     8), 4 under the heading line, under the category and above the
-     explanation, 2 between Original and Suggested, and the border. 139 px. */
-  height: calc(var(--focus-head) + var(--focus-cat) + 2 * var(--focus-pair) + 2 * var(--focus-reason) + 31px);
+  /* The lines, 92 px, and 27 px between and around them: the padding (8 and
+     8), 4 under the heading line and above the explanation, 2 between
+     Original and Suggested, and the border. 119 px. */
+  height: calc(var(--focus-head) + 2 * var(--focus-pair) + 2 * var(--focus-reason) + 27px);
   display: flex;
   flex-direction: column;
   padding: 8px 0;
@@ -1452,17 +2016,45 @@ input[type='text'] {
   padding: 0 8px 0 10px;
 }
 
+/* "Focused suggestion · punctuation" (polish.8): the heading's words, then the
+   separator and the category, in the category's colour as the list's dots
+   are, with the anchor in the warning colour when it is not exact. Where the
+   line is too narrow for all of it, the heading's words give way, to an
+   ellipsis and then to nothing; the category never shrinks, so it shows no
+   ellipsis for a fraction of a pixel, and is cut short only when it is wider
+   than the whole line by itself. The separator keeps its spaces, which the
+   start of a line would otherwise drop. */
 .side__focus-head h3 {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
   margin: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
   line-height: var(--focus-head);
   text-transform: uppercase;
   letter-spacing: 0.07em;
+  color: var(--ink-faint);
+}
+
+.side__focus-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.side__focus-cat {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cat, var(--ink-soft));
+}
+
+.side__focus-sep {
+  white-space: pre;
   color: var(--ink-faint);
 }
 
@@ -1481,12 +2073,8 @@ input[type='text'] {
   line-height: var(--focus-reason);
 }
 
-.side__focus-body .detail__cat {
-  line-height: var(--focus-cat);
-}
-
 .side__focus-body .pair {
-  margin: 4px 0 0;
+  margin: 0;
 }
 
 .side__focus-body .pair dd {
@@ -1530,6 +2118,9 @@ input[type='text'] {
   padding: 10px 0 6px;
 }
 
+/* The list's heading is alone on its line, as the split measures it
+   (`measureSplit`): Show states sat beside it from polish.12 until polish.17
+   and in a narrow panel went under it. */
 .side__list > h3,
 .side__list > .side__empty {
   padding: 0 10px;
@@ -1543,8 +2134,8 @@ input[type='text'] {
    Should the two limits cross, in a panel under about 196 px, the least wins,
    and it is never more than the usual split's 55%: the region below then has
    no less than under the usual split with a full list (PLAN C.59). A share,
-   so the line keeps its place as the window, the zoom or the chips change the
-   height. */
+   so the line keeps its place as the window, the zoom or the status bar change
+   the height. */
 .side__regions[data-split] > .side__list {
   flex: none;
   max-height: none;
@@ -1639,15 +2230,17 @@ input[type='text'] {
 /* A short window: the whole panel scrolls as one, with the list at its full
    length. The test is the window's height in CSS pixels, which zoom changes and
    a chapter does not; a test on the panel's own height switched layouts between
-   chapters in the same window, as the filter chips take one to three rows and
-   the status bar one or two. Window sizes below are outer sizes, set on the
+   chapters in the same window, as the filter chips then took one to three rows
+   above the panel (they are the centre column's alone since polish.6) and the
+   status bar takes one or two. Window sizes below are outer sizes, set on the
    real window (PLAN C.49). The smallest window, 900 by 600, is 561 px high
-   inside: two regions at 100%, with a panel of 374 to 451 px, and one scroller
-   from 110% (510 px). The default 1440 by 940 is 901 px: two regions up to
-   150% (601 px), one scroller at 175% (515 px) and 200%. The focused
-   suggestion's box (ui.5) is then the first thing in the one scroller, at the
-   same height, and scrolls away with it: pinned above it, it would leave the
-   list and comments a few pixels in the default window at 200%. */
+   inside: two regions at 100%, with a panel of 468 to 487 px (374 to 451
+   before polish.6), and one scroller from 110% (510 px). The default 1440 by
+   940 is 901 px: two regions up to 150% (601 px), one scroller at 175%
+   (515 px) and 200%. The focused suggestion's box (ui.5) is then the first
+   thing in the one scroller, at the same height, and scrolls away with it:
+   pinned above it, it would leave the list and comments a few pixels in the
+   default window at 200%. */
 @media (height < 540px) {
   .side__body {
     display: block;
@@ -1683,13 +2276,6 @@ input[type='text'] {
   .side__lower {
     border-top: 1px solid var(--border);
   }
-}
-
-.detail__cat {
-  color: var(--cat, var(--ink-soft));
-  text-transform: uppercase;
-  font-size: 11px;
-  letter-spacing: 0.06em;
 }
 
 .detail__anchor {
@@ -2034,7 +2620,8 @@ input[type='text'] {
   margin-bottom: 8px;
 }
 
-/* A row's name; a <label> where it names a control (Appearance, theme.7). */
+/* A row's name; a <label> where it names a control (Appearance, theme.7, and
+   in Settings Claude model and Effort, polish.4). */
 .modal__row > span:first-child,
 .modal__row > label:first-child {
   color: var(--ink-soft);
@@ -2058,6 +2645,111 @@ input[type='text'] {
   font-family: ui-monospace, Consolas, monospace;
   font-size: 12px;
   min-width: 0;
+}
+
+/* Settings (polish.4): three sections under hairlines, as About's are. The
+   box still scrolls in a short window, between its head (the title and any
+   message) and its foot (the welcome guide, About and Done), which stay in
+   view, each with a hairline on its inner side; the scroll padding keeps a
+   control the keyboard moves to clear of them. These two values are only the
+   start: SettingsDialog sets the padding from the head's and the foot's
+   measured height, which grows with a message. The box has no padding of its
+   own at the top and the foot, which the head and the foot give instead, so
+   nothing shows above or below them. */
+.modal--settings {
+  padding: 0 18px;
+  scroll-padding-top: 56px;
+  scroll-padding-bottom: 64px;
+}
+
+.settings__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+  padding: 16px 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings__head .modal__hint {
+  margin: 6px 0 0;
+}
+
+.settings__section {
+  padding-top: 8px;
+}
+
+.settings__section + .settings__section {
+  border-top: 1px solid var(--border);
+}
+
+.settings__section h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.settings__section .modal__note {
+  margin-bottom: 8px;
+}
+
+.settings__foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: var(--panel);
+  margin-top: 4px;
+  padding: 10px 0 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* Settings' rows have a fourth column at their right end, after the buttons,
+   for the row's (?) (HelpTip, polish.15), so that every (?) stands in one line
+   down the right of the dialog. Each row is a grid of its own, so the column
+   is as wide as the (?) in every row, and a row without one (Appearance, the
+   key's field) keeps the cell empty: the buttons then end where those of a
+   row with a (?) do. */
+.modal--settings .modal__row {
+  grid-template-columns: 150px minmax(0, 1fr) auto 18px;
+}
+
+.modal__help {
+  display: flex;
+}
+
+/* The (?): a small round button in the grey of the rows' names. Its focus
+   ring is the browser's own. */
+button.help {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-color: var(--border-strong);
+  border-radius: 50%;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Its card, placed by HelpTip to the left of the (?), over its own row, so
+   that it never covers the (?) above or below in the column (polish.19), and
+   stacked above the head and the foot of the box. */
+.help__tip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  max-width: 340px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / 20%);
 }
 
 .note__action {
@@ -2618,12 +3310,22 @@ input[type='text'] {
   background: var(--focus-bg);
 }
 
+/* In a narrow panel the row's two parts give way in turn (polish.12
+   review): the change first, down to --row-text-floor, a few letters, then
+   the tag, so some of the change always shows. The change takes what the tag
+   leaves (its basis is 0, so it never shrinks beside it), and the tag is
+   never wider than the room the floor and the gap leave it. The button clips
+   what is left over, so nothing it holds is drawn over the pencil. Until
+   polish.17 a decided row had a third part, its status word, ACCEPTED or
+   DISMISSED, which gave way between the two. */
 .row__main {
+  --row-text-floor: 32px;
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
+  overflow: clip;
   border: none;
   background: none;
   border-radius: 4px;
@@ -2635,28 +3337,13 @@ input[type='text'] {
   background: none;
 }
 
-.row__dot {
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--cat, var(--ink-faint));
-}
-
 .row__text {
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-width: var(--row-text-floor);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-prose);
-}
-
-.row__status {
-  flex: 0 0 auto;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-faint);
 }
 
 /* Matches the page: a decided suggestion is grey, not green (item 5). */
@@ -2664,28 +3351,36 @@ input[type='text'] {
   color: var(--ink-soft);
 }
 
-.row--accepted .row__status {
-  color: var(--ink-faint);
-}
-
-.row--accepted .row__dot {
-  background: var(--ink-faint);
-}
-
-.row--dismissed .row__dot {
-  background: var(--border-strong);
-}
-
-/* Words the author wrote themselves, in place of a category dot (item 3). */
-.row__you {
+/* The tag of the chip a row's suggestion is under (polish.12), in place of
+   the category's dot: the category, or YOU for the author's own words (item
+   3), in the chip's colour (`.cat-*`, which `rowTag` names), as the YOU tag
+   was drawn before. It keeps its colour once the suggestion is decided, as
+   the chip does. Its fill is the panel's, whatever the row's background, as
+   a chip's is: the categories hold 4.5:1 as text on --panel, and in dark
+   four of them fall under it on the focused row's --focus-bg (4.03 to 4.28).
+   Since polish.14 it is three letters (`TAG_ABBREVIATIONS`) in a box of one
+   width, so every row's words start in one column: HOM, the widest, is
+   31 px in Segoe UI at 9 px with the border, and 34 px leaves room for a
+   wider fallback font. Where the row is too narrow for it and
+   --row-text-floor of the change, it ends in an ellipsis (.row__main). The
+   legend draws each tag with this rule too. */
+.row__cat {
   flex: 0 0 auto;
+  display: inline-block;
+  width: 34px;
+  max-width: calc(100% - var(--row-text-floor) - 6px);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--cat);
+  background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--cat) 40%, transparent);
   border-radius: 3px;
-  padding: 0 3px;
+  padding: 0 2px;
   line-height: 1.5;
 }
 
@@ -2731,14 +3426,23 @@ input[type='text'] {
   text-transform: uppercase;
 }
 
+/* A row's pencil, tick and x (and the focused suggestion's pencil, which is
+   drawn as one): since polish.14 the icon is 16 px in an 18 px button, where
+   it was 12 px with 3 px of padding, so it reads at 100%; the button is the
+   same size, and so is the focused box's heading line (--focus-head). */
 .row__act {
   flex: 0 0 auto;
   border: none;
   background: none;
-  padding: 3px;
+  padding: 1px;
   line-height: 0;
   color: var(--ink-faint);
   border-radius: 3px;
+}
+
+.row__act svg {
+  width: 16px;
+  height: 16px;
 }
 
 .row__act:hover:not(:disabled) {
@@ -2746,8 +3450,36 @@ input[type='text'] {
   color: var(--ink);
 }
 
-.row__act--on {
-  color: var(--accept);
+/* A decided row (polish.12): the button of its decision is drawn bolder, the
+   accepted tick in --accept-strong and the dismissed x in --danger, and keeps
+   its colour under the pointer. The row's other two buttons fade to
+   --row-fade of the faint grey every row button has (polish.14, where
+   polish.12 drew them a thinner stroke, which hardly showed), so the row
+   reads as done; they are under 3:1 at rest by the author's choice, and come
+   back as any row button, --ink on --border, under the pointer, and --ink
+   with the focus ring when the keyboard brings the focus to one
+   (themeContrast.test.ts). A pending row's buttons are as they were. */
+.row__act--accepted,
+.row__act--accepted:hover:not(:disabled) {
+  color: var(--accept-strong);
+}
+
+.row__act--dismissed,
+.row__act--dismissed:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.row__act--accepted svg,
+.row__act--dismissed svg {
+  stroke-width: 2.6;
+}
+
+.row__act--faded {
+  color: color-mix(in srgb, var(--ink-faint) var(--row-fade), transparent);
+}
+
+.row__act--faded:focus-visible {
+  color: var(--ink);
 }
 
 .stale__where {
@@ -3099,6 +3831,57 @@ input[type='text'] {
   background: var(--unsaved);
 }
 
+/* A chip as the toolbar draws one, an empty pill, centred in the swatch's 16 px
+   (polish.11). */
+.legend__swatch--chip {
+  width: 14px;
+  height: 10px;
+  margin: 0 1px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+/* An accepted row's tick as the suggestions list draws it (polish.12), 16 px
+   since polish.14, as wide as the swatch. */
+.legend__swatch--tick {
+  width: 16px;
+  height: 16px;
+  line-height: 0;
+  color: var(--accept-strong);
+}
+
+.legend__swatch--tick svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.6;
+}
+
+/* An empty tag (polish.14), its border as a row's tag draws it, centred in
+   the swatch's 16 px. */
+.legend__swatch--tag {
+  width: 14px;
+  height: 10px;
+  margin: 0 1px;
+  border: 1px solid color-mix(in srgb, var(--cat-grammar) 40%, transparent);
+  border-radius: 3px;
+}
+
+/* Every tag and its name (polish.14), each tag drawn as on its row
+   (.row__cat), in columns under the item's words. */
+.legend__tags {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: 3px 24px;
+  margin: 5px 0 0;
+}
+
+.legend__tag {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
 /* `.legend p` would otherwise take the gap above it away. */
 .legend .legend__foot {
   margin: 9px 0 0;
@@ -3292,7 +4075,7 @@ input[type='text'] {
   margin-top: 4px;
 }
 
-/* ---------- toolbar menu (item 6) ---------- */
+/* ---------- toolbar menus: Review and Actions (item 6, polish.7) ---------- */
 
 .menu {
   position: relative;
@@ -3326,6 +4109,13 @@ input[type='text'] {
   border-radius: 4px;
   text-align: left;
   padding: 5px 8px;
+}
+
+/* The line between Actions' bulk items and Copy result (polish.7). */
+.menu__sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
 }
 
 /* ---------- file list header (item 7a) ---------- */

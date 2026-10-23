@@ -15,7 +15,8 @@
  */
 
 import type { RenderSegment } from '../render';
-import type { ChangeCategory, Hunk } from '../types';
+import type { Hunk } from '../types';
+import { chipHidden, type RowChip } from './chips';
 import { isSmallChange } from './small';
 
 export interface MarginMark {
@@ -29,18 +30,18 @@ export interface MarginMark {
 /**
  * The marks for one block's segments, in order. Focus wins over a bar: the
  * focused change gets the arrowhead only. A stale change is never in the line,
- * and a category the filter chips hide is never marked.
+ * and a suggestion whose chip the filter hides is never marked (`chipHidden`).
  */
 export function marginMarks(
   segments: readonly RenderSegment[],
   focusedId: string | null,
-  hidden: readonly ChangeCategory[] = []
+  hidden: readonly RowChip[] = []
 ): MarginMark[] {
   const marks: MarginMark[] = [];
   segments.forEach((segment, index) => {
     if (segment.kind !== 'hunk') return;
     const { hunk } = segment;
-    if (hunk.anchor === 'stale' || hidden.includes(hunk.category ?? 'other')) return;
+    if (hunk.anchor === 'stale' || chipHidden(hunk, hidden)) return;
     if (hunk.id === focusedId) marks.push({ kind: 'focus', hunk, index });
     else if (hunk.status === 'pending' && isSmallChange(hunk)) marks.push({ kind: 'bar', hunk, index });
   });

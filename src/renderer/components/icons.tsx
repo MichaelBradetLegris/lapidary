@@ -73,12 +73,18 @@ export function IconArrow({ size = 10 }: IconProps = {}): React.JSX.Element {
   );
 }
 
-/** Edit: opens the editor popover on a suggestion, a selection or a comment. */
+/**
+ * Edit: opens the editor popover on a suggestion, a selection or a comment.
+ *
+ * One path, the outline and the ferrule's line as two subpaths, so its stroke
+ * is painted once: a faded row button draws it in a translucent ink
+ * (polish.14), and as two paths the ink built up where the line's ends meet
+ * the outline, two darker spots on every faded pencil.
+ */
 export function IconPencil({ size = 12 }: IconProps = {}): React.JSX.Element {
   return (
     <svg {...svgProps(size)}>
-      <path d="M11.2 2.6 13.4 4.8 5.6 12.6 2.8 13.2 3.4 10.4z" />
-      <path d="M9.8 4 12 6.2" />
+      <path d="M11.2 2.6 13.4 4.8 5.6 12.6 2.8 13.2 3.4 10.4zM9.8 4 12 6.2" />
     </svg>
   );
 }
@@ -148,6 +154,26 @@ export function IconChevronDown({ size = 12 }: IconProps = {}): React.JSX.Elemen
   return (
     <svg {...svgProps(size)}>
       <path d="M3.5 6 8 10.5 12.5 6" />
+    </svg>
+  );
+}
+
+/** The eye before the category chips while every category is shown (polish.11). */
+export function IconEye({ size = 16 }: IconProps = {}): React.JSX.Element {
+  return (
+    <svg {...svgProps(size)}>
+      <path d="M1.3 8C2.9 5.1 5.3 3.6 8 3.6s5.1 1.5 6.7 4.4c-1.6 2.9-4 4.4-6.7 4.4S2.9 10.9 1.3 8Z" />
+      <circle cx="8" cy="8" r="2.1" />
+    </svg>
+  );
+}
+
+/** The eye closed, while some category is hidden (polish.11): a lid and three lashes. */
+export function IconEyeClosed({ size = 16 }: IconProps = {}): React.JSX.Element {
+  return (
+    <svg {...svgProps(size)}>
+      <path d="M1.6 6.4c1.6 2.5 3.8 3.8 6.4 3.8s4.8-1.3 6.4-3.8" />
+      <path d="M3.9 9.3 2.7 11M8 10.2v2.1M12.1 9.3l1.2 1.7" />
     </svg>
   );
 }

@@ -108,8 +108,8 @@ describe('the question holds the keyboard (apply.7 review), and so does every di
     expect(main.indexOf(page)).toBeGreaterThan(main.indexOf('<div className="app-shell">'));
     const inside = main.slice(main.indexOf(page), main.indexOf(dialogs));
     for (const name of [
+      // The category chips are in the toolbar since polish.10.
       '{toolbar}',
-      '<FilterChips',
       '<FileList',
       '<ReviewPane',
       '<NotificationCards',

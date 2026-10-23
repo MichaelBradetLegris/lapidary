@@ -3,11 +3,12 @@ import { decisionCounts, unsavedDecisionCount } from '../../shared/diff/compose'
 import type { RateLimitInfo } from '../../shared/ipc';
 import { PROVIDER_NAMES, type Review } from '../../shared/types';
 import { KEPT_TOOLTIP, keptPhrase, unsavedPhrase } from '../../shared/ui/save';
+import { TAG_ABBREVIATIONS, TAG_KEYS, tagName } from '../../shared/ui/suggestions';
 import { describeRateLimit, rateLimitTitle } from '../../shared/ui/usage';
 import { canZoom, zoomLabel, type ZoomAction } from '../../shared/ui/zoom';
 import { call } from '../state/client';
 import { reviewKeptAt, useApp } from '../state/store';
-import { IconMinus, IconPlus } from './icons';
+import { IconCheck, IconMinus, IconPlus } from './icons';
 
 interface Props {
   review: Review | null;
@@ -25,10 +26,14 @@ interface Props {
 /**
  * What the three states look like in the pane, since the swap can confuse
  * (item 6), how a small change is drawn and found (PLAN 11.7, `small.10`), and
- * what the unsaved dot means, in the toolbar (apply.4) and the chapter list
- * (apply.5).
+ * what the unsaved dot means, in the window's title (polish.10; in the toolbar
+ * from apply.4) and the chapter list (apply.5), what the chips count and do,
+ * You and the eye included (polish.11) and the comments' (polish.13), and how
+ * the suggestions list shows a decision, by the row's buttons, and the
+ * heading's count (polish.12; Show states went in polish.17), and what each
+ * row's three-letter tag stands for (polish.14). Exported for its render test.
  */
-function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
+export function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -93,10 +98,40 @@ function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
         </li>
         <li>
           <span className="legend__swatch legend__swatch--unsaved" /> <b>Not saved to chapter.</b> The dot
-          before a chapter&apos;s name, at the top of the window or under Chapters, means the chapter has
+          before a chapter&apos;s name, in the window&apos;s title or under Chapters, means the chapter has
           changes its file does not have yet. For the open chapter, Save to chapter and the status bar count
           them. Your decisions are kept automatically in the review, and the status bar says when they were
           last kept.
+        </li>
+        <li>
+          <span className="legend__swatch legend__swatch--chip" /> <b>Categories.</b> The chips at the top
+          count the suggestions in each category, and You counts your own edits, in the colour of their YOU
+          tag. Click a chip to hide or show it, to show only it, or to accept or dismiss all of it. The
+          comments chip, before You, counts the open comments; hiding it hides the comments in the margin and
+          in the side panel, whose heading still counts them. The eye before the chips shows or hides them
+          all, the comments included.
+        </li>
+        <li>
+          <span className="legend__swatch legend__swatch--tick">
+            <IconCheck />
+          </span>{' '}
+          <b>The suggestions list.</b> Each row starts with a tag in its chip&apos;s colour. Once you decide a
+          suggestion, its tick turns a bold green if you accepted it, or its x red if you dismissed it, and
+          the row&apos;s other buttons fade until the pointer is on them; click the tick or the x again to put
+          it back. The Suggestions heading counts the suggestions you have decided.
+        </li>
+        <li>
+          <span className="legend__swatch legend__swatch--tag" /> <b>Tags.</b> Three letters name the
+          category, the same width on every row so the changes start in one column. The pointer on a tag shows
+          its name.
+          <span className="legend__tags">
+            {TAG_KEYS.map((key) => (
+              <span key={key} className="legend__tag">
+                <span className={`row__cat cat-${key}`}>{TAG_ABBREVIATIONS[key]}</span>
+                {tagName(key)}
+              </span>
+            ))}
+          </span>
         </li>
       </ul>
       <p className="legend__foot">

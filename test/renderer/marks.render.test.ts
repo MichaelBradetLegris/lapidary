@@ -132,3 +132,64 @@ describe('margin marks in the review pane (small.8)', () => {
     expect(tagOf(focused, anchor)).toBe('button');
   });
 });
+
+/* The polish.11 review: the prose, the margin and the position strip filter by
+   chip, as the list and the keys do, so hiding You takes the author's own edits
+   off the page and hiding other leaves them. The review found that the prose's
+   filter or the strip's could go back to the category alone, which puts the
+   author's edits under other, with every test passing. */
+describe('the chip filter on the page: You and other (polish.11)', () => {
+  const STOPPED = TEXT.indexOf('stopped');
+  const MINE = h('mine', STOPPED, 'stopped', 'eased', {
+    paragraph: 1,
+    category: 'other',
+    source: 'manual',
+    status: 'accepted',
+    reason: 'Edited by author'
+  });
+  const MINE_SMALL = h('mine-small', TEXT.lastIndexOf('.'), '.', '!', {
+    paragraph: 2,
+    category: 'other',
+    source: 'manual'
+  });
+  const MODEL_OTHER = h('model-other', TEXT.indexOf('began'), 'began', 'begun', {
+    paragraph: 2,
+    category: 'other'
+  });
+  const HYPHEN = HUNKS[0]!;
+  const YOURS: Review = { ...REVIEW, hunks: [HYPHEN, MINE, MODEL_OTHER, MINE_SMALL] };
+  const renderYours = (): string =>
+    renderToStaticMarkup(createElement(ReviewPane, { review: YOURS, onSetCommentStatus: () => undefined }));
+  const onPage = (html: string): string[] =>
+    [...html.matchAll(/class="hunk[^"]*" data-hunk-id="([^"]+)"/g)].map((m) => m[1] ?? '');
+  /** The position strip's marks, as the share of the text each stands at. */
+  const strip = (html: string): string[] =>
+    [...html.matchAll(/class="minimap__mark [^"]*" style="top:([^"]+)%"/g)].map((m) => m[1] ?? '');
+  const at = (hunk: Hunk): string => ((hunk.start / TEXT.length) * 100).toFixed(3);
+  const PARAGRAPH_2 = TEXT.split('\n\n')[1]!;
+
+  it("hiding You takes the author's edits off the line, the margin and the strip, and the line reads the base text", () => {
+    storeWith({ hiddenCategories: ['you'], focusedHunkId: 'mine' });
+    const html = renderYours();
+    expect(onPage(html)).toEqual(['hyphen', 'model-other']);
+    expect(html).toContain(`<span>${PARAGRAPH_2}</span>`);
+    expect(marks(html).map((m) => `${m.kind} ${m.para}`)).toEqual(['bar 0']);
+    expect(strip(html)).toEqual([at(HYPHEN), at(MODEL_OTHER)]);
+  });
+
+  it("hiding other leaves the author's edits on the page and takes the model's other away", () => {
+    storeWith({ hiddenCategories: ['other'], focusedHunkId: 'mine' });
+    const html = renderYours();
+    expect(onPage(html)).toEqual(['hyphen', 'mine', 'mine-small']);
+    expect(html).not.toContain(`<span>${PARAGRAPH_2}</span>`);
+    expect(marks(html).map((m) => `${m.kind} ${m.para}`)).toEqual(['bar 0', 'focus 1', 'bar 2']);
+    expect(strip(html)).toEqual([at(HYPHEN), at(MINE_SMALL)]);
+  });
+
+  it('with nothing hidden, every one is there', () => {
+    storeWith({ hiddenCategories: [], focusedHunkId: 'mine' });
+    const html = renderYours();
+    expect(onPage(html)).toEqual(['hyphen', 'mine', 'model-other', 'mine-small']);
+    expect(strip(html)).toEqual([at(HYPHEN), at(MODEL_OTHER), at(MINE_SMALL)]);
+  });
+});

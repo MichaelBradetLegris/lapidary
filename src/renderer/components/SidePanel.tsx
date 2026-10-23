@@ -3,7 +3,8 @@ import { keptOutNote } from '../../shared/diff/protect';
 import { isAuthored } from '../../shared/edit';
 import type { ReviewSummary } from '../../shared/ipc';
 import { paragraphNumber } from '../../shared/prompt/chapter';
-import { commentList, commentPlace, commentsHeading } from '../../shared/ui/comments';
+import { commentsHidden } from '../../shared/ui/chips';
+import { commentList, commentPlace, commentsHeading, commentsNote } from '../../shared/ui/comments';
 import {
   historyCounts,
   historyWhen,
@@ -12,14 +13,22 @@ import {
   reviewPicker
 } from '../../shared/ui/history';
 import { changeInContext, isSmallChange, sideText, type ChangeInContext } from '../../shared/ui/small';
-import { groupSuggestions, summaryLine } from '../../shared/ui/suggestions';
-import { SHOW_BACKUPS, SHOW_BACKUPS_TITLE } from '../../shared/ui/backups';
+import {
+  DISMISSED_TITLE,
+  groupSuggestions,
+  rowButtonLook,
+  rowLabel,
+  rowTag,
+  suggestionsHeading,
+  summaryLine,
+  type RowButton
+} from '../../shared/ui/suggestions';
 import { PROVIDER_NAMES, type Hunk, type Review, type ReviewComment } from '../../shared/types';
 import { editFromComment, editHunk } from '../state/edit';
 import { followFocus, scrollToElement } from '../state/scroll';
 import { SPLIT_LIST_ID, useSplit } from '../state/splitHandle';
 import { inDraft, isLocked, useApp } from '../state/store';
-import { IconArrow, IconCheck, IconPencil, IconUndo, IconWarning, IconX } from './icons';
+import { IconArrow, IconCheck, IconPencil, IconWarning, IconX } from './icons';
 
 interface Props {
   review: Review;
@@ -27,15 +36,18 @@ interface Props {
   activeReviewPath?: string | null;
   onSetCommentStatus: (id: string, status: ReviewComment['status']) => void;
   onOpenHistory?: (summary: ReviewSummary) => void;
-  /** open the chapter's backup folder (apply.11); the footer shows the button when given */
-  onShowBackups?: () => void;
 }
 
-const STATUS_MARK: Record<Hunk['status'], string> = {
-  pending: '',
-  accepted: 'accepted',
-  dismissed: 'dismissed'
-};
+/**
+ * A row's button classes (polish.12): the button of the row's decision is
+ * on, the accepted ✓ green and the dismissed ✕ red, and the other two fade
+ * (`rowButtonLook`); a pending row's are plain.
+ */
+function actClass(status: Hunk['status'], button: RowButton): string {
+  const look = rowButtonLook(status, button);
+  if (look === 'plain') return 'row__act';
+  return look === 'faded' ? 'row__act row__act--faded' : `row__act row__act--${status}`;
+}
 
 /**
  * A small change's row: a few words of its line on either side, and the
@@ -66,8 +78,7 @@ export function SidePanel({
   history = [],
   activeReviewPath = null,
   onSetCommentStatus,
-  onOpenHistory,
-  onShowBackups
+  onOpenHistory
 }: Props): React.JSX.Element {
   const focusedHunkId = useApp((s) => s.focusedHunkId);
   const hiddenCategories = useApp((s) => s.hiddenCategories);
@@ -89,6 +100,9 @@ export function SidePanel({
 
   const focused = review.hunks.find((h) => h.id === focusedHunkId) ?? null;
   const comments = useMemo(() => commentList(review.comments), [review.comments]);
+  /* While the comments' chip hides them, the heading stays with its count and
+     a line under it says so, where the list was (polish.13). */
+  const commentsEmpty = commentsNote(review.comments.length, commentsHidden(hiddenCategories));
   const picker = useMemo(
     () => reviewPicker(history, activeReviewPath, review),
     [history, activeReviewPath, review]
@@ -198,12 +212,28 @@ export function SidePanel({
         </div>
       ) : null}
       <div className="side__body">
-        {/* Its heading line holds the pencil, which opens the suggestion
-            editor as e does; a longer suggestion or explanation scrolls inside
-            the box. With nothing focused the box keeps its height. */}
+        {/* Its heading line names the category after the heading, in the
+            category's colour, with the anchor when it is not exact
+            ("Focused suggestion · punctuation", polish.8), and ends in the
+            pencil, which opens the suggestion editor as e does; a longer
+            suggestion or explanation scrolls inside the box. With nothing
+            focused the box keeps its height. In a narrow panel the heading's
+            words give way before the category's (app.css); the separator keeps
+            its spaces, so the heading reads as one phrase to a screen reader. */}
         <section className="side__focus">
           <div className="side__focus-head">
-            <h3>Focused suggestion</h3>
+            <h3>
+              <span className="side__focus-title">Focused suggestion</span>
+              {focused ? (
+                <span className={`side__focus-cat cat-${focused.category ?? 'other'}`}>
+                  <span className="side__focus-sep"> · </span>
+                  {isAuthored(focused) ? 'your edit' : (focused.category ?? 'change')}
+                  {focused.anchor !== 'exact' ? (
+                    <span className="detail__anchor"> {focused.anchor}</span>
+                  ) : null}
+                </span>
+              ) : null}
+            </h3>
             {focused ? (
               <button
                 type="button"
@@ -219,12 +249,6 @@ export function SidePanel({
           <div className="side__focus-body" ref={focusBodyRef}>
             {focused ? (
               <>
-                <div className={`detail__cat cat-${focused.category ?? 'other'}`}>
-                  {isAuthored(focused) ? 'your edit' : (focused.category ?? 'change')}
-                  {focused.anchor !== 'exact' ? (
-                    <span className="detail__anchor"> {focused.anchor}</span>
-                  ) : null}
-                </div>
                 <dl className="pair">
                   <dt>Original:</dt>
                   <dd className="pair__original">{sideText(focused.original)}</dd>
@@ -242,7 +266,11 @@ export function SidePanel({
         </section>
         <div className="side__regions" ref={regionsRef} {...regionsProps}>
           <section className="side__section side__list" id={SPLIT_LIST_ID}>
-            <h3>Suggestions ({inline.length})</h3>
+            {/* The heading counts the decided rows as the comments' counts the
+                resolved ones (polish.12). Since polish.17 the rows show a
+                decision by their buttons alone: Show states, the box that
+                wrote ACCEPTED or DISMISSED on them, went with the words. */}
+            <h3>{suggestionsHeading(inline)}</h3>
             {inline.length === 0 ? (
               <p className="side__empty">Nothing to review here.</p>
             ) : (
@@ -253,6 +281,9 @@ export function SidePanel({
                  from the page as it was, and must commit against the same. */
                   const editing = inDraft(drafts, hunk.paragraph);
                   const context = isSmallChange(hunk) ? changeInContext(review.base.text, hunk) : null;
+                  const tag = rowTag(hunk);
+                  const accepted = hunk.status === 'accepted';
+                  const dismissed = hunk.status === 'dismissed';
                   return (
                     <li key={hunk.id}>
                       <div
@@ -271,35 +302,34 @@ export function SidePanel({
                           className="row__main"
                           onClick={() => focusHunk(hunk.id, { scroll: true })}
                           title={hunk.reason ?? ''}
-                          aria-label={
-                            context
-                              ? [isAuthored(hunk) ? 'you' : '', summaryLine(hunk), STATUS_MARK[hunk.status]]
-                                  .filter(Boolean)
-                                  .join(', ')
-                              : undefined
-                          }
+                          aria-label={rowLabel(hunk)}
                         >
-                          {/* Words the author wrote are marked "you" rather than given
-                        a category colour they never chose (item 3). */}
-                          {isAuthored(hunk) ? (
-                            <span className="row__you" title="Your own words">
-                              you
-                            </span>
-                          ) : (
-                            <span className="row__dot" aria-hidden="true" />
-                          )}
+                          {/* The tag of the chip the suggestion is under, in its
+                              colour (polish.12): the category, or YOU for the
+                              author's own words (item 3), which take no colour of
+                              a category they never chose; three letters of fixed
+                              width since polish.14, so the rows' words start in one
+                              column, with the name in full as the tooltip. The
+                              row's name says it as the category, then the change
+                              and its decision (`rowLabel`), which the row itself
+                              shows by its buttons alone (polish.17). */}
+                          <span className={`row__cat cat-${tag.key}`} title={tag.title}>
+                            {tag.text}
+                          </span>
                           {context ? (
                             <ContextText context={context} />
                           ) : (
                             <span className="row__text">{summaryLine(hunk)}</span>
                           )}
-                          {STATUS_MARK[hunk.status] ? (
-                            <span className="row__status">{STATUS_MARK[hunk.status]}</span>
-                          ) : null}
                         </button>
+                        {/* On a decided row the button of its decision stands out,
+                            the accepted ✓ green and the dismissed ✕ red, both
+                            bolder, and the other two fade (polish.12). The
+                            dismissed ✕ stays an ✕, and says a click puts the
+                            suggestion back. */}
                         <button
                           type="button"
-                          className="row__act"
+                          className={actClass(hunk.status, 'edit')}
                           aria-label="Edit this suggestion"
                           title="Edit"
                           disabled={editing}
@@ -309,9 +339,9 @@ export function SidePanel({
                         </button>
                         <button
                           type="button"
-                          className={`row__act ${hunk.status === 'accepted' ? 'row__act--on' : ''}`}
-                          aria-label={hunk.status === 'accepted' ? 'Undo accept' : 'Accept suggestion'}
-                          title={hunk.status === 'accepted' ? 'Undo accept' : 'Accept'}
+                          className={actClass(hunk.status, 'accept')}
+                          aria-label={accepted ? 'Undo accept' : 'Accept suggestion'}
+                          title={accepted ? 'Undo accept' : 'Accept'}
                           disabled={editing}
                           onClick={() => toggleAccepted(hunk.id)}
                         >
@@ -319,15 +349,13 @@ export function SidePanel({
                         </button>
                         <button
                           type="button"
-                          className={`row__act ${hunk.status === 'dismissed' ? 'row__act--on' : ''}`}
-                          aria-label={
-                            hunk.status === 'dismissed' ? 'Undismiss suggestion' : 'Dismiss suggestion'
-                          }
-                          title={hunk.status === 'dismissed' ? 'Undismiss' : 'Dismiss'}
+                          className={actClass(hunk.status, 'dismiss')}
+                          aria-label={dismissed ? 'Undismiss suggestion' : 'Dismiss suggestion'}
+                          title={dismissed ? DISMISSED_TITLE : 'Dismiss'}
                           disabled={editing}
                           onClick={() => toggleDismissed(hunk.id)}
                         >
-                          {hunk.status === 'dismissed' ? <IconUndo /> : <IconX />}
+                          <IconX />
                         </button>
                       </div>
                     </li>
@@ -350,8 +378,8 @@ export function SidePanel({
                 order, an unanchored comment by the paragraph it had. */}
             <section className="side__section">
               <h3>{commentsHeading(review.comments)}</h3>
-              {comments.length === 0 ? (
-                <p className="side__empty">No comments.</p>
+              {commentsEmpty !== null ? (
+                <p className="side__empty">{commentsEmpty}</p>
               ) : (
                 <ul className="comments">
                   {comments.map((comment) => {
@@ -459,15 +487,6 @@ export function SidePanel({
           </div>
         </div>
       </div>
-      {/* Pinned below both regions, so it is in view however far either has
-          scrolled (apply.11). */}
-      {onShowBackups ? (
-        <div className="side__foot">
-          <button type="button" title={SHOW_BACKUPS_TITLE} onClick={onShowBackups}>
-            {SHOW_BACKUPS}
-          </button>
-        </div>
-      ) : null}
     </aside>
   );
 }

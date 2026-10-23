@@ -222,6 +222,29 @@ describe('review store', () => {
     expect(useApp.getState().focusedHunkId).toBe(before);
   });
 
+  it("hides the author's own edits with You, sets the filter whole, and a new review clears it (polish.11)", () => {
+    const review = useApp.getState().review!;
+    const [first, second] = review.hunks;
+    // The second change is the author's own edit.
+    useApp.setState({
+      review: { ...review, hunks: [first!, { ...second!, source: 'manual', category: 'other' }] },
+      focusedHunkId: first!.id
+    });
+    useApp.getState().setHiddenCategories(['you', 'you', 'grammar']);
+    expect(useApp.getState().hiddenCategories).toEqual(['you', 'grammar']);
+    useApp.getState().moveFocus(1);
+    expect(useApp.getState().focusedHunkId).toBe(first!.id);
+    // Hiding other leaves the author's edit in reach.
+    useApp.getState().setHiddenCategories(['other']);
+    useApp.getState().moveFocus(1);
+    expect(useApp.getState().focusedHunkId).toBe(second!.id);
+    useApp.getState().clearCategoryFilter();
+    expect(useApp.getState().hiddenCategories).toEqual([]);
+    useApp.getState().setHiddenCategories(['typo']);
+    useApp.getState().setReview(fresh());
+    expect(useApp.getState().hiddenCategories).toEqual([]);
+  });
+
   it('steps through find matches and wraps at both ends', () => {
     useApp.getState().openFind();
     useApp.getState().setFindQuery('the');
@@ -494,6 +517,43 @@ describe('editing a paragraph in place (Phase 5d)', () => {
     useApp.getState().cancelDraft(0);
     useApp.getState().toggleAccepted('h1');
     expect(useApp.getState().review!.hunks[0]?.status).toBe('accepted');
+  });
+
+  /* The polish.11 review: with You hidden, Ctrl+Enter added the edit and the
+     card said so, but the line, the list and the margin went without it. */
+  it('shows the chip of what the box applied: You for an edit it adds, a category for a suggestion typed exactly, and no other (the polish.11 review)', () => {
+    const state = (): ReturnType<typeof useApp.getState> => useApp.getState();
+    state().setHiddenCategories(['you', 'grammar', 'awkward']);
+    state().openDraft(1);
+    state().setDraftText(1, 'She said nothing.');
+    expect(state().commitDraft(1)).toMatchObject({ status: 'applied', added: 1, accepted: 0 });
+    const added = state().review!.hunks.find((h) => h.source === 'manual')!;
+    expect(state().focusedHunkId).toBe(added.id);
+    expect(state().hiddenCategories).toEqual(['grammar', 'awkward']);
+
+    state().openDraft(0);
+    state().setDraftText(0, 'As he tilted his head aside, the man watched.');
+    expect(state().commitDraft(0)).toMatchObject({ status: 'applied', added: 0, accepted: 1 });
+    expect(state().focusedHunkId).toBe('h1');
+    expect(state().hiddenCategories).toEqual(['grammar']);
+  });
+
+  it('leaves the hidden chips alone when the box applies nothing of theirs', () => {
+    const state = (): ReturnType<typeof useApp.getState> => useApp.getState();
+    state().setHiddenCategories(['you', 'grammar']);
+    state().openDraft(1);
+    expect(state().commitDraft(1)).toEqual({ status: 'noop' });
+    expect(state().hiddenCategories).toEqual(['you', 'grammar']);
+    // Accepting the awkward suggestion by typing it shows nothing hidden.
+    state().openDraft(0);
+    state().setDraftText(0, 'As he tilted his head aside, the man watched.');
+    expect(state().commitDraft(0)).toMatchObject({ status: 'applied', added: 0, accepted: 1 });
+    expect(state().hiddenCategories).toEqual(['you', 'grammar']);
+    // Typing the file's own words back turns it down, and adds nothing.
+    state().openDraft(0);
+    state().setDraftText(0, 'Tilting his head aside, the man watched.');
+    expect(state().commitDraft(0)).toMatchObject({ status: 'applied', added: 0, accepted: 0 });
+    expect(state().hiddenCategories).toEqual(['you', 'grammar']);
   });
 
   it('closes without a change when nothing was typed', () => {

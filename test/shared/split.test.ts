@@ -25,7 +25,8 @@ import {
 /* ui.6: the handle between the side panel's list and the region below. The
    page measures; these are the rules it applies. */
 
-/** The default window at 100% as measured (1424x901 inside): the usual split, 34 suggestions. */
+/** The default window at 100% as measured for ui.6 (1424x901 inside), with the filter chips on one
+    row above the panel, as they were until polish.6: the usual split, 34 suggestions. */
 const DEFAULT_WINDOW: SplitMeasure = {
   total: 568.11,
   list: 312.45,
@@ -43,13 +44,33 @@ const element = (classes: string[], attributes: Record<string, string> = {}) => 
 });
 
 /* The height under the box (CSS px, at 100%, Chapter 01 with 13 categories)
-   in the smallest window, 900 by 600 (884x561 inside), with the filter chips
-   on two rows and the status bar on two, as measured; and with the chips on
-   one row, or on one row with a one-row status bar (C.49's panels less the
+   in the smallest window, 900 by 600 (884x561 inside), as measured for ui.6,
+   while the filter chips were a row across the window above the panel: with
+   the chips on two rows and the status bar on two; and with the chips on one
+   row, or on one row with a one-row status bar (C.49's panels less the
    selector, the box and the footer). */
 const SMALLEST_TWO_ROWS = 180.11;
 const SMALLEST_CHIPS_ONE_ROW = 209.11;
 const SMALLEST_ONE_ROW_EACH = 228.11;
+
+/* The same window since polish.6, when the chips became the centre column's
+   alone, as measured: the status bar on two rows, and on one. The chips no
+   longer count. And the shortest two-region panel measured then, a 1000 by
+   985 window at 175% (562x540 inside), with the toolbar and the status bar on
+   two rows each. */
+const SMALLEST_STATUS_TWO_ROWS = 245.11;
+const SMALLEST_STATUS_ONE_ROW = 264.11;
+const SHORT_TWO_ROWS_EACH = 194.96;
+
+/* The same windows since polish.8, as measured on Chapter 01 of the samples
+   (Chapter 02, with no review, for the status bar on one row): polish.7 took
+   the footer under the regions away (40 px) and put the toolbar on one row in
+   the 1000 by 985 window at 175%, and polish.8 took the category's line out
+   of the box (20 px). And the default window at 100%. */
+const P8_SMALLEST_STATUS_TWO_ROWS = 305.11;
+const P8_SMALLEST_STATUS_ONE_ROW = 324.11;
+const P8_SHORT_WINDOW = 287.25;
+const P8_DEFAULT_WINDOW = 664.11;
 
 describe('the setting (11.3 d)', () => {
   it('keeps a share strictly between 0 and 1, and anything else is the usual split', () => {
@@ -94,7 +115,7 @@ describe('the limits', () => {
 
   it('never gives the list more than the usual split, 55%, in a panel too short for three rows each side (C.59)', () => {
     expect(SPLIT_USUAL_SHARE).toBe(0.55);
-    // The smallest window at 100% with the chips and the status bar on two rows each.
+    // The smallest window at 100% with the chips and the status bar on two rows each (before polish.6).
     const r = room({ total: SMALLEST_TWO_ROWS, current: 0.55 * SMALLEST_TWO_ROWS });
     expect(r.total).toBeLessThan(r.min + r.gap);
     expect(splitMin(r)).toBeCloseTo(99.06, 2);
@@ -139,7 +160,7 @@ describe('the limits', () => {
     expect(splitMovable(room())).toBe(true);
     expect(splitMovable(room({ total: 196 + SPLIT_STEP_PX }))).toBe(true);
     expect(splitMovable(room({ total: 196 + SPLIT_STEP_PX - 0.01 }))).toBe(false);
-    // The smallest window at 100%: only with the chips and the status bar on one row each.
+    // The smallest window at 100% before polish.6: only with the chips and the status bar on one row each.
     expect(splitTravel(room({ total: SMALLEST_ONE_ROW_EACH }))).toBeCloseTo(32.11, 6);
     expect(splitMovable(room({ total: SMALLEST_ONE_ROW_EACH }))).toBe(true);
     expect(splitTravel(room({ total: SMALLEST_CHIPS_ONE_ROW }))).toBeCloseTo(13.11, 6);
@@ -147,6 +168,33 @@ describe('the limits', () => {
     expect(splitMovable(room({ total: SMALLEST_TWO_ROWS }))).toBe(false);
     // C.49's smallest panel with two regions, 356 px, leaves 133 under the box.
     expect(splitMovable(room({ total: 133 }))).toBe(false);
+  });
+
+  it('moves in the smallest window at 100% since the chips left the panel (polish.6)', () => {
+    expect(splitMovable(room({ total: SMALLEST_STATUS_ONE_ROW }))).toBe(true);
+    expect(splitTravel(room({ total: SMALLEST_STATUS_ONE_ROW }))).toBeCloseTo(68.11, 6);
+    expect(splitMovable(room({ total: SMALLEST_STATUS_TWO_ROWS }))).toBe(true);
+    expect(splitTravel(room({ total: SMALLEST_STATUS_TWO_ROWS }))).toBeCloseTo(49.11, 6);
+    // A window just over the one scroller's 540 px with two-row bars is still too short.
+    expect(splitMovable(room({ total: SHORT_TWO_ROWS_EACH }))).toBe(false);
+    expect(splitTravel(room({ total: SHORT_TWO_ROWS_EACH }))).toBe(0);
+  });
+
+  it('moves further since the footer went (polish.7) and the box lost the category line (polish.8)', () => {
+    // The smallest window at 100%, with the status bar on two rows and on one.
+    expect(splitTravel(room({ total: P8_SMALLEST_STATUS_TWO_ROWS }))).toBeCloseTo(109.11, 6);
+    expect(splitTravel(room({ total: P8_SMALLEST_STATUS_ONE_ROW }))).toBeCloseTo(128.11, 6);
+    expect(P8_SMALLEST_STATUS_TWO_ROWS - SMALLEST_STATUS_TWO_ROWS).toBeCloseTo(40 + 20, 6);
+    // The window at the one scroller's limit that had no room for both now has.
+    const short = room({ total: P8_SHORT_WINDOW });
+    expect(short.total).toBeGreaterThan(short.min + short.gap);
+    expect(splitMovable(short)).toBe(true);
+    expect(splitTravel(short)).toBeCloseTo(91.25, 6);
+    // The default window at 100%: the list has 103 to 571 of the 664 px.
+    const usual = room({ total: P8_DEFAULT_WINDOW });
+    expect(splitMin(usual)).toBe(103);
+    expect(splitMax(usual)).toBeCloseTo(571.11, 6);
+    expect(splitTravel(usual)).toBeCloseTo(468.11, 6);
   });
 
   it('turns a height into a share and back to within a hundredth of a pixel', () => {

@@ -47,7 +47,10 @@ describe('the toolbar shows the hint (apply.12)', () => {
   });
 
   it('points the hint at Save to chapter, with the chapter on screen in its words', () => {
-    expect(TOOLBAR).toMatch(/<button\s+ref=\{saveRef\}\s+type="button"\s+className="primary"/);
+    // Primary while a change is waiting (polish.9), as one always is while the hint shows.
+    expect(TOOLBAR).toMatch(
+      /<button\s+ref=\{saveRef\}\s+type="button"\s+className=\{save\.primary \? 'primary' : undefined\}/
+    );
     expect(TOOLBAR).toMatch(
       /<SaveHint\s+anchor=\{saveRef\}\s+text=\{saveHintText\(review\.sourcePath\)\}\s+overProse=\{sideFolded\}\s+onGotIt=\{onSaveHintDone\}\s*\/>/
     );
@@ -101,8 +104,8 @@ describe('App puts it away for good (apply.12)', () => {
 
   it('and a close waits for that write with the others', () => {
     // The page's writes moved to state/pageIo.ts with hardening.4, for the crash page too.
-    expect(read('state/pageIo.ts')).toContain(
-      'Promise.all([flushReviewWrites(), flushDraftWrites(), flushHintWrites(), flushSplitWrites()])'
+    expect(read('state/pageIo.ts')).toMatch(
+      /Promise\.all\(\[\s*flushReviewWrites\(\),\s*flushDraftWrites\(\),\s*flushHintWrites\(\),/
     );
     expect(APP).toContain('writes: PAGE_WRITES,');
   });
@@ -139,22 +142,29 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
     expect(zIndexes().filter((n) => n === z)).toHaveLength(1);
   });
 
-  it('stays clear of the cards and the find bar, which live in the centre column beside the side panel', () => {
-    // The hint keeps to `.body .side` (above). The find bar and the cards are
-    // in `.center-wrap`, the column before it, and never reach out of it: the
-    // find bar is a strip in its flow, and the cards are pinned inside it.
+  it('stays clear of the chips, the cards and the find bar: the chips in the toolbar, the rest in the centre column beside the side panel', () => {
+    // The hint keeps to `.body .side` (above). The chips are in the toolbar's
+    // row since polish.10 (the centre column's top from polish.6), and the hint
+    // hangs below the toolbar's last row; the find bar and the cards are in
+    // `.center-wrap`, and never reach out of it: the find bar is a strip in its
+    // flow, and the cards are pinned inside it.
     // With the side panel folded to a strip (ui.3), its drawer's column lies
     // over the prose's edge, so there the hint may meet them: see
     // test/renderer/columns.test.ts.
     // The main layout, the last App returns: the Setup screen's has its
     // cards in its own column (setup.7, below).
     const main = APP.slice(APP.lastIndexOf('return ('));
+    const column = main.indexOf('<div className="center-col">');
     const wrap = main.indexOf('<div className={`center-wrap');
     const find = main.indexOf('<FindBar />');
     const cards = main.indexOf('<NotificationCards');
     const lock = main.indexOf('<LockCard');
     const side = main.indexOf('<SidePanel');
-    expect(wrap).toBeGreaterThan(0);
+    expect(main).not.toContain('<FilterChips');
+    expect(TOOLBAR.indexOf('<FilterChips')).toBeGreaterThan(-1);
+    expect(TOOLBAR.indexOf('<FilterChips')).toBeLessThan(TOOLBAR.indexOf('<SaveHint'));
+    expect(column).toBeGreaterThan(0);
+    expect(wrap).toBeGreaterThan(column);
     expect(find).toBeGreaterThan(wrap);
     expect(cards).toBeGreaterThan(find);
     expect(lock).toBeGreaterThan(cards);

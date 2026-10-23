@@ -19,7 +19,9 @@ const HOOK = read('state/columns.ts');
 const STRIP = read('components/ColumnStrip.tsx');
 const KEYS = read('state/keyboard.ts');
 const HINT = read('components/SaveHint.tsx');
-const TOOLBAR = read('components/Toolbar.tsx');
+// A menu's behaviour is useMenu's since polish.10 (the toolbar's and a chip's).
+const MENU =
+  read('components/ToolbarMenu.tsx') + read('components/useMenu.ts') + read('components/MenuList.tsx');
 const STATUS = read('components/StatusBar.tsx');
 const FIND = read('components/FindBar.tsx');
 const CSS = read('styles/app.css');
@@ -46,7 +48,9 @@ describe('the page measures itself and lays the columns out (ui.3)', () => {
     expect(HOOK).toMatch(
       /new ResizeObserver\(\(\) => flushSync\(\(\) => setWidth\(element\.clientWidth\)\)\);\s*observer\.observe\(element\);\s*return \(\) => observer\.disconnect\(\);/
     );
-    expect(HOOK).toContain('const layout = useMemo(() => columnLayout(width), [width]);');
+    // With the widths kept in settings, or a drag's while it lasts (polish.5).
+    expect(HOOK).toContain('const kept = live ?? saved;');
+    expect(HOOK).toContain('const layout = useMemo(() => columnLayout(width, kept), [width, kept]);');
     expect(APP).toContain('<div className={bodyClassName(layout)} style={columnStyle} ref={measureBody}>');
   });
 
@@ -93,6 +97,7 @@ describe('each column is in place, or a strip and a drawer (ui.3)', () => {
       '<ColumnStrip column="files"',
       "id={drawerId('files')}",
       '<FileList',
+      '<div className="center-col">',
       '<div className={`center-wrap',
       '<ColumnStrip column="side"',
       "id={drawerId('side')}",
@@ -193,22 +198,25 @@ describe('how a drawer closes (ui.3)', () => {
   /* ui.3 review: with a drawer open and the focus in the find box, one Escape
      closed the find bar and the drawer. The box's own handler runs first, at
      React's root, and closes the bar; the window listener then found the bar
-     closed and went on to the drawer. With the Bulk menu or the legend open,
+     closed and went on to the drawer. With the Bulk menu (now Actions, and
+     Review beside it, polish.7) or the legend open,
      whose window listeners close them on Escape, the same press closed the
      drawer as well, or the drawer under the legend first. */
   it('with Escape, one thing a press: never behind a dialog, never one something else has taken, never under a menu', () => {
     expect(KEYS).toMatch(
       /const drawerEscape =\s*event\.key === 'Escape' &&\s*useDrawer\.getState\(\)\.open !== null &&\s*!isModalOpen\(state\) &&\s*!event\.defaultPrevented &&\s*!popupTakesEscape\(\);/
     );
-    // What popupTakesEscape looks for is what the Bulk menu and the legend draw.
+    // What popupTakesEscape looks for is what the toolbar's menus (polish.7) and the legend draw.
     expect(HOOK).toContain("const CLOSES_ON_ESCAPE = '.menu__list, .legend';");
     expect(HOOK).toMatch(
       /export function popupTakesEscape\(\): boolean \{\s*return document\.querySelector\(CLOSES_ON_ESCAPE\) !== null;\s*\}/
     );
-    expect(TOOLBAR).toContain('<div className="menu__list" role="menu">');
+    expect(MENU).toMatch(
+      /<div\s+ref=\{listRef\}\s+className=\{className \? `menu__list \$\{className\}` : 'menu__list'\}\s+role="menu"\s[^>]*onKeyDown=\{onListKey\}[^>]*>/
+    );
     expect(STATUS).toContain('<div className="legend" ref={ref} role="dialog"');
     // Each takes the press it closes on, so it closes no drawer whichever runs first.
-    for (const source of [TOOLBAR, STATUS]) {
+    for (const source of [MENU, STATUS]) {
       expect(source).toMatch(
         /const onKeyDown = \(event: KeyboardEvent\): void => \{\s*if \(event\.key !== 'Escape'\) return;\s*event\.preventDefault\(\);/
       );
@@ -232,7 +240,7 @@ describe('the first-use hint keeps to the side panel wherever it is drawn (ui.3)
 
   it('is placed again when the columns are laid out again, which the toolbar may not notice', () => {
     expect(HINT).toMatch(
-      /for \(const column of document\.querySelectorAll\('\.body \.side, \.body > \.center-wrap'\)\) \{\s*observer\.observe\(column\);\s*\}/
+      /for \(const column of document\.querySelectorAll\('\.body \.side, \.body > \.center-col'\)\) \{\s*observer\.observe\(column\);\s*\}/
     );
   });
 });

@@ -123,8 +123,18 @@ export interface SaveButtonState {
   disabled: boolean;
   /** the tooltip */
   title: string;
-  /** true when the chapter name in the toolbar gets the unsaved dot */
+  /**
+   * true when the chapter is marked as having changes not saved to it: the
+   * dot that leads the window's title (`windowTitle`, polish.10; before it, a
+   * dot before the chapter name in the toolbar) and the one before its name in
+   * the chapter list
+   */
   dot: boolean;
+  /**
+   * true when the button is a primary one, filled in the turquoise: only while
+   * changes are waiting to be written, or a save of them is under way (polish.9)
+   */
+  primary: boolean;
 }
 
 /**
@@ -132,21 +142,41 @@ export interface SaveButtonState {
  * something is not saved, plain "Save to chapter" when the file already reads
  * like the page. It stays enabled then, and a press says so
  * (`CHAPTER_MATCHES_PAGE`), because a button that turns grey for no visible
- * reason is harder to read than one that answers. `dot` puts the unsaved dot
- * before the chapter name, labelled by `unsavedDotLabel`.
+ * reason is harder to read than one that answers. `dot` says the chapter has
+ * changes not saved to it, which the window's title and the chapter list mark.
+ *
+ * `primary` (polish.9): with nothing to save the button is an ordinary one,
+ * and it turns primary only while changes are waiting, so the colour itself
+ * says so. Outside a save it goes with the dot. Disabled keeps its look, the
+ * fade over whichever button the count gives: with no chapter open, or a
+ * review running on one with nothing to save, the faded button is the plain
+ * one. "Saving…" is the faded turquoise from start to end, whatever the count:
+ * a save starts only with changes to write, and once the chapter file is
+ * written the count is 0 (`markSaved`) while the save still writes the review
+ * (`runSave`), which with the count would have turned "Saving…" plain for its
+ * last moments. An open paragraph box counts only once its Done makes it a
+ * change, as for the label and the dot.
  */
 export function saveButtonState(input: SaveButtonInput): SaveButtonState {
   const n = input.unsavedDecisions;
   if (!input.hasChapter) {
-    return { label: 'Save to chapter', disabled: true, title: 'Open a chapter to save to it.', dot: false };
+    return {
+      label: 'Save to chapter',
+      disabled: true,
+      title: 'Open a chapter to save to it.',
+      dot: false,
+      primary: false
+    };
   }
   const dot = n > 0;
+  const primary = dot;
   if (input.saving) {
-    return { label: 'Saving…', disabled: true, title: 'Writing the chapter file.', dot };
+    // Primary until the save ends, though the count is 0 once the file is written.
+    return { label: 'Saving…', disabled: true, title: 'Writing the chapter file.', dot, primary: true };
   }
   const label = n > 0 ? `Save ${changeCount(n)} to chapter` : 'Save to chapter';
   if (input.locked) {
-    return { label, disabled: true, title: 'Wait for the review to finish, then save.', dot };
+    return { label, disabled: true, title: 'Wait for the review to finish, then save.', dot, primary };
   }
   if (input.changedParagraphs > 0) {
     const boxes =
@@ -155,14 +185,15 @@ export function saveButtonState(input: SaveButtonInput): SaveButtonState {
       label,
       disabled: false,
       title: `Write your decisions into the chapter file (Ctrl+S). You are asked first about ${boxes} you are editing.`,
-      dot
+      dot,
+      primary
     };
   }
   if (n > 0) {
     const what = n === 1 ? 'this change' : `these ${n} changes`;
-    return { label, disabled: false, title: `Write ${what} into the chapter file (Ctrl+S).`, dot };
+    return { label, disabled: false, title: `Write ${what} into the chapter file (Ctrl+S).`, dot, primary };
   }
-  return { label, disabled: false, title: CHAPTER_MATCHES_PAGE, dot };
+  return { label, disabled: false, title: CHAPTER_MATCHES_PAGE, dot, primary };
 }
 
 /**
@@ -175,9 +206,9 @@ export function unsavedPhrase(n: number): string {
 }
 
 /**
- * The tooltip and spoken name of the dot before the chapter name (apply.4):
- * "3 changes are not saved to the chapter yet." Empty at zero, when there is
- * no dot.
+ * The tooltip and spoken name of the dot before a chapter's name in the
+ * chapter list (apply.4, apply.5): "3 changes are not saved to the chapter
+ * yet." Empty at zero, when there is no dot.
  */
 export function unsavedDotLabel(n: number): string {
   return n > 0 ? countLine(n) : '';

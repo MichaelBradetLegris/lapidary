@@ -290,6 +290,30 @@ describe('a save naming a folder or guidelines file the app cannot use', () => {
       guidelinesPath: null
     });
   });
+
+  /* polish.17: Show states went, and `showRowStates` with it. A file written
+     while it was there keeps the key until the next save, which leaves it out
+     and keeps everything else the file said. */
+  it('reads a file that still holds showRowStates, and the next save leaves the key out', async () => {
+    const dir = scratch();
+    writeFileSync(
+      path.join(dir, SETTINGS_FILE),
+      `${JSON.stringify({ ...DEFAULT_SETTINGS, manuscriptFolder: 'C:\\Novel', zoom: 1.25, showRowStates: false }, null, 2)}\n`
+    );
+    const store = createSettingsStore({ dir, sleep: noWait });
+    const read = await store.load();
+    expect(read).toEqual({ ...DEFAULT_SETTINGS, manuscriptFolder: 'C:\\Novel', zoom: 1.25 });
+    expect(Object.keys(read)).not.toContain('showRowStates');
+    await store.save({ sideSplit: 0.4 });
+    const onDisk = JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')) as Record<string, unknown>;
+    expect(Object.keys(onDisk)).not.toContain('showRowStates');
+    expect(onDisk).toEqual({
+      ...DEFAULT_SETTINGS,
+      manuscriptFolder: 'C:\\Novel',
+      zoom: 1.25,
+      sideSplit: 0.4
+    });
+  });
 });
 
 /* hardening.15: a load says when settings.json could not be read, so

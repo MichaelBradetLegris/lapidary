@@ -94,6 +94,7 @@ describe('a suggestion kept out of the text, under Unanchored (files.7)', () => 
     const list = [...html.matchAll(/<button type="button" class="row__main"[^>]*>([\s\S]*?)<\/button>/g)].map(
       (m) => text(m[1] ?? '')
     );
-    expect(list).toEqual(['began \u2192 begun']);
+    // The row's tag (polish.12, three letters since polish.14), then its change.
+    expect(list).toEqual(['GRM began \u2192 begun']);
   });
 });

@@ -5,6 +5,7 @@ import { createReview } from '../../src/shared/review';
 import { normalizeSettings } from '../../src/shared/settings';
 import type { Review } from '../../src/shared/types';
 import { isModalOpen, reviewKeysActive, useApp, type AppState } from '../../src/renderer/state/store';
+import { isTypingField } from '../../src/shared/ui/navigate';
 
 /* apply.20 review: the page's keys acted behind Review with AI. With the
    dialog open and the focus on the page, a accepted the focused suggestion out
@@ -164,5 +165,46 @@ describe('the key handler asks it (apply.20 review)', () => {
     const guard = code.indexOf('if (!state.review || isModalOpen(state)) return;', find);
     expect(guard).toBeGreaterThan(find);
     expect(guard).toBeLessThan(code.indexOf('state.openFind();'));
+  });
+});
+
+/* polish.12 review: Show states was a checkbox that stayed on screen once
+   clicked, and a click left the focus on it. Every INPUT counted as typing,
+   so the review keys did nothing after a click on it until the author clicked
+   somewhere else. A checkbox is no longer typing; Space still ticks it, as the
+   switch returns before preventDefault on any key it does not know. The box
+   went in polish.17; the rule stays, for the comments' Resolve box reached
+   with Tab. */
+describe('a checkbox is not typing (polish.12 review)', () => {
+  const field = (tagName: string, type?: string, isContentEditable = false) => ({
+    tagName,
+    type,
+    isContentEditable
+  });
+
+  it('lets the review keys act on a focused checkbox, as on a button', () => {
+    expect(isTypingField(field('INPUT', 'checkbox'))).toBe(false);
+    expect(isTypingField(field('BUTTON', 'button'))).toBe(false);
+    expect(isTypingField(field('DIV'))).toBe(false);
+    expect(isTypingField(null)).toBe(false);
+  });
+
+  it('still leaves them to a text field, a radio group, a text area, a select and editable text', () => {
+    for (const type of ['text', 'search', 'number', 'radio']) {
+      expect(isTypingField(field('INPUT', type)), type).toBe(true);
+    }
+    expect(isTypingField(field('TEXTAREA', 'textarea'))).toBe(true);
+    expect(isTypingField(field('SELECT', 'select-one'))).toBe(true);
+    expect(isTypingField(field('DIV', undefined, true))).toBe(true);
+  });
+
+  it('is what the key handler asks, before the review keys, and Space is left to the box', () => {
+    const source = readFileSync(path.join(__dirname, '../../src/renderer/state/keyboard.ts'), 'utf8');
+    expect(source).toContain('return target instanceof HTMLElement && isTypingField(target);');
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '');
+    const sw = code.indexOf('switch (key)');
+    expect(code.indexOf('if (isTypingTarget(event.target)) return;')).toBeLessThan(sw);
+    expect(code).not.toContain("case ' ':");
+    expect(code.slice(sw)).toMatch(/default:\s*return;\s*\}\s*event\.preventDefault\(\);/);
   });
 });

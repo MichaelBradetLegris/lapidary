@@ -11,6 +11,8 @@ import {
   CHAPTER_MATCHES_PAGE,
   PRESS_DONE_FIRST,
   PRESS_EDITOR_SAVE_FIRST,
+  saveButtonInput,
+  saveButtonState,
   saveShortcutAction
 } from '../../src/shared/ui/save';
 
@@ -25,6 +27,7 @@ import {
 } from '../../src/renderer/state/saveChapter';
 import {
   changedParagraphCount,
+  isLocked,
   isModalOpen,
   isWrittenReview,
   savedReview,
@@ -654,6 +657,96 @@ describe('Save to chapter (apply.3)', () => {
     expect(await first).toBe('saved');
     expect(await second).toBe('nothing-to-save');
     expect(h.requests).toHaveLength(1);
+  });
+});
+
+/* polish.9: Save to chapter is in the turquoise from the start of a save to
+   its end. The count falls to 0 as soon as the chapter file is written
+   (`markSaved`), while the save still writes the review, so a look taken from
+   the count alone turned "Saving…" plain for that last stretch. */
+describe('the Save button during a save (polish.9)', () => {
+  /** Save to chapter as the toolbar draws it, from the store. */
+  function look(): { label: string; disabled: boolean; dot: boolean; primary: boolean; unsaved: number } {
+    const s = state();
+    const { label, disabled, dot, primary } = saveButtonState(
+      saveButtonInput({
+        review: s.review,
+        changedParagraphs: changedParagraphCount(s.drafts),
+        saving: s.chapterSaving,
+        locked: isLocked(s)
+      })
+    );
+    return { label, disabled, dot, primary, unsaved: s.review ? unsavedDecisionCount(s.review.hunks) : 0 };
+  }
+
+  /** The harness's deps, noting the button's look as each is called. */
+  function watched(h: ReturnType<typeof harness>) {
+    const atSave: ReturnType<typeof look>[] = [];
+    const atReview: ReturnType<typeof look>[] = [];
+    const deps: SaveDeps = {
+      ...h.deps,
+      saveFile: (request) => {
+        atSave.push(look());
+        return h.deps.saveFile(request);
+      },
+      writeReview: (review, file) => {
+        atReview.push(look());
+        return h.deps.writeReview(review, file);
+      }
+    };
+    return { deps, atSave, atReview };
+  }
+
+  const SAVING = { label: 'Saving…', disabled: true, primary: true };
+
+  it('stays turquoise while the review is written after the chapter file', async () => {
+    state().toggleAccepted('h1');
+    expect(look()).toEqual({
+      label: 'Save 1 change to chapter',
+      disabled: false,
+      dot: true,
+      primary: true,
+      unsaved: 1
+    });
+    const w = watched(harness({ status: 'written', hash: 'h2' }));
+    expect(await saveChapter({ applyDrafts: 'ask' }, w.deps)).toBe('saved');
+    expect(w.atSave).toEqual([{ ...SAVING, dot: true, unsaved: 1 }]);
+    expect(w.atReview).toEqual([{ ...SAVING, dot: false, unsaved: 0 }]);
+    expect(look()).toEqual({
+      label: 'Save to chapter',
+      disabled: false,
+      dot: false,
+      primary: false,
+      unsaved: 0
+    });
+  });
+
+  it('stays turquoise too when main found the bytes already there', async () => {
+    state().toggleAccepted('h1');
+    const w = watched(harness({ status: 'written', hash: 'h1', unchanged: true }));
+    expect(await saveChapter({ applyDrafts: 'ask' }, w.deps)).toBe('nothing-to-save');
+    expect(w.atReview).toEqual([{ ...SAVING, dot: false, unsaved: 0 }]);
+    expect(look()).toMatchObject({ label: 'Save to chapter', primary: false });
+  });
+
+  it('stays turquoise when a rebase leaves nothing to count before the second try', async () => {
+    // The author made the same change in Obsidian while the page waited to save it.
+    state().toggleAccepted('h1');
+    const disk: FileContent = {
+      path: SOURCE,
+      text: CHAPTER.replace('Tilting', 'As he tilted'),
+      hash: 'h3',
+      eol: 'lf',
+      bom: false,
+      trailingNewline: true
+    };
+    const w = watched(harness({ status: 'stale', disk }, { status: 'written', hash: 'h3', unchanged: true }));
+    await saveChapter({ applyDrafts: 'ask' }, w.deps);
+    expect(w.atSave).toEqual([
+      { ...SAVING, dot: true, unsaved: 1 },
+      { ...SAVING, dot: false, unsaved: 0 }
+    ]);
+    expect(look()).toMatchObject({ label: 'Save to chapter', primary: false });
   });
 });
 

@@ -15,10 +15,18 @@
  *
  * Everything here is a function of the window's width in CSS pixels, which
  * zoom changes and nothing on the page does, so the layout cannot feed back on
- * itself. `src/renderer/state/columns.ts` measures the width and applies it.
+ * itself, and of the widths the author set by moving the columns' inner edges
+ * (polish.5, `columnWidths` in settings), each a share of the window's width,
+ * which take the place of the usual widths before anything gives way. They
+ * change where the columns are drawn, never where they fold: a column folds
+ * at the window width it folded at before, whatever its width was set to.
+ * `src/renderer/state/columns.ts` measures the width and applies it; the
+ * edges' rules are in `columnHandle.ts`.
  *
  * Pure (CLAUDE.md rule 4).
  */
+
+import type { ColumnShares } from '../types';
 
 /** The width the centre column is kept at while the window allows it, in CSS pixels. */
 export const PROSE_MIN = 480;
@@ -55,10 +63,35 @@ export const SIDE_WIDTHS: ColumnWidths = { min: 240, share: 0.24, max: 320, floo
 
 export type Column = 'files' | 'side';
 
+/** Each column's widths. */
+export const COLUMN_WIDTHS: Readonly<Record<Column, ColumnWidths>> = Object.freeze({
+  files: FILES_WIDTHS,
+  side: SIDE_WIDTHS
+});
+
+/** Both columns at their usual widths: the `columnWidths` setting of a first run. */
+export const USUAL_COLUMN_WIDTHS: Readonly<ColumnShares> = Object.freeze({ files: null, side: null });
+
+/**
+ * A column's width from settings.json: a share of the window's width strictly
+ * between 0 and 1, or null, its usual width, for anything else.
+ */
+export function normalizeColumnShare(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 && value < 1 ? value : null;
+}
+
+/** The `columnWidths` setting (PLAN 11.3 d) from whatever settings.json holds. */
+export function normalizeColumnWidths(value: unknown): ColumnShares {
+  const raw = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+  return { files: normalizeColumnShare(raw['files']), side: normalizeColumnShare(raw['side']) };
+}
+
 /** A side column drawn in place, or folded to a strip. */
 export type ColumnMode = 'full' | 'strip';
 
 export interface ColumnLayout {
+  /** the window's width the layout is for, in CSS pixels, which a column's set width is a share of */
+  width: number;
   files: ColumnMode;
   side: ColumnMode;
   /** the chapter list's grid column, in CSS pixels: its width, or the strip's */
@@ -67,7 +100,7 @@ export interface ColumnLayout {
   sideWidth: number;
   /** what the two leave the centre column */
   centre: number;
-  /** a folded chapter list's drawer width, its usual width less what the window cannot spare */
+  /** a folded chapter list's drawer width, its usual or set width less what the window cannot spare */
   filesDrawer: number;
   /** a folded side panel's drawer width */
   sideDrawer: number;
@@ -75,44 +108,60 @@ export interface ColumnLayout {
   narrow: boolean;
 }
 
-/** The width a column takes when nothing has to give: its share of the window, between its limits. */
+/** The usual width of a column when nothing has to give: its share of the window, between its limits. */
 export function preferredWidth(spec: ColumnWidths, width: number): number {
   return Math.floor(Math.min(spec.max, Math.max(spec.min, spec.share * width)));
 }
 
 /**
+ * The width a column takes when nothing has to give (polish.5): the share of
+ * the window the author set, to the nearest pixel and never under the
+ * column's floor, or its usual width when they set none. Rounded to the
+ * nearest pixel, not down, so a share written for a width gives that width
+ * back in the same window.
+ */
+export function keptWidth(spec: ColumnWidths, share: number | null, width: number): number {
+  if (share === null) return preferredWidth(spec, width);
+  return Math.max(spec.floor, Math.round(share * width));
+}
+
+/**
  * The layout for a window `width` CSS pixels wide (the page's own width, which
- * zoom changes), in four steps, the first that leaves the centre column
+ * zoom changes), with the widths the author set (`kept`, the usual widths
+ * where null), in four steps, the first that leaves the centre column
  * `PROSE_MIN`:
  *
- * 1. both columns at their preferred widths;
+ * 1. both columns at their set or usual widths (`keptWidth`);
  * 2. both columns given back toward their floors, each in proportion to what
  *    it can give, so neither reaches its floor before the other;
- * 3. the chapter list folded to a strip, the side panel at its preferred width
- *    or less, down to its floor;
+ * 3. the chapter list folded to a strip, the side panel at its set or usual
+ *    width or less, down to its floor;
  * 4. both folded, and the centre column takes the rest, `narrow` when that is
  *    still less than `PROSE_MIN`.
  *
- * Column widths are whole pixels, rounded down, so the centre column gets the
- * fractions and never ends up a pixel short.
+ * The step depends on the window's width alone from step 3 on: the list folds
+ * below the width that leaves its floor, the panel's and `PROSE_MIN`, and the
+ * panel below the strip's, its floor and `PROSE_MIN`, whatever was set.
+ *
+ * Column widths are whole pixels, rounded down where a column gives way, so
+ * the centre column gets the fractions and never ends up a pixel short.
  */
-export function columnLayout(width: number): ColumnLayout {
+export function columnLayout(width: number, kept: ColumnShares = USUAL_COLUMN_WIDTHS): ColumnLayout {
   const w = Number.isFinite(width) ? Math.max(0, width) : 0;
-  const files = preferredWidth(FILES_WIDTHS, w);
-  const side = preferredWidth(SIDE_WIDTHS, w);
-  const drawers = {
-    filesDrawer: drawerWidth(files, w),
-    sideDrawer: drawerWidth(side, w)
-  };
+  const files = keptWidth(FILES_WIDTHS, kept.files, w);
+  const side = keptWidth(SIDE_WIDTHS, kept.side, w);
   const make = (f: ColumnMode, fw: number, s: ColumnMode, sw: number): ColumnLayout => {
     const centre = w - fw - sw;
     return {
+      width: w,
       files: f,
       side: s,
       filesWidth: fw,
       sideWidth: sw,
       centre,
-      ...drawers,
+      // A drawer leaves its own strip, the other column as drawn, and some prose.
+      filesDrawer: drawerWidth(files, w - STRIP_WIDTH - sw),
+      sideDrawer: drawerWidth(side, w - STRIP_WIDTH - fw),
       narrow: centre < PROSE_MIN
     };
   };
@@ -134,12 +183,15 @@ export function columnLayout(width: number): ColumnLayout {
 }
 
 /**
- * An open drawer is the column's preferred width, but leaves both strips and
- * `DRAWER_MARGIN` of the centre column uncovered, so there is always some
- * prose to click to close it.
+ * An open drawer is the column's set or usual width, but leaves its own strip,
+ * the other column as drawn and `DRAWER_MARGIN` of the centre column
+ * uncovered, so there is always some prose to click to close it. `beside` is
+ * the window less the drawer's strip and the other column: with both folded,
+ * the window less both strips. A drawer opened beside the side panel in place
+ * never covers it (polish.5), however wide the list was set.
  */
-function drawerWidth(preferred: number, width: number): number {
-  return Math.max(0, Math.min(preferred, Math.floor(width - 2 * STRIP_WIDTH - DRAWER_MARGIN)));
+function drawerWidth(kept: number, beside: number): number {
+  return Math.max(0, Math.min(kept, Math.floor(beside - DRAWER_MARGIN)));
 }
 
 /**

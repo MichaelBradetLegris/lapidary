@@ -1100,9 +1100,10 @@ describe('the wiring (apply.9)', () => {
     expect(io).toContain("onMain('app:close-requested'");
     expect(io).toContain("onMain('app:flush'");
     // apply.12 adds the hint writes, so a hint Save and close puts away is on disk first,
-    // and ui.6 the split's, so a split moved just before a close is kept.
+    // ui.6 the split's, so a split moved just before a close is kept, and polish.5 the
+    // columns' widths (polish.12's Show states went in polish.17).
     expect(io).toMatch(
-      /Promise\.all\(\[flushReviewWrites\(\), flushDraftWrites\(\), flushHintWrites\(\), flushSplitWrites\(\)\]\)/
+      /Promise\.all\(\[\s*flushReviewWrites\(\),\s*flushDraftWrites\(\),\s*flushHintWrites\(\),\s*flushSplitWrites\(\),\s*flushColumnWrites\(\)\s*\]\)/
     );
     expect(io).toContain('retryReviewWrites();');
     expect(io).toContain('retryDraftWrites();');

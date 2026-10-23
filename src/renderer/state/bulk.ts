@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { bulkPlan, type BulkAction } from '../../shared/ui/bulk';
-import type { ChangeCategory } from '../../shared/types';
+import type { ChipKey } from '../../shared/ui/chips';
 import { isLocked, useApp } from './store';
 
 /**
@@ -8,13 +8,13 @@ import { isLocked, useApp } from './store';
  * and the category chips alike, goes through this so the count in the modal and
  * the hunks that actually change can never disagree.
  */
-export function useBulkAction(): (action: BulkAction, category?: ChangeCategory) => void {
+export function useBulkAction(): (action: BulkAction, category?: ChipKey) => void {
   const askConfirm = useApp((s) => s.askConfirm);
   const applyBulk = useApp((s) => s.applyBulk);
   const notify = useApp((s) => s.notify);
 
   return useCallback(
-    (action: BulkAction, category?: ChangeCategory) => {
+    (action: BulkAction, category?: ChipKey) => {
       const state = useApp.getState();
       const review = state.review;
       if (!review || isLocked(state)) return;

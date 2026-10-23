@@ -76,6 +76,38 @@ export function commentsHeading(comments: readonly Pick<ReviewComment, 'status'>
   return `Comments (${resolved} of ${comments.length} resolved)`;
 }
 
+/** Under the comments' heading while the comments' chip hides them (polish.13). */
+export const COMMENTS_HIDDEN_NOTE = 'Hidden. The comments chip at the top shows them again.';
+
+/**
+ * What the side panel writes under the comments' heading in place of the
+ * list, or null when it lists them: "No comments." for a review with none,
+ * and `COMMENTS_HIDDEN_NOTE` while the comments' chip hides them (polish.13),
+ * the heading keeping its count above it, as a hidden chip keeps its own.
+ */
+export function commentsNote(count: number, hidden: boolean): string | null {
+  if (count === 0) return 'No comments.';
+  return hidden ? COMMENTS_HIDDEN_NOTE : null;
+}
+
+/**
+ * Where the `n` key goes from the paragraph `after` (-1 when no suggestion is
+ * focused): the first open comment on a paragraph below it, in reading order,
+ * or the first of them all when none is below, so it goes round. Null when no
+ * open comment has a paragraph, and while the comments' chip hides them
+ * (polish.13): the key then does nothing, as j and k pass over a hidden
+ * chip's suggestions.
+ */
+export function nextComment<T extends Pick<ReviewComment, 'paragraph' | 'wasParagraph' | 'status'>>(
+  comments: readonly T[],
+  after: number,
+  hidden = false
+): T | null {
+  if (hidden) return null;
+  const open = sortComments(comments).filter((c) => c.status === 'open' && c.paragraph !== null);
+  return open.find((c) => (c.paragraph ?? 0) > after) ?? open[0] ?? null;
+}
+
 /**
  * Where a comment sits, beside its category: "paragraph 12", "unanchored (was
  * paragraph 12)" for one whose paragraph left the file (ui.7), or "chapter"

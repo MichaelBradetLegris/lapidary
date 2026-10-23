@@ -6,6 +6,7 @@ import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
 import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
 import { mergeReloadRun, rebaseCardText, rebaseCardTone, type ReloadRun } from '../shared/ui/rebase';
 import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
+import { windowTitleFor } from '../shared/ui/title';
 import {
   CLAUDE_RUNTIME_CARD,
   canTryReviewAnyway,
@@ -30,7 +31,6 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { DiagnosticsDialog } from './components/DiagnosticsDialog';
 import { EditPopover } from './components/EditPopover';
 import { FileList } from './components/FileList';
-import { FilterChips } from './components/FilterChips';
 import { FindBar } from './components/FindBar';
 import { HunkTooltip } from './components/HunkTooltip';
 import { LockCard } from './components/LockCard';
@@ -50,6 +50,7 @@ import { WelcomeScreen } from './components/WelcomeScreen';
 import { ApiError, call, errorMessage } from './state/client';
 import { installCloseGuard, prepareToLeaveApp, type CloseGuardDeps } from './state/closeGuard';
 import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state/drafts';
+import { useColumnHandle } from './state/columnHandles';
 import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
 import { dismissHint, type HintIo } from './state/hints';
 import { CLOSE_GUARD_IO, PAGE_WRITES } from './state/pageIo';
@@ -171,6 +172,15 @@ export function App(): React.JSX.Element {
   const ai = useAi();
   const claudeRuntime = ai.runtimes.claude ?? null;
   const progressLabel = useProgressLabel(ai.running, ai.startedAt, ai.progress?.outputTokens);
+
+  /* The chapter's name, and the dot while changes are not saved to it, in
+     the window's own title (polish.10, `windowTitle`): Electron gives the
+     window the page's title, so they show in the title bar and on the
+     taskbar, and the toolbar's row is left to the chips. */
+  const title = useMemo(() => windowTitleFor(review), [review]);
+  useEffect(() => {
+    document.title = title;
+  }, [title]);
 
   /* The welcome guide, until Start or Skip (setup.11): a fresh install has no
      settings file, so `onboardingDone` is false. Start and Skip close it for
@@ -348,14 +358,19 @@ export function App(): React.JSX.Element {
 
   /* The side columns give way to the prose in a narrow window, which is what
      zooming in makes: they shrink, then fold to strips that open them as
-     drawers over the edge of the prose (ui.3, state/columns.ts). */
+     drawers over the edge of the prose (ui.3, state/columns.ts). Each has a
+     handle on its inner edge while it is drawn in place, which sets its width
+     (polish.5, state/columnHandles.ts). */
   const {
     layout,
+    setLive: setLiveWidths,
     shown,
     measure: measureBody,
     style: columnStyle,
     toggle: toggleDrawer
   } = useColumns(review !== null);
+  const filesHandle = useColumnHandle('files', layout, setLiveWidths);
+  const sideHandle = useColumnHandle('side', layout, setLiveWidths);
 
   /* ---------------- leaving (apply.7, state/leave.ts) ---------------- */
 
@@ -657,7 +672,8 @@ export function App(): React.JSX.Element {
       .catch((err: unknown) => notify('error', errorMessage(err)));
   }, [review, notify]);
 
-  /* Show backups (apply.11, PLAN 6.5): a chapter's own backup folder, with its
+  /* Show backups (apply.11, PLAN 6.5), in the toolbar's Actions menu since
+     `polish.7` and on the save card: a chapter's own backup folder, with its
      newest backup selected, which main works out from the chapter's path; with
      no path, the backups root. A chapter with no folder at its path gets a card
      saying so rather than an error, with Show all backups for the folders of
@@ -957,6 +973,7 @@ export function App(): React.JSX.Element {
       onManualReview={openManualReview}
       onSaveChapter={saveChapter}
       onCopyResult={copyResult}
+      onShowBackups={() => revealBackups(review?.sourcePath)}
       onSettings={() => setSettingsOpen(true)}
       onSaveHintDone={() => void dismissHint(SAVE_HINT_ID, HINT_IO)}
     />
@@ -1245,13 +1262,15 @@ export function App(): React.JSX.Element {
           dialogs; the question is apply.6's). It lays out nothing of its own. */}
       <div className="app-shell__page" inert={inert.page}>
         {toolbar}
-        {review ? <FilterChips review={review} /> : null}
 
         {/* Each side column is drawn in place, its wrapper laying out nothing,
             or, in a narrow window, folded to a strip whose button opens it as
             a drawer over the edge of the prose (ui.3). The wrappers are always
             there, so a column keeps its state as the window narrows or widens;
-            a closed drawer is hidden and inert. */}
+            a closed drawer is hidden and inert. A column in place has a handle
+            on its inner edge, after it in the Tab order for the chapter list
+            and before it for the side panel, laid over the edge rather than
+            given a grid column of its own (polish.5). */}
         <div className={bodyClassName(layout)} style={columnStyle} ref={measureBody}>
           {layout.files === 'strip' ? (
             <ColumnStrip column="files" open={shown === 'files'} onToggle={() => toggleDrawer('files')} />
@@ -1274,36 +1293,45 @@ export function App(): React.JSX.Element {
               onNewChapter={() => setNewChapterOpen(true)}
             />
           </div>
+          {filesHandle ? <div {...filesHandle} /> : null}
 
-          {/* The find bar is a strip above the scroller, not a sticky bar inside
-            it: inside, it scrolled out of view once the author was more than
-            a screen down, and Ctrl+F then seemed to do nothing (round 4). */}
-          <div className={`center-wrap ${findOpen ? 'center-wrap--find' : ''}`}>
-            {review ? <FindBar /> : null}
-            {/* A press in the prose closes an open drawer, as a click
-                outside a menu closes it (ui.3), and does what it would anyway. */}
-            <main
-              className="center"
-              onPointerDown={() => {
-                if (useDrawer.getState().open !== null) useDrawer.getState().setOpen(null);
-              }}
-            >
-              {review ? (
-                <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
-              ) : (
-                <div className="empty">
-                  <h1>Nothing open</h1>
-                  <p>
-                    Pick a chapter on the left, or start one with the + beside Chapters. Review with AI asks
-                    for suggestions; Submit manual review turns a corrected copy into the same kind of list.
-                    You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
-                  </p>
-                </div>
-              )}
-            </main>
-            <NotificationCards onAction={onCardAction} />
-            <LockCard label={progressLabel} onCancel={ai.cancel} />
+          {/* The centre column: the manuscript pane, from the toolbar's foot,
+              as the chapter list and the side panel are. The category chips
+              were at its top from polish.6 and are in the toolbar's row since
+              polish.10. */}
+          <div className="center-col">
+            {/* The find bar is a strip above the scroller, not a sticky bar inside
+              it: inside, it scrolled out of view once the author was more than
+              a screen down, and Ctrl+F then seemed to do nothing (round 4). The
+              notification cards and the lock card are pinned to this wrapper. */}
+            <div className={`center-wrap ${findOpen ? 'center-wrap--find' : ''}`}>
+              {review ? <FindBar /> : null}
+              {/* A press in the prose closes an open drawer, as a click
+                  outside a menu closes it (ui.3), and does what it would anyway. */}
+              <main
+                className="center"
+                onPointerDown={() => {
+                  if (useDrawer.getState().open !== null) useDrawer.getState().setOpen(null);
+                }}
+              >
+                {review ? (
+                  <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
+                ) : (
+                  <div className="empty">
+                    <h1>Nothing open</h1>
+                    <p>
+                      Pick a chapter on the left, or start one with the + beside Chapters. In the Review menu,
+                      With AI asks for suggestions and Manual turns a corrected copy into the same kind of
+                      list. You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
+                    </p>
+                  </div>
+                )}
+              </main>
+              <NotificationCards onAction={onCardAction} />
+              <LockCard label={progressLabel} onCancel={ai.cancel} />
+            </div>
           </div>
+          {sideHandle ? <div {...sideHandle} /> : null}
 
           {layout.side === 'strip' ? (
             review ? (
@@ -1325,7 +1353,6 @@ export function App(): React.JSX.Element {
                 activeReviewPath={reviewPath}
                 onSetCommentStatus={setCommentStatus}
                 onOpenHistory={openHistoryEntry}
-                onShowBackups={() => revealBackups(review.sourcePath)}
               />
             ) : (
               <aside className="side" />

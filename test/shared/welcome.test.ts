@@ -5,11 +5,11 @@ import { OPENAI_MATURITY } from '../../src/shared/ai/openai';
 import { APP_NAME } from '../../src/shared/branding';
 import type { EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../../src/shared/ipc';
 import { normalizeSettings } from '../../src/shared/settings';
-import { STYLE_SHEET_EMPTY, openGuidelinesTitle } from '../../src/shared/ui/guidelines';
+import { STYLE_SHEET_EMPTY, openFolderTitle, openGuidelinesTitle } from '../../src/shared/ui/guidelines';
 import { setupStatus, setupView, type LastFailure } from '../../src/shared/ui/setup';
 import {
   CLAUDE_STEP_TEXT,
-  CREATE_AND_OPEN_IN_OBSIDIAN,
+  CREATE_AND_OPEN,
   FOLDER_LISTS,
   FOLDER_SAVES,
   OPENAI_STEP_TEXT,
@@ -294,28 +294,21 @@ describe('3. Fill in your style sheet', () => {
     const s = step(FRESH, 'style-sheet');
     expect(s.done).toBe(false);
     expect(s.status).toBe('Choose a manuscript folder first');
-    expect(buttons(s)).toEqual([
-      'Open in Obsidian [disabled]',
-      'Open with default app [disabled]',
-      'Show in folder [disabled]'
-    ]);
+    expect(buttons(s)).toEqual(['Open [disabled]', 'Open folder [disabled]']);
   });
 
-  it('offers to create a missing file, in Obsidian first', () => {
+  it('offers to create a missing file and open it, with the default app (polish.3)', () => {
     const s = at({ guidelines: { path: GUIDELINES, exists: false, styleSheet: 'missing' } });
     expect(s.done).toBe(false);
     expect(s.status).toBe('GUIDELINES.md is not there yet');
-    expect(s.lines.join(' ')).toContain('creates it from a template first');
-    expect(buttons(s)).toEqual([
-      `${CREATE_AND_OPEN_IN_OBSIDIAN} [blue]`,
-      'Open with default app',
-      'Show in folder'
-    ]);
+    expect(s.lines.join(' ')).toContain('Both buttons below create it from a template first.');
+    expect(CREATE_AND_OPEN).toBe('Create and open');
+    expect(buttons(s)).toEqual(['Create and open [blue]', 'Open folder']);
     expect(s.actions.map((a) => a.title)).toEqual([
-      openGuidelinesTitle(GUIDELINES, 'obsidian'),
-      openGuidelinesTitle(GUIDELINES, 'default'),
-      'Show GUIDELINES.md in its folder, creating it from the template first.'
+      'Create GUIDELINES.md from the template, then open it in the app this computer uses for .md files.',
+      'Create GUIDELINES.md from the template, then open its folder with the file selected.'
     ]);
+    expect(s.actions.map((a) => a.id)).toEqual(['open-guidelines', 'open-guidelines-folder']);
   });
 
   it("says a blank style sheet is still empty, in Review with AI's words", () => {
@@ -323,15 +316,18 @@ describe('3. Fill in your style sheet', () => {
     expect(s.done).toBe(false);
     expect(s.status).toBe('Still empty');
     expect(s.lines[0]).toBe(STYLE_SHEET_EMPTY);
-    expect(buttons(s)).toEqual(['Open in Obsidian [blue]', 'Open with default app', 'Show in folder']);
-    expect(s.actions[2]?.title).toBe('Show GUIDELINES.md in its folder.');
+    expect(buttons(s)).toEqual(['Open [blue]', 'Open folder']);
+    expect(s.actions.map((a) => a.title)).toEqual([
+      openGuidelinesTitle(GUIDELINES),
+      openFolderTitle(GUIDELINES)
+    ]);
   });
 
   it('is done once the style sheet is filled in, and only then', () => {
     const s = at({ guidelines: sheet('filled') });
     expect(s.done).toBe(true);
     expect(s.status).toBe('Filled in');
-    expect(buttons(s)).toEqual(['Open in Obsidian', 'Open with default app', 'Show in folder']);
+    expect(buttons(s)).toEqual(['Open', 'Open folder']);
     expect(at({ guidelines: sheet('missing') }).done).toBe(false);
     expect(at({ guidelines: sheet('missing') }).status).toBe('No Style sheet section');
   });
@@ -344,15 +340,11 @@ describe('3. Fill in your style sheet', () => {
     expect(s.done).toBe(false);
   });
 
-  it('does not offer Obsidian for a .txt guidelines file, which it does not open', () => {
+  it('offers the same two buttons for a .txt guidelines file, Open for its own app', () => {
     const txt = 'C:\\Novel\\GUIDELINES.txt'; // check-public: allow
     const s = at({ guidelines: { path: txt, exists: true, styleSheet: 'blank' } });
-    expect(buttons(s)).toEqual([
-      'Open in Obsidian [disabled]',
-      'Open with default app [blue]',
-      'Show in folder'
-    ]);
-    expect(s.actions[0]?.title).toBe(openGuidelinesTitle(txt, 'obsidian'));
+    expect(buttons(s)).toEqual(['Open [blue]', 'Open folder']);
+    expect(s.actions[0]?.title).toBe('Open GUIDELINES.txt in the app this computer uses for .txt files.');
   });
 
   it('has not checked a folder just chosen, before settings:effective names its guidelines file', () => {
@@ -366,7 +358,7 @@ describe('3. Fill in your style sheet', () => {
 
   it('takes the path from settings:effective until the status is in', () => {
     const s = at({ guidelines: null });
-    expect(s.actions[1]?.title).toBe(openGuidelinesTitle(GUIDELINES, 'default'));
+    expect(s.actions[0]?.title).toBe(openGuidelinesTitle(GUIDELINES));
     expect(s.actions.every((a) => !a.disabled)).toBe(true);
   });
 });
@@ -464,6 +456,8 @@ describe('whatever the app finds', () => {
           expect(blue.every((a) => !a.disabled)).toBe(true);
           expect(s.status.length).toBeGreaterThan(0);
           for (const action of s.actions) expect(action.label).not.toMatch(SIGN_IN_LIKE);
+          // No button opens Obsidian by name: Open is the system's app (polish.3).
+          for (const action of s.actions) expect(action.label).not.toMatch(/obsidian/i);
         }
         // The style sheet is done exactly when the file is there and its style sheet filled in.
         const sheetStep = steps[2];

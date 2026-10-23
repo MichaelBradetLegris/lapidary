@@ -284,27 +284,30 @@ describe('colour tokens (theme.4)', () => {
     expect(unused).toEqual([]);
   });
 
-  it('keeps seven category colours, without the six tokens that nothing used', () => {
-    const categories = definedTokens(TOKEN_BLOCKS[0] ?? '').filter((name) => name.startsWith('--cat-'));
-    expect(categories).toEqual([
-      '--cat-spelling',
-      '--cat-homophone',
-      '--cat-grammar',
-      '--cat-punctuation',
-      '--cat-word-choice',
-      '--cat-consistency',
-      '--cat-other'
-    ]);
+  /* theme.4 kept seven category tokens and deleted the six nothing read, so
+     typo took spelling's colour, agreement and tense grammar's, redundancy and
+     awkward word-choice's, and formatting other's. polish.16 gave each of the
+     thirteen a token of its own, in both blocks, in CHANGE_CATEGORIES' order. */
+  it('keeps a colour token for each of the thirteen categories, in both blocks (polish.16)', () => {
+    for (const block of TOKEN_BLOCKS) {
+      const categories = definedTokens(block).filter((name) => name.startsWith('--cat-'));
+      expect(categories).toEqual(CHANGE_CATEGORIES.map((category) => `--cat-${category}`));
+    }
+    expect(TOKEN_BLOCKS).toHaveLength(2);
   });
 
-  it('gives every change category a colour through its class, typo and the rest borrowing a shared one', () => {
+  it('gives every change category its own colour through its class, borrowing none (polish.16)', () => {
     const light = new Set(definedTokens(TOKEN_BLOCKS[0] ?? ''));
-    const colourless = CHANGE_CATEGORIES.filter((category) => {
-      const value = declsFor(`.cat-${category}`).get('--cat') ?? '';
-      const token = /^var\((--cat-[a-z-]+)\)$/.exec(value)?.[1];
-      return !token || !light.has(token);
+    const borrowed = CHANGE_CATEGORIES.filter((category) => {
+      const value = declsFor(`.cat-${category}`).get('--cat');
+      return value !== `var(--cat-${category})` || !light.has(`--cat-${category}`);
     });
-    expect(colourless).toEqual([]);
+    expect(borrowed).toEqual([]);
+    // One rule per class: a list such as `.cat-spelling, .cat-typo` would make two share a colour again.
+    const shared = RULES.filter((r) => r.selectors.filter((s) => /^\.cat-[a-z-]+$/.test(s)).length > 1).map(
+      (r) => r.selectors.join(', ')
+    );
+    expect(shared).toEqual([]);
   });
 
   it('fills primary buttons and the active Setup tab from --accent-fill with --on-accent text, and keeps --accent for text', () => {
@@ -417,6 +420,222 @@ describe('dark block (theme.5)', () => {
   });
 });
 
+/* polish.1: selected text has the app's own band, `--selection-bg`, with
+   `--selection-ink`; the prose has a faint band of its own,
+   `--selection-prose-bg`, where the text keeps its own colour (so the active
+   find match keeps its dark ink on the dark orange), except in a text field,
+   the paragraph box, which takes the first (the polish.1 review); and a filled
+   button has no band. themeContrast.test.ts holds the pairs and how plainly
+   each band shows. */
+describe('selection (polish.1)', () => {
+  const FILLED = [
+    'button.primary::selection',
+    'button.primary ::selection',
+    '.setup__tab--active::selection',
+    '.setup__tab--active ::selection'
+  ];
+  const PROSE_FIELDS = ['.prose input::selection', '.prose textarea::selection'];
+
+  it('paints every selection in the band with --selection-ink', () => {
+    const decls = declsFor('::selection');
+    expect(decls.get('background-color')).toBe('var(--selection-bg)');
+    expect(decls.get('color')).toBe('var(--selection-ink)');
+  });
+
+  it("keeps the prose in its own colour on the prose's faint band", () => {
+    expect([...declsFor('.prose ::selection')]).toEqual([
+      ['background-color', 'var(--selection-prose-bg)'],
+      ['color', 'currentColor']
+    ]);
+  });
+
+  it('gives the paragraph box, a field in the prose, the band of every other field', () => {
+    const rule = RULES.find((r) => PROSE_FIELDS.every((s) => r.selectors.includes(s)));
+    expect(rule?.selectors).toEqual(PROSE_FIELDS);
+    // `.prose textarea::selection` outweighs `.prose ::selection` by one element.
+    expect([...(rule?.decls ?? [])]).toEqual([
+      ['background-color', 'var(--selection-bg)'],
+      ['color', 'var(--selection-ink)']
+    ]);
+  });
+
+  it('draws no band on a filled button or the active Setup tab, whose text keeps --on-accent', () => {
+    const rule = RULES.find((r) => FILLED.every((s) => r.selectors.includes(s)));
+    expect(rule?.selectors).toEqual(FILLED);
+    expect(rule?.decls.get('background-color')).toBe('transparent');
+    expect(rule?.decls.get('color')).toBe('currentColor');
+  });
+
+  it('has no other ::selection rule', () => {
+    const selections = RULES.flatMap((r) => r.selectors).filter((s) => s.includes('::selection'));
+    expect(selections.sort()).toEqual(
+      ['::selection', '.prose ::selection', ...PROSE_FIELDS, ...FILLED].sort()
+    );
+  });
+
+  it('keeps ghost text out of every selection', () => {
+    // A ghost drawn over the prose's band is the reason that band is light (11.3 e).
+    expect(declsFor('.hunk__ghost').get('user-select')).toBe('none');
+    expect(declsFor('.para__rail').get('user-select')).toBe('none');
+  });
+});
+
+/* polish.2: every scroller has the app's own scrollbar, the author's pick (the
+   sheet's D, its thumb a shade darker): a 16 px gutter in --scrollbar-track
+   with a 1 px --border line on its inner edge, a square thumb in the three
+   thumb tokens, and an arrow at each end in --ink-faint, --ink-soft under the
+   pointer. themeContrast.test.ts holds the thumb to its bands and the arrows to
+   3:1. */
+describe('scrollbars (polish.2)', () => {
+  const SCROLLBAR_SELECTORS = RULES.flatMap((r) => r.selectors).filter((s) =>
+    s.includes('::-webkit-scrollbar')
+  );
+  /* Each end's arrow: where its 78 degree wedge opens, from its point on the
+     edge the arrow points to, and the box it is drawn in, 8 by 5 px, 5 by 8
+     sideways. Without the box the wedge fills the whole 16 px button. */
+  const ARROWS: Record<string, { from: string; size: string }> = {
+    'vertical:decrement': { from: 'from 141deg at 50% 0', size: '8px 5px' },
+    'vertical:increment': { from: 'from -39deg at 50% 100%', size: '8px 5px' },
+    'horizontal:decrement': { from: 'from 51deg at 0 50%', size: '5px 8px' },
+    'horizontal:increment': { from: 'from 231deg at 100% 50%', size: '5px 8px' }
+  };
+  const ENDS = Object.keys(ARROWS);
+
+  it('draws every scrollbar 16 px wide in its gutter, with a square thumb in the thumb tokens', () => {
+    expect([...declsFor('::-webkit-scrollbar')]).toEqual([
+      ['width', '16px'],
+      ['height', '16px'],
+      ['background', 'var(--scrollbar-track)']
+    ]);
+    // 10 px of thumb between 3 px of clear track on each side, with square corners.
+    expect([...declsFor('::-webkit-scrollbar-thumb')]).toEqual([
+      ['background-color', 'var(--scrollbar-thumb)'],
+      ['background-clip', 'padding-box'],
+      ['border', '3px solid transparent'],
+      ['border-radius', '0']
+    ]);
+    expect(declsFor('::-webkit-scrollbar-thumb:hover').get('background-color')).toBe(
+      'var(--scrollbar-thumb-hover)'
+    );
+    expect(declsFor('::-webkit-scrollbar-thumb:active').get('background-color')).toBe(
+      'var(--scrollbar-thumb-active)'
+    );
+    expect(declsFor('::-webkit-scrollbar-track:vertical').get('border-left')).toBe('1px solid var(--border)');
+    expect(declsFor('::-webkit-scrollbar-track:horizontal').get('border-top')).toBe(
+      '1px solid var(--border)'
+    );
+    expect(declsFor('::-webkit-scrollbar-corner').get('background')).toBe('var(--scrollbar-track)');
+  });
+
+  it('draws one arrow at each end, in --ink-faint and in --ink-soft under the pointer', () => {
+    // One 16 px button at each end on the gutter, its arrow drawn once in the middle.
+    expect([...declsFor('::-webkit-scrollbar-button:single-button')]).toEqual([
+      ['display', 'block'],
+      ['width', '16px'],
+      ['height', '16px'],
+      ['background-color', 'var(--scrollbar-track)'],
+      ['background-repeat', 'no-repeat'],
+      ['background-position', 'center']
+    ]);
+    // The gutter's 1 px line runs on through the buttons to both ends of the bar.
+    expect([...declsFor('::-webkit-scrollbar-button:single-button:vertical')]).toEqual([
+      ['border-left', '1px solid var(--border)']
+    ]);
+    expect([...declsFor('::-webkit-scrollbar-button:single-button:horizontal')]).toEqual([
+      ['border-top', '1px solid var(--border)']
+    ]);
+    for (const [end, { from, size }] of Object.entries(ARROWS)) {
+      const at = `::-webkit-scrollbar-button:single-button:${end}`;
+      expect([...declsFor(at)]).toEqual([
+        ['background-image', `conic-gradient(${from}, var(--ink-faint) 78deg, transparent 0)`],
+        ['background-size', size]
+      ]);
+      expect([...declsFor(`${at}:hover`)]).toEqual([
+        ['background-image', `conic-gradient(${from}, var(--ink-soft) 78deg, transparent 0)`]
+      ]);
+    }
+  });
+
+  it("never scopes a scrollbar rule with :root, which drops the thumb's hover and the arrows", () => {
+    expect(SCROLLBAR_SELECTORS.length).toBeGreaterThanOrEqual(10 + 2 * ENDS.length);
+    expect(SCROLLBAR_SELECTORS.filter((s) => /:root|:scope/.test(s))).toEqual([]);
+    // The bar is the bare rules for every scroller; a scroller's own rules only round its corners.
+    const own = RULES.filter((r) =>
+      r.selectors.some((s) => s.includes('::-webkit-scrollbar') && !s.startsWith('::-webkit-scrollbar'))
+    );
+    expect([...new Set(own.flatMap((r) => [...r.decls.keys()]))].sort()).toEqual([
+      'border-bottom-right-radius',
+      'border-radius',
+      'border-top-right-radius'
+    ]);
+  });
+
+  it('gives the bar of a scroller with rounded corners the corners of its box, inside its border', () => {
+    // Drawn square, the gutter showed past a dialog's curve.
+    const rounded = SCROLLERS.filter((s) => !/^0(px)?$/.test(declsFor(s).get('border-radius') ?? '0'));
+    expect([...rounded].sort()).toEqual(['.diagnostics__text', '.legend', '.modal']);
+    for (const s of rounded) {
+      const decls = declsFor(s);
+      const r = parseFloat(decls.get('border-radius') ?? '') - parseFloat(decls.get('border') ?? '');
+      expect(declsFor(`${s}::-webkit-scrollbar`).get('border-radius')).toBe(`0 ${r}px ${r}px 0`);
+      const button = `${s}::-webkit-scrollbar-button:single-button:vertical`;
+      expect(declsFor(`${button}:decrement`).get('border-top-right-radius')).toBe(`${r}px`);
+      expect(declsFor(`${button}:increment`).get('border-bottom-right-radius')).toBe(`${r}px`);
+    }
+  });
+
+  it('rounds the bar and the resize handle of a field that can be made taller to the field', () => {
+    // A text field scrolls without an overflow rule; its lower corner is the handle's.
+    const fields = [
+      ...new Set(
+        RULES.filter((r) => /^(vertical|both)$/.test(r.decls.get('resize') ?? '')).flatMap((r) => r.selectors)
+      )
+    ];
+    expect(fields.sort()).toEqual(['.editor__area', '.paste-field textarea']);
+    for (const s of fields) {
+      const decls = declsFor(s);
+      const r = `${parseFloat(decls.get('border-radius') ?? '') - parseFloat(decls.get('border') ?? '')}px`;
+      expect(declsFor(`${s}::-webkit-scrollbar`).get('border-top-right-radius')).toBe(r);
+      expect(
+        declsFor(`${s}::-webkit-scrollbar-button:single-button:vertical:decrement`).get(
+          'border-top-right-radius'
+        )
+      ).toBe(r);
+      expect(declsFor(`${s}::-webkit-scrollbar-corner`).get('border-bottom-right-radius')).toBe(r);
+      expect(declsFor(`${s}::-webkit-resizer`).get('border-bottom-right-radius')).toBe(r);
+    }
+  });
+
+  it("draws the corner as the gutter and the resize handle in --ink-faint, not the browser's framed one", () => {
+    expect([...declsFor('::-webkit-scrollbar-corner')]).toEqual([
+      ['background', 'var(--scrollbar-track)'],
+      ['border-left', '1px solid var(--border)']
+    ]);
+    const handle = (declsFor('::-webkit-resizer').get('background') ?? '')
+      .replace(/\s+/g, ' ')
+      .replace(/\( /g, '(')
+      .replace(/ \)/g, ')');
+    expect(handle).toMatch(/^linear-gradient\(135deg, .*\) right 3px bottom 3px \/ 9px 9px no-repeat$/);
+    expect([...handle.matchAll(/var\((--[\w-]+)\)/g)].map((m) => m[1])).toEqual([
+      '--ink-faint',
+      '--ink-faint'
+    ]);
+  });
+
+  it("leaves every scroller to these rules: no scrollbar-color, and scrollbar-width only to hide the chips' row's", () => {
+    // Either one, but for `auto`, gives the element the browser's own bar instead.
+    expect(RULES.filter((r) => r.decls.has('scrollbar-color')).map((r) => r.selectors.join(', '))).toEqual(
+      []
+    );
+    expect(
+      RULES.filter((r) => r.decls.has('scrollbar-width')).map((r) => [
+        r.selectors.join(', '),
+        r.decls.get('scrollbar-width')
+      ])
+    ).toEqual([['.chips', 'none']]);
+  });
+});
+
 /**
  * Every light value. theme.4 changed nothing in light, so a light screenshot is
  * read against theme.4's list of deliberate light differences in PLAN.md. The
@@ -439,11 +658,9 @@ const LIGHT_VALUES: Record<string, string> = {
   '--font-ui': "'Segoe UI', system-ui, -apple-system, sans-serif",
   '--font-prose': "Literata, Georgia, 'Times New Roman', serif",
   '--cat-spelling': '#b3261e',
-  '--cat-homophone': '#a3341c',
   '--cat-grammar': '#1f6f8b',
   '--cat-punctuation': '#7a4fb5',
   '--cat-consistency': '#2f7a4a',
-  '--cat-other': '#6d675e',
   // Darker since theme.5, as Appendix D question 9 approved: --ink-faint was
   // #9b948a, --dismiss #a1998c, --warn and --cat-word-choice #8a6d1f.
   '--ink-faint': '#8a8378',
@@ -488,14 +705,42 @@ const LIGHT_VALUES: Record<string, string> = {
   // Added by files.11: the conflict copy badge in the chapter list.
   '--badge-conflict-bg': '#fde8e6',
   '--badge-conflict-border': '#f0c4bf',
-  '--badge-conflict-ink': '#9c2a1f'
+  '--badge-conflict-ink': '#9c2a1f',
+  // Added by polish.1: selected text, which had the browser's blue band and white text;
+  // two bands since its review, the prose's the faint one.
+  '--selection-bg': 'rgb(0 190 200 / 45%)',
+  '--selection-prose-bg': 'rgb(70 255 255 / 20%)',
+  '--selection-ink': 'var(--ink)',
+  // Added by polish.2: the scrollbar's gutter and thumb, where the browser drew its own bar.
+  '--scrollbar-track': 'var(--panel-alt)',
+  '--scrollbar-thumb': '#d0cabe',
+  '--scrollbar-thumb-hover': '#c5beb0',
+  '--scrollbar-thumb-active': '#b7b0a2',
+  // Added by polish.12: the accepted tick on a suggestion row, which was --accept.
+  '--accept-strong': '#12873b',
+  // Added by polish.14: how much of --ink-faint a decided row's other two buttons keep,
+  // where polish.12 drew them a thinner stroke in --ink-faint itself.
+  '--row-fade': '35%',
+  // polish.16: a colour for each category. Homophone was #a3341c, a red beside
+  // spelling's, and other #6d675e, the comments' --ink-soft; typo took spelling's
+  // colour, agreement and tense grammar's, redundancy and awkward word-choice's,
+  // and formatting other's.
+  '--cat-typo': '#576909',
+  '--cat-homophone': '#016dba',
+  '--cat-agreement': '#aa5106',
+  '--cat-tense': '#9f3887',
+  '--cat-redundancy': '#2e756e',
+  '--cat-awkward': '#c11e59',
+  '--cat-formatting': '#905f4d',
+  '--cat-other': '#484e70'
 };
 
 /**
  * Every dark value: PLAN 11.3 (e)'s starting values, with --find-bg darkened by
  * theme.5. theme.8 looked at every surface in both themes and kept them all,
- * the tint shares included (11.3 e says why), and theme.12 turned the filled
- * buttons turquoise. A value changes here and in 11.3 (e) together.
+ * the tint shares included (11.3 e says why), theme.12 turned the filled
+ * buttons turquoise, and polish.16 gave each category a colour of its own. A
+ * value changes here and in 11.3 (e) together.
  */
 const DARK_VALUES: Record<string, string> = {
   '--bg': '#1c1a17',
@@ -514,6 +759,8 @@ const DARK_VALUES: Record<string, string> = {
   '--accent-active': '#39b1bc',
   '--on-accent': '#16130f',
   '--accept': '#6cc28b',
+  // polish.12: the accepted tick on a suggestion row, a stronger green than --accept.
+  '--accept-strong': '#4fd483',
   '--dismiss': '#968e82',
   '--danger': '#ff8a80',
   '--warn': '#e0b955',
@@ -540,6 +787,15 @@ const DARK_VALUES: Record<string, string> = {
   '--warn-border': '#5c4a22',
   '--danger-bg': '#3a1f1c',
   '--editor-bg': '#20222b',
+  // polish.1: the selection bands, the dots' hue deep, and the ink.
+  '--selection-bg': 'rgb(0 120 128 / 55%)',
+  '--selection-prose-bg': 'rgb(0 90 95 / 20%)',
+  '--selection-ink': 'var(--ink)',
+  // polish.2: the scrollbar's gutter, and its thumb a shade off it in three steps.
+  '--scrollbar-track': 'var(--panel-alt)',
+  '--scrollbar-thumb': '#454139',
+  '--scrollbar-thumb-hover': '#4e4940',
+  '--scrollbar-thumb-active': '#585248',
   '--shadow-rgb': '0 0 0',
   '--backdrop': 'rgb(0 0 0 / 60%)',
   '--modal-shadow': 'rgb(0 0 0 / 45%)',
@@ -549,13 +805,23 @@ const DARK_VALUES: Record<string, string> = {
   '--tint-decided-hover': '16%',
   '--tint-small': '16%',
   '--tint-small-hover': '26%',
+  // polish.14: a decided row's other two buttons, as in light.
+  '--row-fade': '35%',
   '--cat-spelling': '#ff7b72',
-  '--cat-homophone': '#f2875e',
   '--cat-grammar': '#5cc0e0',
   '--cat-punctuation': '#b994f5',
   '--cat-word-choice': '#d9b44a',
   '--cat-consistency': '#6cc28b',
-  '--cat-other': '#a8a092'
+  // polish.16: a colour for each category, on the hues light has; homophone was
+  // #f2875e and other #a8a092, and the other six borrowed as in light.
+  '--cat-typo': '#b6c973',
+  '--cat-homophone': '#30a9ff',
+  '--cat-agreement': '#ef8e3e',
+  '--cat-tense': '#fe9dee',
+  '--cat-redundancy': '#34b7af',
+  '--cat-awkward': '#ff78a8',
+  '--cat-formatting': '#f5b89c',
+  '--cat-other': '#a2a0ba'
 };
 
 describe('token values (theme.4, theme.5)', () => {
@@ -608,7 +874,9 @@ describe('scrollers (theme.1, panel.1)', () => {
       '.rows',
       '.side__lower',
       '.side__body',
-      '.side__focus-body'
+      '.side__focus-body',
+      // The category chips' one row, sideways (polish.6).
+      '.chips'
     ]) {
       expect(SCROLLERS).toContain(name);
     }
@@ -661,8 +929,14 @@ describe('scrollers (theme.1, panel.1)', () => {
 
   it('makes the panel one scroller on the window height, which no chapter changes', () => {
     // A query on the panel's own height switched layouts between chapters in the
-    // same window, as the filter chips wrap onto one to three rows (PLAN C.49).
+    // same window, as the filter chips then wrapped onto one to three rows above
+    // the panel (PLAN C.49), and the status bar still takes one row or two.
+    // From the polish.12 review to polish.17 one container read the panel's
+    // width, to leave the rows' status word out of a narrow panel; it went
+    // with the word, and there is none again.
     expect(CSS).not.toMatch(/@container/);
+    expect(CSS).not.toMatch(/(^|[\s;{])container(-type|-name)?\s*:/);
+    expect(declsFor('.side').has('container')).toBe(false);
     const block = /@media \(height < (\d+)px\) \{([\s\S]*?)\n\}/.exec(CSS);
     expect(block?.[1]).toBe('540');
     expect(block?.[2]).toMatch(/\.side__body \{[^}]*overflow-y: auto/);

@@ -64,13 +64,37 @@ export function parseColour(text: string): Rgba {
   throw new Error(`Not a colour: ${text}`);
 }
 
+/** An sRGB channel, 0 to 255, as linear light, 0 to 1. */
+function linear(c: number): number {
+  const s = c / 255;
+  return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+}
+
 /** WCAG 2.x relative luminance of an opaque colour, 0 for black to 1 for white. */
 export function relativeLuminance({ r, g, b }: Rgb): number {
-  const linear = (c: number): number => {
-    const s = c / 255;
-    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
   return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+}
+
+/** CIELAB of an opaque sRGB colour, under the D65 white sRGB is defined with. */
+export function lab({ r, g, b }: Rgb): { l: number; a: number; b: number } {
+  const [lr, lg, lb] = [linear(r), linear(g), linear(b)];
+  const x = (0.4124 * lr + 0.3576 * lg + 0.1805 * lb) / 0.95047;
+  const y = 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
+  const z = (0.0193 * lr + 0.1192 * lg + 0.9505 * lb) / 1.08883;
+  const f = (t: number): number => (t > 216 / 24389 ? Math.cbrt(t) : ((24389 / 27) * t + 16) / 116);
+  return { l: 116 * f(y) - 16, a: 500 * (f(x) - f(y)), b: 200 * (f(y) - f(z)) };
+}
+
+/**
+ * The CIE76 colour difference of two opaque colours, the distance between them
+ * in CIELAB: 0 for the same colour, 100 for black and white. Two flat patches
+ * side by side are told apart from about 2.3; the theme tests use it for how
+ * plainly a translucent band shows on what it covers, which a luminance ratio
+ * alone misses when the band differs mostly in hue.
+ */
+export function deltaE76(p: Rgb, q: Rgb): number {
+  const [m, n] = [lab(p), lab(q)];
+  return Math.hypot(m.l - n.l, m.a - n.a, m.b - n.b);
 }
 
 /** WCAG 2.x contrast ratio of two opaque colours, 1 to 21, in either order. */

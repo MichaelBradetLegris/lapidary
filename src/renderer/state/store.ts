@@ -4,12 +4,13 @@ import { applyBlockEdit, blockSpanFor, editSuggestion, liveTextIn, planBlockEdit
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import { remapAfterCommit } from '../../shared/review';
 import { splitParagraphs } from '../../shared/text/paragraphs';
+import { chipHidden, chipKeyOf, type RowChip } from '../../shared/ui/chips';
 import { stepIndex } from '../../shared/ui/find';
 import { stepFocus, type StepOptions } from '../../shared/ui/navigate';
 import type { SaveShortcutContext } from '../../shared/ui/save';
 import type { UpdateStatus } from '../../shared/updates';
 import { welcomeShown } from '../../shared/ui/welcome';
-import type { ChangeCategory, Hunk, HunkStatus, Review, ReviewComment, Settings } from '../../shared/types';
+import type { Hunk, HunkStatus, Review, ReviewComment, Settings } from '../../shared/types';
 
 export type NotificationTone = 'info' | 'warn' | 'error';
 
@@ -334,8 +335,11 @@ export interface AppState {
   hoveredHunkId: string | null;
   /** the comment the author last clicked, in the gutter or the sidebar (item 7) */
   activeCommentId: string | null;
-  /** categories the author has hidden; empty means show everything */
-  hiddenCategories: ChangeCategory[];
+  /**
+   * the chips the author has hidden, categories and You (polish.11) and the
+   * comments (polish.13); empty means show everything
+   */
+  hiddenCategories: RowChip[];
   notifications: Notification[];
   confirmSpec: ConfirmSpec | null;
   find: FindState;
@@ -398,7 +402,9 @@ export interface AppState {
   moveFocus: (delta: number, options?: StepOptions) => void;
   setHoveredHunk: (id: string | null) => void;
   setActiveComment: (id: string | null) => void;
-  toggleCategory: (category: ChangeCategory) => void;
+  toggleCategory: (category: RowChip) => void;
+  /** Show only, and the eye's Hide all categories (polish.11) */
+  setHiddenCategories: (categories: readonly RowChip[]) => void;
   clearCategoryFilter: () => void;
   notify: (
     tone: NotificationTone,
@@ -616,9 +622,7 @@ export const useApp = create<AppState>()((set, get) => ({
     const review = get().review;
     if (!review) return;
     const hidden = get().hiddenCategories;
-    const visible = review.hunks.filter(
-      (h) => h.anchor !== 'stale' && !hidden.includes(h.category ?? 'other')
-    );
+    const visible = review.hunks.filter((h) => h.anchor !== 'stale' && !chipHidden(h, hidden));
     const next = stepFocus(visible, get().focusedHunkId, delta > 0 ? 1 : -1, options);
     if (next === null) return;
     set((state) => ({
@@ -639,6 +643,8 @@ export const useApp = create<AppState>()((set, get) => ({
         : [...hidden, category]
     });
   },
+
+  setHiddenCategories: (categories) => set({ hiddenCategories: [...new Set(categories)] }),
 
   clearCategoryFilter: () => set({ hiddenCategories: [] }),
 
@@ -903,9 +909,16 @@ export const useApp = create<AppState>()((set, get) => ({
 
     const accepted = plan.decided.filter((h) => h.status === 'accepted');
     const firstHunkId = plan.added[0]?.id ?? accepted[0]?.id ?? null;
+    /* What the box applied shows at once: You for the edits it added, and the
+       chip of a suggestion it accepted because the author typed exactly that.
+       Left hidden, the author's words vanished from the line as they landed,
+       while the card said they were added (the polish.11 review). */
+    const landed = new Set<RowChip>([...plan.added, ...accepted].map(chipKeyOf));
+    const hidden = state.hiddenCategories.filter((key) => !landed.has(key));
     set({
       review: withHunks(review, applyBlockEdit(review.hunks, plan)),
       drafts,
+      ...(hidden.length < state.hiddenCategories.length ? { hiddenCategories: hidden } : {}),
       ...(firstHunkId ? { focusedHunkId: firstHunkId } : {})
     });
     return {

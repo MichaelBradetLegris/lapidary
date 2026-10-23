@@ -95,8 +95,9 @@ describe('Start, Skip and Show the welcome guide again', () => {
     );
     expect(APP).toContain('onShowWelcome={showWelcomeAgain}');
     const settings = read('components/SettingsDialog.tsx');
+    // At the foot since polish.4, with its note as its tooltip.
     expect(settings).toMatch(
-      /<button type="button" onClick=\{onShowWelcome\}>\s*\{SHOW_WELCOME_AGAIN\}\s*<\/button>/
+      /<button type="button" title=\{WELCOME_GUIDE_NOTE\} onClick=\{onShowWelcome\}>\s*\{SHOW_WELCOME_AGAIN\}\s*<\/button>/
     );
   });
 });
@@ -122,15 +123,14 @@ describe('what the guide reads, and when', () => {
 
   it("opens the style sheet through Settings' calls, then reads it again", () => {
     expect(SCREEN).toMatch(
-      /call\('guidelines:open', \{ via \}\)\.then\(\s*\(result\) => \{\s*setNote\(\{ tone: 'info', text: openedGuidelinesNote\(result, via\) \}\);\s*readGuidelines\(\);/
+      /call\('guidelines:open', undefined\)\.then\(\s*\(result\) => \{\s*setNote\(\{ tone: 'info', text: openedGuidelinesNote\(result\) \}\);\s*readGuidelines\(\);/
     );
     expect(SCREEN).toMatch(
       /call\('shell:reveal', \{ target: 'guidelines' \}\)\.then\(\s*\(\) => readGuidelines\(\),/
     );
     for (const [id, call] of [
-      ['open-obsidian', "openGuidelines('obsidian')"],
-      ['open-default', "openGuidelines('default')"],
-      ['show-in-folder', 'showGuidelines()'],
+      ['open-guidelines', 'openGuidelines()'],
+      ['open-guidelines-folder', 'showGuidelines()'],
       ['set-up-claude', 'onSetUpClaude()'],
       ['use-openai', "onUseProvider('openai')"],
       ['use-claude', "onUseProvider('claude')"],

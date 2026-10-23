@@ -6,7 +6,7 @@ import { indexesOf, matchLabel, stepIndex } from '../../src/shared/ui/find';
 import { formatElapsed, PROGRESS_TICK_MS, progressLabel } from '../../src/shared/ui/progress';
 import { stackCards } from '../../src/shared/ui/stack';
 import { groupSuggestions, summaryLine } from '../../src/shared/ui/suggestions';
-import { placeTooltip, TOOLTIP_DELAY_MS } from '../../src/shared/ui/tooltip';
+import { insideBand, placeTooltip, TOOLTIP_DELAY_MS } from '../../src/shared/ui/tooltip';
 import type { Hunk } from '../../src/shared/types';
 
 function hunk(partial: Partial<Hunk> & Pick<Hunk, 'id'>): Hunk {
@@ -77,6 +77,13 @@ describe('suggestion list', () => {
   it('treats a hunk with no category as "other"', () => {
     const { inline } = groupSuggestions([hunk({ id: 'n', start: 1 })], ['other']);
     expect(inline).toEqual([]);
+  });
+
+  it("hides the author's own edits with You, and only with You (polish.11)", () => {
+    const mine = hunk({ id: 'm', start: 3, category: 'other', source: 'manual' });
+    const theirs = hunk({ id: 'o', start: 4, category: 'other' });
+    expect(groupSuggestions([mine, theirs], ['you']).inline.map((h) => h.id)).toEqual(['o']);
+    expect(groupSuggestions([mine, theirs], ['other']).inline.map((h) => h.id)).toEqual(['m']);
   });
 
   it('summarises a change on one line', () => {
@@ -166,6 +173,28 @@ describe('bulk confirmation semantics', () => {
     expect(plan.emptyNote).toBe('There are no pending suggestions to accept.');
     expect(bulkPlan([], 'reset', 'typo').emptyNote).toBe('There are no typo decisions to reset.');
   });
+
+  it("scopes to the author's own edits for the You chip, and leaves them out of other (polish.11)", () => {
+    const mixed = [
+      hunk({ id: 'y1', category: 'other', source: 'manual', status: 'pending' }),
+      hunk({ id: 'y2', category: 'other', source: 'manual', status: 'pending' }),
+      hunk({ id: 'y3', category: 'other', source: 'manual', status: 'accepted' }),
+      hunk({ id: 'o1', category: 'other', status: 'pending' }),
+      hunk({ id: 'd1', source: 'diff', status: 'pending' })
+    ];
+    const you = bulkPlan(mixed, 'accept', 'you');
+    expect(you.ids).toEqual(['y1', 'y2']);
+    expect(you.category).toBe('you');
+    expect(you.title).toBe('Accept your 2 pending edits?');
+    expect(bodyLines(you.body)).toEqual(['Edits you already dismissed are not changed.', NOTHING_UNTIL_SAVE]);
+    expect(bulkPlan(mixed.slice(0, 1), 'dismiss', 'you').title).toBe('Dismiss your 1 pending edit?');
+    expect(bulkPlan(mixed, 'dismiss', 'you').body).toBe('Edits you already accepted are not changed.');
+    expect(bulkPlan(mixed, 'reset', 'you').title).toBe('Return your 1 edit to pending?');
+    expect(bulkPlan([], 'accept', 'you').emptyNote).toBe('You have no pending edits to accept.');
+    expect(bulkPlan([], 'reset', 'you').emptyNote).toBe('None of your edits has a decision to reset.');
+    // other: the model's other, and a manual review's suggestions, which carry no category.
+    expect(bulkPlan(mixed, 'accept', 'other').ids).toEqual(['o1', 'd1']);
+  });
 });
 
 describe('tooltip placement', () => {
@@ -203,6 +232,167 @@ describe('tooltip placement', () => {
     );
     expect(tall.top).toBeGreaterThanOrEqual(8);
     expect(tall.top + 780).toBeLessThanOrEqual(800);
+  });
+
+  /* polish.4: Settings' (?) puts its card's left edge under its own, so the
+     card runs over the row it explains rather than out of the dialog. */
+  it("lines the card's left edge up with the anchor's when asked, still on screen", () => {
+    const anchor = { left: 400, top: 300, width: 18, height: 18 };
+    const start = placeTooltip(anchor, tip, viewport, 6, 8, 'start');
+    expect(start).toEqual({ left: 400, top: 324, placement: 'below' });
+    expect(placeTooltip(anchor, tip, viewport, 6, 8).left).toBe(259);
+    // Near the right edge it moves left, as the middle does.
+    expect(placeTooltip({ ...anchor, left: 900 }, tip, viewport, 6, 8, 'start').left).toBe(692);
+    expect(placeTooltip({ ...anchor, top: 760 }, tip, viewport, 6, 8, 'start')).toEqual({
+      left: 400,
+      top: 634,
+      placement: 'above'
+    });
+  });
+
+  /* polish.15: the (?) is at the right end of its row, so its card's right
+     edge goes under the (?)'s and the card runs back over the row. */
+  it("lines the card's right edge up with the anchor's when asked, still on screen", () => {
+    const anchor = { left: 700, top: 300, width: 18, height: 18 };
+    const end = placeTooltip(anchor, tip, viewport, 6, 8, 'end');
+    // 700 + 18 - 300: the card's right edge at 718, the anchor's.
+    expect(end).toEqual({ left: 418, top: 324, placement: 'below' });
+    expect(end.left + tip.width).toBe(anchor.left + anchor.width);
+    // Neither the middle nor the start.
+    expect(placeTooltip(anchor, tip, viewport, 6, 8).left).toBe(559);
+    expect(placeTooltip(anchor, tip, viewport, 6, 8, 'start').left).toBe(692);
+    // Near the left edge it moves right, as the middle does, and it keeps the margin at the right one.
+    expect(placeTooltip({ ...anchor, left: 100 }, tip, viewport, 6, 8, 'end').left).toBe(8);
+    expect(placeTooltip({ ...anchor, left: 974 }, tip, viewport, 6, 8, 'end').left).toBe(692);
+    expect(placeTooltip({ ...anchor, left: 980 }, tip, viewport, 6, 8, 'end').left).toBe(692);
+    // Above when there is no room below, the right edges still lined up.
+    expect(placeTooltip({ ...anchor, top: 760 }, tip, viewport, 6, 8, 'end')).toEqual({
+      left: 418,
+      top: 634,
+      placement: 'above'
+    });
+  });
+
+  /* polish.19: the eight (?) stand in one column at the right of Settings'
+     box, and a card under one covered the (?) of the next row. Asked for the
+     left side, the card stands beside the anchor, its right edge a gap from
+     the anchor's left edge and its top at the anchor's, kept inside the band
+     between the box's head and foot and inside the window. */
+  describe('beside the anchor, to its left (polish.19)', () => {
+    const band = { top: 100, bottom: 700 };
+    const left = { side: 'left', gap: 10, band } as const;
+    const anchor = { left: 700, top: 300, width: 18, height: 18 };
+
+    it("stands to the left of the anchor, its top at the anchor's, where it fits", () => {
+      const placed = placeTooltip(anchor, tip, viewport, 6, 8, 'end', left);
+      // 700 - 10 - 300: the card's right edge 10 px left of the anchor's left edge.
+      expect(placed).toEqual({ left: 390, top: 300, placement: 'left' });
+      expect(placed.left + tip.width).toBe(anchor.left - 10);
+      // The gap is the side's own, not the one below.
+      expect(placeTooltip(anchor, tip, viewport, 6, 8, 'end', { ...left, gap: 4 }).left).toBe(396);
+      // Exactly room for it, the margin kept at the window's left edge.
+      expect(placeTooltip({ ...anchor, left: 318 }, tip, viewport, 6, 8, 'end', left)).toEqual({
+        left: 8,
+        top: 300,
+        placement: 'left'
+      });
+      // Without it, the card goes under the anchor as before.
+      expect(placeTooltip(anchor, tip, viewport, 6, 8, 'end')).toEqual({
+        left: 418,
+        top: 324,
+        placement: 'below'
+      });
+    });
+
+    it('never reaches another anchor of the column, wherever the column stands and the card is moved', () => {
+      for (const top of [100, 160, 300, 520, 580, 640, 682]) {
+        for (const height of [60, 120, 240, 600]) {
+          const card = { width: 300, height };
+          const placed = placeTooltip({ ...anchor, top }, card, viewport, 6, 8, 'end', left);
+          expect(placed.placement).toBe('left');
+          // Every anchor of the column has this left edge, so none is under the card.
+          expect(placed.left + card.width).toBeLessThanOrEqual(anchor.left - 10);
+          // Beside its own anchor, from the anchor's top or above it to the anchor's bottom or below it.
+          expect(placed.top).toBeLessThanOrEqual(top);
+          expect(placed.top + height).toBeGreaterThanOrEqual(top + 18);
+          // Inside the band.
+          expect(placed.top).toBeGreaterThanOrEqual(band.top);
+          expect(placed.top + height).toBeLessThanOrEqual(band.bottom);
+        }
+      }
+    });
+
+    it('is moved up as far as it takes to keep it inside the band, and inside the window', () => {
+      // Its bottom on the band's: 700 - 120.
+      expect(placeTooltip({ ...anchor, top: 650 }, tip, viewport, 6, 8, 'end', left)).toEqual({
+        left: 390,
+        top: 580,
+        placement: 'left'
+      });
+      // At the band's top it stays where it is.
+      expect(placeTooltip({ ...anchor, top: 100 }, tip, viewport, 6, 8, 'end', left).top).toBe(100);
+      // With no band, the window: 800 - 8 - 120.
+      const free = { side: 'left', gap: 10 } as const;
+      expect(placeTooltip({ ...anchor, top: 760 }, tip, viewport, 6, 8, 'end', free).top).toBe(672);
+      expect(
+        placeTooltip({ ...anchor, top: 760 }, tip, viewport, 6, 8, 'end', { ...free, band: null }).top
+      ).toBe(672);
+      expect(placeTooltip({ ...anchor, top: 2 }, tip, viewport, 6, 8, 'end', free).top).toBe(8);
+      // A band that runs out of the window is cut to it, the margin kept.
+      const wide = { ...left, band: { top: -50, bottom: 900 } };
+      expect(placeTooltip({ ...anchor, top: 760 }, tip, viewport, 6, 8, 'end', wide).top).toBe(672);
+      expect(placeTooltip({ ...anchor, top: 2 }, tip, viewport, 6, 8, 'end', wide).top).toBe(8);
+      // Taller than the band, it starts at the band's top; taller than the window, at the window's.
+      const short = { ...left, band: { top: 100, bottom: 200 } };
+      expect(placeTooltip({ ...anchor, top: 180 }, tip, viewport, 6, 8, 'end', short).top).toBe(100);
+      expect(
+        placeTooltip({ ...anchor, top: 180 }, { width: 300, height: 790 }, viewport, 6, 8, 'end', left).top
+      ).toBe(8);
+    });
+
+    it('falls back to below the anchor, or above it, as without the side, only where the window is too narrow for it', () => {
+      const narrow = { ...anchor, left: 317 };
+      // 317 - 10 - 300 = 7, short of the margin.
+      expect(placeTooltip(narrow, tip, viewport, 6, 8, 'end', left)).toEqual(
+        placeTooltip(narrow, tip, viewport, 6, 8, 'end')
+      );
+      expect(placeTooltip(narrow, tip, viewport, 6, 8, 'end', left)).toEqual({
+        left: 35,
+        top: 324,
+        placement: 'below'
+      });
+      // Above when there is no room below, the right edges lined up as before.
+      expect(placeTooltip({ ...narrow, top: 760 }, tip, viewport, 6, 8, 'end', left)).toEqual({
+        left: 35,
+        top: 634,
+        placement: 'above'
+      });
+      // A wider card falls back where a narrower one still fits.
+      expect(placeTooltip(anchor, { width: 683, height: 120 }, viewport, 6, 8, 'end', left).placement).toBe(
+        'below'
+      );
+      expect(placeTooltip(anchor, { width: 682, height: 120 }, viewport, 6, 8, 'end', left).placement).toBe(
+        'left'
+      );
+    });
+  });
+
+  /* polish.4 review: a (?) shows its card only while it lies wholly between
+     Settings' head and foot, so a (?) the box scrolled under either, or out
+     of sight, leaves no card over the title. */
+  it('tells whether the anchor lies wholly inside the band, to half a pixel', () => {
+    const band = { top: 92, bottom: 470 };
+    expect(insideBand({ top: 120, bottom: 138 }, band)).toBe(true);
+    expect(insideBand({ top: 92, bottom: 110 }, band)).toBe(true);
+    expect(insideBand({ top: 452, bottom: 470 }, band)).toBe(true);
+    expect(insideBand({ top: 91.6, bottom: 109.6 }, band)).toBe(true);
+    expect(insideBand({ top: 470.4, bottom: 470.4 }, band)).toBe(true);
+    // Partly under the head or the foot, then out of sight.
+    expect(insideBand({ top: 80, bottom: 98 }, band)).toBe(false);
+    expect(insideBand({ top: 91, bottom: 109 }, band)).toBe(false);
+    expect(insideBand({ top: 460, bottom: 478 }, band)).toBe(false);
+    expect(insideBand({ top: 12, bottom: 30 }, band)).toBe(false);
+    expect(insideBand({ top: 600, bottom: 618 }, band)).toBe(false);
   });
 });
 

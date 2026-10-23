@@ -1,13 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
-import { chapterName } from '../../shared/review';
+import { useEffect, useMemo, useRef } from 'react';
 import type { Review } from '../../shared/types';
-import { saveButtonInput, saveButtonState, unsavedDotLabel } from '../../shared/ui/save';
+import { SHOW_BACKUPS, SHOW_BACKUPS_TITLE } from '../../shared/ui/backups';
+import {
+  allChipsHidden,
+  allChipsShown,
+  chipBulkLabel,
+  chipCounts,
+  HIDE_ALL_CATEGORIES,
+  SHOW_ALL_CATEGORIES,
+  suggestionChip
+} from '../../shared/ui/chips';
+import { ACTIONS_MENU, REVIEW_MENU } from '../../shared/ui/menu';
+import { saveButtonInput, saveButtonState } from '../../shared/ui/save';
 import { SAVE_HINT_ID, saveHintText, saveHintVisible } from '../../shared/ui/saveHint';
 import { useBulkAction } from '../state/bulk';
+import { toolbarFocusLeft, useChipFocus, watchToolbarFocus } from '../state/chipFocus';
 import { hintDismissedThisSession, useSaveHintAside } from '../state/hints';
 import { changedParagraphCount, isLocked, useApp } from '../state/store';
-import { IconChevronDown } from './icons';
+import { FilterChips } from './FilterChips';
 import { SaveHint } from './SaveHint';
+import { ToolbarMenu, type MenuItem } from './ToolbarMenu';
 
 interface Props {
   review: Review | null;
@@ -26,92 +38,45 @@ interface Props {
   onManualReview: () => void;
   onSaveChapter: () => void;
   onCopyResult: () => void;
+  /** open the chapter's backup folder (apply.11), from Actions since `polish.7` */
+  onShowBackups: () => void;
   onSettings: () => void;
   /** Got it on the first-use hint: put it away for good (apply.12) */
   onSaveHintDone: () => void;
 }
 
 /**
- * The three bulk actions behind one button (item 6). They are rare, they all
- * ask for confirmation anyway, and each one used to cost a slot in a row that
- * had to fit on a 1100px window.
- */
-function BulkMenu({ disabled, title }: { disabled: boolean; title?: string }): React.JSX.Element {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const runBulk = useBulkAction();
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent): void => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return;
-      // The press is the menu's: it closes no drawer as well (keyboard.ts, ui.3).
-      event.preventDefault();
-      setOpen(false);
-    };
-    window.addEventListener('mousedown', onPointerDown);
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('mousedown', onPointerDown);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
-
-  /* The item goes with the menu, so the focus moves to Bulk first: the
-     question the action asks then hands it back there when it closes, not to
-     nothing (ui.4). */
-  const run = (action: 'accept' | 'dismiss' | 'reset'): void => {
-    buttonRef.current?.focus({ preventScroll: true });
-    setOpen(false);
-    runBulk(action);
-  };
-
-  return (
-    <span className="menu" ref={ref}>
-      <button
-        ref={buttonRef}
-        type="button"
-        disabled={disabled}
-        title={title}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        Bulk <IconChevronDown size={10} />
-      </button>
-      {open ? (
-        <div className="menu__list" role="menu">
-          <button type="button" role="menuitem" onClick={() => run('accept')}>
-            Accept all
-          </button>
-          <button type="button" role="menuitem" onClick={() => run('dismiss')}>
-            Dismiss all
-          </button>
-          <button type="button" role="menuitem" onClick={() => run('reset')}>
-            Reset
-          </button>
-        </div>
-      ) : null}
-    </span>
-  );
-}
-
-/**
- * One row, in the order the author reads it: what is open, what can act on it,
- * then what writes it out. Model and effort moved into the review dialog, where
- * they are chosen once per review rather than sitting in the way all day
- * (item 6). The chapter name takes the room the buttons leave and gives way
- * first, cut short with an ellipsis; once it is down to about 8em, the last
- * buttons move to a second row instead (app.css, `.toolbar`).
+ * One row, the only bar at the top (polish.10), in the order the author reads
+ * it: what can be shown, what can act on it, then what writes it out. The
+ * chapter's name and its unsaved dot are in the window's title since
+ * `polish.10` (`windowTitle`, set by App), and the category chips took their
+ * place, after the eye that shows or hides them all (polish.11): they take
+ * the room the buttons leave and give way first, shrinking in steps and then
+ * scrolling sideways once they do not fit (FilterChips); once they are down
+ * to about 8em, the last buttons move to a second row instead (app.css,
+ * `.toolbar`).
+ * Model and effort moved into the review dialog, where they are chosen once
+ * per review rather than sitting in the way all day (item 6). While the Setup
+ * screen or the welcome guide stands in place of the chapter, there are no
+ * chips, as there is no text for them to filter.
  *
- * Save to chapter and the dot before the chapter name come from
- * `saveButtonState` (apply.4), fed by `saveButtonInput` and counted by
- * `unsavedDecisionCount`: the changes the chapter file does not have yet, not
- * every decision made since the review opened.
+ * Four controls since `polish.7`: Review, a menu holding With AI and Manual
+ * (which open Review with AI and Submit manual review); Actions, a menu
+ * holding the three bulk actions, Copy result and Show backups, which left the
+ * side panel's footer, since `polish.10` Accept all and Dismiss all of the
+ * category whose chip the focus was last on, while it has not left the
+ * toolbar (`useChipFocus`, `watchToolbarFocus`), and since `polish.11` Show
+ * all categories and Hide all categories, as the eye before the chips does;
+ * Save to chapter; and Settings (`ToolbarMenu`).
+ * While a review runs, its progress and Cancel come before Review, whose With
+ * AI waits until it ends.
+ *
+ * Save to chapter comes from `saveButtonState` (apply.4), fed by
+ * `saveButtonInput` and counted by `unsavedDecisionCount`: the changes the
+ * chapter file does not have yet, not every decision made since the review
+ * opened. Save to chapter is a primary button only while there are some, or a
+ * save of them is under way (`polish.9`): with nothing to save it is an
+ * ordinary one, so its turquoise says something is waiting.
  *
  * The first time one of those changes is waiting, a hint hangs under the
  * toolbar with its arrow on Save to chapter, until Got it or a save puts it
@@ -131,6 +96,7 @@ export function Toolbar({
   onManualReview,
   onSaveChapter,
   onCopyResult,
+  onShowBackups,
   onSettings,
   onSaveHintDone
 }: Props): React.JSX.Element {
@@ -138,10 +104,10 @@ export function Toolbar({
   const locked = useApp(isLocked);
   const editing = useApp((s) => Object.keys(s.drafts).length);
   const changedParagraphs = useApp((s) => changedParagraphCount(s.drafts));
+  const runBulk = useBulkAction();
 
   const input = saveButtonInput({ review, changedParagraphs, saving, locked });
   const save = saveButtonState(input);
-  const dotLabel = unsavedDotLabel(input.unsavedDecisions);
 
   const dismissedHints = useApp((s) => s.settings?.dismissedHints ?? null);
   const hintSetAside = useSaveHintAside((s) => s.setAside);
@@ -159,20 +125,87 @@ export function Toolbar({
     setAside: hintSetAside
   });
 
-  const title = review
-    ? review.sourcePath
-      ? chapterName(review.sourcePath)
-      : 'Pasted text'
-    : 'No review open';
+  /* The bulk actions wait while a review of this chapter runs, and while a
+     paragraph is open for editing, whose suggestions they would skip or change
+     under it (`useBulkAction`). */
+  const bulkOff = locked || editing > 0;
+  const bulkTitle = editing > 0 ? 'Finish or cancel the paragraphs you are editing first' : undefined;
+
+  /* Accept all and Dismiss all of the chip the focus was last on, in Actions
+     too, under the bulk items (polish.10); the chip's own menu holds the same
+     two, with the count. Only for a chip that is drawn, and not for the
+     comments' chip, which has neither (polish.13). */
+  const chips = useMemo(
+    () => (review ? chipCounts(review.hunks, review.comments).map(([key]) => key) : []),
+    [review]
+  );
+  const lastChip = useChipFocus((s) => s.category);
+  const chipShown = review !== null && !singleScreen;
+  const focusedChip =
+    chipShown && lastChip !== null && chips.includes(lastChip) ? suggestionChip(lastChip) : null;
+  /* The chip is forgotten once the focus leaves the toolbar: `onBlur` below,
+     and the page watched for the way out it misses, a menu closed by a press
+     outside, whose focused item is gone before the press moves the focus. */
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return undefined;
+    return watchToolbarFocus(document, (target) => target instanceof Node && header.contains(target));
+  }, []);
+  const chipItems: MenuItem[] = focusedChip
+    ? [
+        {
+          label: chipBulkLabel('accept', focusedChip),
+          onSelect: () => runBulk('accept', focusedChip),
+          disabled: bulkOff,
+          title: bulkTitle,
+          separated: true
+        },
+        {
+          label: chipBulkLabel('dismiss', focusedChip),
+          onSelect: () => runBulk('dismiss', focusedChip),
+          disabled: bulkOff,
+          title: bulkTitle
+        }
+      ]
+    : [];
+
+  /* The eye's two, under a line after the chip's (polish.11), while the chips
+     are drawn: each off when it would change nothing. */
+  const hidden = useApp((s) => s.hiddenCategories);
+  const setHiddenCategories = useApp((s) => s.setHiddenCategories);
+  const clearCategoryFilter = useApp((s) => s.clearCategoryFilter);
+  const categoryItems: MenuItem[] =
+    chipShown && chips.length > 0
+      ? [
+          {
+            label: SHOW_ALL_CATEGORIES,
+            onSelect: clearCategoryFilter,
+            disabled: allChipsShown(chips, hidden),
+            separated: true
+          },
+          {
+            label: HIDE_ALL_CATEGORIES,
+            onSelect: () => setHiddenCategories(chips),
+            disabled: allChipsHidden(chips, hidden)
+          }
+        ]
+      : [];
 
   return (
-    <header className="toolbar">
-      <span className="toolbar__title">
-        {save.dot ? <span className="unsaved-dot" role="img" aria-label={dotLabel} title={dotLabel} /> : null}
-        <span className="toolbar__name" title={title}>
-          {title}
-        </span>
-      </span>
+    <header
+      ref={headerRef}
+      className="toolbar"
+      onBlur={(event) => {
+        const next = event.relatedTarget;
+        toolbarFocusLeft(
+          next instanceof Node ? event.currentTarget.contains(next) : null,
+          document.hasFocus()
+        );
+      }}
+    >
+      {/* Where the chapter's name was (polish.10): the name is in the window's title. */}
+      {chipShown ? <FilterChips review={review} bulkOff={bulkOff} bulkTitle={bulkTitle} /> : null}
 
       {running ? (
         <>
@@ -183,42 +216,54 @@ export function Toolbar({
             Cancel
           </button>
         </>
-      ) : (
-        // Where the focus goes when Review with AI closes (REVIEW_BUTTON_SELECTOR, ui.4).
-        <button type="button" data-opens="review" disabled={!review?.sourcePath} onClick={onReviewWithAi}>
-          Review with AI
-        </button>
-      )}
+      ) : null}
 
-      {/* The same for Submit manual review (MANUAL_REVIEW_BUTTON_SELECTOR, ui.4). */}
-      <button
-        type="button"
-        data-opens="manual-review"
+      {/* Where the focus goes when Review with AI or Submit manual review
+          closes (REVIEW_BUTTON_SELECTOR, ui.4). */}
+      <ToolbarMenu
+        label={REVIEW_MENU.label}
+        opens="review"
         disabled={!review?.sourcePath || locked}
-        title="Paste a corrected version of this chapter and turn the differences into suggestions"
-        onClick={onManualReview}
-      >
-        Submit manual review
-      </button>
-
-      <BulkMenu
-        disabled={!review || locked || editing > 0}
-        {...(editing > 0 ? { title: 'Finish or cancel the paragraphs you are editing first' } : {})}
+        items={[
+          {
+            label: REVIEW_MENU.withAi,
+            onSelect: onReviewWithAi,
+            // One review at a time: one of another chapter is running.
+            disabled: running,
+            title: running ? 'Wait until the review that is running ends, or cancel it' : undefined
+          },
+          {
+            label: REVIEW_MENU.manual,
+            onSelect: onManualReview,
+            title: 'Paste a corrected version of this chapter and turn the differences into suggestions'
+          }
+        ]}
       />
 
+      <ToolbarMenu
+        label={ACTIONS_MENU}
+        disabled={!review}
+        items={[
+          { label: 'Accept all', onSelect: () => runBulk('accept'), disabled: bulkOff, title: bulkTitle },
+          { label: 'Dismiss all', onSelect: () => runBulk('dismiss'), disabled: bulkOff, title: bulkTitle },
+          { label: 'Reset', onSelect: () => runBulk('reset'), disabled: bulkOff, title: bulkTitle },
+          ...chipItems,
+          ...categoryItems,
+          { label: 'Copy result', onSelect: onCopyResult, separated: true },
+          { label: SHOW_BACKUPS, onSelect: onShowBackups, title: SHOW_BACKUPS_TITLE }
+        ]}
+      />
+
+      {/* Primary, in the turquoise, only while changes are waiting or saving (polish.9). */}
       <button
         ref={saveRef}
         type="button"
-        className="primary"
+        className={save.primary ? 'primary' : undefined}
         disabled={save.disabled}
         title={save.title}
         onClick={onSaveChapter}
       >
         {save.label}
-      </button>
-
-      <button type="button" disabled={!review} onClick={onCopyResult}>
-        Copy result
       </button>
 
       {/* Where the focus goes when Settings closes (SETTINGS_BUTTON_SELECTOR, ui.1). */}

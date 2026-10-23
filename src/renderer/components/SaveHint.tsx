@@ -20,14 +20,14 @@ interface Props {
  *
  * It is placed inside the toolbar, below its last row, so it can never cover
  * one of the toolbar's buttons, whichever row Save to chapter has wrapped onto.
- * It keeps to the side panel's column, so the notification cards, the find bar
- * and the chapter's text, all in the column beside it, stay in the clear. In a
- * narrow window, with the panel folded to a strip, that is where the panel's
- * drawer opens, beside the strip, over the edge of the prose (ui.3), so the
- * strip stays in the clear. What it may cover is the top of the side panel,
- * the chips at that end of their strip, and the find bar's last buttons when a
- * centre column too narrow for the bar lets them spill into the side panel's;
- * with the panel folded, the top right of the prose and the find bar's end
+ * It keeps to the side panel's column, so the category chips, the notification
+ * cards, the find bar and the chapter's text, all in the column beside it, stay
+ * in the clear. In a narrow window, with the panel folded to a strip, that is
+ * where the panel's drawer opens, beside the strip, over the edge of the prose
+ * (ui.3), so the strip stays in the clear. What it may cover is the top of the
+ * side panel, and the find bar's last buttons when a centre column too narrow
+ * for the bar lets them spill into the side panel's; with the panel folded, the
+ * right end of the chips and the top right of the prose and of the find bar
  * there, until the author goes on, when it gives way (PLAN 7). Got it is the
  * way out. The arrow points only at a part of Save to chapter with no toolbar
  * button under it, or the hint has none.
@@ -110,7 +110,7 @@ export function SaveHint({ anchor, text, overProse, onGotIt }: Props): React.JSX
        panel's column can move without the toolbar changing size: folded to a
        strip it moves in from the window's edge (ui.3). Either the panel or the
        centre column beside it changes size whenever that happens. */
-    for (const column of document.querySelectorAll('.body .side, .body > .center-wrap')) {
+    for (const column of document.querySelectorAll('.body .side, .body > .center-col')) {
       observer.observe(column);
     }
     window.addEventListener('resize', place);

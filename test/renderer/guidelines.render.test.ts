@@ -4,18 +4,19 @@ import { describe, expect, it } from 'vitest';
 import { GuidelinesButtons, GuidelinesRow } from '../../src/renderer/components/Guidelines';
 import { ReviewDialog } from '../../src/renderer/components/ReviewDialog';
 import { SettingsDialog } from '../../src/renderer/components/SettingsDialog';
-import type { GuidelinesStatus, OpenGuidelinesVia } from '../../src/shared/ipc';
+import type { GuidelinesStatus } from '../../src/shared/ipc';
 import { DEFAULT_SETTINGS, type Review } from '../../src/shared/types';
 import { STYLE_SHEET_EMPTY } from '../../src/shared/ui/guidelines';
 
-/* setup.10b: the guidelines file in Review with AI and Settings, rendered
-   with react-dom/server. Review with AI's Guidelines row has Open in Obsidian
-   and Open, and says while the style sheet is still empty what the reviewer
-   may "fix" without it; Settings gains Open in Obsidian. Effects do not run
-   here, so nothing is called; which call each button makes is checked by
-   calling the buttons' own click handlers, and the status reads in the
-   dialogs' source in test/renderer/guidelines.test.ts. This file is
-   type-checked with the renderer's project (tsconfig.web.json). */
+/* setup.10b and polish.3: the guidelines file in Review with AI and
+   Settings, rendered with react-dom/server. Each has Open and Open folder
+   for it (polish.3, which took the place of Open in Obsidian), and Review
+   with AI says while the style sheet is still empty what the reviewer may
+   "fix" without it. Effects do not run here, so nothing is called; which
+   call each button makes is checked by calling the buttons' own click
+   handlers, and the calls themselves in the dialogs' source in
+   test/renderer/guidelines.test.ts. This file is type-checked with the
+   renderer's project (tsconfig.web.json). */
 
 const FILE = 'C:\\Vault\\Novel\\GUIDELINES.md';
 
@@ -35,8 +36,12 @@ function buttons(html: string): string[] {
   });
 }
 
+const untitled = (list: string[]): string[] => list.map((b) => b.replace(/ \{.*\}$/, ''));
+
 function row(path: string | null, status: GuidelinesStatus | null): string {
-  return renderToStaticMarkup(createElement(GuidelinesRow, { path, status, onOpen: () => undefined }));
+  return renderToStaticMarkup(
+    createElement(GuidelinesRow, { path, status, onOpen: () => undefined, onOpenFolder: () => undefined })
+  );
 }
 
 const status = (styleSheet: GuidelinesStatus['styleSheet'], exists = true): GuidelinesStatus => ({
@@ -46,16 +51,17 @@ const status = (styleSheet: GuidelinesStatus['styleSheet'], exists = true): Guid
 });
 
 describe("Review with AI's Guidelines row", () => {
-  it('shows the file with Open in Obsidian and Open, and the note while the style sheet is blank', () => {
+  it('shows the file with Open and Open folder, and the note while the style sheet is blank', () => {
     const html = row(FILE, status('blank'));
     expect(decode(html)).toContain(
       '<div class="modal__warn" role="note" data-testid="style-sheet-note"><span>Your style sheet is still empty: spelling variant, character names, invented words. Without it the reviewer may "fix" them.</span></div>'
     );
     expect(decode(html)).toContain(`<span class="modal__path" title="${FILE}">${FILE}</span>`);
     expect(buttons(html)).toEqual([
-      'Open in Obsidian {Open GUIDELINES.md in Obsidian, in the vault that holds it.}',
-      'Open {Open GUIDELINES.md in the app this computer uses for .md files.}'
+      'Open {Open GUIDELINES.md in the app this computer uses for .md files.}',
+      'Open folder {Open the folder that holds GUIDELINES.md, with the file selected.}'
     ]);
+    expect(html).not.toMatch(/obsidian/i);
   });
 
   it('shows the note for a file the review has still to make from the template', () => {
@@ -69,25 +75,29 @@ describe("Review with AI's Guidelines row", () => {
     }
   });
 
-  it('disables both buttons with no manuscript folder, and Open in Obsidian for a .txt file', () => {
+  it('disables both buttons with no manuscript folder, and offers both for a .txt file', () => {
     const none = row(null, { path: null, exists: false, styleSheet: 'missing' });
     expect(decode(none)).toContain('>choose a manuscript folder first</span>');
     expect(none).not.toContain('style-sheet-note');
-    expect(buttons(none)).toEqual(['Open in Obsidian [disabled]', 'Open [disabled]']);
+    expect(buttons(none)).toEqual(['Open [disabled]', 'Open folder [disabled]']);
 
     const txt = row('C:\\Vault\\Novel\\GUIDELINES.txt', null);
     expect(buttons(txt)).toEqual([
-      'Open in Obsidian [disabled] {Obsidian opens .md files, and GUIDELINES.txt is not one.}',
-      'Open {Open GUIDELINES.txt in the app this computer uses for .txt files.}'
+      'Open {Open GUIDELINES.txt in the app this computer uses for .txt files.}',
+      'Open folder {Open the folder that holds GUIDELINES.txt, with the file selected.}'
     ]);
   });
 });
 
-describe('which way each button opens the file', () => {
+describe('what each button asks for', () => {
   /** The buttons' elements, from the component's own output, without a DOM. */
-  function clickAll(path: string | null): OpenGuidelinesVia[] {
-    const calls: OpenGuidelinesVia[] = [];
-    const element = GuidelinesButtons({ path, openLabel: 'Open', onOpen: (via) => calls.push(via) });
+  function clickAll(path: string | null): string[] {
+    const calls: string[] = [];
+    const element = GuidelinesButtons({
+      path,
+      onOpen: () => calls.push('open'),
+      onOpenFolder: () => calls.push('open folder')
+    });
     const children = (element.props as { children: ReactNode }).children;
     for (const child of [children].flat()) {
       if (!isValidElement(child)) continue;
@@ -97,10 +107,21 @@ describe('which way each button opens the file', () => {
     return calls;
   }
 
-  it('asks main for Obsidian, then for the system app, and for nothing a disabled button stands for', () => {
-    expect(clickAll(FILE)).toEqual(['obsidian', 'default']);
-    expect(clickAll('C:\\Vault\\GUIDELINES.txt')).toEqual(['default']);
+  it('Open asks for the file, Open folder for its folder, and a disabled button for nothing', () => {
+    expect(clickAll(FILE)).toEqual(['open', 'open folder']);
+    expect(clickAll('C:\\Vault\\GUIDELINES.txt')).toEqual(['open', 'open folder']);
     expect(clickAll(null)).toEqual([]);
+  });
+
+  it("puts a row's own buttons, as Settings' Change, before the two", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        GuidelinesButtons,
+        { path: FILE, onOpen: () => undefined, onOpenFolder: () => undefined },
+        createElement('button', { type: 'button' }, 'Change')
+      )
+    );
+    expect(untitled(buttons(html))).toEqual(['Change', 'Open', 'Open folder']);
   });
 });
 
@@ -144,10 +165,11 @@ describe('the dialogs', () => {
       })
     );
     expect(decode(html)).toContain('<span>Guidelines</span>');
-    expect(buttons(html)).toEqual(expect.arrayContaining(['Open in Obsidian [disabled]', 'Open [disabled]']));
+    expect(buttons(html)).toEqual(expect.arrayContaining(['Open [disabled]', 'Open folder [disabled]']));
+    expect(html).not.toContain('Open in Obsidian');
   });
 
-  it('Settings has Open in Obsidian beside Open guidelines file, on a row under Change and Show in folder', () => {
+  it('Settings has Change, Open and Open folder on the guidelines file row, and no row under it', () => {
     const html = renderToStaticMarkup(
       createElement(SettingsDialog, {
         settings: DEFAULT_SETTINGS,
@@ -162,14 +184,20 @@ describe('the dialogs', () => {
         onAbout: () => undefined
       })
     );
-    const list = buttons(html).map((b) => b.replace(/ \{.*\}$/, ''));
-    const at = list.indexOf('Open in Obsidian [disabled]');
-    expect(at).toBeGreaterThan(1);
-    expect(list.slice(at - 2, at + 2)).toEqual([
+    expect(html).not.toContain('Open in Obsidian');
+    expect(html).not.toContain('Open guidelines file');
+    // The row's buttons, after its name and its path, up to its (?) at the end of the row (polish.15).
+    const rowButtons =
+      /<span>Guidelines file<\/span>[\s\S]*?<span class="modal__buttons">([\s\S]*?)<\/span><span class="modal__help">/.exec(
+        decode(html)
+      )?.[1];
+    expect(rowButtons).toBeDefined();
+    expect(untitled(buttons(rowButtons ?? ''))).toEqual([
       'Change',
-      'Show in folder [disabled]',
-      'Open in Obsidian [disabled]',
-      'Open guidelines file [disabled]'
+      'Open [disabled]',
+      'Open folder [disabled]'
     ]);
+    // The row of its own that held Open in Obsidian under the path (setup.10b) is gone.
+    expect(html).not.toContain('<div class="modal__row"><span></span><span></span>');
   });
 });
