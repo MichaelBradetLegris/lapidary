@@ -124,6 +124,7 @@ Work towards 1.0.
 - The pencil, tick and x on each suggestion in the list are larger in the same buttons, so they are easier to see at 100%. The pencil of the focused suggestion grows with them.
 - Once you accept or dismiss a suggestion, the row's other two buttons fade much further, so the row plainly reads as done; point at one, or reach it with Tab, and it shows in full again.
 - In Settings, each row's ? now sits at the right end of the row, after its buttons, so they all stand in one line down the right of the dialog instead of after names of different lengths. What a ? shows opens under it, lined up with its right edge, and Tab reaches each ? after the rest of its row.
+- Every category has a colour of its own, chosen so that categories close in meaning look plainly different: typo is no longer in spelling's red and homophone no longer in a red close to it, agreement and tense are no longer in grammar's blue, redundancy and awkward no longer in word choice's colour, and formatting and other no longer share one grey. The colours show where they did: on the chips, on the suggestions' tags in the list, and in the lines and suggested words in the text. Spelling, grammar, punctuation, word choice and consistency keep their colours in both themes. A comment of the category other takes other's new colour too.
 
 ### Fixed
 

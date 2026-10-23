@@ -108,13 +108,27 @@
   --font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-prose: Literata, Georgia, 'Times New Roman', serif;
 
+  /* A colour for each category (polish.16), in the order of
+     CHANGE_CATEGORIES: hues spread round the wheel, and the ones close in
+     meaning far apart (spelling, typo and homophone; grammar, agreement and
+     tense; word-choice, redundancy and awkward; formatting and other), You's
+     --accent and the comments' --ink-soft counted among them. Formatting and
+     other are the two muted ones, a warm clay and a cool slate. Each colour is
+     one line here and one in the dark block; themeContrast.test.ts holds any
+     two of the fifteen 15 apart in CIELAB, and two of one family 35 apart. */
   --cat-spelling: #b3261e;
-  --cat-homophone: #a3341c;
+  --cat-typo: #576909;
+  --cat-homophone: #016dba;
   --cat-grammar: #1f6f8b;
+  --cat-agreement: #aa5106;
+  --cat-tense: #9f3887;
   --cat-punctuation: #7a4fb5;
   --cat-word-choice: #84681c;
+  --cat-redundancy: #2e756e;
+  --cat-awkward: #c11e59;
   --cat-consistency: #2f7a4a;
-  --cat-other: #6d675e;
+  --cat-formatting: #905f4d;
+  --cat-other: #484e70;
   color-scheme: light;
 }
 
@@ -193,13 +207,20 @@
     --tint-small-hover: 26%;
     --row-fade: 35%;
 
+    /* each category's own colour, on the same hues as in light (polish.16) */
     --cat-spelling: #ff7b72;
-    --cat-homophone: #f2875e;
+    --cat-typo: #b6c973;
+    --cat-homophone: #30a9ff;
     --cat-grammar: #5cc0e0;
+    --cat-agreement: #ef8e3e;
+    --cat-tense: #fe9dee;
     --cat-punctuation: #b994f5;
     --cat-word-choice: #d9b44a;
+    --cat-redundancy: #34b7af;
+    --cat-awkward: #ff78a8;
     --cat-consistency: #6cc28b;
-    --cat-other: #a8a092;
+    --cat-formatting: #f5b89c;
+    --cat-other: #a2a0ba;
     color-scheme: dark;
   }
 }
@@ -1841,30 +1862,47 @@ input[type='text'] {
   box-shadow: 0 0 0 1px var(--active-ring);
 }
 
-.cat-spelling,
-.cat-typo {
+/* Each category in its own colour (polish.16), where typo shared spelling's,
+   agreement and tense grammar's, redundancy and awkward word-choice's and
+   formatting other's. The chips, the rows' tags, the focused box's category,
+   the prose's lines, tints and suggested words, the margin's bars, the
+   position strip and the hover card all take it from --cat. */
+.cat-spelling {
   --cat: var(--cat-spelling);
+}
+.cat-typo {
+  --cat: var(--cat-typo);
 }
 .cat-homophone {
   --cat: var(--cat-homophone);
 }
-.cat-grammar,
-.cat-agreement,
-.cat-tense {
+.cat-grammar {
   --cat: var(--cat-grammar);
+}
+.cat-agreement {
+  --cat: var(--cat-agreement);
+}
+.cat-tense {
+  --cat: var(--cat-tense);
 }
 .cat-punctuation {
   --cat: var(--cat-punctuation);
 }
-.cat-word-choice,
-.cat-redundancy,
-.cat-awkward {
+.cat-word-choice {
   --cat: var(--cat-word-choice);
+}
+.cat-redundancy {
+  --cat: var(--cat-redundancy);
+}
+.cat-awkward {
+  --cat: var(--cat-awkward);
 }
 .cat-consistency {
   --cat: var(--cat-consistency);
 }
-.cat-formatting,
+.cat-formatting {
+  --cat: var(--cat-formatting);
+}
 .cat-other {
   --cat: var(--cat-other);
 }
