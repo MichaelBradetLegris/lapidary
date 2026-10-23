@@ -3,7 +3,8 @@ import { keptOutNote } from '../../shared/diff/protect';
 import { isAuthored } from '../../shared/edit';
 import type { ReviewSummary } from '../../shared/ipc';
 import { paragraphNumber } from '../../shared/prompt/chapter';
-import { commentList, commentPlace, commentsHeading } from '../../shared/ui/comments';
+import { commentsHidden } from '../../shared/ui/chips';
+import { commentList, commentPlace, commentsHeading, commentsNote } from '../../shared/ui/comments';
 import {
   historyCounts,
   historyWhen,
@@ -114,6 +115,9 @@ export function SidePanel({
 
   const focused = review.hunks.find((h) => h.id === focusedHunkId) ?? null;
   const comments = useMemo(() => commentList(review.comments), [review.comments]);
+  /* While the comments' chip hides them, the heading stays with its count and
+     a line under it says so, where the list was (polish.13). */
+  const commentsEmpty = commentsNote(review.comments.length, commentsHidden(hiddenCategories));
   const picker = useMemo(
     () => reviewPicker(history, activeReviewPath, review),
     [history, activeReviewPath, review]
@@ -400,8 +404,8 @@ export function SidePanel({
                 order, an unanchored comment by the paragraph it had. */}
             <section className="side__section">
               <h3>{commentsHeading(review.comments)}</h3>
-              {comments.length === 0 ? (
-                <p className="side__empty">No comments.</p>
+              {commentsEmpty !== null ? (
+                <p className="side__empty">{commentsEmpty}</p>
               ) : (
                 <ul className="comments">
                   {comments.map((comment) => {

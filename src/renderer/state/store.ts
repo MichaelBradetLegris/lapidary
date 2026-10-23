@@ -4,7 +4,7 @@ import { applyBlockEdit, blockSpanFor, editSuggestion, liveTextIn, planBlockEdit
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import { remapAfterCommit } from '../../shared/review';
 import { splitParagraphs } from '../../shared/text/paragraphs';
-import { chipHidden, chipKeyOf, type ChipKey } from '../../shared/ui/chips';
+import { chipHidden, chipKeyOf, type RowChip } from '../../shared/ui/chips';
 import { stepIndex } from '../../shared/ui/find';
 import { stepFocus, type StepOptions } from '../../shared/ui/navigate';
 import type { SaveShortcutContext } from '../../shared/ui/save';
@@ -336,10 +336,10 @@ export interface AppState {
   /** the comment the author last clicked, in the gutter or the sidebar (item 7) */
   activeCommentId: string | null;
   /**
-   * the chips the author has hidden, categories and You (polish.11); empty
-   * means show everything
+   * the chips the author has hidden, categories and You (polish.11) and the
+   * comments (polish.13); empty means show everything
    */
-  hiddenCategories: ChipKey[];
+  hiddenCategories: RowChip[];
   notifications: Notification[];
   confirmSpec: ConfirmSpec | null;
   find: FindState;
@@ -402,9 +402,9 @@ export interface AppState {
   moveFocus: (delta: number, options?: StepOptions) => void;
   setHoveredHunk: (id: string | null) => void;
   setActiveComment: (id: string | null) => void;
-  toggleCategory: (category: ChipKey) => void;
+  toggleCategory: (category: RowChip) => void;
   /** Show only, and the eye's Hide all categories (polish.11) */
-  setHiddenCategories: (categories: readonly ChipKey[]) => void;
+  setHiddenCategories: (categories: readonly RowChip[]) => void;
   clearCategoryFilter: () => void;
   notify: (
     tone: NotificationTone,
@@ -913,7 +913,7 @@ export const useApp = create<AppState>()((set, get) => ({
        chip of a suggestion it accepted because the author typed exactly that.
        Left hidden, the author's words vanished from the line as they landed,
        while the card said they were added (the polish.11 review). */
-    const landed = new Set([...plan.added, ...accepted].map(chipKeyOf));
+    const landed = new Set<RowChip>([...plan.added, ...accepted].map(chipKeyOf));
     const hidden = state.hiddenCategories.filter((key) => !landed.has(key));
     set({
       review: withHunks(review, applyBlockEdit(review.hunks, plan)),

@@ -10,7 +10,7 @@ import {
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import { buildRenderBlocks, type RenderBlock } from '../../shared/render';
 import { splitParagraphs } from '../../shared/text/paragraphs';
-import { chipHidden } from '../../shared/ui/chips';
+import { chipHidden, commentsHidden } from '../../shared/ui/chips';
 import { gutterComments as gutterCommentsOf } from '../../shared/ui/comments';
 import { marginMarks, markAnchorName, type MarginMark } from '../../shared/ui/marks';
 import type { Review, ReviewComment } from '../../shared/types';
@@ -128,22 +128,33 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
     return buildRenderBlocks(review.base.text, paragraphs, visible);
   }, [review.base.text, review.hunks, hiddenCategories]);
 
+  /* Hidden by the comments' chip (polish.13): no card in the margin, which
+     then gives its room back to the prose, no commented paragraph's number in
+     the comment colour, and no paragraph lit for the active comment, so
+     nothing on the page points at a comment that is not shown. */
+  const commentsOff = commentsHidden(hiddenCategories);
+
   /* Resolved comments keep their place in the margin, collapsed and greyed
      (item 4). A resolved note that vanished read as a lost note. */
-  const gutterComments = useMemo(() => gutterCommentsOf(review.comments), [review.comments]);
+  const gutterComments = useMemo(
+    () => (commentsOff ? [] : gutterCommentsOf(review.comments)),
+    [review.comments, commentsOff]
+  );
 
   const commentedParagraphs = useMemo(() => {
     const set = new Set<number>();
+    if (commentsOff) return set;
     for (const c of review.comments) {
       if (c.paragraph !== null && c.status === 'open') set.add(c.paragraph);
     }
     return set;
-  }, [review.comments]);
+  }, [review.comments, commentsOff]);
 
   const activeParagraph = useMemo(() => {
+    if (commentsOff) return null;
     const comment = review.comments.find((c) => c.id === activeCommentId);
     return comment?.paragraph ?? null;
-  }, [review.comments, activeCommentId]);
+  }, [review.comments, activeCommentId, commentsOff]);
 
   useFindHighlight(proseRef, blocks);
 

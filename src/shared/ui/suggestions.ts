@@ -7,7 +7,7 @@
 
 import { decisionCounts } from '../diff/compose';
 import type { Hunk, HunkStatus } from '../types';
-import { chipHidden, chipKeyOf, YOU_CHIP, type ChipKey } from './chips';
+import { chipHidden, chipKeyOf, YOU_CHIP, type ChipKey, type RowChip } from './chips';
 import { compareHunks } from './navigate';
 import { sideText } from './small';
 
@@ -29,7 +29,7 @@ export interface SuggestionGroups {
  */
 export function groupSuggestions(
   hunks: readonly Hunk[],
-  hiddenCategories: readonly ChipKey[] = []
+  hiddenCategories: readonly RowChip[] = []
 ): SuggestionGroups {
   const inline = hunks
     .filter((h) => h.anchor !== 'stale' && !chipHidden(h, hiddenCategories))

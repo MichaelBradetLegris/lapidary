@@ -27,8 +27,9 @@ interface Props {
  * (item 6), how a small change is drawn and found (PLAN 11.7, `small.10`), and
  * what the unsaved dot means, in the window's title (polish.10; in the toolbar
  * from apply.4) and the chapter list (apply.5), what the chips count and do,
- * You and the eye included (polish.11), and how the suggestions list shows a
- * decision, with Show states and the heading's count (polish.12).
+ * You and the eye included (polish.11) and the comments' (polish.13), and how
+ * the suggestions list shows a decision, with Show states and the heading's
+ * count (polish.12).
  */
 function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -103,8 +104,10 @@ function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
         <li>
           <span className="legend__swatch legend__swatch--chip" /> <b>Categories.</b> The chips at the top
           count the suggestions in each category, and You counts your own edits, in the colour of their YOU
-          tag. Click a chip to hide or show it, to show only it, or to accept or dismiss all of it. The eye
-          before the chips shows or hides them all.
+          tag. Click a chip to hide or show it, to show only it, or to accept or dismiss all of it. The
+          comments chip, before You, counts the open comments; hiding it hides the comments in the margin and
+          in the side panel, whose heading still counts them. The eye before the chips shows or hides them
+          all, the comments included.
         </li>
         <li>
           <span className="legend__swatch legend__swatch--tick">

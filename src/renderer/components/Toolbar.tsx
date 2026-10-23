@@ -7,7 +7,8 @@ import {
   chipBulkLabel,
   chipCounts,
   HIDE_ALL_CATEGORIES,
-  SHOW_ALL_CATEGORIES
+  SHOW_ALL_CATEGORIES,
+  suggestionChip
 } from '../../shared/ui/chips';
 import { ACTIONS_MENU, REVIEW_MENU } from '../../shared/ui/menu';
 import { saveButtonInput, saveButtonState } from '../../shared/ui/save';
@@ -132,11 +133,16 @@ export function Toolbar({
 
   /* Accept all and Dismiss all of the chip the focus was last on, in Actions
      too, under the bulk items (polish.10); the chip's own menu holds the same
-     two, with the count. Only for a chip that is drawn. */
-  const chips = useMemo(() => (review ? chipCounts(review.hunks).map(([key]) => key) : []), [review]);
+     two, with the count. Only for a chip that is drawn, and not for the
+     comments' chip, which has neither (polish.13). */
+  const chips = useMemo(
+    () => (review ? chipCounts(review.hunks, review.comments).map(([key]) => key) : []),
+    [review]
+  );
   const lastChip = useChipFocus((s) => s.category);
   const chipShown = review !== null && !singleScreen;
-  const focusedChip = chipShown && lastChip !== null && chips.includes(lastChip) ? lastChip : null;
+  const focusedChip =
+    chipShown && lastChip !== null && chips.includes(lastChip) ? suggestionChip(lastChip) : null;
   /* The chip is forgotten once the focus leaves the toolbar: `onBlur` below,
      and the page watched for the way out it misses, a menu closed by a press
      outside, whose focused item is gone before the press moves the focus. */

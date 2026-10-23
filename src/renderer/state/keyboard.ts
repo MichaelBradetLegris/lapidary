@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { sortComments } from '../../shared/ui/comments';
+import { commentsHidden } from '../../shared/ui/chips';
+import { nextComment } from '../../shared/ui/comments';
 import { isTypingField } from '../../shared/ui/navigate';
 import { saveShortcutAction } from '../../shared/ui/save';
 import { arrowsScrollBox } from '../../shared/ui/scroll';
@@ -19,7 +20,8 @@ function isTypingTarget(target: EventTarget | null): boolean {
 /**
  * Review-pane keys from the plan section 7: j/k move, Shift+J and Shift+K go to
  * the next and previous pending change (11.7, small.9), a accepts, u returns to
- * pending, d toggles dismissed, n jumps to the next commented paragraph.
+ * pending, d toggles dismissed, n jumps to the next commented paragraph
+ * (`nextComment`; none while the comments' chip hides them, polish.13).
  * Ctrl+F opens the find bar (item 11) and Escape closes it. Ctrl+S, or Cmd+S,
  * runs Save to chapter (apply.3), wherever the focus is, under the rules of
  * `saveShortcutAction`. None of them acts behind a dialog, a question,
@@ -157,18 +159,14 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
           break;
         case 'n': {
           // In reading order, so "next" is the nearest comment below, not
-          // whichever one the model happened to write down first.
-          const open = sortComments(review.comments).filter(
-            (c) => c.status === 'open' && c.paragraph !== null
-          );
-          if (open.length === 0) return;
+          // whichever one the model happened to write down first; nothing
+          // while the comments' chip hides them (polish.13).
           const current = focused ? (review.hunks.find((h) => h.id === focused)?.paragraph ?? -1) : -1;
-          const next = open.find((c) => (c.paragraph ?? 0) > current) ?? open[0];
-          if (next) {
-            state.setActiveComment(next.id);
-            const el = document.getElementById(`para-${next.paragraph ?? 0}`);
-            scrollToElement(el, 'center');
-          }
+          const next = nextComment(review.comments, current, commentsHidden(state.hiddenCategories));
+          if (!next) return;
+          state.setActiveComment(next.id);
+          const el = document.getElementById(`para-${next.paragraph ?? 0}`);
+          scrollToElement(el, 'center');
           break;
         }
         default:

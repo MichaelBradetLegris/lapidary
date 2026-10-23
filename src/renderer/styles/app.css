@@ -1869,6 +1869,13 @@ input[type='text'] {
 .cat-you {
   --cat: var(--accent);
 }
+/* The comments' chip (polish.13), in the colour of a margin card's head,
+   which a comment has unless its category has a colour of its own
+   (.note-card__cat): the cards have no hue, and --accent, the commented
+   paragraph's number, is You's. */
+.cat-comments {
+  --cat: var(--ink-soft);
+}
 
 /* ---------- side panel ---------- */
 
