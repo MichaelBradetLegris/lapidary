@@ -716,7 +716,10 @@ const LIGHT_VALUES: Record<string, string> = {
   '--scrollbar-thumb-hover': '#c5beb0',
   '--scrollbar-thumb-active': '#b7b0a2',
   // Added by polish.12: the accepted tick on a suggestion row, which was --accept.
-  '--accept-strong': '#12873b'
+  '--accept-strong': '#12873b',
+  // Added by polish.14: how much of --ink-faint a decided row's other two buttons keep,
+  // where polish.12 drew them a thinner stroke in --ink-faint itself.
+  '--row-fade': '35%'
 };
 
 /**
@@ -788,6 +791,8 @@ const DARK_VALUES: Record<string, string> = {
   '--tint-decided-hover': '16%',
   '--tint-small': '16%',
   '--tint-small-hover': '26%',
+  // polish.14: a decided row's other two buttons, as in light.
+  '--row-fade': '35%',
   '--cat-spelling': '#ff7b72',
   '--cat-homophone': '#f2875e',
   '--cat-grammar': '#5cc0e0',

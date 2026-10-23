@@ -2,12 +2,14 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SidePanel } from '../../src/renderer/components/SidePanel';
+import { Legend } from '../../src/renderer/components/StatusBar';
 import { saveRowStates } from '../../src/renderer/state/rowStates';
 import type { SettingIo } from '../../src/renderer/state/settingWrites';
 import { useApp } from '../../src/renderer/state/store';
 import { defaultSettings, normalizeSettings } from '../../src/shared/settings';
 import type { Hunk, Review, Settings } from '../../src/shared/types';
 import { YOU_CHIP } from '../../src/shared/ui/chips';
+import { TAG_ABBREVIATIONS, TAG_KEYS, tagName } from '../../src/shared/ui/suggestions';
 
 /* polish.12: the suggestions list's rows. Each has a tag of its chip in the
    chip's colour, the button of its decision stands out and the others fade,
@@ -131,24 +133,28 @@ const byId = (html: string, id: string): Row => {
 const withStates = (showRowStates: boolean): Settings => ({ ...defaultSettings(), showRowStates });
 
 describe('a tag on every row (polish.12)', () => {
-  it("names the chip the suggestion is under, in that chip's colour, where the dot was", () => {
+  it("names the chip the suggestion is under in three letters (polish.14), in that chip's colour, where the dot was", () => {
     const html = render();
     expect(rows(html).map((r) => [r.id, r.tag, r.tagCls])).toEqual([
-      ['reworded', 'spelling', 'row__cat cat-spelling'],
-      ['pending', 'grammar', 'row__cat cat-grammar'],
-      ['accepted', 'word-choice', 'row__cat cat-word-choice'],
-      ['dismissed', 'punctuation', 'row__cat cat-punctuation'],
-      ['mine', 'you', `row__cat cat-${YOU_CHIP}`]
+      ['reworded', 'SPE', 'row__cat cat-spelling'],
+      ['pending', 'GRM', 'row__cat cat-grammar'],
+      ['accepted', 'WRD', 'row__cat cat-word-choice'],
+      ['dismissed', 'PUN', 'row__cat cat-punctuation'],
+      ['mine', 'YOU', `row__cat cat-${YOU_CHIP}`]
     ]);
     expect(html).not.toContain('row__dot');
     expect(html).not.toContain('row__you');
   });
 
-  it("says whose words they are on the author's own and on a reworded suggestion", () => {
+  it("gives the name in full as the tooltip, and says whose words they are on the author's own and on a reworded suggestion", () => {
     const html = render();
-    expect(byId(html, 'mine').tagTitle).toBe('Your own words');
-    expect(byId(html, 'reworded').tagTitle).toBe('Reworded by you');
-    expect(byId(html, 'pending').tagTitle).toBeNull();
+    expect(rows(html).map((r) => [r.id, r.tagTitle])).toEqual([
+      ['reworded', 'Spelling, reworded by you'],
+      ['pending', 'Grammar'],
+      ['accepted', 'Word-choice'],
+      ['dismissed', 'Punctuation'],
+      ['mine', 'Your own words']
+    ]);
   });
 
   it('reads the tag as the category, then the change and its decision', () => {
@@ -239,6 +245,26 @@ describe('Show states (polish.12)', () => {
     await saveRowStates(false, io);
     expect(patches).toHaveLength(1);
     useApp.setState({ settings: null });
+  });
+});
+
+describe('the legend lists the tags (polish.14)', () => {
+  it('draws every tag as a row does, in the order of the chips, each with its name', () => {
+    const html = renderToStaticMarkup(createElement(Legend, { onClose: () => undefined }));
+    const item =
+      /<li><span class="legend__swatch legend__swatch--tag"><\/span> <b>Tags\.<\/b>([\s\S]*?)<\/li>/.exec(
+        html
+      );
+    expect(item).not.toBeNull();
+    const listed = [
+      ...(item?.[1] ?? '').matchAll(
+        /<span class="legend__tag"><span class="row__cat cat-([\w-]+)">([A-Z]{3})<\/span>([^<]*)<\/span>/g
+      )
+    ].map((m) => [m[1], m[2], m[3]]);
+    expect(listed).toEqual(TAG_KEYS.map((key) => [key, TAG_ABBREVIATIONS[key], tagName(key)]));
+    expect(listed).toHaveLength(14);
+    expect(item?.[1]).toContain('Three letters name the category');
+    expect(item?.[1]).toContain('The pointer on a tag shows its name.');
   });
 });
 

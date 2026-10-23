@@ -100,6 +100,10 @@
   --tint-decided-hover: 16%;
   --tint-small: 16%;
   --tint-small-hover: 26%;
+  /* How much of --ink-faint a decided row's two other buttons keep at rest
+     (polish.14), a color-mix() share: faint enough that the row reads as
+     done, under 3:1 by the author's choice (themeContrast.test.ts). */
+  --row-fade: 35%;
 
   --font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-prose: Literata, Georgia, 'Times New Roman', serif;
@@ -187,6 +191,7 @@
     --tint-decided-hover: 16%;
     --tint-small: 16%;
     --tint-small-hover: 26%;
+    --row-fade: 35%;
 
     --cat-spelling: #ff7b72;
     --cat-homophone: #f2875e;
@@ -3341,14 +3346,16 @@ button.help {
 }
 
 /* Where the side panel is too narrow for two letters of the status word
-   beside the widest tag (WORD-CHOICE, about 77 px), the floor and two gaps,
-   no row writes it, rather than an ellipsis or a sliver of a letter; the
-   buttons still say the decision, and so does the row's name. The query
-   reads the panel's width inside its border, which no chapter changes
-   (C.49): 246 px leaves a row's button 144 px inside when the list has its
-   scrollbar, 102 px less. In the smallest window the panel is 235 px inside,
-   and at 200% in the default window 199. */
-@container side (width < 246px) {
+   beside the tag (34 px, every tag since polish.14; until then the widest,
+   WORD-CHOICE, about 77 px), the floor and two gaps, no row writes it, rather
+   than an ellipsis or a sliver of a letter; the buttons still say the
+   decision, and so does the row's name. The query reads the panel's width
+   inside its border, which no chapter changes (C.49): 203 px leaves a row's
+   button 101 px inside when the list has its scrollbar, 102 px less, and the
+   word 23 px, "AC…". In the smallest window the panel is 235 px inside, where
+   the word now shows, and at 200% in the default window 199, where it does
+   not. */
+@container side (width < 203px) {
   .row__status {
     display: none;
   }
@@ -3370,11 +3377,18 @@ button.help {
    the chip does. Its fill is the panel's, whatever the row's background, as
    a chip's is: the categories hold 4.5:1 as text on --panel, and in dark
    four of them fall under it on the focused row's --focus-bg (4.03 to 4.28).
-   Where the row is too narrow for it and --row-text-floor of the change, it
-   ends in an ellipsis (.row__main). */
+   Since polish.14 it is three letters (`TAG_ABBREVIATIONS`) in a box of one
+   width, so every row's words start in one column: HOM, the widest, is
+   31 px in Segoe UI at 9 px with the border, and 34 px leaves room for a
+   wider fallback font. Where the row is too narrow for it and
+   --row-text-floor of the change, it ends in an ellipsis (.row__main). The
+   legend draws each tag with this rule too. */
 .row__cat {
   flex: 0 0 auto;
+  display: inline-block;
+  width: 34px;
   max-width: calc(100% - var(--row-text-floor) - 6px);
+  text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3385,7 +3399,7 @@ button.help {
   background: var(--panel);
   border: 1px solid color-mix(in srgb, var(--cat) 40%, transparent);
   border-radius: 3px;
-  padding: 0 3px;
+  padding: 0 2px;
   line-height: 1.5;
 }
 
@@ -3431,14 +3445,23 @@ button.help {
   text-transform: uppercase;
 }
 
+/* A row's pencil, tick and x (and the focused suggestion's pencil, which is
+   drawn as one): since polish.14 the icon is 16 px in an 18 px button, where
+   it was 12 px with 3 px of padding, so it reads at 100%; the button is the
+   same size, and so is the focused box's heading line (--focus-head). */
 .row__act {
   flex: 0 0 auto;
   border: none;
   background: none;
-  padding: 3px;
+  padding: 1px;
   line-height: 0;
   color: var(--ink-faint);
   border-radius: 3px;
+}
+
+.row__act svg {
+  width: 16px;
+  height: 16px;
 }
 
 .row__act:hover:not(:disabled) {
@@ -3448,11 +3471,13 @@ button.help {
 
 /* A decided row (polish.12): the button of its decision is drawn bolder, the
    accepted tick in --accept-strong and the dismissed x in --danger, and keeps
-   its colour under the pointer; the row's other two buttons fade to a thinner
-   stroke, in the faint grey every row button has, which holds 3:1 on the
-   row at rest, hovered and focused (themeContrast.test.ts), and come back to
-   the usual stroke under the pointer. A pending row's buttons are as they
-   were. */
+   its colour under the pointer. The row's other two buttons fade to
+   --row-fade of the faint grey every row button has (polish.14, where
+   polish.12 drew them a thinner stroke, which hardly showed), so the row
+   reads as done; they are under 3:1 at rest by the author's choice, and come
+   back as any row button, --ink on --border, under the pointer, and --ink
+   with the focus ring when the keyboard brings the focus to one
+   (themeContrast.test.ts). A pending row's buttons are as they were. */
 .row__act--accepted,
 .row__act--accepted:hover:not(:disabled) {
   color: var(--accept-strong);
@@ -3468,12 +3493,12 @@ button.help {
   stroke-width: 2.6;
 }
 
-.row__act--faded svg {
-  stroke-width: 1.2;
+.row__act--faded {
+  color: color-mix(in srgb, var(--ink-faint) var(--row-fade), transparent);
 }
 
-.row__act--faded:hover:not(:disabled) svg {
-  stroke-width: 1.8;
+.row__act--faded:focus-visible {
+  color: var(--ink);
 }
 
 .stale__where {
@@ -3835,18 +3860,45 @@ button.help {
   border-radius: 5px;
 }
 
-/* An accepted row's tick as the suggestions list draws it (polish.12), the
-   icon's 12 px centred in the swatch's 16 px. */
+/* An accepted row's tick as the suggestions list draws it (polish.12), 16 px
+   since polish.14, as wide as the swatch. */
 .legend__swatch--tick {
-  width: 12px;
-  height: 12px;
-  margin: 0 2px;
+  width: 16px;
+  height: 16px;
   line-height: 0;
   color: var(--accept-strong);
 }
 
 .legend__swatch--tick svg {
+  width: 16px;
+  height: 16px;
   stroke-width: 2.6;
+}
+
+/* An empty tag (polish.14), its border as a row's tag draws it, centred in
+   the swatch's 16 px. */
+.legend__swatch--tag {
+  width: 14px;
+  height: 10px;
+  margin: 0 1px;
+  border: 1px solid color-mix(in srgb, var(--cat-grammar) 40%, transparent);
+  border-radius: 3px;
+}
+
+/* Every tag and its name (polish.14), each tag drawn as on its row
+   (.row__cat), in columns under the item's words. */
+.legend__tags {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: 3px 24px;
+  margin: 5px 0 0;
+}
+
+.legend__tag {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
 }
 
 /* `.legend p` would otherwise take the gap above it away. */

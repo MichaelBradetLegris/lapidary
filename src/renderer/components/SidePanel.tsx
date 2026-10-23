@@ -330,13 +330,15 @@ export function SidePanel({
                           aria-label={rowLabel(hunk)}
                         >
                           {/* The tag of the chip the suggestion is under, in its
-                              colour (polish.12): the category, or "you" for the
+                              colour (polish.12): the category, or YOU for the
                               author's own words (item 3), which take no colour of
-                              a category they never chose. The row's name says it
-                              as the category, then the change and its decision
-                              (`rowLabel`), whether or not Show states writes the
-                              decision on the row. */}
-                          <span className={`row__cat cat-${tag.key}`} title={tag.title ?? undefined}>
+                              a category they never chose; three letters of fixed
+                              width since polish.14, so the rows' words start in one
+                              column, with the name in full as the tooltip. The
+                              row's name says it as the category, then the change
+                              and its decision (`rowLabel`), whether or not Show
+                              states writes the decision on the row. */}
+                          <span className={`row__cat cat-${tag.key}`} title={tag.title}>
                             {tag.text}
                           </span>
                           {context ? (

@@ -214,12 +214,19 @@ const FAINT_PAIRS: Pair[] = [
     ink: '--ink-faint',
     on,
     min: 3,
-    why: "a decided row's faded buttons, and every row button, on the row at rest, hovered and focused (polish.12)"
-  }))
+    why: "a pending row's buttons, on the row at rest, hovered and focused (polish.12)"
+  })),
+  {
+    ink: '--ink',
+    on: '--border',
+    min: 3,
+    why: "a row button under the pointer, a decided row's faded ones among them, which come back there (polish.14)"
+  }
 ];
 
 /**
- * polish.2: the one mark under 3:1, by the author's choice (2026-10-22). The
+ * polish.2: a mark under 3:1, by the author's choice (2026-10-22), the only
+ * one until polish.14's faded row buttons (below). The
  * scrollbar's thumb is a square a shade off its gutter, `--scrollbar-thumb` on
  * `--scrollbar-track`: about 1.4:1 at rest and 1.6 under the pointer ("a tiny
  * bit darker" than the sheet's variant D, 1.24 and 1.58 in light, 1.21 and
@@ -228,7 +235,8 @@ const FAINT_PAIRS: Pair[] = [
  * 1.86, dark to 1.41, 1.60 and 1.85, the same as the window's pixels at 100%
  * and 150%. The exception names these three tokens and no other, and
  * pins each to its band, so the thumb can neither fade into the track nor
- * drift unnoticed, and the 3:1 floor stands for every other mark. The arrows
+ * drift unnoticed, and the 3:1 floor stands for every other mark but those
+ * faded buttons. The arrows
  * and the resize handle keep it, above.
  */
 interface Band {
@@ -254,6 +262,44 @@ function outOfBand(scheme: Scheme, bands: Band[]): string[] {
       ? []
       : [
           `${token} ${toHex(thumb)} on ${THUMB_ON} ${toHex(track)}: ${ratio.toFixed(2)}, not ${min} to ${max} (${why})`
+        ];
+  });
+}
+
+/**
+ * polish.14: the second mark under 3:1, by the author's choice (2026-10-23:
+ * "make the not clicked ones fade more ... It should clearly indicate 'we are
+ * done with this row'"), where polish.12's thinner stroke in `--ink-faint`
+ * "barely looks any different". On a decided row the two buttons not chosen
+ * keep `--row-fade` of `--ink-faint`, painted as color-mix() paints it over
+ * the row at rest, hovered and focused: 1.48, 1.43 and 1.45:1 in light, 1.74,
+ * 1.71 and 1.54 in dark, near the scrollbar thumb's 1.4. Under the pointer
+ * they come back as any row button, `--ink` on `--border` (a pair above at
+ * 3:1), and with the keyboard's focus as `--ink` on the row (a text pair).
+ * The exception names this ink, this share and the row's three backgrounds
+ * and no other, and pins each ratio to a band, so the fade can neither vanish
+ * nor creep back towards the grey it fades from.
+ */
+interface Fade {
+  ink: string;
+  share: string;
+  on: readonly string[];
+  min: number;
+  max: number;
+}
+
+const FADE_EXCEPTION: Fade = { ink: '--ink-faint', share: '--row-fade', on: ROWS, min: 1.35, max: 1.9 };
+
+function fadeOutOfBand(scheme: Scheme, { ink, share, on, min, max }: Fade): string[] {
+  const percent = parseFloat(resolveToken(BLOCKS, scheme, share));
+  return on.flatMap((base) => {
+    const row = opaque(scheme, base);
+    const mark = over(mixWithTransparent(colour(scheme, ink), percent), row);
+    const ratio = contrastRatio(mark, row);
+    return ratio >= min && ratio <= max
+      ? []
+      : [
+          `${ink} at ${share} (${percent}%) over ${base} ${toHex(mark)} on ${toHex(row)}: ${ratio.toFixed(2)}, not ${min} to ${max} (a decided row's faded button)`
         ];
   });
 }
@@ -440,7 +486,7 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
       FAINT_PAIRS.length,
       SELECTION_TEXT_PAIRS.length,
       SELECTION_FAINT_PAIRS.length
-    ]).toEqual([156, 74, 105, 33]);
+    ]).toEqual([156, 75, 105, 33]);
   });
 
   /* polish.12: the accepted tick "needs to pop a little more" (the author).
@@ -503,7 +549,7 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
       expect([BAND_FLOOR, PROSE_FLOOR].flatMap((floor) => faded(scheme, floor))).toEqual([]);
     });
 
-    it(`keeps the scrollbar's thumb a shade off its gutter in ${scheme}, the one mark under 3:1 (polish.2)`, () => {
+    it(`keeps the scrollbar's thumb a shade off its gutter in ${scheme}, a mark under 3:1 (polish.2)`, () => {
       expect(outOfBand(scheme, THUMB_EXCEPTION)).toEqual([]);
       // Each state a step further from the track, and all three under the floor they are exempt from.
       const track = opaque(scheme, THUMB_ON);
@@ -511,7 +557,28 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
       expect([...ratios].sort((a, b) => a - b)).toEqual(ratios);
       expect(Math.max(...ratios)).toBeLessThan(3);
     });
+
+    it(`fades a decided row's other buttons plainly in ${scheme}, the second mark under 3:1 (polish.14)`, () => {
+      expect(fadeOutOfBand(scheme, FADE_EXCEPTION)).toEqual([]);
+      // The grey it fades from holds 3:1 on every row (above); faded, it is well under it.
+      for (const base of ROWS) {
+        const row = opaque(scheme, base);
+        expect(contrastRatio(opaque(scheme, '--ink-faint'), row), base).toBeGreaterThanOrEqual(3);
+      }
+    });
   }
+
+  it("fails a fade outside its band, so the faded buttons' exception can fail", () => {
+    // polish.12's buttons, --ink-faint whole, are no fade at all, and a tenth of it is next to nothing.
+    for (const scheme of SCHEMES) {
+      expect(fadeOutOfBand(scheme, { ...FADE_EXCEPTION, share: '--tint-pending' })).toHaveLength(3);
+    }
+    const whole = SCHEMES.flatMap((scheme) =>
+      ROWS.map((base) => contrastRatio(opaque(scheme, '--ink-faint'), opaque(scheme, base)))
+    );
+    expect(Math.min(...whole)).toBeGreaterThan(FADE_EXCEPTION.max);
+    expect(FADE_EXCEPTION.on).toEqual(['--panel', '--panel-alt', '--focus-bg']);
+  });
 
   it("fails a thumb outside its band, so the scrollbar's exception can fail", () => {
     // The sheet's D as drawn: --border at rest is too faint, and dark's --border-strong

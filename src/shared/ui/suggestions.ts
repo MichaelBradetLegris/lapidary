@@ -1,12 +1,12 @@
 /**
  * Ordering and one-line summaries for the suggestions list in the right panel
  * (plan 7, items 4 and 5), and since polish.12 its heading, each row's tag and
- * how a row's buttons show its decision. Pure so the list is testable without
- * a DOM.
+ * how a row's buttons show its decision; since polish.14 the tag's three
+ * letters, which the legend lists. Pure so the list is testable without a DOM.
  */
 
 import { decisionCounts } from '../diff/compose';
-import type { Hunk, HunkStatus } from '../types';
+import { CHANGE_CATEGORIES, type Hunk, type HunkStatus } from '../types';
 import { chipHidden, chipKeyOf, YOU_CHIP, type ChipKey, type RowChip } from './chips';
 import { compareHunks } from './navigate';
 import { sideText } from './small';
@@ -82,37 +82,69 @@ export function suggestionsHeading(rows: readonly Hunk[]): string {
   return decided === 0 ? `Suggestions (${total})` : `Suggestions (${decided} of ${total} decided)`;
 }
 
-/** The tag at the left of a row in the list (polish.12). */
+/**
+ * The three letters of each row's tag (polish.14), so every tag is as wide as
+ * the next and the rows' words start in one column: one for each change
+ * category and YOU for the author's own edits. The legend lists them
+ * (`TAG_KEYS`), with the names a chip gives them.
+ */
+export const TAG_ABBREVIATIONS: Readonly<Record<ChipKey, string>> = {
+  spelling: 'SPE',
+  typo: 'TYP',
+  homophone: 'HOM',
+  grammar: 'GRM',
+  agreement: 'AGR',
+  tense: 'TEN',
+  punctuation: 'PUN',
+  'word-choice': 'WRD',
+  redundancy: 'RED',
+  awkward: 'AWK',
+  consistency: 'CON',
+  formatting: 'FMT',
+  other: 'OTH',
+  [YOU_CHIP]: 'YOU'
+};
+
+/** Every tag, in the chips' order: the categories, then YOU (polish.14, the legend's list). */
+export const TAG_KEYS: readonly ChipKey[] = [...CHANGE_CATEGORIES, YOU_CHIP];
+
+/** What a tag stands for, as the legend names it: the category as its chip writes it, or "your own edits". */
+export function tagName(key: ChipKey): string {
+  return key === YOU_CHIP ? 'your own edits' : key;
+}
+
+/** The tag at the left of a row in the list (polish.12, three letters since polish.14). */
 export interface RowTag {
   /** the chip the suggestion is under, whose colour the tag takes (`cat-<key>`) */
   key: ChipKey;
-  /** the tag's words, which app.css writes in capitals: "grammar", "word-choice", "you" */
+  /** the tag's three letters (`TAG_ABBREVIATIONS`): "GRM", "WRD", "YOU" */
   text: string;
-  /** its tooltip: whose words they are, for the author's own and for a suggestion they reworded */
-  title: string | null;
+  /**
+   * its tooltip, the name in full: "Grammar", "Grammar, reworded by you", and
+   * for the author's own edits "Your own words"
+   */
+  title: string;
   /** what a screen reader hears for it, first in the row's name: the category, or "you" */
   spoken: string;
 }
 
 /**
- * A row's tag (polish.12), in place of the category's dot: the name of the
- * chip its suggestion is counted under (`chipKeyOf`), in that chip's colour,
- * so the list and the chips agree. The author's own edits are tagged "you",
- * as they were before polish.12. A model's suggestion the author reworded
- * keeps its category's chip, and so its tag; that the words are now the
- * author's is in the tag's tooltip and in what a screen reader hears, where
- * before the tag was "you" and the chip the category (C.107).
+ * A row's tag (polish.12), in place of the category's dot: the chip its
+ * suggestion is counted under (`chipKeyOf`), in that chip's colour, so the
+ * list and the chips agree, written since polish.14 in three letters of fixed
+ * width, its name in full as its tooltip and in what a screen reader hears.
+ * The author's own edits are tagged YOU, as they were before polish.12. A
+ * model's suggestion the author reworded keeps its category's chip, and so
+ * its tag; that the words are now the author's is in the tag's tooltip and in
+ * what a screen reader hears, where before the tag was "you" and the chip the
+ * category (C.107).
  */
 export function rowTag(hunk: Pick<Hunk, 'source' | 'category' | 'edited'>): RowTag {
   const key = chipKeyOf(hunk);
-  if (key === YOU_CHIP) return { key, text: 'you', title: 'Your own words', spoken: 'you' };
-  const reworded = hunk.edited === true;
-  return {
-    key,
-    text: key,
-    title: reworded ? 'Reworded by you' : null,
-    spoken: reworded ? `${key}, reworded by you` : key
-  };
+  const text = TAG_ABBREVIATIONS[key];
+  if (key === YOU_CHIP) return { key, text, title: 'Your own words', spoken: 'you' };
+  const spoken = hunk.edited === true ? `${key}, reworded by you` : key;
+  return { key, text, title: spoken.charAt(0).toUpperCase() + spoken.slice(1), spoken };
 }
 
 /** A row's three buttons, left to right. */
