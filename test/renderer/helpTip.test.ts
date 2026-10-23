@@ -55,9 +55,16 @@ describe('the (?) (polish.4)', () => {
   });
 
   /* polish.15: the (?) is at the right end of its row, so the card's right
-     edge, not its left, is under the (?)'s. */
-  it("places the card under the (?), its right edge under the (?)'s, and again on any scroll or resize", () => {
-    expect(HELP).toMatch(/placeTooltip\([\s\S]*?6,\s*8,\s*'end'\s*\)/);
+     edge, not its left, was under the (?)'s. polish.19: a card under its (?)
+     covered the (?) of the next row, so the card stands to the left of its
+     (?), kept inside the band between the head and the foot, and goes under
+     it, right edges lined up, only where there is no room beside it. */
+  it('places the card to the left of the (?), under it only without the room, and again on any scroll or resize', () => {
+    expect(HELP).toMatch(/placeTooltip\([\s\S]*?6,\s*8,\s*'end',\s*\{ side: 'left', gap: 10, band \}\s*\)/);
+    // The band it keeps inside is the one the (?) is checked against.
+    const place = HELP.slice(HELP.indexOf('const place = (): void => {'), HELP.indexOf('place();'));
+    expect(place.match(/const band = /g)).toHaveLength(1);
+    expect(place.indexOf('const band = visibleBand(button);')).toBeLessThan(place.indexOf('placeTooltip('));
     expect(HELP).toContain("window.addEventListener('scroll', place, true);");
     expect(HELP).toContain("window.addEventListener('resize', place);");
     expect(HELP).toContain("window.removeEventListener('scroll', place, true);");

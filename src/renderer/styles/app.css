@@ -2733,9 +2733,9 @@ button.help {
   line-height: 1;
 }
 
-/* Its card, placed by HelpTip under the (?) with its right edge under the
-   (?)'s, so that it runs back over the row, above the head and the foot of
-   the box. */
+/* Its card, placed by HelpTip to the left of the (?), over its own row, so
+   that it never covers the (?) above or below in the column (polish.19), and
+   stacked above the head and the foot of the box. */
 .help__tip {
   position: fixed;
   left: 0;

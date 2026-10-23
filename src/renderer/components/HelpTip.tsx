@@ -43,12 +43,15 @@ interface Props {
  * Placed like the suggestions' hover card (HunkTooltip): `position: fixed`,
  * measured and moved in a layout effect, so showing it never scrolls the
  * dialog, and placed again when anything scrolls or the window is resized.
- * Its right edge is under the (?)'s, so it runs back over the row, below the
- * (?) unless there is no room. While the box has scrolled the (?) under the
- * head or the foot, or out of sight, the card is hidden, though still open,
- * and it shows again once the (?) is back (polish.4 review): the keyboard's
- * focus stays on a (?) that Page Down or the wheel scrolls away, and the card
- * would follow it over the title.
+ * It stands to the left of the (?), over its own row, its top at the (?)'s
+ * and kept between the box's head and foot, so it never covers the (?) above
+ * or below in the column (polish.19); only where the window is too narrow
+ * for it there does it go under the (?), its right edge under the (?)'s, or
+ * above when there is no room below (polish.15). While the box has scrolled
+ * the (?) under the head or the foot, or out of sight, the card is hidden,
+ * though still open, and it shows again once the (?) is back (polish.4
+ * review): the keyboard's focus stays on a (?) that Page Down or the wheel
+ * scrolls away, and the card would follow it over the title.
  */
 export function HelpTip({ id, topic, text }: Props): React.JSX.Element {
   const [hovered, setHovered] = useState(false);
@@ -102,7 +105,8 @@ export function HelpTip({ id, topic, text }: Props): React.JSX.Element {
         { width: window.innerWidth, height: window.innerHeight },
         6,
         8,
-        'end'
+        'end',
+        { side: 'left', gap: 10, band }
       );
       tip.style.left = `${placed.left}px`;
       tip.style.top = `${placed.top}px`;
