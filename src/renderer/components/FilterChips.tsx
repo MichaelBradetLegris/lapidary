@@ -2,16 +2,18 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type { ChangeCategory, Review } from '../../shared/types';
 import type { BulkAction } from '../../shared/ui/bulk';
 import {
+  CHIPS_FIT,
   chipBulkLabel,
   chipCategories,
   chipMenuLabel,
   chipMenuPlacement,
-  chipsEnds,
-  chipsIndicator,
   chipsPageLeft,
   chipsRevealLeft,
+  chipsView,
   chipsWheelLeft,
-  chipTitle
+  chipTitle,
+  sameChipsView,
+  type ChipsView
 } from '../../shared/ui/chips';
 import { contextMenuKey, firstEnabled } from '../../shared/ui/menu';
 import { useBulkAction } from '../state/bulk';
@@ -68,24 +70,6 @@ function revealChip(event: React.FocusEvent<HTMLDivElement>): void {
   const offset = row.scrollLeft - box.left - row.clientLeft;
   const left = chipsRevealLeft(row, { left: edges.left + offset, right: edges.right + offset });
   if (left !== null) row.scrollLeft = left;
-}
-
-/** What the row shows besides its chips: the arrows at the ends with chips out of sight, and the line's thumb. */
-interface RowView {
-  start: boolean;
-  end: boolean;
-  thumb: { left: number; width: number } | null;
-}
-
-const FITS: RowView = { start: false, end: false, thumb: null };
-
-function sameView(a: RowView, b: RowView): boolean {
-  return (
-    a.start === b.start &&
-    a.end === b.end &&
-    Math.round(a.thumb?.left ?? -1) === Math.round(b.thumb?.left ?? -1) &&
-    Math.round(a.thumb?.width ?? -1) === Math.round(b.thumb?.width ?? -1)
-  );
 }
 
 interface ChipProps {
@@ -151,7 +135,10 @@ function Chip({
     else openOn('first');
   };
 
-  /* Under the chip, in the window, before it is painted. */
+  /* Under the chip, in the window, and only then shown: the list is hidden
+     until it is placed (app.css), and a hidden item cannot take the focus. A
+     layout effect, so it runs inside `openOn`'s flushSync, before the first
+     item is focused and before the list is painted. */
   useLayoutEffect(() => {
     if (!shown) return;
     const place = (): void => {
@@ -260,16 +247,15 @@ export function FilterChips({ review, bulkOff, bulkTitle }: Props): React.JSX.El
   const locked = useApp(isLocked);
   const runBulk = useBulkAction();
   const rowRef = useRef<HTMLDivElement | null>(null);
-  const [view, setView] = useState<RowView>(FITS);
+  const [view, setView] = useState<ChipsView>(CHIPS_FIT);
 
   const categories = useMemo(() => chipCategories(review.hunks), [review.hunks]);
 
   const measure = useCallback((): void => {
     const row = rowRef.current;
     if (!row) return;
-    const ends = chipsEnds(row);
-    const next: RowView = { ...ends, thumb: chipsIndicator(row, row.clientWidth) };
-    setView((prev) => (sameView(prev, next) ? prev : next));
+    const next = chipsView(row);
+    setView((prev) => (sameChipsView(prev, next) ? prev : next));
   }, []);
 
   /* The row as drawn, after every render (a chip's count can change its

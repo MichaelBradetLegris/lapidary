@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Hunk } from '../../src/shared/types';
 import {
   CHIPS_ARROW_WIDTH,
+  CHIPS_FIT,
   CHIPS_REVEAL_MARGIN,
   CHIPS_THUMB_MIN,
   chipBulkLabel,
@@ -13,8 +14,10 @@ import {
   chipsIndicator,
   chipsPageLeft,
   chipsRevealLeft,
+  chipsView,
   chipsWheelLeft,
   chipTitle,
+  sameChipsView,
   WHEEL_LINE_PX,
   type ChipsRow,
   type ChipsWheel
@@ -266,6 +269,36 @@ describe('the arrows and the line, while the chips overflow (polish.10)', () => 
     expect(chipsIndicator({ scrollLeft: 0, scrollWidth: 50_000, clientWidth: 100 }, 100)?.width).toBe(
       CHIPS_THUMB_MIN
     );
+  });
+
+  it('gives the view as the row stands: the arrows and the thumb on a line as wide as the row', () => {
+    expect(chipsView(FITS)).toEqual(CHIPS_FIT);
+    expect(chipsView(SMALL)).toEqual({ start: false, end: true, thumb: chipsIndicator(SMALL, 434) });
+    expect(chipsView({ ...SMALL, scrollLeft: 200 })).toEqual({
+      start: true,
+      end: true,
+      thumb: chipsIndicator({ ...SMALL, scrollLeft: 200 }, 434)
+    });
+    expect(chipsView({ ...SMALL, scrollLeft: max })).toMatchObject({ start: true, end: false });
+  });
+
+  it('keeps the view it has only for one that draws the same (polish.10 review)', () => {
+    const at = (scrollLeft: number) => chipsView({ ...SMALL, scrollLeft });
+    expect(sameChipsView(CHIPS_FIT, chipsView(FITS))).toBe(true);
+    expect(sameChipsView(at(200), at(200))).toBe(true);
+    // Within half a pixel of the thumb's place it draws the same.
+    expect(sameChipsView(at(200), at(200.3))).toBe(true);
+    // The row overflowing, either arrow, or the thumb a pixel on: drawn again.
+    expect(sameChipsView(CHIPS_FIT, at(0))).toBe(false);
+    expect(sameChipsView(at(0), at(200))).toBe(false);
+    expect(sameChipsView(at(200), at(max))).toBe(false);
+    const view = at(200);
+    const thumb = view.thumb ?? { left: 0, width: 0 };
+    expect(sameChipsView(view, { ...view, thumb: { ...thumb, left: thumb.left + 1 } })).toBe(false);
+    expect(sameChipsView(view, { ...view, thumb: { ...thumb, width: thumb.width + 1 } })).toBe(false);
+    expect(sameChipsView(view, { ...view, thumb: null })).toBe(false);
+    expect(sameChipsView(view, { ...view, start: false })).toBe(false);
+    expect(sameChipsView(view, { ...view, end: false })).toBe(false);
   });
 
   it('keeps the thumb on the line, and moves it the way the row scrolls', () => {

@@ -12,8 +12,8 @@
  * showed, so a chip half cut off at the row's edge took the focus as it was;
  * `chipsRevealLeft` brings the whole chip in. The row draws no scrollbar: ‹ and
  * › buttons laid over its ends page it (`chipsEnds`, `chipsPageLeft`), and a
- * 2 px line under it shows where it is (`chipsIndicator`). Pure, so it runs in
- * node.
+ * 2 px line under it shows where it is (`chipsIndicator`), the two together
+ * `chipsView`. Pure, so it runs in node.
  */
 
 import type { ChangeCategory, Hunk } from '../types';
@@ -166,6 +166,35 @@ export function chipsIndicator(row: ChipsRow, width: number): { left: number; wi
   const length = Math.min(width, Math.max(CHIPS_THUMB_MIN, (width * row.clientWidth) / row.scrollWidth));
   const at = Math.min(1, Math.max(0, row.scrollLeft / max));
   return { left: (width - length) * at, width: length };
+}
+
+/** What the row shows besides its chips: the arrows at the ends with chips out of sight, and the line's thumb. */
+export interface ChipsView {
+  start: boolean;
+  end: boolean;
+  thumb: { left: number; width: number } | null;
+}
+
+/** The chips fit: no arrow and no line. */
+export const CHIPS_FIT: ChipsView = { start: false, end: false, thumb: null };
+
+/** What the row shows as it stands: its arrows (`chipsEnds`) and a line as wide as the row (`chipsIndicator`). */
+export function chipsView(row: ChipsRow): ChipsView {
+  return { ...chipsEnds(row), thumb: chipsIndicator(row, row.clientWidth) };
+}
+
+/**
+ * Whether two views draw the same, the thumb to the nearest pixel, so that
+ * FilterChips keeps the view it has, and is not drawn again, for a scroll or a
+ * resize that changes nothing it shows.
+ */
+export function sameChipsView(a: ChipsView, b: ChipsView): boolean {
+  return (
+    a.start === b.start &&
+    a.end === b.end &&
+    Math.round(a.thumb?.left ?? -1) === Math.round(b.thumb?.left ?? -1) &&
+    Math.round(a.thumb?.width ?? -1) === Math.round(b.thumb?.width ?? -1)
+  );
 }
 
 /**

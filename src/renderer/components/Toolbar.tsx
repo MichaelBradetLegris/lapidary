@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { Review } from '../../shared/types';
 import { SHOW_BACKUPS, SHOW_BACKUPS_TITLE } from '../../shared/ui/backups';
 import { chipBulkLabel, chipCategories } from '../../shared/ui/chips';
@@ -6,7 +6,7 @@ import { ACTIONS_MENU, REVIEW_MENU } from '../../shared/ui/menu';
 import { saveButtonInput, saveButtonState } from '../../shared/ui/save';
 import { SAVE_HINT_ID, saveHintText, saveHintVisible } from '../../shared/ui/saveHint';
 import { useBulkAction } from '../state/bulk';
-import { toolbarFocusLeft, useChipFocus } from '../state/chipFocus';
+import { toolbarFocusLeft, useChipFocus, watchToolbarFocus } from '../state/chipFocus';
 import { hintDismissedThisSession, useSaveHintAside } from '../state/hints';
 import { changedParagraphCount, isLocked, useApp } from '../state/store';
 import { FilterChips } from './FilterChips';
@@ -55,7 +55,8 @@ interface Props {
  * holding the three bulk actions, Copy result and Show backups, which left the
  * side panel's footer, and since `polish.10` Accept all and Dismiss all of the
  * category whose chip the focus was last on, while it has not left the
- * toolbar (`useChipFocus`); Save to chapter; and Settings (`ToolbarMenu`).
+ * toolbar (`useChipFocus`, `watchToolbarFocus`); Save to chapter; and Settings
+ * (`ToolbarMenu`).
  * While a review runs, its progress and Cancel come before Review, whose With
  * AI waits until it ends.
  *
@@ -127,6 +128,15 @@ export function Toolbar({
   const chipShown = review !== null && !singleScreen;
   const focusedChip =
     chipShown && lastChip !== null && chips.some(([category]) => category === lastChip) ? lastChip : null;
+  /* The chip is forgotten once the focus leaves the toolbar: `onBlur` below,
+     and the page watched for the way out it misses, a menu closed by a press
+     outside, whose focused item is gone before the press moves the focus. */
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return undefined;
+    return watchToolbarFocus(document, (target) => target instanceof Node && header.contains(target));
+  }, []);
   const chipItems: MenuItem[] = focusedChip
     ? [
         {
@@ -147,6 +157,7 @@ export function Toolbar({
 
   return (
     <header
+      ref={headerRef}
       className="toolbar"
       onBlur={(event) => {
         const next = event.relatedTarget;

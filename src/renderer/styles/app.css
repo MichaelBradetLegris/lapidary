@@ -924,7 +924,10 @@ input[type='text'] {
    padding, short of its words, and gives as much back with its margin, so
    nothing after it moves; raised, so it lies over its neighbour, with a ring
    in the bar's colour that parts the two where they cross. Its menu's chip is
-   at the menus' own layer (30), as the list is drawn in it. */
+   at the menus' own layer (30), as the list is drawn in it, over the
+   notification cards (12) and the lock card (20): `.chip.chip--menu`, as
+   specific as the hover and focus rules and after them, since the pointer or
+   the focus is almost always on that chip too (polish.10 review). */
 .chip__more {
   display: inline-flex;
   align-items: center;
@@ -945,7 +948,7 @@ input[type='text'] {
   box-shadow: 0 0 0 2px var(--panel);
 }
 
-.chip--menu {
+.chip.chip--menu {
   z-index: 30;
   margin-right: -8px;
   box-shadow: 0 0 0 2px var(--panel);
