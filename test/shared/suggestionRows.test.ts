@@ -1,22 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { decisionCounts } from '../../src/shared/diff/compose';
 import { CHANGE_CATEGORIES, type Hunk, type HunkStatus } from '../../src/shared/types';
-import { chipKeyOf, YOU_CHIP } from '../../src/shared/ui/chips';
+import { chipKeyOf, YOU_CHIP, type ChipKey } from '../../src/shared/ui/chips';
 import {
   DISMISSED_TITLE,
   groupSuggestions,
   rowButtonLook,
   rowLabel,
   rowTag,
-  SHOW_STATES_LABEL,
-  SHOW_STATES_TITLE,
   suggestionsHeading,
   summaryLine,
+  TAG_ABBREVIATIONS,
+  TAG_KEYS,
+  tagName,
   type RowButton
 } from '../../src/shared/ui/suggestions';
 
 /* polish.12: the suggestions list's heading counts the decided rows, every row
-   has a tag of its chip, and a row's buttons show its decision. */
+   has a tag of its chip, and a row's buttons show its decision. polish.14:
+   the tag is three letters, from one table. */
 
 function hunk(partial: Partial<Hunk> & Pick<Hunk, 'id'>): Hunk {
   return {
@@ -102,19 +104,58 @@ describe('the heading (polish.12)', () => {
   });
 });
 
+describe('the three letters of a tag (polish.14)', () => {
+  it('are the table the author gave', () => {
+    expect(TAG_ABBREVIATIONS).toEqual({
+      spelling: 'SPE',
+      typo: 'TYP',
+      homophone: 'HOM',
+      grammar: 'GRM',
+      agreement: 'AGR',
+      tense: 'TEN',
+      punctuation: 'PUN',
+      'word-choice': 'WRD',
+      redundancy: 'RED',
+      awkward: 'AWK',
+      consistency: 'CON',
+      formatting: 'FMT',
+      other: 'OTH',
+      you: 'YOU'
+    });
+  });
+
+  it('give every change category one, and YOU the author, three capitals each, no two the same', () => {
+    const keys: ChipKey[] = [...CHANGE_CATEGORIES, YOU_CHIP];
+    expect(Object.keys(TAG_ABBREVIATIONS).sort()).toEqual([...keys].sort());
+    for (const key of keys) expect(TAG_ABBREVIATIONS[key], key).toMatch(/^[A-Z]{3}$/);
+    const letters = keys.map((key) => TAG_ABBREVIATIONS[key]);
+    expect(new Set(letters).size).toBe(letters.length);
+  });
+
+  it('are listed for the legend in the order of the chips, each with its name', () => {
+    expect(TAG_KEYS).toEqual([...CHANGE_CATEGORIES, YOU_CHIP]);
+    expect(TAG_KEYS.map(tagName)).toEqual([...CHANGE_CATEGORIES, 'your own edits']);
+  });
+});
+
 describe('the tag (polish.12)', () => {
-  it("names each category in its chip's colour, and the author's own words you", () => {
+  it("writes each category in its three letters, and the author's own words YOU, the name in full as the tooltip and spoken (polish.14)", () => {
     for (const category of CHANGE_CATEGORIES) {
       expect(rowTag(hunk({ id: 'x', category }))).toEqual({
         key: category,
-        text: category,
-        title: null,
+        text: TAG_ABBREVIATIONS[category],
+        title: category.charAt(0).toUpperCase() + category.slice(1),
         spoken: category
       });
     }
+    expect(rowTag(hunk({ id: 'g', category: 'word-choice' }))).toMatchObject({
+      text: 'WRD',
+      title: 'Word-choice',
+      spoken: 'word-choice'
+    });
     expect(rowTag(hunk({ id: 'm', category: 'other', source: 'manual' }))).toEqual({
       key: YOU_CHIP,
-      text: 'you',
+      text: 'YOU',
       title: 'Your own words',
       spoken: 'you'
     });
@@ -140,12 +181,12 @@ describe('the tag (polish.12)', () => {
     const reworded = hunk({ id: 'r', category: 'grammar', edited: true });
     expect(rowTag(reworded)).toEqual({
       key: 'grammar',
-      text: 'grammar',
-      title: 'Reworded by you',
+      text: 'GRM',
+      title: 'Grammar, reworded by you',
       spoken: 'grammar, reworded by you'
     });
-    // The author's own edit is you, rewritten or not.
-    expect(rowTag({ ...reworded, source: 'manual' }).text).toBe('you');
+    // The author's own edit is YOU, rewritten or not.
+    expect(rowTag({ ...reworded, source: 'manual' }).text).toBe('YOU');
   });
 });
 
@@ -176,9 +217,7 @@ describe("a row's buttons (polish.12)", () => {
     expect(BUTTONS.map((b) => rowButtonLook('dismissed', b))).toEqual(['faded', 'faded', 'on']);
   });
 
-  it('say what the dismissed x does, and name the toggle', () => {
+  it('say what the dismissed x does', () => {
     expect(DISMISSED_TITLE).toBe('Dismissed. Click to put it back');
-    expect(SHOW_STATES_LABEL).toBe('Show states');
-    expect(SHOW_STATES_TITLE).toBe('Write ACCEPTED or DISMISSED on the rows you have decided');
   });
 });

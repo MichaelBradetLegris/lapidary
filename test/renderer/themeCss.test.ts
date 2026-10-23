@@ -284,27 +284,30 @@ describe('colour tokens (theme.4)', () => {
     expect(unused).toEqual([]);
   });
 
-  it('keeps seven category colours, without the six tokens that nothing used', () => {
-    const categories = definedTokens(TOKEN_BLOCKS[0] ?? '').filter((name) => name.startsWith('--cat-'));
-    expect(categories).toEqual([
-      '--cat-spelling',
-      '--cat-homophone',
-      '--cat-grammar',
-      '--cat-punctuation',
-      '--cat-word-choice',
-      '--cat-consistency',
-      '--cat-other'
-    ]);
+  /* theme.4 kept seven category tokens and deleted the six nothing read, so
+     typo took spelling's colour, agreement and tense grammar's, redundancy and
+     awkward word-choice's, and formatting other's. polish.16 gave each of the
+     thirteen a token of its own, in both blocks, in CHANGE_CATEGORIES' order. */
+  it('keeps a colour token for each of the thirteen categories, in both blocks (polish.16)', () => {
+    for (const block of TOKEN_BLOCKS) {
+      const categories = definedTokens(block).filter((name) => name.startsWith('--cat-'));
+      expect(categories).toEqual(CHANGE_CATEGORIES.map((category) => `--cat-${category}`));
+    }
+    expect(TOKEN_BLOCKS).toHaveLength(2);
   });
 
-  it('gives every change category a colour through its class, typo and the rest borrowing a shared one', () => {
+  it('gives every change category its own colour through its class, borrowing none (polish.16)', () => {
     const light = new Set(definedTokens(TOKEN_BLOCKS[0] ?? ''));
-    const colourless = CHANGE_CATEGORIES.filter((category) => {
-      const value = declsFor(`.cat-${category}`).get('--cat') ?? '';
-      const token = /^var\((--cat-[a-z-]+)\)$/.exec(value)?.[1];
-      return !token || !light.has(token);
+    const borrowed = CHANGE_CATEGORIES.filter((category) => {
+      const value = declsFor(`.cat-${category}`).get('--cat');
+      return value !== `var(--cat-${category})` || !light.has(`--cat-${category}`);
     });
-    expect(colourless).toEqual([]);
+    expect(borrowed).toEqual([]);
+    // One rule per class: a list such as `.cat-spelling, .cat-typo` would make two share a colour again.
+    const shared = RULES.filter((r) => r.selectors.filter((s) => /^\.cat-[a-z-]+$/.test(s)).length > 1).map(
+      (r) => r.selectors.join(', ')
+    );
+    expect(shared).toEqual([]);
   });
 
   it('fills primary buttons and the active Setup tab from --accent-fill with --on-accent text, and keeps --accent for text', () => {
@@ -655,11 +658,9 @@ const LIGHT_VALUES: Record<string, string> = {
   '--font-ui': "'Segoe UI', system-ui, -apple-system, sans-serif",
   '--font-prose': "Literata, Georgia, 'Times New Roman', serif",
   '--cat-spelling': '#b3261e',
-  '--cat-homophone': '#a3341c',
   '--cat-grammar': '#1f6f8b',
   '--cat-punctuation': '#7a4fb5',
   '--cat-consistency': '#2f7a4a',
-  '--cat-other': '#6d675e',
   // Darker since theme.5, as Appendix D question 9 approved: --ink-faint was
   // #9b948a, --dismiss #a1998c, --warn and --cat-word-choice #8a6d1f.
   '--ink-faint': '#8a8378',
@@ -716,14 +717,30 @@ const LIGHT_VALUES: Record<string, string> = {
   '--scrollbar-thumb-hover': '#c5beb0',
   '--scrollbar-thumb-active': '#b7b0a2',
   // Added by polish.12: the accepted tick on a suggestion row, which was --accept.
-  '--accept-strong': '#12873b'
+  '--accept-strong': '#12873b',
+  // Added by polish.14: how much of --ink-faint a decided row's other two buttons keep,
+  // where polish.12 drew them a thinner stroke in --ink-faint itself.
+  '--row-fade': '35%',
+  // polish.16: a colour for each category. Homophone was #a3341c, a red beside
+  // spelling's, and other #6d675e, the comments' --ink-soft; typo took spelling's
+  // colour, agreement and tense grammar's, redundancy and awkward word-choice's,
+  // and formatting other's.
+  '--cat-typo': '#576909',
+  '--cat-homophone': '#016dba',
+  '--cat-agreement': '#aa5106',
+  '--cat-tense': '#9f3887',
+  '--cat-redundancy': '#2e756e',
+  '--cat-awkward': '#c11e59',
+  '--cat-formatting': '#905f4d',
+  '--cat-other': '#484e70'
 };
 
 /**
  * Every dark value: PLAN 11.3 (e)'s starting values, with --find-bg darkened by
  * theme.5. theme.8 looked at every surface in both themes and kept them all,
- * the tint shares included (11.3 e says why), and theme.12 turned the filled
- * buttons turquoise. A value changes here and in 11.3 (e) together.
+ * the tint shares included (11.3 e says why), theme.12 turned the filled
+ * buttons turquoise, and polish.16 gave each category a colour of its own. A
+ * value changes here and in 11.3 (e) together.
  */
 const DARK_VALUES: Record<string, string> = {
   '--bg': '#1c1a17',
@@ -788,13 +805,23 @@ const DARK_VALUES: Record<string, string> = {
   '--tint-decided-hover': '16%',
   '--tint-small': '16%',
   '--tint-small-hover': '26%',
+  // polish.14: a decided row's other two buttons, as in light.
+  '--row-fade': '35%',
   '--cat-spelling': '#ff7b72',
-  '--cat-homophone': '#f2875e',
   '--cat-grammar': '#5cc0e0',
   '--cat-punctuation': '#b994f5',
   '--cat-word-choice': '#d9b44a',
   '--cat-consistency': '#6cc28b',
-  '--cat-other': '#a8a092'
+  // polish.16: a colour for each category, on the hues light has; homophone was
+  // #f2875e and other #a8a092, and the other six borrowed as in light.
+  '--cat-typo': '#b6c973',
+  '--cat-homophone': '#30a9ff',
+  '--cat-agreement': '#ef8e3e',
+  '--cat-tense': '#fe9dee',
+  '--cat-redundancy': '#34b7af',
+  '--cat-awkward': '#ff78a8',
+  '--cat-formatting': '#f5b89c',
+  '--cat-other': '#a2a0ba'
 };
 
 describe('token values (theme.4, theme.5)', () => {
@@ -904,17 +931,12 @@ describe('scrollers (theme.1, panel.1)', () => {
     // A query on the panel's own height switched layouts between chapters in the
     // same window, as the filter chips then wrapped onto one to three rows above
     // the panel (PLAN C.49), and the status bar still takes one row or two.
-    // The one container is the panel's width, which the column or the drawer
-    // sets and no chapter changes (polish.12 review: the rows' status word).
-    expect([...CSS.matchAll(/container(?:-type)?:\s*([^;}]+)/g)].map((m) => m[1]?.trim())).toEqual([
-      'side / inline-size'
-    ]);
-    expect(declsFor('.side').get('container')).toBe('side / inline-size');
-    for (const query of CSS.matchAll(/@container\s+([^{]+)\{/g)) {
-      expect(query[1]?.trim(), 'a container query names the panel and reads its width').toMatch(
-        /^side \(width < \d+px\)$/
-      );
-    }
+    // From the polish.12 review to polish.17 one container read the panel's
+    // width, to leave the rows' status word out of a narrow panel; it went
+    // with the word, and there is none again.
+    expect(CSS).not.toMatch(/@container/);
+    expect(CSS).not.toMatch(/(^|[\s;{])container(-type|-name)?\s*:/);
+    expect(declsFor('.side').has('container')).toBe(false);
     const block = /@media \(height < (\d+)px\) \{([\s\S]*?)\n\}/.exec(CSS);
     expect(block?.[1]).toBe('540');
     expect(block?.[2]).toMatch(/\.side__body \{[^}]*overflow-y: auto/);

@@ -306,9 +306,14 @@ describe('the fixed height (ui.5)', () => {
     expect(declsFor('.side__focus-body .pair dd').get('line-height')).toBe('var(--focus-pair)');
     expect(declsFor('.side__focus-body .detail__reason').get('line-height')).toBe('var(--focus-reason)');
     expect(declsFor('.side__focus-body .side__empty').get('line-height')).toBe('var(--focus-reason)');
-    // The pencil fills the heading line exactly: a 12 px icon and 3 px of padding.
+    // The pencil fills the heading line exactly: a 16 px icon and 1 px of padding since
+    // polish.14, a row button's (a 12 px icon and 3 px until then).
     expect(ICONS).toContain('export function IconPencil({ size = 12 }');
-    expect(px(declsFor('.row__act').get('padding')) * 2 + 12).toBe(px(vars.get('--focus-head')));
+    const icon = declsFor('.row__act svg');
+    expect(icon.get('height')).toBe(icon.get('width'));
+    expect(px(declsFor('.row__act').get('padding')) * 2 + px(icon.get('height'))).toBe(
+      px(vars.get('--focus-head'))
+    );
   });
 
   /* Every rule that adds height in the box counts, wherever it is declared:

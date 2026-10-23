@@ -25,7 +25,8 @@ import {
 import { SHOW_WELCOME_AGAIN } from '../../src/shared/ui/welcome';
 
 /* polish.4: the Settings dialog, rendered with react-dom/server. Its
-   sections and rows in order, the (?) beside a row with its tooltip, the one
+   sections and rows in order, the (?) of a row with its tooltip, in a last
+   cell at the row's right end since polish.15, the one
    short note under a row, and a name and a description for every control,
    which a screen reader gives. Effects do not run here, so the effective
    paths (settings:effective) are not read: the paths show as they do until
@@ -97,6 +98,27 @@ function idTexts(html: string): Map<string, string> {
     const start = (match.index ?? 0) + whole.length;
     const end = html.indexOf(`</${tag}>`, start);
     out.set(decode(id), text(html.slice(start, end)));
+  }
+  return out;
+}
+
+/** A row's cells, the markup of each of its top-level elements in order. */
+function cells(inner: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (const match of inner.matchAll(/<(\/?)(\w+)[^>]*?(\/?)>/g)) {
+    const [whole, closing, tag = '', selfClosing] = match;
+    const at = match.index ?? 0;
+    if (closing) {
+      depth -= 1;
+      if (depth === 0) out.push(inner.slice(start, at + whole.length));
+    } else if (selfClosing || tag === 'input') {
+      if (depth === 0) out.push(whole);
+    } else {
+      if (depth === 0) start = at;
+      depth += 1;
+    }
   }
   return out;
 }
@@ -199,7 +221,7 @@ describe('the sections and rows (polish.4)', () => {
   });
 });
 
-describe('the (?) beside a row (polish.4)', () => {
+describe('the (?) of a row (polish.4)', () => {
   const TIPS: Array<[string, string]> = [
     ['Claude model', MODEL_TIP],
     ['Effort', EFFORT_TIP],
@@ -224,13 +246,54 @@ describe('the (?) beside a row (polish.4)', () => {
     for (const [, , describedBy, id] of helps) expect(describedBy).toBe(id);
   });
 
-  it("sits in the row's name, after the name, and Appearance has none", () => {
-    const html = decode(render());
-    expect(html).toMatch(
-      /<span class="modal__name"><span>Backups<\/span><button type="button" class="help" aria-label="More about backups"/
+  /* polish.15: each (?) left the row's name for a cell of its own at the
+     right end of the row, so that the eight stand in one line down the right
+     of the dialog. */
+  it("is each row's fourth and last cell, after its buttons; Appearance and the key's field keep the cell empty", () => {
+    const html = render();
+    const rows = [...html.matchAll(/<div class="modal__row">([\s\S]*?)<\/div>/g)].map(([, inner = '']) =>
+      cells(inner)
     );
-    expect(html).toMatch(/<span class="modal__name"><label for="[^"]+">Appearance<\/label><\/span>/);
+    expect(rows).toHaveLength(10);
+    for (const row of rows) {
+      expect(row, row.join('')).toHaveLength(4);
+      expect(row[3]).toMatch(/^<span class="modal__help">/);
+      // The name is the first cell, alone, with no (?) beside it (the key's field has none).
+      expect(row[0]).toMatch(/^<(span|label)[^>]*>[^<]*<\/(span|label)>$/);
+    }
+    expect(rows.map((row) => text(row[0] ?? ''))).toEqual([
+      'Claude model',
+      'Effort',
+      'Appearance',
+      'Manuscript folder',
+      'Reviews folder',
+      'Backups',
+      'Guidelines file',
+      'Claude account',
+      'OpenAI API key (experimental)',
+      ''
+    ]);
+    expect(rows.map((row) => /aria-label="More about ([^"]+)"/.exec(row[3] ?? '')?.[1] ?? null)).toEqual([
+      ...TIPS.slice(0, 2).map(([topic]) => topic),
+      null,
+      ...TIPS.slice(2).map(([topic]) => topic),
+      null
+    ]);
+    expect(rows[2]?.[3]).toBe('<span class="modal__help"></span>');
+    expect(rows[9]?.[3]).toBe('<span class="modal__help"></span>');
     expect(html.match(/class="help"/g)).toHaveLength(TIPS.length);
+    expect(html).not.toContain('modal__name');
+  });
+
+  it("comes after the row's own controls, so Tab reaches it after them", () => {
+    const html = render({ keyStatus: STORED, runtime: READY });
+    for (const [, inner = ''] of html.matchAll(/<div class="modal__row">([\s\S]*?)<\/div>/g)) {
+      if (!inner.includes('class="help"')) continue;
+      const tags = [...inner.matchAll(/<(button|select|input|a)\s[^>]*>/g)].map(([tag]) => tag);
+      expect(tags.length, inner).toBeGreaterThan(1);
+      expect(tags.at(-1)).toMatch(/^<button type="button" class="help" /);
+      expect(tags.filter((tag) => tag.includes('class="help"'))).toHaveLength(1);
+    }
   });
 });
 

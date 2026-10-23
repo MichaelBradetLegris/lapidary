@@ -100,17 +100,35 @@
   --tint-decided-hover: 16%;
   --tint-small: 16%;
   --tint-small-hover: 26%;
+  /* How much of --ink-faint a decided row's two other buttons keep at rest
+     (polish.14), a color-mix() share: faint enough that the row reads as
+     done, under 3:1 by the author's choice (themeContrast.test.ts). */
+  --row-fade: 35%;
 
   --font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-prose: Literata, Georgia, 'Times New Roman', serif;
 
+  /* A colour for each category (polish.16), in the order of
+     CHANGE_CATEGORIES: hues spread round the wheel, and the ones close in
+     meaning far apart (spelling, typo and homophone; grammar, agreement and
+     tense; word-choice, redundancy and awkward; formatting and other), You's
+     --accent and the comments' --ink-soft counted among them. Formatting and
+     other are the two muted ones, a warm clay and a cool slate. Each colour is
+     one line here and one in the dark block; themeContrast.test.ts holds any
+     two of the fifteen 15 apart in CIELAB, and two of one family 35 apart. */
   --cat-spelling: #b3261e;
-  --cat-homophone: #a3341c;
+  --cat-typo: #576909;
+  --cat-homophone: #016dba;
   --cat-grammar: #1f6f8b;
+  --cat-agreement: #aa5106;
+  --cat-tense: #9f3887;
   --cat-punctuation: #7a4fb5;
   --cat-word-choice: #84681c;
+  --cat-redundancy: #2e756e;
+  --cat-awkward: #c11e59;
   --cat-consistency: #2f7a4a;
-  --cat-other: #6d675e;
+  --cat-formatting: #905f4d;
+  --cat-other: #484e70;
   color-scheme: light;
 }
 
@@ -187,14 +205,22 @@
     --tint-decided-hover: 16%;
     --tint-small: 16%;
     --tint-small-hover: 26%;
+    --row-fade: 35%;
 
+    /* each category's own colour, on the same hues as in light (polish.16) */
     --cat-spelling: #ff7b72;
-    --cat-homophone: #f2875e;
+    --cat-typo: #b6c973;
+    --cat-homophone: #30a9ff;
     --cat-grammar: #5cc0e0;
+    --cat-agreement: #ef8e3e;
+    --cat-tense: #fe9dee;
     --cat-punctuation: #b994f5;
     --cat-word-choice: #d9b44a;
+    --cat-redundancy: #34b7af;
+    --cat-awkward: #ff78a8;
     --cat-consistency: #6cc28b;
-    --cat-other: #a8a092;
+    --cat-formatting: #f5b89c;
+    --cat-other: #a2a0ba;
     color-scheme: dark;
   }
 }
@@ -881,12 +907,11 @@ input[type='text'] {
    the other, so two scrollbars never sit side by side (panel.1). `clip` rather
    than `hidden`, so nothing can scroll the panel from script either. As `clip`
    does not make it a scroll container, `min-height: 0` is what keeps its grid
-   row from growing to the height of everything in it. It is the container
-   the suggestion rows' status word reads its width from (polish.12 review):
-   a width the column or the drawer sets and no chapter changes, never the
-   panel's height (C.49). */
+   row from growing to the height of everything in it. It is no container:
+   the query on its width that left the suggestion rows' status word out of
+   a narrow panel (polish.12 review) went with the word in polish.17, and one
+   on its height switched layouts between chapters (C.49). */
 .side {
-  container: side / inline-size;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -1837,30 +1862,47 @@ input[type='text'] {
   box-shadow: 0 0 0 1px var(--active-ring);
 }
 
-.cat-spelling,
-.cat-typo {
+/* Each category in its own colour (polish.16), where typo shared spelling's,
+   agreement and tense grammar's, redundancy and awkward word-choice's and
+   formatting other's. The chips, the rows' tags, the focused box's category,
+   the prose's lines, tints and suggested words, the margin's bars, the
+   position strip and the hover card all take it from --cat. */
+.cat-spelling {
   --cat: var(--cat-spelling);
+}
+.cat-typo {
+  --cat: var(--cat-typo);
 }
 .cat-homophone {
   --cat: var(--cat-homophone);
 }
-.cat-grammar,
-.cat-agreement,
-.cat-tense {
+.cat-grammar {
   --cat: var(--cat-grammar);
+}
+.cat-agreement {
+  --cat: var(--cat-agreement);
+}
+.cat-tense {
+  --cat: var(--cat-tense);
 }
 .cat-punctuation {
   --cat: var(--cat-punctuation);
 }
-.cat-word-choice,
-.cat-redundancy,
-.cat-awkward {
+.cat-word-choice {
   --cat: var(--cat-word-choice);
+}
+.cat-redundancy {
+  --cat: var(--cat-redundancy);
+}
+.cat-awkward {
+  --cat: var(--cat-awkward);
 }
 .cat-consistency {
   --cat: var(--cat-consistency);
 }
-.cat-formatting,
+.cat-formatting {
+  --cat: var(--cat-formatting);
+}
 .cat-other {
   --cat: var(--cat-other);
 }
@@ -1868,6 +1910,13 @@ input[type='text'] {
    on their rows had, which since polish.12 takes it from here (.row__cat). */
 .cat-you {
   --cat: var(--accent);
+}
+/* The comments' chip (polish.13), in the colour of a margin card's head,
+   which a comment has unless its category has a colour of its own
+   (.note-card__cat): the cards have no hue, and --accent, the commented
+   paragraph's number, is You's. */
+.cat-comments {
+  --cat: var(--ink-soft);
 }
 
 /* ---------- side panel ---------- */
@@ -2069,44 +2118,12 @@ input[type='text'] {
   padding: 10px 0 6px;
 }
 
-.side__list > .side__list-head,
+/* The list's heading is alone on its line, as the split measures it
+   (`measureSplit`): Show states sat beside it from polish.12 until polish.17
+   and in a narrow panel went under it. */
+.side__list > h3,
 .side__list > .side__empty {
   padding: 0 10px;
-}
-
-/* The list's heading and Show states beside it (polish.12), on one line
-   where the panel is wide enough; in a narrow one Show states goes under the
-   heading rather than cutting it short. The line takes the heading's margin,
-   and the box beside it is no taller than the heading's line, so the line is
-   as tall as the heading alone was; the split measures this line as the
-   list's heading (`measureSplit`). */
-.side__list-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
-  margin: 0 0 6px;
-}
-
-.side__list-head > h3 {
-  margin: 0;
-  flex: 1 1 auto;
-}
-
-.side__states {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  line-height: 1;
-  color: var(--ink-soft);
-}
-
-.side__states input {
-  width: 12px;
-  height: 12px;
-  margin: 0;
 }
 
 /* With a split set (ui.6), the list has the share of the height the author
@@ -2603,7 +2620,8 @@ input[type='text'] {
   margin-bottom: 8px;
 }
 
-/* A row's name; a <label> where it names a control (Appearance, theme.7). */
+/* A row's name; a <label> where it names a control (Appearance, theme.7, and
+   in Settings Claude model and Effort, polish.4). */
 .modal__row > span:first-child,
 .modal__row > label:first-child {
   color: var(--ink-soft);
@@ -2684,22 +2702,28 @@ input[type='text'] {
   border-top: 1px solid var(--border);
 }
 
-/* A row's name, and in Settings the (?) after it, in the line of the text, so
-   that it follows a name that wraps, as "OpenAI API key (experimental)" does. */
-.modal__name {
-  min-width: 0;
+/* Settings' rows have a fourth column at their right end, after the buttons,
+   for the row's (?) (HelpTip, polish.15), so that every (?) stands in one line
+   down the right of the dialog. Each row is a grid of its own, so the column
+   is as wide as the (?) in every row, and a row without one (Appearance, the
+   key's field) keeps the cell empty: the buttons then end where those of a
+   row with a (?) do. */
+.modal--settings .modal__row {
+  grid-template-columns: 150px minmax(0, 1fr) auto 18px;
 }
 
-/* The (?) (HelpTip): a small round button in the grey of the row's name. Its
-   focus ring is the browser's own. */
+.modal__help {
+  display: flex;
+}
+
+/* The (?): a small round button in the grey of the rows' names. Its focus
+   ring is the browser's own. */
 button.help {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  vertical-align: middle;
   width: 18px;
   height: 18px;
-  margin-left: 6px;
   padding: 0;
   border-color: var(--border-strong);
   border-radius: 50%;
@@ -2709,8 +2733,9 @@ button.help {
   line-height: 1;
 }
 
-/* Its card, placed by HelpTip under the (?) with its left edge under the (?)'s,
-   above the head and the foot of the box. */
+/* Its card, placed by HelpTip to the left of the (?), over its own row, so
+   that it never covers the (?) above or below in the column (polish.19), and
+   stacked above the head and the foot of the box. */
 .help__tip {
   position: fixed;
   left: 0;
@@ -3285,14 +3310,14 @@ button.help {
   background: var(--focus-bg);
 }
 
-/* In a narrow panel the row's three parts give way in turn (polish.12
+/* In a narrow panel the row's two parts give way in turn (polish.12
    review): the change first, down to --row-text-floor, a few letters, then
-   the status word, then the tag, so some of the change always shows. The
-   change takes what the tag and the status word leave (its basis is 0, so
-   it never shrinks beside them), the status word is the only part that
-   shrinks, and the tag is never wider than the room the floor and the gap
-   leave it. The button clips what is left over, so nothing it holds is drawn
-   over the pencil. */
+   the tag, so some of the change always shows. The change takes what the tag
+   leaves (its basis is 0, so it never shrinks beside it), and the tag is
+   never wider than the room the floor and the gap leave it. The button clips
+   what is left over, so nothing it holds is drawn over the pencil. Until
+   polish.17 a decided row had a third part, its status word, ACCEPTED or
+   DISMISSED, which gave way between the two. */
 .row__main {
   --row-text-floor: 32px;
   flex: 1 1 auto;
@@ -3321,39 +3346,9 @@ button.help {
   font-family: var(--font-prose);
 }
 
-.row__status {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-faint);
-}
-
-/* Where the side panel is too narrow for two letters of the status word
-   beside the widest tag (WORD-CHOICE, about 77 px), the floor and two gaps,
-   no row writes it, rather than an ellipsis or a sliver of a letter; the
-   buttons still say the decision, and so does the row's name. The query
-   reads the panel's width inside its border, which no chapter changes
-   (C.49): 246 px leaves a row's button 144 px inside when the list has its
-   scrollbar, 102 px less. In the smallest window the panel is 235 px inside,
-   and at 200% in the default window 199. */
-@container side (width < 246px) {
-  .row__status {
-    display: none;
-  }
-}
-
 /* Matches the page: a decided suggestion is grey, not green (item 5). */
 .row--accepted .row__text {
   color: var(--ink-soft);
-}
-
-.row--accepted .row__status {
-  color: var(--ink-faint);
 }
 
 /* The tag of the chip a row's suggestion is under (polish.12), in place of
@@ -3363,11 +3358,18 @@ button.help {
    the chip does. Its fill is the panel's, whatever the row's background, as
    a chip's is: the categories hold 4.5:1 as text on --panel, and in dark
    four of them fall under it on the focused row's --focus-bg (4.03 to 4.28).
-   Where the row is too narrow for it and --row-text-floor of the change, it
-   ends in an ellipsis (.row__main). */
+   Since polish.14 it is three letters (`TAG_ABBREVIATIONS`) in a box of one
+   width, so every row's words start in one column: HOM, the widest, is
+   31 px in Segoe UI at 9 px with the border, and 34 px leaves room for a
+   wider fallback font. Where the row is too narrow for it and
+   --row-text-floor of the change, it ends in an ellipsis (.row__main). The
+   legend draws each tag with this rule too. */
 .row__cat {
   flex: 0 0 auto;
+  display: inline-block;
+  width: 34px;
   max-width: calc(100% - var(--row-text-floor) - 6px);
+  text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3378,7 +3380,7 @@ button.help {
   background: var(--panel);
   border: 1px solid color-mix(in srgb, var(--cat) 40%, transparent);
   border-radius: 3px;
-  padding: 0 3px;
+  padding: 0 2px;
   line-height: 1.5;
 }
 
@@ -3424,14 +3426,23 @@ button.help {
   text-transform: uppercase;
 }
 
+/* A row's pencil, tick and x (and the focused suggestion's pencil, which is
+   drawn as one): since polish.14 the icon is 16 px in an 18 px button, where
+   it was 12 px with 3 px of padding, so it reads at 100%; the button is the
+   same size, and so is the focused box's heading line (--focus-head). */
 .row__act {
   flex: 0 0 auto;
   border: none;
   background: none;
-  padding: 3px;
+  padding: 1px;
   line-height: 0;
   color: var(--ink-faint);
   border-radius: 3px;
+}
+
+.row__act svg {
+  width: 16px;
+  height: 16px;
 }
 
 .row__act:hover:not(:disabled) {
@@ -3441,11 +3452,13 @@ button.help {
 
 /* A decided row (polish.12): the button of its decision is drawn bolder, the
    accepted tick in --accept-strong and the dismissed x in --danger, and keeps
-   its colour under the pointer; the row's other two buttons fade to a thinner
-   stroke, in the faint grey every row button has, which holds 3:1 on the
-   row at rest, hovered and focused (themeContrast.test.ts), and come back to
-   the usual stroke under the pointer. A pending row's buttons are as they
-   were. */
+   its colour under the pointer. The row's other two buttons fade to
+   --row-fade of the faint grey every row button has (polish.14, where
+   polish.12 drew them a thinner stroke, which hardly showed), so the row
+   reads as done; they are under 3:1 at rest by the author's choice, and come
+   back as any row button, --ink on --border, under the pointer, and --ink
+   with the focus ring when the keyboard brings the focus to one
+   (themeContrast.test.ts). A pending row's buttons are as they were. */
 .row__act--accepted,
 .row__act--accepted:hover:not(:disabled) {
   color: var(--accept-strong);
@@ -3461,12 +3474,12 @@ button.help {
   stroke-width: 2.6;
 }
 
-.row__act--faded svg {
-  stroke-width: 1.2;
+.row__act--faded {
+  color: color-mix(in srgb, var(--ink-faint) var(--row-fade), transparent);
 }
 
-.row__act--faded:hover:not(:disabled) svg {
-  stroke-width: 1.8;
+.row__act--faded:focus-visible {
+  color: var(--ink);
 }
 
 .stale__where {
@@ -3828,18 +3841,45 @@ button.help {
   border-radius: 5px;
 }
 
-/* An accepted row's tick as the suggestions list draws it (polish.12), the
-   icon's 12 px centred in the swatch's 16 px. */
+/* An accepted row's tick as the suggestions list draws it (polish.12), 16 px
+   since polish.14, as wide as the swatch. */
 .legend__swatch--tick {
-  width: 12px;
-  height: 12px;
-  margin: 0 2px;
+  width: 16px;
+  height: 16px;
   line-height: 0;
   color: var(--accept-strong);
 }
 
 .legend__swatch--tick svg {
+  width: 16px;
+  height: 16px;
   stroke-width: 2.6;
+}
+
+/* An empty tag (polish.14), its border as a row's tag draws it, centred in
+   the swatch's 16 px. */
+.legend__swatch--tag {
+  width: 14px;
+  height: 10px;
+  margin: 0 1px;
+  border: 1px solid color-mix(in srgb, var(--cat-grammar) 40%, transparent);
+  border-radius: 3px;
+}
+
+/* Every tag and its name (polish.14), each tag drawn as on its row
+   (.row__cat), in columns under the item's words. */
+.legend__tags {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: 3px 24px;
+  margin: 5px 0 0;
+}
+
+.legend__tag {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
 }
 
 /* `.legend p` would otherwise take the gap above it away. */

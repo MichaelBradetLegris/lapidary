@@ -96,10 +96,13 @@ export interface KeyField {
 /**
  * Whether a key pressed in `target` is typing, which the review keys leave
  * to it: a text field, a text area, a select or editable text. A checkbox is
- * not (`polish.12` review): Show states keeps the focus once clicked, and j,
- * k, the arrows, a, d, u, e and n did nothing until the author clicked
- * somewhere else. Space still ticks it, as no review key is Space. A radio
- * button is still typing, since its group takes the arrows.
+ * not (`polish.12` review): it takes Space alone, and no review key is Space,
+ * so j, k, the arrows, a, d, u, e and n act on the suggestions while one has
+ * the focus, as on a button. The rule came with Show states, a box that kept
+ * the focus once clicked and so held the review keys until the author clicked
+ * somewhere else; the box went in `polish.17`, and the rule stays for the
+ * comments' Resolve box reached with Tab. A radio button is still typing,
+ * since its group takes the arrows.
  */
 export function isTypingField(target: KeyField | null): boolean {
   if (target === null) return false;

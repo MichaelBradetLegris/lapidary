@@ -238,21 +238,31 @@ describe('a chip is a menu button (polish.11)', () => {
 
   it('holds Hide or Show, Show only, and Accept all and Dismiss all with the count under a line', () => {
     expect(CHIPS).toMatch(
-      /const items: MenuItem\[\] = \[\s*\{ label: labels\.toggle, onSelect: onToggle \},\s*\{ label: labels\.only, onSelect: onShowOnly \},\s*\{ \.\.\.bulkItem\('accept'\), separated: true \},\s*bulkItem\('dismiss'\)\s*\];/
+      /const items: MenuItem\[\] = \[\s*\{ label: labels\.toggle, onSelect: onToggle \},\s*\{ label: labels\.only, onSelect: onShowOnly \},\s*\.\.\.\(bulk \? \[\{ \.\.\.bulkItem\(bulk, 'accept'\), separated: true \}, bulkItem\(bulk, 'dismiss'\)\] : \[\]\)\s*\];/
     );
-    expect(CHIPS).toContain('const labels = chipMenuLabels(off, pending);');
+    expect(CHIPS).toContain('const labels = chipMenuLabels(off, bulk?.pending ?? 0);');
     // Off when the toolbar's bulk items are, and with nothing pending, the tooltip saying why.
     expect(CHIPS).toMatch(
-      /label: labels\[action\],\s*onSelect: \(\) => onBulk\(action\),\s*disabled: bulkOff \|\| pending === 0,\s*title: bulkOff \? bulkTitle : pending === 0 \? emptyNotes\[action\] : undefined/
+      /label: labels\[action\],\s*onSelect: \(\) => of\.run\(action\),\s*disabled: bulkOff \|\| of\.pending === 0,\s*title: bulkOff \? bulkTitle : of\.pending === 0 \? of\.emptyNotes\[action\] : undefined/
     );
     // The count and the notes are the question's own (bulkPlan).
     expect(CHIPS).toMatch(
-      /accept: bulkPlan\(review\.hunks, 'accept', key\), dismiss: bulkPlan\(review\.hunks, 'dismiss', key\)/
+      /accept: bulkPlan\(review\.hunks, 'accept', key\),\s*dismiss: bulkPlan\(review\.hunks, 'dismiss', key\)/
     );
-    expect(CHIPS).toContain('pending={plan?.accept.count ?? 0}');
+    expect(CHIPS).toContain('pending: plan?.accept.count ?? 0,');
     expect(CHIPS).toContain('onToggle={() => toggleCategory(key)}');
     expect(CHIPS).toContain('onShowOnly={() => setHiddenCategories(showOnlyHidden(keys, key))}');
-    expect(CHIPS).toContain('onBulk={(action) => runBulk(action, key)}');
+    expect(CHIPS).toContain('run: (action) => runBulk(action, suggestions)');
+  });
+
+  it('gives the comments chip Hide or Show and Show only alone (polish.13)', () => {
+    // No bulk items for a chip that is not one of suggestions: suggestionChip is null for it alone.
+    expect(CHIPS).toContain('const suggestions = suggestionChip(key);');
+    expect(CHIPS).toMatch(/bulk=\{\s*suggestions === null\s*\? null\s*:/);
+    expect(CHIPS).toMatch(/const key = suggestionChip\(row\);\s*if \(key === null\) return \[\];/);
+    // Counted from the review's comments as well as its suggestions.
+    expect(CHIPS).toContain('chipCounts(review.hunks, review.comments)');
+    expect(TOOLBAR).toContain('chipCounts(review.hunks, review.comments)');
   });
 
   it('behaves as the toolbar menus do, gives the focus back to the chip, and goes while the chapter is read-only', () => {
@@ -367,6 +377,12 @@ describe('the eye and the You chip (polish.11)', () => {
     expect(declsFor('.chip__button').get('color')).toBe('var(--cat, var(--ink))');
     expect(CHIPS).toContain('className={`chip cat-${chip}');
   });
+
+  it("draws the comments chip in the colour of a margin card's head (polish.13)", () => {
+    // A card's category word is var(--cat, var(--ink-soft)): --ink-soft for every comment category without a colour.
+    expect(declsFor('.cat-comments').get('--cat')).toBe('var(--ink-soft)');
+    expect(declsFor('.note-card__cat').get('color')).toBe('var(--cat, var(--ink-soft))');
+  });
 });
 
 describe('only when the chips overflow: wheel, arrows, Tab and the line (polish.10)', () => {
@@ -466,8 +482,9 @@ describe("Actions lists the chip the focus was last on (polish.10), and the eye'
 
   it('adds its two items after Reset, for a chip that is drawn, and forgets it as the focus leaves the toolbar', () => {
     expect(TOOLBAR).toContain('const lastChip = useChipFocus((s) => s.category);');
+    // Not for the comments chip, which has neither (polish.13): suggestionChip gives null for it.
     expect(TOOLBAR).toMatch(
-      /const focusedChip =\s*chipShown && lastChip !== null && chips\.includes\(lastChip\) \? lastChip : null;/
+      /const focusedChip =\s*chipShown && lastChip !== null && chips\.includes\(lastChip\) \? suggestionChip\(lastChip\) : null;/
     );
     expect(TOOLBAR).toMatch(
       /label: chipBulkLabel\('accept', focusedChip\),\s*onSelect: \(\) => runBulk\('accept', focusedChip\),\s*disabled: bulkOff,\s*title: bulkTitle,\s*separated: true/
@@ -629,5 +646,35 @@ describe('the toolbar watches the page for the focus leaving it (polish.10 revie
     vi.runAllTimers();
     expect(useChipFocus.getState().category).toBe('other');
     expect(doc.listeners.size).toBe(0);
+  });
+});
+
+/* polish.13: the source around the comments chip. What the toolbar, the
+   review pane and the side panel draw with it is rendered in
+   test/renderer/commentsChip.render.test.ts. */
+describe('the comments chip, in the source (polish.13)', () => {
+  it('hands the margin no card while the comments are hidden, and so no margin column', () => {
+    const PANE = read('components/ReviewPane.tsx');
+    expect(PANE).toContain('const commentsOff = commentsHidden(hiddenCategories);');
+    expect(PANE).toMatch(/\(\) => \(commentsOff \? \[\] : gutterCommentsOf\(review\.comments\)\),/);
+    expect(PANE).toContain(
+      'const showGutter = layout.width >= GUTTER_MIN_WIDTH && gutterComments.length > 0;'
+    );
+    expect(PANE).toMatch(/<MarginNotes\s+comments=\{gutterComments\}/);
+  });
+
+  it('lets n go nowhere while they are hidden', () => {
+    const KEYS = read('state/keyboard.ts');
+    expect(KEYS).toContain(
+      'const next = nextComment(review.comments, current, commentsHidden(state.hiddenCategories));'
+    );
+    expect(KEYS).toMatch(/if \(!next\) return;\s*state\.setActiveComment\(next\.id\);/);
+  });
+
+  it('says so in the legend, beside the chips and the eye', () => {
+    const LEGEND = read('components/StatusBar.tsx').replace(/\s+/g, ' ');
+    expect(LEGEND).toContain('The comments chip, before You, counts the open comments;');
+    expect(LEGEND).toContain('hiding it hides the comments in the margin and in the side panel');
+    expect(LEGEND).toContain('shows or hides them all, the comments included.');
   });
 });

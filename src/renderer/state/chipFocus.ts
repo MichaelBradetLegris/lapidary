@@ -1,21 +1,22 @@
 import { create } from 'zustand';
-import type { ChipKey } from '../../shared/ui/chips';
+import type { RowChip } from '../../shared/ui/chips';
 
 /**
  * The category chip the focus was last on (polish.10, PLAN 7): the Actions
  * menu lists Accept all and Dismiss all for its category, or for the
- * author's own edits on You (polish.11), beside the chip's own menu. A chip
- * sets it as it takes the focus, by Tab or a click.
+ * author's own edits on You (polish.11), beside the chip's own menu, and
+ * nothing for the comments' chip, which has no Accept all or Dismiss all
+ * (polish.13). A chip sets it as it takes the focus, by Tab or a click.
  * It is kept while the focus stays in the toolbar, so Tab or a click can take
  * it from the chip to Actions, and forgotten once the focus goes anywhere
  * else in the page (`toolbarFocusLeft`, from the toolbar's `onBlur` and
  * `watchToolbarFocus`). A window that loses the focus keeps it, as the focus
  * comes back to the same place. No DOM here, so it is tested in node.
  */
-export const useChipFocus = create<{ category: ChipKey | null }>(() => ({ category: null }));
+export const useChipFocus = create<{ category: RowChip | null }>(() => ({ category: null }));
 
 /** A chip took the focus. */
-export function chipFocused(category: ChipKey): void {
+export function chipFocused(category: RowChip): void {
   useChipFocus.setState({ category });
 }
 

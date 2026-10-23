@@ -186,9 +186,9 @@ describe('the dialogs', () => {
     );
     expect(html).not.toContain('Open in Obsidian');
     expect(html).not.toContain('Open guidelines file');
-    // The row's buttons, after its name, its (?) and its path, up to the end of the row.
+    // The row's buttons, after its name and its path, up to its (?) at the end of the row (polish.15).
     const rowButtons =
-      /<span>Guidelines file<\/span>[\s\S]*?<span class="modal__buttons">([\s\S]*?)<\/span><\/div>/.exec(
+      /<span>Guidelines file<\/span>[\s\S]*?<span class="modal__buttons">([\s\S]*?)<\/span><span class="modal__help">/.exec(
         decode(html)
       )?.[1];
     expect(rowButtons).toBeDefined();

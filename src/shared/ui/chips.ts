@@ -6,7 +6,9 @@
  * opens its menu, Hide or Show, Show only, Accept all N and Dismiss all N
  * (`chipMenuLabels`); an eye before the row shows or hides them all
  * (`eyeLabel`); and the author's own edits have a chip of their own, You,
- * last in the row (`chipKeyOf`, `chipCounts`). The chips are drawn at the
+ * last in the row (`chipKeyOf`, `chipCounts`). Since `polish.13` the review's
+ * comments have one too, "comments N", before You, whose menu holds Hide or
+ * Show and Show only (`COMMENTS_CHIP`, `RowChip`). The chips are drawn at the
  * size they had before `polish.10` and shrink, in steps, only as far as they
  * must to fit (`CHIP_STEPS`, `chipsStep`); only at the smallest step do they
  * overflow, and the row then scrolls sideways and never wraps. Chromium
@@ -20,7 +22,7 @@
  * (`chipsIndicator`), the two together `chipsView`. Pure, so it runs in node.
  */
 
-import type { ChangeCategory, Hunk } from '../types';
+import type { ChangeCategory, Hunk, ReviewComment } from '../types';
 import type { BulkAction } from './bulk';
 
 /**
@@ -38,6 +40,30 @@ export const YOU_CHIP = 'you';
  */
 export type ChipKey = ChangeCategory | typeof YOU_CHIP;
 
+/** The chip of the review's comments (polish.13). */
+export const COMMENTS_CHIP = 'comments';
+
+/**
+ * What a chip in the row stands for, and what the filter can hide: a chip of
+ * suggestions (`ChipKey`), or the review's comments (polish.13), which have
+ * no Accept all or Dismiss all.
+ */
+export type RowChip = ChipKey | typeof COMMENTS_CHIP;
+
+/** The chip's suggestions, for Accept all and Dismiss all; null for the comments' chip, which has none. */
+export function suggestionChip(key: RowChip): ChipKey | null {
+  return key === COMMENTS_CHIP ? null : key;
+}
+
+/**
+ * Whether the filter hides the comments (polish.13): the margin's cards, the
+ * side panel's list under its heading, the commented paragraphs' numbers and
+ * the `n` key's steps.
+ */
+export function commentsHidden(hidden: readonly RowChip[]): boolean {
+  return hidden.includes(COMMENTS_CHIP);
+}
+
 /**
  * The chip a suggestion is counted and filtered under (polish.11): You for an
  * edit the author made (`source: 'manual'`), which carries `other` as its
@@ -51,12 +77,12 @@ export function chipKeyOf(hunk: Pick<Hunk, 'source' | 'category'>): ChipKey {
 }
 
 /** Whether the filter hides this suggestion: its chip is hidden. */
-export function chipHidden(hunk: Pick<Hunk, 'source' | 'category'>, hidden: readonly ChipKey[]): boolean {
+export function chipHidden(hunk: Pick<Hunk, 'source' | 'category'>, hidden: readonly RowChip[]): boolean {
   return hidden.length > 0 && hidden.includes(chipKeyOf(hunk));
 }
 
-/** The words on a chip before its count: the category's name, or "You". */
-export function chipName(key: ChipKey): string {
+/** The words on a chip before its count: the category's name, "comments", or "You". */
+export function chipName(key: RowChip): string {
   return key === YOU_CHIP ? 'You' : key;
 }
 
@@ -96,10 +122,15 @@ export interface ChipsRow {
  * unanchored one has no place there), with how many it has: the most first,
  * then by name, and You, the author's own edits, last whatever its count
  * (polish.11). A suggestion with no category counts as other (`chipKeyOf`).
+ * The review's comments have a chip after the categories and before You
+ * (polish.13), counting the open ones, while the review has any comment at
+ * all: one whose comments are all resolved still has their greyed cards to
+ * hide, and reads "comments 0".
  */
 export function chipCounts(
-  hunks: readonly Pick<Hunk, 'anchor' | 'category' | 'source'>[]
-): [ChipKey, number][] {
+  hunks: readonly Pick<Hunk, 'anchor' | 'category' | 'source'>[],
+  comments: readonly Pick<ReviewComment, 'status'>[] = []
+): [RowChip, number][] {
   const counts = new Map<ChipKey, number>();
   for (const hunk of hunks) {
     if (hunk.anchor === 'stale') continue;
@@ -108,8 +139,12 @@ export function chipCounts(
   }
   const you = counts.get(YOU_CHIP);
   counts.delete(YOU_CHIP);
-  const chips = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  return you === undefined ? chips : [...chips, [YOU_CHIP, you]];
+  const chips: [RowChip, number][] = [...counts.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
+  );
+  if (comments.length > 0) chips.push([COMMENTS_CHIP, comments.filter((c) => c.status === 'open').length]);
+  if (you !== undefined) chips.push([YOU_CHIP, you]);
+  return chips;
 }
 
 /**
@@ -120,16 +155,19 @@ export function chipBulkLabel(action: Exclude<BulkAction, 'reset'>, key: ChipKey
   return `${action === 'accept' ? 'Accept' : 'Dismiss'} all ${key === YOU_CHIP ? 'your edits' : key}`;
 }
 
-/** The name of a chip's menu: "punctuation suggestions", "Your edits". */
-export function chipMenuLabel(key: ChipKey): string {
-  return key === YOU_CHIP ? 'Your edits' : `${key} suggestions`;
+/** The name of a chip's menu: "punctuation suggestions", "Your edits", "Comments". */
+export function chipMenuLabel(key: RowChip): string {
+  if (key === YOU_CHIP) return 'Your edits';
+  if (key === COMMENTS_CHIP) return 'Comments';
+  return `${key} suggestions`;
 }
 
 /**
  * The items of a chip's menu (polish.11), in order: Hide, or Show for a
  * hidden chip; Show only, which shows this chip and hides every other; and,
  * under a line, Accept all and Dismiss all with the number of its suggestions
- * still pending, which is how many each would move.
+ * still pending, which is how many each would move. The comments' chip has
+ * the first two alone (polish.13).
  */
 export function chipMenuLabels(
   hidden: boolean,
@@ -147,29 +185,32 @@ export function chipMenuLabels(
  * A chip's tooltip, which Chromium also gives screen readers as its
  * description (polish.11): whether its suggestions are shown, which is the
  * chip's state as a menu button has no pressed state, and what a click opens.
- * The You chip says first what it counts.
+ * The You chip says first what it counts, and so does the comments' chip,
+ * whose menu has no Accept all or Dismiss all (polish.13).
  */
-export function chipTitle(key: ChipKey, hidden: boolean): string {
+export function chipTitle(key: RowChip, hidden: boolean): string {
+  const state = `${hidden ? 'Hidden' : 'Shown'}. Click for ${hidden ? 'Show' : 'Hide'}`;
+  if (key === COMMENTS_CHIP) return `Comments, counting the open ones. ${state} and Show only.`;
   const what = key === YOU_CHIP ? 'Your own edits. ' : '';
-  return `${what}${hidden ? 'Hidden' : 'Shown'}. Click for ${hidden ? 'Show' : 'Hide'}, Show only, Accept all and Dismiss all.`;
+  return `${what}${state}, Show only, Accept all and Dismiss all.`;
 }
 
 /**
  * What the filter hides after Show only on `key` (polish.11): every other
- * chip in the row. A chip that comes later, as You does with the author's
- * first edit, is shown.
+ * chip in the row, the comments' included (polish.13). A chip that comes
+ * later, as You does with the author's first edit, is shown.
  */
-export function showOnlyHidden(chips: readonly ChipKey[], key: ChipKey): ChipKey[] {
+export function showOnlyHidden(chips: readonly RowChip[], key: RowChip): RowChip[] {
   return chips.filter((chip) => chip !== key);
 }
 
-/** Whether every chip in the row is shown: the eye is open then (polish.11). */
-export function allChipsShown(chips: readonly ChipKey[], hidden: readonly ChipKey[]): boolean {
+/** Whether every chip in the row is shown: the eye is open then (polish.11), the comments' chip counted (polish.13). */
+export function allChipsShown(chips: readonly RowChip[], hidden: readonly RowChip[]): boolean {
   return chips.every((chip) => !hidden.includes(chip));
 }
 
 /** Whether every chip in the row is hidden. */
-export function allChipsHidden(chips: readonly ChipKey[], hidden: readonly ChipKey[]): boolean {
+export function allChipsHidden(chips: readonly RowChip[], hidden: readonly RowChip[]): boolean {
   return chips.every((chip) => hidden.includes(chip));
 }
 

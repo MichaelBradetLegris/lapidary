@@ -3,7 +3,8 @@ import { keptOutNote } from '../../shared/diff/protect';
 import { isAuthored } from '../../shared/edit';
 import type { ReviewSummary } from '../../shared/ipc';
 import { paragraphNumber } from '../../shared/prompt/chapter';
-import { commentList, commentPlace, commentsHeading } from '../../shared/ui/comments';
+import { commentsHidden } from '../../shared/ui/chips';
+import { commentList, commentPlace, commentsHeading, commentsNote } from '../../shared/ui/comments';
 import {
   historyCounts,
   historyWhen,
@@ -18,16 +19,12 @@ import {
   rowButtonLook,
   rowLabel,
   rowTag,
-  SHOW_STATES_LABEL,
-  SHOW_STATES_TITLE,
   suggestionsHeading,
   summaryLine,
   type RowButton
 } from '../../shared/ui/suggestions';
 import { PROVIDER_NAMES, type Hunk, type Review, type ReviewComment } from '../../shared/types';
-import { call } from '../state/client';
 import { editFromComment, editHunk } from '../state/edit';
-import { saveRowStates, type RowStatesIo } from '../state/rowStates';
 import { followFocus, scrollToElement } from '../state/scroll';
 import { SPLIT_LIST_ID, useSplit } from '../state/splitHandle';
 import { inDraft, isLocked, useApp } from '../state/store';
@@ -40,16 +37,6 @@ interface Props {
   onSetCommentStatus: (id: string, status: ReviewComment['status']) => void;
   onOpenHistory?: (summary: ReviewSummary) => void;
 }
-
-const STATUS_MARK: Record<Hunk['status'], string> = {
-  pending: '',
-  accepted: 'accepted',
-  dismissed: 'dismissed'
-};
-
-const ROW_STATES_IO: RowStatesIo = {
-  setSettings: (patch) => call('settings:set', patch)
-};
 
 /**
  * A row's button classes (polish.12): the button of the row's decision is
@@ -101,7 +88,6 @@ export function SidePanel({
   const activeCommentId = useApp((s) => s.activeCommentId);
   const setActiveComment = useApp((s) => s.setActiveComment);
   const drafts = useApp((s) => s.drafts);
-  const showStates = useApp((s) => s.settings?.showRowStates ?? true);
   const locked = useApp(isLocked);
   const listRef = useRef<HTMLUListElement>(null);
   const focusBodyRef = useRef<HTMLDivElement>(null);
@@ -114,6 +100,9 @@ export function SidePanel({
 
   const focused = review.hunks.find((h) => h.id === focusedHunkId) ?? null;
   const comments = useMemo(() => commentList(review.comments), [review.comments]);
+  /* While the comments' chip hides them, the heading stays with its count and
+     a line under it says so, where the list was (polish.13). */
+  const commentsEmpty = commentsNote(review.comments.length, commentsHidden(hiddenCategories));
   const picker = useMemo(
     () => reviewPicker(history, activeReviewPath, review),
     [history, activeReviewPath, review]
@@ -278,20 +267,10 @@ export function SidePanel({
         <div className="side__regions" ref={regionsRef} {...regionsProps}>
           <section className="side__section side__list" id={SPLIT_LIST_ID}>
             {/* The heading counts the decided rows as the comments' counts the
-                resolved ones (polish.12), and Show states beside it writes
-                ACCEPTED or DISMISSED on the decided rows, or leaves the
-                buttons alone to say it. The setting is kept (11.3 d). */}
-            <div className="side__list-head">
-              <h3>{suggestionsHeading(inline)}</h3>
-              <label className="side__states" title={SHOW_STATES_TITLE}>
-                <input
-                  type="checkbox"
-                  checked={showStates}
-                  onChange={(event) => void saveRowStates(event.target.checked, ROW_STATES_IO)}
-                />
-                {SHOW_STATES_LABEL}
-              </label>
-            </div>
+                resolved ones (polish.12). Since polish.17 the rows show a
+                decision by their buttons alone: Show states, the box that
+                wrote ACCEPTED or DISMISSED on them, went with the words. */}
+            <h3>{suggestionsHeading(inline)}</h3>
             {inline.length === 0 ? (
               <p className="side__empty">Nothing to review here.</p>
             ) : (
@@ -326,13 +305,15 @@ export function SidePanel({
                           aria-label={rowLabel(hunk)}
                         >
                           {/* The tag of the chip the suggestion is under, in its
-                              colour (polish.12): the category, or "you" for the
+                              colour (polish.12): the category, or YOU for the
                               author's own words (item 3), which take no colour of
-                              a category they never chose. The row's name says it
-                              as the category, then the change and its decision
-                              (`rowLabel`), whether or not Show states writes the
-                              decision on the row. */}
-                          <span className={`row__cat cat-${tag.key}`} title={tag.title ?? undefined}>
+                              a category they never chose; three letters of fixed
+                              width since polish.14, so the rows' words start in one
+                              column, with the name in full as the tooltip. The
+                              row's name says it as the category, then the change
+                              and its decision (`rowLabel`), which the row itself
+                              shows by its buttons alone (polish.17). */}
+                          <span className={`row__cat cat-${tag.key}`} title={tag.title}>
                             {tag.text}
                           </span>
                           {context ? (
@@ -340,9 +321,6 @@ export function SidePanel({
                           ) : (
                             <span className="row__text">{summaryLine(hunk)}</span>
                           )}
-                          {showStates && STATUS_MARK[hunk.status] ? (
-                            <span className="row__status">{STATUS_MARK[hunk.status]}</span>
-                          ) : null}
                         </button>
                         {/* On a decided row the button of its decision stands out,
                             the accepted ✓ green and the dismissed ✕ red, both
@@ -400,8 +378,8 @@ export function SidePanel({
                 order, an unanchored comment by the paragraph it had. */}
             <section className="side__section">
               <h3>{commentsHeading(review.comments)}</h3>
-              {comments.length === 0 ? (
-                <p className="side__empty">No comments.</p>
+              {commentsEmpty !== null ? (
+                <p className="side__empty">{commentsEmpty}</p>
               ) : (
                 <ul className="comments">
                   {comments.map((comment) => {

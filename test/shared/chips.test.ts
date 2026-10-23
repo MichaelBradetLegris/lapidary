@@ -9,6 +9,8 @@ import {
   CHIPS_FIT,
   CHIPS_REVEAL_MARGIN,
   CHIPS_THUMB_MIN,
+  COMMENTS_CHIP,
+  commentsHidden,
   chipBulkLabel,
   chipCounts,
   chipHidden,
@@ -30,11 +32,12 @@ import {
   sameChipsView,
   SHOW_ALL_CATEGORIES,
   showOnlyHidden,
+  suggestionChip,
   WHEEL_LINE_PX,
   YOU_CHIP,
-  type ChipKey,
   type ChipsRow,
-  type ChipsWheel
+  type ChipsWheel,
+  type RowChip
 } from '../../src/shared/ui/chips';
 
 /* polish.6: the category chips are one row that scrolls sideways when they do
@@ -324,11 +327,13 @@ describe('the chips, one per category in the text, and You (polish.10, polish.11
 });
 
 describe('Show only and the eye (polish.11)', () => {
-  const ROW: ChipKey[] = ['grammar', 'typo', 'other', YOU_CHIP];
+  const ROW: RowChip[] = ['grammar', 'typo', 'other', COMMENTS_CHIP, YOU_CHIP];
 
   it('hides every other chip in the row for Show only, and nothing that is not in it', () => {
-    expect(showOnlyHidden(ROW, 'typo')).toEqual(['grammar', 'other', YOU_CHIP]);
-    expect(showOnlyHidden(ROW, YOU_CHIP)).toEqual(['grammar', 'typo', 'other']);
+    expect(showOnlyHidden(ROW, 'typo')).toEqual(['grammar', 'other', COMMENTS_CHIP, YOU_CHIP]);
+    expect(showOnlyHidden(ROW, YOU_CHIP)).toEqual(['grammar', 'typo', 'other', COMMENTS_CHIP]);
+    // The comments' chip too (polish.13): Show only on it hides every suggestion.
+    expect(showOnlyHidden(ROW, COMMENTS_CHIP)).toEqual(['grammar', 'typo', 'other', YOU_CHIP]);
     expect(showOnlyHidden(['grammar'], 'grammar')).toEqual([]);
   });
 
@@ -337,8 +342,10 @@ describe('Show only and the eye (polish.11)', () => {
     // A hidden category with no chip in the row leaves the eye open.
     expect(allChipsShown(ROW, ['spelling'])).toBe(true);
     expect(allChipsShown(ROW, [YOU_CHIP])).toBe(false);
+    // The comments' chip counts as any other (polish.13).
+    expect(allChipsShown(ROW, [COMMENTS_CHIP])).toBe(false);
     expect(allChipsHidden(ROW, ROW)).toBe(true);
-    expect(allChipsHidden(ROW, ['grammar', 'typo', 'other'])).toBe(false);
+    expect(allChipsHidden(ROW, ['grammar', 'typo', 'other', YOU_CHIP])).toBe(false);
     expect(eyeLabel(true)).toBe(HIDE_ALL_CATEGORIES);
     expect(eyeLabel(false)).toBe(SHOW_ALL_CATEGORIES);
     expect([HIDE_ALL_CATEGORIES, SHOW_ALL_CATEGORIES]).toEqual([
@@ -349,7 +356,10 @@ describe('Show only and the eye (polish.11)', () => {
 
   it('closes the eye after Show only on any chip of a row of two or more, and opens it after Show all', () => {
     const row = fc
-      .uniqueArray(fc.constantFrom<ChipKey>(...CHANGE_CATEGORIES, YOU_CHIP), { minLength: 1, maxLength: 14 })
+      .uniqueArray(fc.constantFrom<RowChip>(...CHANGE_CATEGORIES, COMMENTS_CHIP, YOU_CHIP), {
+        minLength: 1,
+        maxLength: 15
+      })
       .chain((keys) => fc.tuple(fc.constant(keys), fc.constantFrom(...keys)));
     fc.assert(
       fc.property(row, ([keys, key]) => {
@@ -362,6 +372,113 @@ describe('Show only and the eye (polish.11)', () => {
         expect(allChipsHidden(keys, keys)).toBe(true);
         expect(allChipsShown(keys, keys)).toBe(false);
       })
+    );
+  });
+});
+
+/* polish.13: the review's comments have a chip, "comments N", after the
+   categories and before You, counting the open comments; its menu has Hide
+   or Show and Show only, and no Accept all or Dismiss all; Show only on any
+   other chip hides it, and the eye counts it. What hiding it does to the
+   page is in test/renderer/commentsChip.render.test.ts. */
+describe('the comments chip (polish.13)', () => {
+  const hunk = (
+    category: Hunk['category'],
+    anchor: Hunk['anchor'] = 'exact',
+    source: Hunk['source'] = 'claude'
+  ): Pick<Hunk, 'anchor' | 'category' | 'source'> =>
+    category === undefined ? { anchor, source } : { anchor, category, source };
+  const open = { status: 'open' } as const;
+  const resolved = { status: 'resolved' } as const;
+
+  it('comes after the categories and before You, and counts the open comments', () => {
+    expect(
+      chipCounts(
+        [hunk('typo'), hunk('grammar'), hunk('typo'), hunk('other', 'exact', 'manual')],
+        [open, resolved, open, open]
+      )
+    ).toEqual([
+      ['typo', 2],
+      ['grammar', 1],
+      [COMMENTS_CHIP, 3],
+      [YOU_CHIP, 1]
+    ]);
+    // Last with no edit of the author's, and alone with no suggestion in the text.
+    expect(chipCounts([hunk('typo')], [open])).toEqual([
+      ['typo', 1],
+      [COMMENTS_CHIP, 1]
+    ]);
+    expect(chipCounts([hunk('spelling', 'stale')], [open, open])).toEqual([[COMMENTS_CHIP, 2]]);
+    // Every comment resolved: the chip stays, at 0, as their greyed cards are still there to hide.
+    expect(chipCounts([], [resolved, resolved])).toEqual([[COMMENTS_CHIP, 0]]);
+    // No comment, no chip.
+    expect(chipCounts([hunk('typo')], [])).toEqual([['typo', 1]]);
+    expect(chipCounts([hunk('typo')])).toEqual([['typo', 1]]);
+  });
+
+  it('is named, titled and given a menu of its own, with nothing to accept or dismiss', () => {
+    expect(COMMENTS_CHIP).toBe('comments');
+    expect(chipName(COMMENTS_CHIP)).toBe('comments');
+    expect(chipMenuLabel(COMMENTS_CHIP)).toBe('Comments');
+    expect(chipTitle(COMMENTS_CHIP, false)).toBe(
+      'Comments, counting the open ones. Shown. Click for Hide and Show only.'
+    );
+    expect(chipTitle(COMMENTS_CHIP, true)).toBe(
+      'Comments, counting the open ones. Hidden. Click for Show and Show only.'
+    );
+    expect(suggestionChip(COMMENTS_CHIP)).toBeNull();
+    for (const key of [...CHANGE_CATEGORIES, YOU_CHIP] as const) expect(suggestionChip(key)).toBe(key);
+  });
+
+  it('hides the comments only when it is hidden itself, and hides no suggestion', () => {
+    expect(commentsHidden([])).toBe(false);
+    expect(commentsHidden(['grammar', YOU_CHIP])).toBe(false);
+    expect(commentsHidden([COMMENTS_CHIP])).toBe(true);
+    expect(chipHidden(hunk('other'), [COMMENTS_CHIP])).toBe(false);
+    expect(chipHidden(hunk('other', 'exact', 'manual'), [COMMENTS_CHIP])).toBe(false);
+  });
+
+  it('leaves the suggestions chips as they were, whatever the comments, and stands between them and You', () => {
+    const anyHunk = fc.record({
+      category: fc.option(fc.constantFrom(...CHANGE_CATEGORIES), { nil: undefined }),
+      anchor: fc.constantFrom<Hunk['anchor']>('exact', 'fuzzy', 'ambiguous', 'stale'),
+      source: fc.constantFrom<Hunk['source']>('claude', 'diff', 'manual')
+    });
+    const anyComment = fc.constantFrom(open, resolved);
+    fc.assert(
+      fc.property(
+        fc.array(anyHunk, { maxLength: 40 }),
+        fc.array(anyComment, { maxLength: 12 }),
+        (raw, comments) => {
+          const hunks = raw.map((h) => hunk(h.category, h.anchor, h.source));
+          const chips = chipCounts(hunks, comments);
+          const keys = chips.map(([key]) => key);
+          expect(chips.filter(([key]) => key !== COMMENTS_CHIP)).toEqual(chipCounts(hunks));
+          const at = keys.indexOf(COMMENTS_CHIP);
+          expect(at !== -1).toBe(comments.length > 0);
+          if (at !== -1) {
+            expect(chips[at]?.[1]).toBe(comments.filter((x) => x.status === 'open').length);
+            // Only You after it, and every category before it.
+            expect(keys.slice(at + 1).every((key) => key === YOU_CHIP)).toBe(true);
+            expect(keys.slice(0, at)).not.toContain(YOU_CHIP);
+          }
+          // Hiding it hides no suggestion; hiding every other chip leaves the comments shown.
+          const placed = hunks.filter((h) => h.anchor !== 'stale');
+          expect(placed.filter((h) => chipHidden(h, [COMMENTS_CHIP]))).toEqual([]);
+          expect(commentsHidden(keys.filter((key) => key !== COMMENTS_CHIP))).toBe(false);
+          // Show only on another chip hides the comments; on the comments, every suggestion.
+          for (const key of keys) {
+            const hidden = showOnlyHidden(keys, key);
+            expect(commentsHidden(hidden)).toBe(key !== COMMENTS_CHIP && at !== -1);
+            if (key === COMMENTS_CHIP) {
+              expect(placed.filter((h) => !chipHidden(h, hidden))).toEqual([]);
+            }
+          }
+          // The eye's Hide all hides the comments too, and Show all shows them.
+          expect(commentsHidden(keys)).toBe(at !== -1);
+          expect(allChipsShown(keys, [])).toBe(true);
+        }
+      )
     );
   });
 });

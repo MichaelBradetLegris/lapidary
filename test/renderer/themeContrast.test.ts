@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CHANGE_CATEGORIES } from '../../src/shared/types';
 import {
   contrastRatio,
   deltaE76,
@@ -18,15 +19,8 @@ const BLOCKS = tokenBlocks(APP_CSS);
 
 const SURFACES = ['--bg', '--panel', '--panel-alt'];
 const TEXT = ['--ink', '--ink-soft', '--accent', '--accept', '--danger', '--warn'];
-const CATEGORIES = [
-  '--cat-spelling',
-  '--cat-homophone',
-  '--cat-grammar',
-  '--cat-punctuation',
-  '--cat-word-choice',
-  '--cat-consistency',
-  '--cat-other'
-];
+/** Every category's own colour (polish.16), thirteen where seven served them all. */
+const CATEGORIES = CHANGE_CATEGORIES.map((category) => `--cat-${category}`);
 const PARAGRAPHS = ['--para-active-bg', '--para-flash-bg'];
 /** Backgrounds that mark a place: the focused row or suggestion, a selected row, find matches, paragraphs. */
 const HIGHLIGHTS = ['--focus-bg', '--selected-bg', '--find-bg', ...PARAGRAPHS];
@@ -214,12 +208,19 @@ const FAINT_PAIRS: Pair[] = [
     ink: '--ink-faint',
     on,
     min: 3,
-    why: "a decided row's faded buttons, and every row button, on the row at rest, hovered and focused (polish.12)"
-  }))
+    why: "a pending row's buttons, on the row at rest, hovered and focused (polish.12)"
+  })),
+  {
+    ink: '--ink',
+    on: '--border',
+    min: 3,
+    why: "a row button under the pointer, a decided row's faded ones among them, which come back there (polish.14)"
+  }
 ];
 
 /**
- * polish.2: the one mark under 3:1, by the author's choice (2026-10-22). The
+ * polish.2: a mark under 3:1, by the author's choice (2026-10-22), the only
+ * one until polish.14's faded row buttons (below). The
  * scrollbar's thumb is a square a shade off its gutter, `--scrollbar-thumb` on
  * `--scrollbar-track`: about 1.4:1 at rest and 1.6 under the pointer ("a tiny
  * bit darker" than the sheet's variant D, 1.24 and 1.58 in light, 1.21 and
@@ -228,7 +229,8 @@ const FAINT_PAIRS: Pair[] = [
  * 1.86, dark to 1.41, 1.60 and 1.85, the same as the window's pixels at 100%
  * and 150%. The exception names these three tokens and no other, and
  * pins each to its band, so the thumb can neither fade into the track nor
- * drift unnoticed, and the 3:1 floor stands for every other mark. The arrows
+ * drift unnoticed, and the 3:1 floor stands for every other mark but those
+ * faded buttons. The arrows
  * and the resize handle keep it, above.
  */
 interface Band {
@@ -254,6 +256,44 @@ function outOfBand(scheme: Scheme, bands: Band[]): string[] {
       ? []
       : [
           `${token} ${toHex(thumb)} on ${THUMB_ON} ${toHex(track)}: ${ratio.toFixed(2)}, not ${min} to ${max} (${why})`
+        ];
+  });
+}
+
+/**
+ * polish.14: the second mark under 3:1, by the author's choice (2026-10-23:
+ * "make the not clicked ones fade more ... It should clearly indicate 'we are
+ * done with this row'"), where polish.12's thinner stroke in `--ink-faint`
+ * "barely looks any different". On a decided row the two buttons not chosen
+ * keep `--row-fade` of `--ink-faint`, painted as color-mix() paints it over
+ * the row at rest, hovered and focused: 1.48, 1.43 and 1.45:1 in light, 1.74,
+ * 1.71 and 1.54 in dark, near the scrollbar thumb's 1.4. Under the pointer
+ * they come back as any row button, `--ink` on `--border` (a pair above at
+ * 3:1), and with the keyboard's focus as `--ink` on the row (a text pair).
+ * The exception names this ink, this share and the row's three backgrounds
+ * and no other, and pins each ratio to a band, so the fade can neither vanish
+ * nor creep back towards the grey it fades from.
+ */
+interface Fade {
+  ink: string;
+  share: string;
+  on: readonly string[];
+  min: number;
+  max: number;
+}
+
+const FADE_EXCEPTION: Fade = { ink: '--ink-faint', share: '--row-fade', on: ROWS, min: 1.35, max: 1.9 };
+
+function fadeOutOfBand(scheme: Scheme, { ink, share, on, min, max }: Fade): string[] {
+  const percent = parseFloat(resolveToken(BLOCKS, scheme, share));
+  return on.flatMap((base) => {
+    const row = opaque(scheme, base);
+    const mark = over(mixWithTransparent(colour(scheme, ink), percent), row);
+    const ratio = contrastRatio(mark, row);
+    return ratio >= min && ratio <= max
+      ? []
+      : [
+          `${ink} at ${share} (${percent}%) over ${base} ${toHex(mark)} on ${toHex(row)}: ${ratio.toFixed(2)}, not ${min} to ${max} (a decided row's faded button)`
         ];
   });
 }
@@ -414,6 +454,69 @@ function faded(scheme: Scheme, { band, on, minDeltaE, minLuminance, why }: Floor
   });
 }
 
+/**
+ * polish.16: the chips' colours told apart. The author (2026-10-23): "typo and
+ * spelling look almost identical. Grammar and Agreement also look very
+ * similar", where each pair was one token. The chips' row holds the thirteen
+ * categories, the comments and You: fifteen colours, which also mark the
+ * rows' tags and the prose, each read from its chip's `.cat-*` rule as it is
+ * painted. Any two stand at least 15 apart in CIELAB, as `deltaE76` measures
+ * it (two flat patches side by side are told apart from about 2.3), and two of
+ * one family, categories close in meaning, at least 35.
+ */
+const FAMILIES: readonly (readonly string[])[] = [
+  ['spelling', 'typo', 'homophone'],
+  ['grammar', 'agreement', 'tense'],
+  ['word-choice', 'redundancy', 'awkward'],
+  ['formatting', 'other']
+];
+const CHIPS: readonly string[] = [...CHANGE_CATEGORIES, 'you', 'comments'];
+const APART = 15;
+const FAMILY_APART = 35;
+
+/** The token a chip's rule sets `--cat` to, as in `.cat-typo { --cat: var(--cat-typo); }`. */
+function chipToken(key: string): string {
+  const css = APP_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+  const tokens = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter((m) =>
+      (m[1] ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .includes(`.cat-${key}`)
+    )
+    .flatMap((m) => /(?:^|;)\s*--cat:\s*var\((--[\w-]+)\)/.exec(m[2] ?? '')?.[1] ?? []);
+  const [token] = tokens;
+  if (tokens.length !== 1 || token === undefined)
+    throw new Error(`.cat-${key} sets --cat ${tokens.length} times`);
+  return token;
+}
+
+/** Each two of the fifteen that stand closer than their floor, as painted in `scheme`. */
+function tooClose(scheme: Scheme, token: (key: string) => string = chipToken): string[] {
+  const painted = CHIPS.map((key) => ({ key, colour: opaque(scheme, token(key)) }));
+  return painted.flatMap((a, i) =>
+    painted.slice(i + 1).flatMap((b) => {
+      const family = FAMILIES.some((f) => f.includes(a.key) && f.includes(b.key));
+      const min = family ? FAMILY_APART : APART;
+      const apart = deltaE76(a.colour, b.colour);
+      return apart >= min
+        ? []
+        : [
+            `${a.key} ${toHex(a.colour)} and ${b.key} ${toHex(b.colour)}: ${apart.toFixed(1)} apart, at least ${min}${family ? ' (one family)' : ''}`
+          ];
+    })
+  );
+}
+
+/**
+ * `tooClose`'s lines without the two colours and the distance measured, so a
+ * test can name the pair, its floor and whether it is one family's:
+ * "spelling and typo: at least 35 (one family)".
+ */
+function floorsBroken(lines: string[]): string[] {
+  return lines.map((line) => line.replace(/ #[0-9a-f]{6}/g, '').replace(/: \d+\.\d apart, /, ': '));
+}
+
 function failures(scheme: Scheme, pairs: Pair[]): string[] {
   return pairs.flatMap((pair) => {
     const { ink, under, on, min, why } = pair;
@@ -435,12 +538,14 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
         expect(() => paint(scheme, pair.on)).not.toThrow();
       }
     }
+    // polish.16: thirteen categories where there were seven tokens (156, 75, 105 and 33 pairs).
+    expect(CATEGORIES).toHaveLength(13);
     expect([
       TEXT_PAIRS.length,
       FAINT_PAIRS.length,
       SELECTION_TEXT_PAIRS.length,
       SELECTION_FAINT_PAIRS.length
-    ]).toEqual([156, 74, 105, 33]);
+    ]).toEqual([246, 111, 177, 57]);
   });
 
   /* polish.12: the accepted tick "needs to pop a little more" (the author).
@@ -503,7 +608,11 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
       expect([BAND_FLOOR, PROSE_FLOOR].flatMap((floor) => faded(scheme, floor))).toEqual([]);
     });
 
-    it(`keeps the scrollbar's thumb a shade off its gutter in ${scheme}, the one mark under 3:1 (polish.2)`, () => {
+    it(`keeps the chips' fifteen colours apart in ${scheme}, a family's further (polish.16)`, () => {
+      expect(tooClose(scheme)).toEqual([]);
+    });
+
+    it(`keeps the scrollbar's thumb a shade off its gutter in ${scheme}, a mark under 3:1 (polish.2)`, () => {
       expect(outOfBand(scheme, THUMB_EXCEPTION)).toEqual([]);
       // Each state a step further from the track, and all three under the floor they are exempt from.
       const track = opaque(scheme, THUMB_ON);
@@ -511,7 +620,28 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
       expect([...ratios].sort((a, b) => a - b)).toEqual(ratios);
       expect(Math.max(...ratios)).toBeLessThan(3);
     });
+
+    it(`fades a decided row's other buttons plainly in ${scheme}, the second mark under 3:1 (polish.14)`, () => {
+      expect(fadeOutOfBand(scheme, FADE_EXCEPTION)).toEqual([]);
+      // The grey it fades from holds 3:1 on every row (above); faded, it is well under it.
+      for (const base of ROWS) {
+        const row = opaque(scheme, base);
+        expect(contrastRatio(opaque(scheme, '--ink-faint'), row), base).toBeGreaterThanOrEqual(3);
+      }
+    });
   }
+
+  it("fails a fade outside its band, so the faded buttons' exception can fail", () => {
+    // polish.12's buttons, --ink-faint whole, are no fade at all, and a tenth of it is next to nothing.
+    for (const scheme of SCHEMES) {
+      expect(fadeOutOfBand(scheme, { ...FADE_EXCEPTION, share: '--tint-pending' })).toHaveLength(3);
+    }
+    const whole = SCHEMES.flatMap((scheme) =>
+      ROWS.map((base) => contrastRatio(opaque(scheme, '--ink-faint'), opaque(scheme, base)))
+    );
+    expect(Math.min(...whole)).toBeGreaterThan(FADE_EXCEPTION.max);
+    expect(FADE_EXCEPTION.on).toEqual(['--panel', '--panel-alt', '--focus-bg']);
+  });
 
   it("fails a thumb outside its band, so the scrollbar's exception can fail", () => {
     // The sheet's D as drawn: --border at rest is too faint, and dark's --border-strong
@@ -526,6 +656,67 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
     expect(outOfBand('dark', rest('--border'))).toHaveLength(1);
     expect(outOfBand('dark', hover('--border-strong'))).toHaveLength(1);
     expect(outOfBand('light', hover('--ink-faint'))).toHaveLength(1);
+  });
+
+  it("reads each chip's colour from its own rule, a token per category (polish.16)", () => {
+    expect(CHIPS.map((key) => chipToken(key))).toEqual([...CATEGORIES, '--accent', '--ink-soft']);
+    // The task's four families, as PLAN's polish.16 names them, of categories that exist, none in two.
+    expect(FAMILIES).toEqual([
+      ['spelling', 'typo', 'homophone'],
+      ['grammar', 'agreement', 'tense'],
+      ['word-choice', 'redundancy', 'awkward'],
+      ['formatting', 'other']
+    ]);
+    const named = FAMILIES.flat();
+    expect(named.filter((c) => !(CHANGE_CATEGORIES as readonly string[]).includes(c))).toEqual([]);
+    expect(new Set(named).size).toBe(named.length);
+  });
+
+  /* polish.16: the colours the chips had, each family on one token, are what
+     the floor is there to stop, and so is other in the comments' grey, which
+     light other was (#6d675e) until then. */
+  it("fails the old shared colours and other in the comments' grey, so the floor can fail", () => {
+    const shared: Record<string, string> = {
+      typo: '--cat-spelling',
+      agreement: '--cat-grammar',
+      tense: '--cat-grammar',
+      redundancy: '--cat-word-choice',
+      awkward: '--cat-word-choice',
+      formatting: '--cat-other'
+    };
+    for (const scheme of SCHEMES) {
+      // Each pair under the family floor and marked as one family's.
+      expect(floorsBroken(tooClose(scheme, (key) => shared[key] ?? chipToken(key))), scheme).toEqual([
+        'spelling and typo: at least 35 (one family)',
+        'grammar and agreement: at least 35 (one family)',
+        'grammar and tense: at least 35 (one family)',
+        'agreement and tense: at least 35 (one family)',
+        'word-choice and redundancy: at least 35 (one family)',
+        'word-choice and awkward: at least 35 (one family)',
+        'redundancy and awkward: at least 35 (one family)',
+        'formatting and other: at least 35 (one family)'
+      ]);
+      expect(
+        floorsBroken(tooClose(scheme, (key) => (key === 'other' ? '--ink-soft' : chipToken(key)))),
+        scheme
+      ).toContain('other and comments: at least 15');
+    }
+  });
+
+  /* The polish.16 review: the old colours are 0 apart, under both floors, so
+     they cannot show that the family floor applies. Formatting in the ink's
+     colour stands more than 15 from every chip and less than 35 from other,
+     so it breaks the family floor and nothing else. */
+  it('fails formatting in the ink, a pair under the family floor alone, so that floor can fail', () => {
+    const inked = (key: string): string => (key === 'formatting' ? '--ink' : chipToken(key));
+    for (const scheme of SCHEMES) {
+      const apart = deltaE76(opaque(scheme, '--ink'), opaque(scheme, chipToken('other')));
+      expect(apart, scheme).toBeGreaterThanOrEqual(APART);
+      expect(apart, scheme).toBeLessThan(FAMILY_APART);
+      expect(floorsBroken(tooClose(scheme, inked)), scheme).toEqual([
+        'formatting and other: at least 35 (one family)'
+      ]);
+    }
   });
 
   /* The polish.1 review: the prose's band laid everywhere, as polish.1 first

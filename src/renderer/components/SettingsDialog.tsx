@@ -65,8 +65,10 @@ interface Props {
  *
  * Three sections, Review, Folders and Accounts, and at the foot the welcome
  * guide, About and Done (polish.4). A row has at most one short note; the
- * longer explanations are the tooltips of the (?) beside the rows' names
- * (`HelpTip`), whose words are in `src/shared/ui/settingsDialog.ts`. Each
+ * longer explanations are the tooltips of the (?) in each row's last cell,
+ * after its buttons, so that they stand in one line down the right of the
+ * dialog (`HelpTip`, polish.15; Appearance and the key's field keep the cell
+ * empty), whose words are in `src/shared/ui/settingsDialog.ts`. Each
  * control names its row's path, status line, note or tooltip as its
  * description. The box still scrolls when the window is too short for it,
  * with its title and any message at the top, and its buttons at the foot,
@@ -226,10 +228,7 @@ export function SettingsDialog({
           <h3 id={id('review')}>Review</h3>
 
           <div className="modal__row">
-            <span className="modal__name">
-              <label htmlFor={id('model')}>Claude model</label>
-              <HelpTip id={id('model-tip')} topic="Claude model" text={MODEL_TIP} />
-            </span>
+            <label htmlFor={id('model')}>Claude model</label>
             <select
               id={id('model')}
               value={settings.model}
@@ -243,13 +242,11 @@ export function SettingsDialog({
               ))}
             </select>
             <span />
+            <HelpTip id={id('model-tip')} topic="Claude model" text={MODEL_TIP} />
           </div>
 
           <div className="modal__row">
-            <span className="modal__name">
-              <label htmlFor={id('effort')}>Effort</label>
-              <HelpTip id={id('effort-tip')} topic="Effort" text={EFFORT_TIP} />
-            </span>
+            <label htmlFor={id('effort')}>Effort</label>
             <select
               id={id('effort')}
               value={settings.effort}
@@ -263,14 +260,13 @@ export function SettingsDialog({
               ))}
             </select>
             <span />
+            <HelpTip id={id('effort-tip')} topic="Effort" text={EFFORT_TIP} />
           </div>
 
           {/* Saved like every other setting; main switches the window as soon as
               settings:set returns (theme.7, PLAN 11.3 e). */}
           <div className="modal__row">
-            <span className="modal__name">
-              <label htmlFor={id('appearance')}>Appearance</label>
-            </span>
+            <label htmlFor={id('appearance')}>Appearance</label>
             <select
               id={id('appearance')}
               value={settings.theme}
@@ -284,6 +280,7 @@ export function SettingsDialog({
               ))}
             </select>
             <span />
+            <span className="modal__help" />
           </div>
           <p className="modal__note" id={id('appearance-note')}>
             {APPEARANCE_NOTE}
@@ -294,10 +291,7 @@ export function SettingsDialog({
           <h3 id={id('folders')}>Folders</h3>
 
           <div className="modal__row">
-            <span className="modal__name">
-              <span>Manuscript folder</span>
-              <HelpTip id={id('manuscript-tip')} topic="the manuscript folder" text={MANUSCRIPT_TIP} />
-            </span>
+            <span>Manuscript folder</span>
             <span className="modal__path" id={id('manuscript-path')}>
               {settings.manuscriptFolder ?? 'not set'}
             </span>
@@ -310,13 +304,11 @@ export function SettingsDialog({
                 Change
               </button>
             </span>
+            <HelpTip id={id('manuscript-tip')} topic="the manuscript folder" text={MANUSCRIPT_TIP} />
           </div>
 
           <div className="modal__row">
-            <span className="modal__name">
-              <span>Reviews folder</span>
-              <HelpTip id={id('reviews-tip')} topic="the reviews folder" text={REVIEWS_FOLDER_TIP} />
-            </span>
+            <span>Reviews folder</span>
             <span className="modal__path" id={id('reviews-path')}>
               {paths?.reviewsFolder ?? settings.reviewsFolder ?? '…'}
             </span>
@@ -336,6 +328,7 @@ export function SettingsDialog({
                 Show in folder
               </button>
             </span>
+            <HelpTip id={id('reviews-tip')} topic="the reviews folder" text={REVIEWS_FOLDER_TIP} />
           </div>
           <p className="modal__note" id={id('reviews-note')}>
             {reviewsFolderNote(paths?.reviewsFolderIsDefault ?? false)}
@@ -345,10 +338,7 @@ export function SettingsDialog({
               Each chapter has a folder of its own inside; Show backups, in the
               toolbar's Actions menu, opens the open chapter's. */}
           <div className="modal__row">
-            <span className="modal__name">
-              <span>Backups</span>
-              <HelpTip id={id('backups-tip')} topic="backups" text={BACKUPS_TIP} />
-            </span>
+            <span>Backups</span>
             <span className="modal__path" id={id('backups-path')} title={paths?.backupsFolder}>
               {paths?.backupsFolder ?? '…'}
             </span>
@@ -361,6 +351,7 @@ export function SettingsDialog({
                 Show in folder
               </button>
             </span>
+            <HelpTip id={id('backups-tip')} topic="backups" text={BACKUPS_TIP} />
           </div>
           <p className="modal__note" id={id('backups-note')}>
             {BACKUPS_ROW_NOTE}
@@ -369,10 +360,7 @@ export function SettingsDialog({
           {/* Change, then Open, the system's app for the file, and Open
               folder, which shows it in its folder (polish.3). */}
           <div className="modal__row">
-            <span className="modal__name">
-              <span>Guidelines file</span>
-              <HelpTip id={id('guidelines-tip')} topic="the guidelines file" text={GUIDELINES_TIP} />
-            </span>
+            <span>Guidelines file</span>
             <span
               className="modal__path"
               id={id('guidelines-path')}
@@ -390,6 +378,7 @@ export function SettingsDialog({
                 Change
               </button>
             </GuidelinesButtons>
+            <HelpTip id={id('guidelines-tip')} topic="the guidelines file" text={GUIDELINES_TIP} />
           </div>
         </section>
 
@@ -397,10 +386,7 @@ export function SettingsDialog({
           <h3 id={id('accounts')}>Accounts</h3>
 
           <div className="modal__row">
-            <span className="modal__name">
-              <span>Claude account</span>
-              <HelpTip id={id('claude-tip')} topic="the Claude account" text={CLAUDE_ACCOUNT_TIP} />
-            </span>
+            <span>Claude account</span>
             <span className="modal__path" id={id('claude-line')} data-testid="claude-account-line">
               {claudeAccountLine(runtime)}
             </span>
@@ -409,13 +395,11 @@ export function SettingsDialog({
                 Setup
               </button>
             </span>
+            <HelpTip id={id('claude-tip')} topic="the Claude account" text={CLAUDE_ACCOUNT_TIP} />
           </div>
 
           <div className="modal__row">
-            <span className="modal__name">
-              <span>{openAiKeyRowLabel()}</span>
-              <HelpTip id={id('key-tip')} topic="the OpenAI API key" text={OPENAI_KEY_TIP} />
-            </span>
+            <span>{openAiKeyRowLabel()}</span>
             <span
               className={`modal__path ${keyStatus?.configured ? '' : 'modal__path--warn'}`}
               id={id('key-line')}
@@ -433,6 +417,7 @@ export function SettingsDialog({
                 Remove key
               </button>
             </span>
+            <HelpTip id={id('key-tip')} topic="the OpenAI API key" text={OPENAI_KEY_TIP} />
           </div>
           <div className="modal__row">
             <span />
@@ -461,6 +446,7 @@ export function SettingsDialog({
                 Save key
               </button>
             </span>
+            <span className="modal__help" />
           </div>
           {cannotEncrypt ? (
             <p className="modal__note modal__note--error" id={id('key-note')}>

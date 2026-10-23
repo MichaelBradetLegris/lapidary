@@ -121,8 +121,8 @@ describe('Show backups on the save card (apply.11)', () => {
 
 describe('the Backups row in Settings (apply.11)', () => {
   /* polish.4: the note is one short line, and apply.11's note, with the
-     20-and-30-days rule, is the tooltip of the (?) beside the row's name
-     (test/renderer/settingsDialog.render.test.ts renders it). */
+     20-and-30-days rule, is the tooltip of the (?) at the row's right end
+     (polish.15; test/renderer/settingsDialog.render.test.ts renders it). */
   it('shows the backups folder, Show in folder, the (?) and the short note, after the reviews folder', () => {
     const reviews = SETTINGS.indexOf('<span>Reviews folder</span>');
     const backups = SETTINGS.indexOf('<span>Backups</span>');

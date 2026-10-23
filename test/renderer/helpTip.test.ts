@@ -2,12 +2,13 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-/* polish.4: the (?) beside a row in Settings (HelpTip) and the box's head and
-   foot. Its handlers and effects need a DOM, which these tests run without,
-   so they are checked in the source; what it renders is in
-   settingsDialog.render.test.ts, and the window check in PLAN (polish.4)
-   showed the card on hover and on keyboard focus, the pointer crossing onto
-   it, and Escape closing Settings from it. */
+/* polish.4: the (?) of a row in Settings (HelpTip), at the row's right end
+   since polish.15, and the box's head and foot. Its handlers and effects
+   need a DOM, which these tests run without, so they are checked in the
+   source; what it renders is in settingsDialog.render.test.ts, and the
+   window checks in PLAN (polish.4, polish.15) showed the card on hover and
+   on keyboard focus, the pointer crossing onto it, and Escape closing
+   Settings from it. */
 
 const SRC = path.join(__dirname, '../../src/renderer');
 const HELP = readFileSync(path.join(SRC, 'components/HelpTip.tsx'), 'utf8');
@@ -53,8 +54,17 @@ describe('the (?) (polish.4)', () => {
     expect(HELP).toMatch(/role="tooltip"\s+id=\{id\}/);
   });
 
-  it("places the card under the (?), its left edge under the (?)'s, and again on any scroll or resize", () => {
-    expect(HELP).toMatch(/placeTooltip\([\s\S]*?6,\s*8,\s*'start'\s*\)/);
+  /* polish.15: the (?) is at the right end of its row, so the card's right
+     edge, not its left, was under the (?)'s. polish.19: a card under its (?)
+     covered the (?) of the next row, so the card stands to the left of its
+     (?), kept inside the band between the head and the foot, and goes under
+     it, right edges lined up, only where there is no room beside it. */
+  it('places the card to the left of the (?), under it only without the room, and again on any scroll or resize', () => {
+    expect(HELP).toMatch(/placeTooltip\([\s\S]*?6,\s*8,\s*'end',\s*\{ side: 'left', gap: 10, band \}\s*\)/);
+    // The band it keeps inside is the one the (?) is checked against.
+    const place = HELP.slice(HELP.indexOf('const place = (): void => {'), HELP.indexOf('place();'));
+    expect(place.match(/const band = /g)).toHaveLength(1);
+    expect(place.indexOf('const band = visibleBand(button);')).toBeLessThan(place.indexOf('placeTooltip('));
     expect(HELP).toContain("window.addEventListener('scroll', place, true);");
     expect(HELP).toContain("window.addEventListener('resize', place);");
     expect(HELP).toContain("window.removeEventListener('scroll', place, true);");
@@ -85,6 +95,22 @@ describe('the (?) (polish.4)', () => {
     expect(show).toBeLessThan(place.indexOf('placeTooltip('));
     // Hidden by its style alone, so it stays open and the next scroll can show it again.
     expect(place).not.toMatch(/set(Hovered|KeyFocus)\(/);
+  });
+});
+
+describe('the column of the (?) (polish.15)', () => {
+  it("is a fourth column at the right of Settings' rows, as wide as the (?), and of no other dialog's", () => {
+    expect(declsFor('.modal--settings .modal__row').get('grid-template-columns')).toBe(
+      '150px minmax(0, 1fr) auto 18px'
+    );
+    // Review with AI, New chapter and the rest keep their three columns.
+    expect(declsFor('.modal__row').get('grid-template-columns')).toBe('150px minmax(0, 1fr) auto');
+    const button = declsFor('button.help');
+    expect(button.get('width')).toBe('18px');
+    // The gap of the row stands between the buttons and the (?); no margin of its own beside a name.
+    expect(button.has('margin-left')).toBe(false);
+    expect(declsFor('.modal__help').get('display')).toBe('flex');
+    expect(CSS).not.toContain('.modal__name');
   });
 });
 

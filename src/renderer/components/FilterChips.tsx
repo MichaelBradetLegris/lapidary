@@ -20,8 +20,9 @@ import {
   eyeLabel,
   sameChipsView,
   showOnlyHidden,
-  type ChipKey,
-  type ChipsView
+  suggestionChip,
+  type ChipsView,
+  type RowChip
 } from '../../shared/ui/chips';
 import { contextMenuKey, firstEnabled, lastEnabled, menuButtonKey } from '../../shared/ui/menu';
 import { useBulkAction } from '../state/bulk';
@@ -89,20 +90,26 @@ function naturalWidths(copy: HTMLDivElement | null): number[][] {
   return [...copy.children].map((row) => [...row.children].map((chip) => chip.getBoundingClientRect().width));
 }
 
-interface ChipProps {
-  chip: ChipKey;
-  count: number;
-  off: boolean;
+/** Accept all and Dismiss all on a chip of suggestions: what they would move, and running them. */
+interface ChipBulk {
   /** its suggestions still pending, which Accept all and Dismiss all would move */
   pending: number;
   /** what Accept all and Dismiss all say on their tooltips when there is nothing to move */
   emptyNotes: Record<Exclude<BulkAction, 'reset'>, string>;
+  run: (action: Exclude<BulkAction, 'reset'>) => void;
+}
+
+interface ChipProps {
+  chip: RowChip;
+  count: number;
+  off: boolean;
+  /** null for the comments' chip, whose menu has Hide or Show and Show only alone (polish.13) */
+  bulk: ChipBulk | null;
   locked: boolean;
   bulkOff: boolean;
   bulkTitle: string | undefined;
   onToggle: () => void;
   onShowOnly: () => void;
-  onBulk: (action: Exclude<BulkAction, 'reset'>) => void;
   row: RefObject<HTMLDivElement | null>;
 }
 
@@ -112,7 +119,8 @@ interface ChipProps {
  * suggestions are shown. A click anywhere on it, Enter, Space, the down or up
  * arrow, the keyboard's menu key or Shift+F10, or a right-click opens its
  * menu: Hide or Show, Show only, and under a line Accept all N and Dismiss
- * all N, N its suggestions still pending (`chipMenuLabels`). The menu behaves
+ * all N, N its suggestions still pending (`chipMenuLabels`); the comments'
+ * chip has the first two alone (polish.13). The menu behaves
  * as the toolbar's do (`useMenu`); it closes with the focus back on the chip,
  * and the question an item asks hands the focus back there too. The row
  * scrolls and clips what overflows it, so the list is placed in the window
@@ -122,32 +130,29 @@ function Chip({
   chip,
   count,
   off,
-  pending,
-  emptyNotes,
+  bulk,
   locked,
   bulkOff,
   bulkTitle,
   onToggle,
   onShowOnly,
-  onBulk,
   row
 }: ChipProps): React.JSX.Element {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const labels = chipMenuLabels(off, pending);
+  const labels = chipMenuLabels(off, bulk?.pending ?? 0);
   /* Off while the toolbar's bulk items are, and with nothing pending, when
      the tooltip says so. */
-  const bulkItem = (action: Exclude<BulkAction, 'reset'>): MenuItem => ({
+  const bulkItem = (of: ChipBulk, action: Exclude<BulkAction, 'reset'>): MenuItem => ({
     label: labels[action],
-    onSelect: () => onBulk(action),
-    disabled: bulkOff || pending === 0,
-    title: bulkOff ? bulkTitle : pending === 0 ? emptyNotes[action] : undefined
+    onSelect: () => of.run(action),
+    disabled: bulkOff || of.pending === 0,
+    title: bulkOff ? bulkTitle : of.pending === 0 ? of.emptyNotes[action] : undefined
   });
   const items: MenuItem[] = [
     { label: labels.toggle, onSelect: onToggle },
     { label: labels.only, onSelect: onShowOnly },
-    { ...bulkItem('accept'), separated: true },
-    bulkItem('dismiss')
+    ...(bulk ? [{ ...bulkItem(bulk, 'accept'), separated: true }, bulkItem(bulk, 'dismiss')] : [])
   ];
   // While a review of the chapter runs the chips are inert, and an open menu goes.
   const { shown, listId, enabled, ref, openOn, close, focusItem, onBlur, list } = useMenu(
@@ -249,8 +254,9 @@ function Chip({
 }
 
 /**
- * The category chips, one per category actually present and You for the
- * author's own edits, last (`chipCounts`), at the left of the toolbar where
+ * The category chips, one per category actually present, the review's
+ * comments' (polish.13) and You for the author's own edits, last
+ * (`chipCounts`), at the left of the toolbar where
  * the chapter's name was (polish.10, polish.11, PLAN 7), after the eye that
  * shows or hides them all. They are drawn at the size they had before
  * `polish.10` and shrink in steps, only as far as they must to fit beside the
@@ -274,17 +280,22 @@ export function FilterChips({ review, bulkOff, bulkTitle }: Props): React.JSX.El
   const [view, setView] = useState<ChipsView>(CHIPS_FIT);
   const [step, setStep] = useState(0);
 
-  const chips = useMemo(() => chipCounts(review.hunks), [review.hunks]);
+  const chips = useMemo(() => chipCounts(review.hunks, review.comments), [review.hunks, review.comments]);
   const keys = useMemo(() => chips.map(([key]) => key), [chips]);
-  /* What Accept all and Dismiss all would move for each chip, by the rule the
-     question itself counts with (`bulkPlan`). */
+  /* What Accept all and Dismiss all would move for each chip of suggestions,
+     by the rule the question itself counts with (`bulkPlan`). */
   const plans = useMemo(
     () =>
       new Map(
-        keys.map((key) => [
-          key,
-          { accept: bulkPlan(review.hunks, 'accept', key), dismiss: bulkPlan(review.hunks, 'dismiss', key) }
-        ])
+        keys.flatMap((row) => {
+          const key = suggestionChip(row);
+          if (key === null) return [];
+          const plan = {
+            accept: bulkPlan(review.hunks, 'accept', key),
+            dismiss: bulkPlan(review.hunks, 'dismiss', key)
+          };
+          return [[key, plan] as const];
+        })
       ),
     [keys, review.hunks]
   );
@@ -365,24 +376,31 @@ export function FilterChips({ review, bulkOff, bulkTitle }: Props): React.JSX.El
           aria-label="Filter suggestions by category"
         >
           {chips.map(([key, count]) => {
-            const plan = plans.get(key);
+            const suggestions = suggestionChip(key);
+            const plan = suggestions === null ? undefined : plans.get(suggestions);
             return (
               <Chip
                 key={key}
                 chip={key}
                 count={count}
                 off={hidden.includes(key)}
-                pending={plan?.accept.count ?? 0}
-                emptyNotes={{
-                  accept: plan?.accept.emptyNote ?? '',
-                  dismiss: plan?.dismiss.emptyNote ?? ''
-                }}
+                bulk={
+                  suggestions === null
+                    ? null
+                    : {
+                        pending: plan?.accept.count ?? 0,
+                        emptyNotes: {
+                          accept: plan?.accept.emptyNote ?? '',
+                          dismiss: plan?.dismiss.emptyNote ?? ''
+                        },
+                        run: (action) => runBulk(action, suggestions)
+                      }
+                }
                 locked={locked}
                 bulkOff={bulkOff}
                 bulkTitle={bulkTitle}
                 onToggle={() => toggleCategory(key)}
                 onShowOnly={() => setHiddenCategories(showOnlyHidden(keys, key))}
-                onBulk={(action) => runBulk(action, key)}
                 row={rowRef}
               />
             );

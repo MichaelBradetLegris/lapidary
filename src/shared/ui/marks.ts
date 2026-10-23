@@ -16,7 +16,7 @@
 
 import type { RenderSegment } from '../render';
 import type { Hunk } from '../types';
-import { chipHidden, type ChipKey } from './chips';
+import { chipHidden, type RowChip } from './chips';
 import { isSmallChange } from './small';
 
 export interface MarginMark {
@@ -35,7 +35,7 @@ export interface MarginMark {
 export function marginMarks(
   segments: readonly RenderSegment[],
   focusedId: string | null,
-  hidden: readonly ChipKey[] = []
+  hidden: readonly RowChip[] = []
 ): MarginMark[] {
   const marks: MarginMark[] = [];
   segments.forEach((segment, index) => {

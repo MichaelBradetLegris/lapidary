@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -46,6 +46,25 @@ describe('the tag (polish.12)', () => {
     expect(CSS).not.toContain('.row__you');
   });
 
+  /* polish.14: tags of different lengths started the rows' words in different
+     places. Measured in the window: HOM, the widest of the fourteen, is 31.2
+     CSS px in Segoe UI at 9 px with its border and 3 px of padding, SPE the
+     narrowest 24.3. */
+  it('is one width on every row, its three letters centred, so the words start in one column (polish.14)', () => {
+    const tag = declsFor('.row__cat');
+    expect(tag.get('width')).toBe('34px');
+    expect(tag.get('display')).toBe('inline-block');
+    expect(tag.get('text-align')).toBe('center');
+    expect(tag.get('padding')).toBe('0 2px');
+    expect(tag.has('min-width')).toBe(false);
+    // HOM's letters are 23.2 px (31.2 less the 1 px border and 3 px padding a side it was measured
+    // with); the box holds them with room for a fallback font a fifth wider.
+    const width = Number(/^(\d+)px$/.exec(tag.get('width') ?? '')?.[1]);
+    const pad = Number(/^0 (\d+)px$/.exec(tag.get('padding') ?? '')?.[1]);
+    expect(tag.get('border')).toMatch(/^1px solid /);
+    expect(width - 2 * 1 - 2 * pad).toBeGreaterThanOrEqual(23.2 * 1.2);
+  });
+
   it('keeps its colour once the suggestion is decided, as the chip does: no rule draws it but its own', () => {
     const selectors = [...CSS.matchAll(/([^{}]+)\{[^{}]*\}/g)]
       .flatMap((m) => (m[1] ?? '').split(',').map((s) => s.trim()))
@@ -66,30 +85,54 @@ describe("a decided row's buttons (polish.12)", () => {
     expect(read('renderer/components/icons.tsx')).toContain('strokeWidth: 1.8,');
   });
 
-  it("fade the others by a thinner stroke in the row buttons' faint grey, which holds 3:1, and not by opacity", () => {
+  /* polish.14: the thinner stroke "barely looks any different" (the author);
+     the others now keep --row-fade of the faint grey, under 3:1 at rest by
+     his choice (themeContrast.test.ts), and come back under the pointer. */
+  it("fade the others to --row-fade of the row buttons' faint grey, and bring them back under the pointer (polish.14)", () => {
     expect(declsFor('.row__act').get('color')).toBe('var(--ink-faint)');
-    expect(declsFor('.row__act--faded').size).toBe(0);
-    expect(declsFor('.row__act--faded svg').get('stroke-width')).toBe('1.2');
-    expect(declsFor('.row__act--faded:hover:not(:disabled) svg').get('stroke-width')).toBe('1.8');
-    expect(CSS).not.toMatch(/\.row__act--faded[^{]*\{[^}]*opacity/);
+    expect([...declsFor('.row__act--faded')]).toEqual([
+      ['color', 'color-mix(in srgb, var(--ink-faint) var(--row-fade), transparent)']
+    ]);
+    // Under the pointer a faded button is drawn as any row button, --ink on --border at the usual
+    // stroke: the rule that does it is more specific than the fade's, and nothing outdoes it.
+    const hover = declsFor('.row__act:hover:not(:disabled)');
+    expect(hover.get('color')).toBe('var(--ink)');
+    expect(hover.get('background')).toBe('var(--border)');
+    expect(declsFor('.row__act--faded:hover:not(:disabled)').size).toBe(0);
+    // With the keyboard's focus on one it is --ink too, beside the focus ring.
+    expect([...declsFor('.row__act--faded:focus-visible')]).toEqual([['color', 'var(--ink)']]);
+    // The fade is the colour alone: the stroke is the icon's own, and the focus ring is not faded.
+    expect(CSS).not.toMatch(/\.row__act--faded[^{]*\{[^}]*(opacity|stroke-width)/);
   });
 
-  it('write the status word in capitals while Show states is on', () => {
-    expect(declsFor('.row__status').get('text-transform')).toBe('uppercase');
+  it('draw every icon 16 px in its 18 px button, where it was 12 px with 3 px of padding (polish.14)', () => {
+    const icon = declsFor('.row__act svg');
+    expect(icon.get('width')).toBe('16px');
+    expect(icon.get('height')).toBe('16px');
+    expect(declsFor('.row__act').get('padding')).toBe('1px');
+    expect(declsFor('.row__act').get('line-height')).toBe('0');
+    // The legend's tick is drawn as a row's.
+    expect(declsFor('.legend__swatch--tick svg').get('width')).toBe('16px');
+    expect(declsFor('.legend__swatch--tick svg').get('height')).toBe('16px');
+  });
+
+  it('say the decision alone: no rule draws a status word since polish.17', () => {
+    expect(CSS).not.toContain('.row__status');
   });
 });
 
-describe('the heading line (polish.12)', () => {
-  it('holds the heading and Show states, and the split measures it as the heading', () => {
-    expect(declsFor('.side__list-head').get('flex-wrap')).toBe('wrap');
-    expect(declsFor('.side__list-head').get('margin')).toBe('0 0 6px');
-    expect(declsFor('.side__list-head > h3').get('margin')).toBe('0');
-    expect(declsFor('.side__list > .side__list-head').get('padding')).toBe('0 10px');
-    // The box is no taller than the heading's line, so the line is as tall as the heading was.
-    expect(declsFor('.side__states input').get('height')).toBe('12px');
-    expect(declsFor('.side__states input').get('margin')).toBe('0');
-    expect(HANDLE).toContain("list.querySelector<HTMLElement>(':scope > .side__list-head')");
-    expect(HANDLE).not.toContain("':scope > h3'");
+/* polish.17: the heading had Show states beside it on a line of their own
+   (`.side__list-head`) from polish.12, and in a narrow panel the box went
+   under it; with the box gone the heading is the line again, as before
+   polish.12, and the split measures it. */
+describe('the heading (polish.17)', () => {
+  it('is alone on its line, and the split measures it as the heading', () => {
+    expect(declsFor('.side__list > h3').get('padding')).toBe('0 10px');
+    expect(declsFor('.side__section h3').get('margin')).toBe('0 0 6px');
+    expect(CSS).not.toContain('.side__list-head');
+    expect(CSS).not.toContain('.side__states');
+    expect(HANDLE).toContain("list.querySelector<HTMLElement>(':scope > h3')");
+    expect(HANDLE).not.toContain('side__list-head');
   });
 });
 
@@ -99,7 +142,9 @@ describe('the heading line (polish.12)', () => {
    show only "HOMOPHONE ACCEPTED", and at 200% (97 px) ACCEPTED was drawn
    over the pencil by up to 37 px. The window check is in PLAN (polish.12);
    the tests run without a layout engine, so these hold the rules that give
-   the order, and the sums they rest on with the widths measured there. */
+   the order, and the sums they rest on with the widths measured there.
+   polish.17 took the status word away, and with it the container query that
+   left it out of a narrow panel: the change and the tag are what is left. */
 describe('a narrow row keeps some of the change (polish.12 review)', () => {
   const main = declsFor('.row__main');
   const px = (value: string | undefined): number => {
@@ -109,20 +154,17 @@ describe('a narrow row keeps some of the change (polish.12 review)', () => {
   };
   const FLOOR = px(main.get('--row-text-floor'));
   const GAP = px(main.get('gap'));
-  const query = /@container side \(width < (\d+)px\) \{\s*\.row__status \{\s*display: none;\s*\}\s*\}/.exec(
-    CSS
-  );
-  const THRESHOLD = Number(query?.[1]);
   // Measured in the window, in CSS px, which zoom leaves alone: the row's
   // button is 102 px narrower inside than the panel inside its border when
   // the list has its scrollbar (with the panel's own scrollbar in a short
-  // window, the same); the panel is 235 px inside in the smallest window and
-  // 199 at 200% in the default one; the widest tag is WORD-CHOICE's.
+  // window, the same; polish.14's bigger icons left the buttons 18 px); the
+  // panel is 235 px inside in the smallest window and 199 at 200% in the
+  // default one. The widest tag was WORD-CHOICE's, 76.7 px, until polish.14
+  // made every tag one width.
   const BUTTON_IN_PANEL = 102;
   const SMALLEST = 235;
   const AT_200 = 199;
-  const WIDEST_TAG = 76.7; // PUNCTUATION is 74.9
-  const TWO_LETTERS = 20; // "AC…" is 23 px at 10 px
+  const WIDEST_TAG = px(declsFor('.row__cat').get('width'));
 
   it('clips what the button holds, so nothing reaches the pencil', () => {
     expect(main.get('overflow')).toBe('clip');
@@ -139,13 +181,7 @@ describe('a narrow row keeps some of the change (polish.12 review)', () => {
     expect(text.get('text-overflow')).toBe('ellipsis');
   });
 
-  it('lets the status word give way next, with an ellipsis, and the tag only past the floor', () => {
-    const status = declsFor('.row__status');
-    expect(status.get('flex')).toBe('0 1 auto');
-    expect(status.get('min-width')).toBe('0');
-    expect(status.get('overflow')).toBe('hidden');
-    expect(status.get('text-overflow')).toBe('ellipsis');
-    expect(status.get('white-space')).toBe('nowrap');
+  it('lets the tag give way only past the floor, with an ellipsis', () => {
     const tag = declsFor('.row__cat');
     expect(tag.get('flex')).toBe('0 0 auto');
     // The tag never takes the floor or the gap after it.
@@ -155,53 +191,60 @@ describe('a narrow row keeps some of the change (polish.12 review)', () => {
     expect(tag.get('white-space')).toBe('nowrap');
   });
 
-  it("drops the status word from every row where one would show less than two letters, by the panel's width", () => {
-    // The panel's width, which no chapter changes (C.49), not the row's, which the list's scrollbar does.
-    expect(declsFor('.side').get('container')).toBe('side / inline-size');
+  it('keeps the tag whole beside more than the floor of the change, in the smallest window and at 200%', () => {
+    // Every row is a tag and a change since polish.17, a decided one as a pending one.
+    const change = (panel: number): number => panel - BUTTON_IN_PANEL - WIDEST_TAG - GAP;
+    expect(change(SMALLEST)).toBeGreaterThan(FLOOR);
+    expect(change(AT_200)).toBeGreaterThan(FLOOR);
+    // Some 57 px of change at 200%, and 93 in the smallest window (PLAN C.110).
+    expect(change(AT_200)).toBeGreaterThan(50);
+    expect(change(SMALLEST)).toBeGreaterThan(90);
+  });
+
+  it("has no container query: the status word's went with it (polish.17)", () => {
+    // The panel is no container (themeCss.test.ts fails one, C.49), and no row reads one.
+    expect(declsFor('.side').has('container')).toBe(false);
     expect(main.has('container-type')).toBe(false);
-    expect(query).not.toBeNull();
-    // At the threshold the widest tag, the floor and two gaps leave the word two letters and the ellipsis,
-    const room = (panel: number): number => panel - BUTTON_IN_PANEL - WIDEST_TAG - FLOOR - 2 * GAP;
-    expect(room(THRESHOLD)).toBeGreaterThanOrEqual(TWO_LETTERS);
-    // and not much more: a wider panel than needed would lose the words where they fit.
-    expect(room(THRESHOLD - 1)).toBeLessThan(TWO_LETTERS + 8);
-    // The usual panel, 320 px with its border, has them.
-    expect(319).toBeGreaterThanOrEqual(THRESHOLD);
-    // The smallest window and 200% are under it: no row writes the word there.
-    expect(SMALLEST).toBeLessThan(THRESHOLD);
-    expect(AT_200).toBeLessThan(THRESHOLD);
-    // In the smallest window the widest tag is whole, with more than the floor of the change beside it;
-    // at 200% the tag gives way and the change keeps the floor.
-    expect(SMALLEST - BUTTON_IN_PANEL - WIDEST_TAG - GAP).toBeGreaterThan(FLOOR);
-    expect(AT_200 - BUTTON_IN_PANEL - WIDEST_TAG - GAP).toBeLessThan(FLOOR);
+    expect(CSS).not.toMatch(/@container/);
   });
 });
 
-/* polish.12 review: a box that wrote the opposite of what it shows, or that
-   wrote nowhere, passed every test, as the render test calls saveRowStates
-   itself. The split, the columns and the save hint pin their writers the
-   same way (split.test.ts, columnHandles.test.ts, saveHint.test.ts). */
-describe('Show states writes what it shows (polish.12 review)', () => {
-  const PANEL = read('renderer/components/SidePanel.tsx');
+/* polish.17: Show states went whole, its box, its setting and its writer
+   (polish.12 had pinned the box's wiring here). Nothing in the source names
+   them now; a settings.json that still holds the key is read in
+   test/shared/settings.test.ts and test/main/settingsStore.test.ts. */
+describe('Show states is gone (polish.17)', () => {
+  function sources(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) return sources(full);
+      return /\.(ts|tsx|css)$/.test(entry.name) ? [full] : [];
+    });
+  }
 
-  it('keeps the box ticked as the setting, and writes the tick it is given', () => {
-    const box = PANEL.slice(PANEL.indexOf('<label className="side__states"'));
-    const input = box.slice(0, box.indexOf('</label>'));
-    expect(input).toContain('type="checkbox"');
-    expect(input).toContain('checked={showStates}');
-    expect(input).toContain('onChange={(event) => void saveRowStates(event.target.checked, ROW_STATES_IO)}');
-    expect(PANEL).toContain('const showStates = useApp((s) => s.settings?.showRowStates ?? true);');
-  });
-
-  it('writes through settings:set', () => {
-    expect(PANEL).toMatch(
-      /const ROW_STATES_IO: RowStatesIo = \{\s*setSettings: \(patch\) => call\('settings:set', patch\)\s*\};/
-    );
+  it('leaves no box, setting, writer or status word in the source', () => {
+    const files = sources(SRC);
+    expect(files.length).toBeGreaterThan(50);
+    expect(existsSync(path.join(SRC, 'renderer/state/rowStates.ts'))).toBe(false);
+    for (const file of files) {
+      const text = readFileSync(file, 'utf8');
+      for (const name of [
+        'showRowStates',
+        'saveRowStates',
+        'flushRowStatesWrites',
+        'SHOW_STATES',
+        'side__states',
+        'row__status',
+        'STATUS_MARK'
+      ]) {
+        expect(text.includes(name), `${path.relative(SRC, file)} names ${name}`).toBe(false);
+      }
+    }
   });
 });
 
 describe('the legend (polish.12)', () => {
-  it('explains the tags, the tick and the x, Show states and the count, after the chips', () => {
+  it('explains the tags, the tick and the x and the count, after the chips, and no longer Show states (polish.17)', () => {
     const chip = STATUS_BAR.indexOf('legend__swatch--chip');
     const tick = STATUS_BAR.indexOf('legend__swatch--tick');
     expect(chip).toBeGreaterThan(0);
@@ -215,12 +258,14 @@ describe('the legend (polish.12)', () => {
       'its x red if you dismissed it',
       'other buttons fade',
       'click the tick or the x again to put it back',
-      'Show states',
-      'ACCEPTED or DISMISSED',
-      'the heading counts the suggestions you have decided'
+      'The Suggestions heading counts the suggestions you have decided'
     ]) {
       expect(item, words).toContain(words);
     }
+    // What the legend says, its comments aside.
+    const said = STATUS_BAR.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(said).not.toContain('Show states');
+    expect(said).not.toMatch(/ACCEPTED|DISMISSED/);
     expect(declsFor('.legend__swatch--tick').get('color')).toBe('var(--accept-strong)');
     expect(declsFor('.legend__swatch--tick svg').get('stroke-width')).toBe('2.6');
   });
