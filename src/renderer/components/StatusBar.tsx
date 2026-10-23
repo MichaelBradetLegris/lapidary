@@ -7,7 +7,7 @@ import { describeRateLimit, rateLimitTitle } from '../../shared/ui/usage';
 import { canZoom, zoomLabel, type ZoomAction } from '../../shared/ui/zoom';
 import { call } from '../state/client';
 import { reviewKeptAt, useApp } from '../state/store';
-import { IconMinus, IconPlus } from './icons';
+import { IconCheck, IconMinus, IconPlus } from './icons';
 
 interface Props {
   review: Review | null;
@@ -26,8 +26,9 @@ interface Props {
  * What the three states look like in the pane, since the swap can confuse
  * (item 6), how a small change is drawn and found (PLAN 11.7, `small.10`), and
  * what the unsaved dot means, in the window's title (polish.10; in the toolbar
- * from apply.4) and the chapter list (apply.5), and what the chips count and
- * do, You and the eye included (polish.11).
+ * from apply.4) and the chapter list (apply.5), what the chips count and do,
+ * You and the eye included (polish.11), and how the suggestions list shows a
+ * decision, with Show states and the heading's count (polish.12).
  */
 function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -104,6 +105,16 @@ function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
           count the suggestions in each category, and You counts your own edits, in the colour of their YOU
           tag. Click a chip to hide or show it, to show only it, or to accept or dismiss all of it. The eye
           before the chips shows or hides them all.
+        </li>
+        <li>
+          <span className="legend__swatch legend__swatch--tick">
+            <IconCheck />
+          </span>{' '}
+          <b>The suggestions list.</b> Each row starts with a tag in its chip&apos;s colour. Once you decide a
+          suggestion, its tick turns a bold green if you accepted it, or its x red if you dismissed it, and
+          the row&apos;s other buttons fade; click the tick or the x again to put it back. Show states, beside
+          the Suggestions heading, also writes ACCEPTED or DISMISSED on the row, and the heading counts the
+          suggestions you have decided.
         </li>
       </ul>
       <p className="legend__foot">

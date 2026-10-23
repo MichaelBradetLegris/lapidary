@@ -714,7 +714,9 @@ const LIGHT_VALUES: Record<string, string> = {
   '--scrollbar-track': 'var(--panel-alt)',
   '--scrollbar-thumb': '#d0cabe',
   '--scrollbar-thumb-hover': '#c5beb0',
-  '--scrollbar-thumb-active': '#b7b0a2'
+  '--scrollbar-thumb-active': '#b7b0a2',
+  // Added by polish.12: the accepted tick on a suggestion row, which was --accept.
+  '--accept-strong': '#12873b'
 };
 
 /**
@@ -740,6 +742,8 @@ const DARK_VALUES: Record<string, string> = {
   '--accent-active': '#39b1bc',
   '--on-accent': '#16130f',
   '--accept': '#6cc28b',
+  // polish.12: the accepted tick on a suggestion row, a stronger green than --accept.
+  '--accept-strong': '#4fd483',
   '--dismiss': '#968e82',
   '--danger': '#ff8a80',
   '--warn': '#e0b955',

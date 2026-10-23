@@ -77,6 +77,15 @@ describe('normalizeSettings', () => {
     });
   });
 
+  it('keeps Show states, on unless the file says false (polish.12)', () => {
+    expect(defaultSettings().showRowStates).toBe(true);
+    expect(normalizeSettings({ showRowStates: false }).showRowStates).toBe(false);
+    expect(normalizeSettings({ showRowStates: true }).showRowStates).toBe(true);
+    for (const bad of ['false', 0, null, {}]) {
+      expect(normalizeSettings({ showRowStates: bad }).showRowStates).toBe(true);
+    }
+  });
+
   /* hardening.8: a folder or a guidelines file the app cannot use is dropped to null, the usual one. */
   const NUL = '\u0000';
   const FOLDERS = ['manuscriptFolder', 'reviewsFolder'] as const;

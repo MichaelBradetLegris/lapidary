@@ -222,10 +222,11 @@ describe('Edit as an icon button on the heading line (ui.5)', () => {
     expect(head).toMatch(
       /\{focused \? \(\s*<button\s+type="button"\s+className="row__act side__focus-edit"\s+aria-label="Edit suggestion"\s+title="Edit suggestion \(e\)"\s+onClick=\{\(\) => editHunk\(focused\.id\)\}\s*>\s*<IconPencil \/>\s*<\/button>\s*\) : null\}/
     );
-    // The rows' own pencil is the same icon in the same class.
+    // The rows' own pencil is the same icon in the same class, faded on a decided row (polish.12).
     expect(SIDE_PANEL).toMatch(
-      /className="row__act"\s+aria-label="Edit this suggestion"[\s\S]*?<IconPencil \/>/
+      /className=\{actClass\(hunk\.status, 'edit'\)\}\s+aria-label="Edit this suggestion"[\s\S]*?<IconPencil \/>/
     );
+    expect(SIDE_PANEL).toContain("if (look === 'plain') return 'row__act';");
   });
 
   it('leaves the e key as it was', () => {

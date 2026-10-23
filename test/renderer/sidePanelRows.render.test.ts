@@ -105,10 +105,11 @@ afterEach(() => {
 describe('the side panel names small changes (small.5)', () => {
   it('shows a small change in its line, and a word-sized one as before', () => {
     const list = rows(render());
+    // Each after its tag (polish.12).
     expect(list.map((r) => r.text)).toEqual([
       'you\u2026a double- (hyphen)(space)standard, and\u2026accepted',
-      '\u2026with Mira, (comma) who had\u2026',
-      'began \u2192 begun'
+      'punctuation\u2026with Mira, (comma) who had\u2026',
+      'grammarbegan \u2192 begun'
     ]);
   });
 
@@ -122,10 +123,11 @@ describe('the side panel names small changes (small.5)', () => {
   });
 
   it('speaks the change by its names, not the words around it', () => {
+    // Every row has a name of its own since polish.12, its tag's first.
     expect(rows(render()).map((r) => r.label)).toEqual([
       'you, - (hyphen) \u2192 (space), accepted',
-      '(nothing) \u2192 , (comma)',
-      null
+      'punctuation, (nothing) \u2192 , (comma)',
+      'grammar, began \u2192 begun'
     ]);
   });
 

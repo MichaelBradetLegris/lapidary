@@ -28,6 +28,10 @@
   --accent-active: #0e555e;
   --on-accent: #ffffff;
   --accept: #2f7a4a;
+  /* the accepted tick on a suggestion row (polish.12): a stronger green than
+     --accept, which keeps 3:1 as a mark on the row at rest, hovered and
+     focused, and on the tick's own hover */
+  --accept-strong: #12873b;
   --dismiss: #8a8378;
   --danger: #b3261e;
   --warn: #84681c;
@@ -133,6 +137,7 @@
     --accent-active: #39b1bc;
     --on-accent: #16130f;
     --accept: #6cc28b;
+    --accept-strong: #4fd483;
     --dismiss: #968e82;
     --danger: #ff8a80;
     --warn: #e0b955;
@@ -1855,8 +1860,8 @@ input[type='text'] {
 .cat-other {
   --cat: var(--cat-other);
 }
-/* The You chip, the author's own edits (polish.11), in the colour of the you
-   tag on their rows (.row__you). */
+/* The You chip, the author's own edits (polish.11), in the colour the YOU tag
+   on their rows had, which since polish.12 takes it from here (.row__cat). */
 .cat-you {
   --cat: var(--accent);
 }
@@ -2060,9 +2065,44 @@ input[type='text'] {
   padding: 10px 0 6px;
 }
 
-.side__list > h3,
+.side__list > .side__list-head,
 .side__list > .side__empty {
   padding: 0 10px;
+}
+
+/* The list's heading and Show states beside it (polish.12), on one line
+   where the panel is wide enough; in a narrow one Show states goes under the
+   heading rather than cutting it short. The line takes the heading's margin,
+   and the box beside it is no taller than the heading's line, so the line is
+   as tall as the heading alone was; the split measures this line as the
+   list's heading (`measureSplit`). */
+.side__list-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0 0 6px;
+}
+
+.side__list-head > h3 {
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+.side__states {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--ink-soft);
+}
+
+.side__states input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
 }
 
 /* With a split set (ui.6), the list has the share of the height the author
@@ -3258,14 +3298,6 @@ button.help {
   background: none;
 }
 
-.row__dot {
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--cat, var(--ink-faint));
-}
-
 .row__text {
   flex: 1 1 auto;
   overflow: hidden;
@@ -3291,22 +3323,21 @@ button.help {
   color: var(--ink-faint);
 }
 
-.row--accepted .row__dot {
-  background: var(--ink-faint);
-}
-
-.row--dismissed .row__dot {
-  background: var(--border-strong);
-}
-
-/* Words the author wrote themselves, in place of a category dot (item 3). */
-.row__you {
+/* The tag of the chip a row's suggestion is under (polish.12), in place of
+   the category's dot: the category, or YOU for the author's own words (item
+   3), in the chip's colour (`.cat-*`, which `rowTag` names), as the YOU tag
+   was drawn before. It keeps its colour once the suggestion is decided, as
+   the chip does. Its fill is the panel's, whatever the row's background, as
+   a chip's is: the categories hold 4.5:1 as text on --panel, and in dark
+   four of them fall under it on the focused row's --focus-bg (4.03 to 4.28). */
+.row__cat {
   flex: 0 0 auto;
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--cat);
+  background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--cat) 40%, transparent);
   border-radius: 3px;
   padding: 0 3px;
   line-height: 1.5;
@@ -3369,8 +3400,34 @@ button.help {
   color: var(--ink);
 }
 
-.row__act--on {
-  color: var(--accept);
+/* A decided row (polish.12): the button of its decision is drawn bolder, the
+   accepted tick in --accept-strong and the dismissed x in --danger, and keeps
+   its colour under the pointer; the row's other two buttons fade to a thinner
+   stroke, in the faint grey every row button has, which holds 3:1 on the
+   row at rest, hovered and focused (themeContrast.test.ts), and come back to
+   the usual stroke under the pointer. A pending row's buttons are as they
+   were. */
+.row__act--accepted,
+.row__act--accepted:hover:not(:disabled) {
+  color: var(--accept-strong);
+}
+
+.row__act--dismissed,
+.row__act--dismissed:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.row__act--accepted svg,
+.row__act--dismissed svg {
+  stroke-width: 2.6;
+}
+
+.row__act--faded svg {
+  stroke-width: 1.2;
+}
+
+.row__act--faded:hover:not(:disabled) svg {
+  stroke-width: 1.8;
 }
 
 .stale__where {
@@ -3730,6 +3787,20 @@ button.help {
   margin: 0 1px;
   border: 1px solid var(--border);
   border-radius: 5px;
+}
+
+/* An accepted row's tick as the suggestions list draws it (polish.12), the
+   icon's 12 px centred in the swatch's 16 px. */
+.legend__swatch--tick {
+  width: 12px;
+  height: 12px;
+  margin: 0 2px;
+  line-height: 0;
+  color: var(--accept-strong);
+}
+
+.legend__swatch--tick svg {
+  stroke-width: 2.6;
 }
 
 /* `.legend p` would otherwise take the gap above it away. */

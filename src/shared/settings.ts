@@ -112,7 +112,9 @@ export function normalizeSettings(input: unknown): Settings {
       typeof raw['checkForUpdates'] === 'boolean' ? raw['checkForUpdates'] : DEFAULT_SETTINGS.checkForUpdates,
     updateDownloadConsent: nullableString(raw['updateDownloadConsent'], null),
     sideSplit: normalizeSplit(raw['sideSplit']),
-    columnWidths: normalizeColumnWidths(raw['columnWidths'])
+    columnWidths: normalizeColumnWidths(raw['columnWidths']),
+    showRowStates:
+      typeof raw['showRowStates'] === 'boolean' ? raw['showRowStates'] : DEFAULT_SETTINGS.showRowStates
   };
 }
 

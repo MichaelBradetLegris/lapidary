@@ -33,6 +33,10 @@ const HIGHLIGHTS = ['--focus-bg', '--selected-bg', '--find-bg', ...PARAGRAPHS];
 /** What a suggestion's words can sit on: the page, an active or flashing paragraph, the focus. */
 const UNDER_SUGGESTIONS = ['--bg', ...PARAGRAPHS, '--focus-bg'];
 const FILLS = ['--accent-fill', '--accent-hover', '--accent-active'];
+/** What a row of the suggestions list sits on: the list at rest, the row under the pointer, the focused row (polish.12). */
+const ROWS = ['--panel', '--panel-alt', '--focus-bg'];
+/** The two colours of a decided row's own button (polish.12): the accepted tick and the dismissed x. */
+const DECIDED = ['--accept-strong', '--danger'];
 
 /**
  * A background: a token, or a tint painted over one the way app.css paints it,
@@ -165,6 +169,12 @@ const TEXT_PAIRS: Pair[] = [
     on,
     min: 4.5,
     why: 'a primary button or the active Setup tab, at rest, hovered and pressed'
+  })),
+  ...[...CATEGORIES, '--accent'].map((ink) => ({
+    ink,
+    on: '--panel',
+    min: 4.5,
+    why: "a suggestion row's tag, on its own --panel fill whatever the row's background (polish.12)"
   }))
 ];
 
@@ -193,6 +203,18 @@ const FAINT_PAIRS: Pair[] = [
     on: '--scrollbar-track',
     min: 3,
     why: "a scrollbar's arrows, at rest and under the pointer, and a field's resize handle beside a bar (polish.2)"
+  })),
+  ...each(DECIDED, [...ROWS, '--border']).map(([ink, on]) => ({
+    ink,
+    on,
+    min: 3,
+    why: "a decided row's own button, the accepted tick or the dismissed x, on the row at rest, hovered and focused, and under the pointer on the button's --border (polish.12)"
+  })),
+  ...ROWS.map((on) => ({
+    ink: '--ink-faint',
+    on,
+    min: 3,
+    why: "a decided row's faded buttons, and every row button, on the row at rest, hovered and focused (polish.12)"
   }))
 ];
 
@@ -418,7 +440,37 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
       FAINT_PAIRS.length,
       SELECTION_TEXT_PAIRS.length,
       SELECTION_FAINT_PAIRS.length
-    ]).toEqual([148, 63, 105, 33]);
+    ]).toEqual([156, 74, 105, 33]);
+  });
+
+  /* polish.12: the accepted tick "needs to pop a little more" (the author).
+     --accept, the green it had, already held 4.5:1 on the rows; the stronger
+     green is more saturated, as well as drawn bolder, and still a green. */
+  it('draws the accepted tick in a green more saturated than --accept, in both themes (polish.12)', () => {
+    const hsl = ({ r, g, b }: Rgb): { h: number; s: number } => {
+      const [R, G, B] = [r / 255, g / 255, b / 255];
+      const max = Math.max(R, G, B);
+      const min = Math.min(R, G, B);
+      const l = (max + min) / 2;
+      const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+      const h =
+        max === min
+          ? 0
+          : max === G
+            ? 60 * ((B - R) / (max - min) + 2)
+            : max === R
+              ? 60 * (((G - B) / (max - min) + 6) % 6)
+              : 60 * ((R - G) / (max - min) + 4);
+      return { h, s };
+    };
+    for (const scheme of SCHEMES) {
+      const strong = hsl(opaque(scheme, '--accept-strong'));
+      const before = hsl(opaque(scheme, '--accept'));
+      // 0.44 to 0.76 in light, 0.41 to 0.61 in dark.
+      expect(strong.s, scheme).toBeGreaterThan(before.s + 0.15);
+      expect(strong.h, scheme).toBeGreaterThan(130);
+      expect(strong.h, scheme).toBeLessThan(150);
+    }
   });
 
   it('paints a tint the way color-mix() does, so the tinted pairs mean something', () => {

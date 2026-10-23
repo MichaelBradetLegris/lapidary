@@ -12,13 +12,26 @@ import {
   reviewPicker
 } from '../../shared/ui/history';
 import { changeInContext, isSmallChange, sideText, type ChangeInContext } from '../../shared/ui/small';
-import { groupSuggestions, summaryLine } from '../../shared/ui/suggestions';
+import {
+  DISMISSED_TITLE,
+  groupSuggestions,
+  rowButtonLook,
+  rowLabel,
+  rowTag,
+  SHOW_STATES_LABEL,
+  SHOW_STATES_TITLE,
+  suggestionsHeading,
+  summaryLine,
+  type RowButton
+} from '../../shared/ui/suggestions';
 import { PROVIDER_NAMES, type Hunk, type Review, type ReviewComment } from '../../shared/types';
+import { call } from '../state/client';
 import { editFromComment, editHunk } from '../state/edit';
+import { saveRowStates, type RowStatesIo } from '../state/rowStates';
 import { followFocus, scrollToElement } from '../state/scroll';
 import { SPLIT_LIST_ID, useSplit } from '../state/splitHandle';
 import { inDraft, isLocked, useApp } from '../state/store';
-import { IconArrow, IconCheck, IconPencil, IconUndo, IconWarning, IconX } from './icons';
+import { IconArrow, IconCheck, IconPencil, IconWarning, IconX } from './icons';
 
 interface Props {
   review: Review;
@@ -33,6 +46,21 @@ const STATUS_MARK: Record<Hunk['status'], string> = {
   accepted: 'accepted',
   dismissed: 'dismissed'
 };
+
+const ROW_STATES_IO: RowStatesIo = {
+  setSettings: (patch) => call('settings:set', patch)
+};
+
+/**
+ * A row's button classes (polish.12): the button of the row's decision is
+ * on, the accepted ✓ green and the dismissed ✕ red, and the other two fade
+ * (`rowButtonLook`); a pending row's are plain.
+ */
+function actClass(status: Hunk['status'], button: RowButton): string {
+  const look = rowButtonLook(status, button);
+  if (look === 'plain') return 'row__act';
+  return look === 'faded' ? 'row__act row__act--faded' : `row__act row__act--${status}`;
+}
 
 /**
  * A small change's row: a few words of its line on either side, and the
@@ -73,6 +101,7 @@ export function SidePanel({
   const activeCommentId = useApp((s) => s.activeCommentId);
   const setActiveComment = useApp((s) => s.setActiveComment);
   const drafts = useApp((s) => s.drafts);
+  const showStates = useApp((s) => s.settings?.showRowStates ?? true);
   const locked = useApp(isLocked);
   const listRef = useRef<HTMLUListElement>(null);
   const focusBodyRef = useRef<HTMLDivElement>(null);
@@ -248,7 +277,21 @@ export function SidePanel({
         </section>
         <div className="side__regions" ref={regionsRef} {...regionsProps}>
           <section className="side__section side__list" id={SPLIT_LIST_ID}>
-            <h3>Suggestions ({inline.length})</h3>
+            {/* The heading counts the decided rows as the comments' counts the
+                resolved ones (polish.12), and Show states beside it writes
+                ACCEPTED or DISMISSED on the decided rows, or leaves the
+                buttons alone to say it. The setting is kept (11.3 d). */}
+            <div className="side__list-head">
+              <h3>{suggestionsHeading(inline)}</h3>
+              <label className="side__states" title={SHOW_STATES_TITLE}>
+                <input
+                  type="checkbox"
+                  checked={showStates}
+                  onChange={(event) => void saveRowStates(event.target.checked, ROW_STATES_IO)}
+                />
+                {SHOW_STATES_LABEL}
+              </label>
+            </div>
             {inline.length === 0 ? (
               <p className="side__empty">Nothing to review here.</p>
             ) : (
@@ -259,6 +302,9 @@ export function SidePanel({
                  from the page as it was, and must commit against the same. */
                   const editing = inDraft(drafts, hunk.paragraph);
                   const context = isSmallChange(hunk) ? changeInContext(review.base.text, hunk) : null;
+                  const tag = rowTag(hunk);
+                  const accepted = hunk.status === 'accepted';
+                  const dismissed = hunk.status === 'dismissed';
                   return (
                     <li key={hunk.id}>
                       <div
@@ -277,35 +323,35 @@ export function SidePanel({
                           className="row__main"
                           onClick={() => focusHunk(hunk.id, { scroll: true })}
                           title={hunk.reason ?? ''}
-                          aria-label={
-                            context
-                              ? [isAuthored(hunk) ? 'you' : '', summaryLine(hunk), STATUS_MARK[hunk.status]]
-                                  .filter(Boolean)
-                                  .join(', ')
-                              : undefined
-                          }
+                          aria-label={rowLabel(hunk)}
                         >
-                          {/* Words the author wrote are marked "you" rather than given
-                        a category colour they never chose (item 3). */}
-                          {isAuthored(hunk) ? (
-                            <span className="row__you" title="Your own words">
-                              you
-                            </span>
-                          ) : (
-                            <span className="row__dot" aria-hidden="true" />
-                          )}
+                          {/* The tag of the chip the suggestion is under, in its
+                              colour (polish.12): the category, or "you" for the
+                              author's own words (item 3), which take no colour of
+                              a category they never chose. The row's name says it
+                              as the category, then the change and its decision
+                              (`rowLabel`), whether or not Show states writes the
+                              decision on the row. */}
+                          <span className={`row__cat cat-${tag.key}`} title={tag.title ?? undefined}>
+                            {tag.text}
+                          </span>
                           {context ? (
                             <ContextText context={context} />
                           ) : (
                             <span className="row__text">{summaryLine(hunk)}</span>
                           )}
-                          {STATUS_MARK[hunk.status] ? (
+                          {showStates && STATUS_MARK[hunk.status] ? (
                             <span className="row__status">{STATUS_MARK[hunk.status]}</span>
                           ) : null}
                         </button>
+                        {/* On a decided row the button of its decision stands out,
+                            the accepted ✓ green and the dismissed ✕ red, both
+                            bolder, and the other two fade (polish.12). The
+                            dismissed ✕ stays an ✕, and says a click puts the
+                            suggestion back. */}
                         <button
                           type="button"
-                          className="row__act"
+                          className={actClass(hunk.status, 'edit')}
                           aria-label="Edit this suggestion"
                           title="Edit"
                           disabled={editing}
@@ -315,9 +361,9 @@ export function SidePanel({
                         </button>
                         <button
                           type="button"
-                          className={`row__act ${hunk.status === 'accepted' ? 'row__act--on' : ''}`}
-                          aria-label={hunk.status === 'accepted' ? 'Undo accept' : 'Accept suggestion'}
-                          title={hunk.status === 'accepted' ? 'Undo accept' : 'Accept'}
+                          className={actClass(hunk.status, 'accept')}
+                          aria-label={accepted ? 'Undo accept' : 'Accept suggestion'}
+                          title={accepted ? 'Undo accept' : 'Accept'}
                           disabled={editing}
                           onClick={() => toggleAccepted(hunk.id)}
                         >
@@ -325,15 +371,13 @@ export function SidePanel({
                         </button>
                         <button
                           type="button"
-                          className={`row__act ${hunk.status === 'dismissed' ? 'row__act--on' : ''}`}
-                          aria-label={
-                            hunk.status === 'dismissed' ? 'Undismiss suggestion' : 'Dismiss suggestion'
-                          }
-                          title={hunk.status === 'dismissed' ? 'Undismiss' : 'Dismiss'}
+                          className={actClass(hunk.status, 'dismiss')}
+                          aria-label={dismissed ? 'Undismiss suggestion' : 'Dismiss suggestion'}
+                          title={dismissed ? DISMISSED_TITLE : 'Dismiss'}
                           disabled={editing}
                           onClick={() => toggleDismissed(hunk.id)}
                         >
-                          {hunk.status === 'dismissed' ? <IconUndo /> : <IconX />}
+                          <IconX />
                         </button>
                       </div>
                     </li>

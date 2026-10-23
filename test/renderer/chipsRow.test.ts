@@ -360,8 +360,9 @@ describe('the eye and the You chip (polish.11)', () => {
     expect(declsFor('.chips__eye').get('flex')).toBe('none');
   });
 
-  it('draws You in the colour of the you tag on its rows', () => {
-    expect(declsFor('.row__you').get('color')).toBe('var(--accent)');
+  it('draws You in the colour of the YOU tag on its rows', () => {
+    // Since polish.12 every row's tag takes its chip's colour, the YOU tag You's.
+    expect(declsFor('.row__cat').get('color')).toBe('var(--cat)');
     expect(declsFor('.cat-you').get('--cat')).toBe('var(--accent)');
     expect(declsFor('.chip__button').get('color')).toBe('var(--cat, var(--ink))');
     expect(CHIPS).toContain('className={`chip cat-${chip}');

@@ -272,6 +272,8 @@ export interface Settings {
   sideSplit: number | null;
   /** the chapter list's and the side panel's widths (polish.5); null for either is its usual width */
   columnWidths: ColumnShares;
+  /** Show states beside the suggestions list's heading: ACCEPTED and DISMISSED written on decided rows (polish.12) */
+  showRowStates: boolean;
 }
 
 /**
@@ -294,7 +296,8 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   checkForUpdates: true,
   updateDownloadConsent: null,
   sideSplit: null,
-  columnWidths: Object.freeze({ files: null, side: null })
+  columnWidths: Object.freeze({ files: null, side: null }),
+  showRowStates: true
 });
 
 /** The model setting that belongs to a provider. */
