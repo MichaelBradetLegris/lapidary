@@ -904,7 +904,17 @@ describe('scrollers (theme.1, panel.1)', () => {
     // A query on the panel's own height switched layouts between chapters in the
     // same window, as the filter chips then wrapped onto one to three rows above
     // the panel (PLAN C.49), and the status bar still takes one row or two.
-    expect(CSS).not.toMatch(/@container/);
+    // The one container is the panel's width, which the column or the drawer
+    // sets and no chapter changes (polish.12 review: the rows' status word).
+    expect([...CSS.matchAll(/container(?:-type)?:\s*([^;}]+)/g)].map((m) => m[1]?.trim())).toEqual([
+      'side / inline-size'
+    ]);
+    expect(declsFor('.side').get('container')).toBe('side / inline-size');
+    for (const query of CSS.matchAll(/@container\s+([^{]+)\{/g)) {
+      expect(query[1]?.trim(), 'a container query names the panel and reads its width').toMatch(
+        /^side \(width < \d+px\)$/
+      );
+    }
     const block = /@media \(height < (\d+)px\) \{([\s\S]*?)\n\}/.exec(CSS);
     expect(block?.[1]).toBe('540');
     expect(block?.[2]).toMatch(/\.side__body \{[^}]*overflow-y: auto/);

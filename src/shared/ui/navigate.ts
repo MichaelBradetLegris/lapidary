@@ -84,3 +84,25 @@ export function stepFocus(
   const target = delta > 0 ? (pending.find(below) ?? first) : (pending.findLast(above) ?? last);
   return target?.id ?? null;
 }
+
+/** What the key handler reads of the element a key went to, to tell a field from the rest. */
+export interface KeyField {
+  tagName: string;
+  /** an input's type, which the DOM gives in lower case */
+  type?: string;
+  isContentEditable: boolean;
+}
+
+/**
+ * Whether a key pressed in `target` is typing, which the review keys leave
+ * to it: a text field, a text area, a select or editable text. A checkbox is
+ * not (`polish.12` review): Show states keeps the focus once clicked, and j,
+ * k, the arrows, a, d, u, e and n did nothing until the author clicked
+ * somewhere else. Space still ticks it, as no review key is Space. A radio
+ * button is still typing, since its group takes the arrows.
+ */
+export function isTypingField(target: KeyField | null): boolean {
+  if (target === null) return false;
+  if (target.tagName === 'INPUT') return target.type !== 'checkbox';
+  return target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable;
+}

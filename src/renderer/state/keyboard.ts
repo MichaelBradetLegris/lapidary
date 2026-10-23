@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { sortComments } from '../../shared/ui/comments';
+import { isTypingField } from '../../shared/ui/navigate';
 import { saveShortcutAction } from '../../shared/ui/save';
 import { arrowsScrollBox } from '../../shared/ui/scroll';
 import { splitTakesKey } from '../../shared/ui/split';
@@ -10,10 +11,9 @@ import { SAVE_CARD, type SaveOptions, type SaveOutcome } from './saveChapter';
 import { readingRange, scrollToElement } from './scroll';
 import { isModalOpen, reviewKeysActive, saveShortcutContext, useApp } from './store';
 
+/** A text field, a select or editable text, but not a checkbox (`isTypingField`, polish.12 review). */
 function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+  return target instanceof HTMLElement && isTypingField(target);
 }
 
 /**

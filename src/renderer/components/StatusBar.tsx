@@ -113,8 +113,8 @@ function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
           <b>The suggestions list.</b> Each row starts with a tag in its chip&apos;s colour. Once you decide a
           suggestion, its tick turns a bold green if you accepted it, or its x red if you dismissed it, and
           the row&apos;s other buttons fade; click the tick or the x again to put it back. Show states, beside
-          the Suggestions heading, also writes ACCEPTED or DISMISSED on the row, and the heading counts the
-          suggestions you have decided.
+          the Suggestions heading, also writes ACCEPTED or DISMISSED on the row where the panel is wide
+          enough, and the heading counts the suggestions you have decided.
         </li>
       </ul>
       <p className="legend__foot">
