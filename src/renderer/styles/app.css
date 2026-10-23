@@ -2582,7 +2582,8 @@ input[type='text'] {
   margin-bottom: 8px;
 }
 
-/* A row's name; a <label> where it names a control (Appearance, theme.7). */
+/* A row's name; a <label> where it names a control (Appearance, theme.7, and
+   in Settings Claude model and Effort, polish.4). */
 .modal__row > span:first-child,
 .modal__row > label:first-child {
   color: var(--ink-soft);
@@ -2663,22 +2664,28 @@ input[type='text'] {
   border-top: 1px solid var(--border);
 }
 
-/* A row's name, and in Settings the (?) after it, in the line of the text, so
-   that it follows a name that wraps, as "OpenAI API key (experimental)" does. */
-.modal__name {
-  min-width: 0;
+/* Settings' rows have a fourth column at their right end, after the buttons,
+   for the row's (?) (HelpTip, polish.15), so that every (?) stands in one line
+   down the right of the dialog. Each row is a grid of its own, so the column
+   is as wide as the (?) in every row, and a row without one (Appearance, the
+   key's field) keeps the cell empty: the buttons then end where those of a
+   row with a (?) do. */
+.modal--settings .modal__row {
+  grid-template-columns: 150px minmax(0, 1fr) auto 18px;
 }
 
-/* The (?) (HelpTip): a small round button in the grey of the row's name. Its
-   focus ring is the browser's own. */
+.modal__help {
+  display: flex;
+}
+
+/* The (?): a small round button in the grey of the rows' names. Its focus
+   ring is the browser's own. */
 button.help {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  vertical-align: middle;
   width: 18px;
   height: 18px;
-  margin-left: 6px;
   padding: 0;
   border-color: var(--border-strong);
   border-radius: 50%;
@@ -2688,8 +2695,9 @@ button.help {
   line-height: 1;
 }
 
-/* Its card, placed by HelpTip under the (?) with its left edge under the (?)'s,
-   above the head and the foot of the box. */
+/* Its card, placed by HelpTip under the (?) with its right edge under the
+   (?)'s, so that it runs back over the row, above the head and the foot of
+   the box. */
 .help__tip {
   position: fixed;
   left: 0;

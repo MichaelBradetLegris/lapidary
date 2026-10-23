@@ -250,6 +250,29 @@ describe('tooltip placement', () => {
     });
   });
 
+  /* polish.15: the (?) is at the right end of its row, so its card's right
+     edge goes under the (?)'s and the card runs back over the row. */
+  it("lines the card's right edge up with the anchor's when asked, still on screen", () => {
+    const anchor = { left: 700, top: 300, width: 18, height: 18 };
+    const end = placeTooltip(anchor, tip, viewport, 6, 8, 'end');
+    // 700 + 18 - 300: the card's right edge at 718, the anchor's.
+    expect(end).toEqual({ left: 418, top: 324, placement: 'below' });
+    expect(end.left + tip.width).toBe(anchor.left + anchor.width);
+    // Neither the middle nor the start.
+    expect(placeTooltip(anchor, tip, viewport, 6, 8).left).toBe(559);
+    expect(placeTooltip(anchor, tip, viewport, 6, 8, 'start').left).toBe(692);
+    // Near the left edge it moves right, as the middle does, and it keeps the margin at the right one.
+    expect(placeTooltip({ ...anchor, left: 100 }, tip, viewport, 6, 8, 'end').left).toBe(8);
+    expect(placeTooltip({ ...anchor, left: 974 }, tip, viewport, 6, 8, 'end').left).toBe(692);
+    expect(placeTooltip({ ...anchor, left: 980 }, tip, viewport, 6, 8, 'end').left).toBe(692);
+    // Above when there is no room below, the right edges still lined up.
+    expect(placeTooltip({ ...anchor, top: 760 }, tip, viewport, 6, 8, 'end')).toEqual({
+      left: 418,
+      top: 634,
+      placement: 'above'
+    });
+  });
+
   /* polish.4 review: a (?) shows its card only while it lies wholly between
      Settings' head and foot, so a (?) the box scrolled under either, or out
      of sight, leaves no card over the title. */
