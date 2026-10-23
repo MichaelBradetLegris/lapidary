@@ -187,8 +187,53 @@ const FAINT_PAIRS: Pair[] = [
     on,
     min: 3,
     why: 'the unsaved dot on a hovered or the open row of the chapter list (apply.5)'
+  })),
+  ...['--ink-faint', '--ink-soft'].map((ink) => ({
+    ink,
+    on: '--scrollbar-track',
+    min: 3,
+    why: "a scrollbar's arrows, at rest and under the pointer, and a field's resize handle beside a bar (polish.2)"
   }))
 ];
+
+/**
+ * polish.2: the one mark under 3:1, by the author's choice (2026-10-22). The
+ * scrollbar's thumb is a square a shade off its gutter, `--scrollbar-thumb` on
+ * `--scrollbar-track`: about 1.4:1 at rest and 1.6 under the pointer ("a tiny
+ * bit darker" than the sheet's variant D, 1.24 and 1.58 in light, 1.21 and
+ * 1.82 in dark), and a step darker again while dragged. Light comes to 1.41,
+ * 1.60 and 1.86, dark to 1.41, 1.60 and 1.85, the same as the window's pixels
+ * at 100% and 150%. The exception names these three tokens and no other, and
+ * pins each to its band, so the thumb can neither fade into the track nor
+ * drift unnoticed, and the 3:1 floor stands for every other mark. The arrows
+ * and the resize handle keep it, above.
+ */
+interface Band {
+  token: string;
+  min: number;
+  max: number;
+  why: string;
+}
+
+const THUMB_ON = '--scrollbar-track';
+const THUMB_EXCEPTION: Band[] = [
+  { token: '--scrollbar-thumb', min: 1.3, max: 1.5, why: 'at rest' },
+  { token: '--scrollbar-thumb-hover', min: 1.5, max: 1.7, why: 'under the pointer' },
+  { token: '--scrollbar-thumb-active', min: 1.7, max: 2, why: 'while dragged, a step darker again' }
+];
+
+function outOfBand(scheme: Scheme, bands: Band[]): string[] {
+  const track = opaque(scheme, THUMB_ON);
+  return bands.flatMap(({ token, min, max, why }) => {
+    const thumb = opaque(scheme, token);
+    const ratio = contrastRatio(thumb, track);
+    return ratio >= min && ratio <= max
+      ? []
+      : [
+          `${token} ${toHex(thumb)} on ${THUMB_ON} ${toHex(track)}: ${ratio.toFixed(2)}, not ${min} to ${max} (${why})`
+        ];
+  });
+}
 
 /**
  * polish.1: selected text lies on one of the app's two bands, translucent
@@ -372,7 +417,7 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
       FAINT_PAIRS.length,
       SELECTION_TEXT_PAIRS.length,
       SELECTION_FAINT_PAIRS.length
-    ]).toEqual([148, 61, 105, 33]);
+    ]).toEqual([148, 63, 105, 33]);
   });
 
   it('paints a tint the way color-mix() does, so the tinted pairs mean something', () => {
@@ -404,7 +449,31 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
     it(`shows each selection band plainly on what it covers in ${scheme} (polish.1 review)`, () => {
       expect([BAND_FLOOR, PROSE_FLOOR].flatMap((floor) => faded(scheme, floor))).toEqual([]);
     });
+
+    it(`keeps the scrollbar's thumb a shade off its gutter in ${scheme}, the one mark under 3:1 (polish.2)`, () => {
+      expect(outOfBand(scheme, THUMB_EXCEPTION)).toEqual([]);
+      // Each state a step further from the track, and all three under the floor they are exempt from.
+      const track = opaque(scheme, THUMB_ON);
+      const ratios = THUMB_EXCEPTION.map(({ token }) => contrastRatio(opaque(scheme, token), track));
+      expect([...ratios].sort((a, b) => a - b)).toEqual(ratios);
+      expect(Math.max(...ratios)).toBeLessThan(3);
+    });
   }
+
+  it("fails a thumb outside its band, so the scrollbar's exception can fail", () => {
+    // The sheet's D as drawn: --border at rest is too faint, and dark's --border-strong
+    // hovered too strong; C's --ink-faint is no shade at all.
+    const rest = (token: string): Band[] => [{ token, min: 1.3, max: 1.5, why: 'at rest' }];
+    const hover = (token: string): Band[] => [{ token, min: 1.5, max: 1.7, why: 'under the pointer' }];
+    expect(THUMB_EXCEPTION.slice(0, 2)).toEqual([
+      ...rest('--scrollbar-thumb'),
+      ...hover('--scrollbar-thumb-hover')
+    ]);
+    expect(outOfBand('light', rest('--border'))).toHaveLength(1);
+    expect(outOfBand('dark', rest('--border'))).toHaveLength(1);
+    expect(outOfBand('dark', hover('--border-strong'))).toHaveLength(1);
+    expect(outOfBand('light', hover('--ink-faint'))).toHaveLength(1);
+  });
 
   /* The polish.1 review: the prose's band laid everywhere, as polish.1 first
      had it, is what the floor is there to stop. */

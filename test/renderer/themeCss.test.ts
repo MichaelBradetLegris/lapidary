@@ -477,6 +477,141 @@ describe('selection (polish.1)', () => {
   });
 });
 
+/* polish.2: every scroller has the app's own scrollbar, the author's pick (the
+   sheet's D, its thumb a shade darker): a 16 px gutter in --scrollbar-track
+   with a 1 px --border line on its inner edge, a square thumb in the three
+   thumb tokens, and an arrow at each end in --ink-faint, --ink-soft under the
+   pointer. themeContrast.test.ts holds the thumb to its bands and the arrows to
+   3:1. */
+describe('scrollbars (polish.2)', () => {
+  const SCROLLBAR_SELECTORS = RULES.flatMap((r) => r.selectors).filter((s) =>
+    s.includes('::-webkit-scrollbar')
+  );
+  const ENDS = ['vertical:decrement', 'vertical:increment', 'horizontal:decrement', 'horizontal:increment'];
+
+  it('draws every scrollbar 16 px wide in its gutter, with a square thumb in the thumb tokens', () => {
+    expect([...declsFor('::-webkit-scrollbar')]).toEqual([
+      ['width', '16px'],
+      ['height', '16px'],
+      ['background', 'var(--scrollbar-track)']
+    ]);
+    // 10 px of thumb between 3 px of clear track on each side, with square corners.
+    expect([...declsFor('::-webkit-scrollbar-thumb')]).toEqual([
+      ['background-color', 'var(--scrollbar-thumb)'],
+      ['background-clip', 'padding-box'],
+      ['border', '3px solid transparent'],
+      ['border-radius', '0']
+    ]);
+    expect(declsFor('::-webkit-scrollbar-thumb:hover').get('background-color')).toBe(
+      'var(--scrollbar-thumb-hover)'
+    );
+    expect(declsFor('::-webkit-scrollbar-thumb:active').get('background-color')).toBe(
+      'var(--scrollbar-thumb-active)'
+    );
+    expect(declsFor('::-webkit-scrollbar-track:vertical').get('border-left')).toBe('1px solid var(--border)');
+    expect(declsFor('::-webkit-scrollbar-track:horizontal').get('border-top')).toBe(
+      '1px solid var(--border)'
+    );
+    expect(declsFor('::-webkit-scrollbar-corner').get('background')).toBe('var(--scrollbar-track)');
+  });
+
+  it('draws one arrow at each end, in --ink-faint and in --ink-soft under the pointer', () => {
+    const button = declsFor('::-webkit-scrollbar-button:single-button');
+    expect(button.get('display')).toBe('block');
+    expect(button.get('width')).toBe('16px');
+    expect(button.get('height')).toBe('16px');
+    expect(button.get('background-color')).toBe('var(--scrollbar-track)');
+    for (const end of ENDS) {
+      const at = `::-webkit-scrollbar-button:single-button:${end}`;
+      expect(declsFor(at).get('background-image')).toMatch(
+        /^conic-gradient\([^()]*, var\(--ink-faint\) 78deg, transparent 0\)$/
+      );
+      expect(declsFor(`${at}:hover`).get('background-image')).toMatch(
+        /^conic-gradient\([^()]*, var\(--ink-soft\) 78deg, transparent 0\)$/
+      );
+    }
+  });
+
+  it("never scopes a scrollbar rule with :root, which drops the thumb's hover and the arrows", () => {
+    expect(SCROLLBAR_SELECTORS.length).toBeGreaterThanOrEqual(10 + 2 * ENDS.length);
+    expect(SCROLLBAR_SELECTORS.filter((s) => /:root|:scope/.test(s))).toEqual([]);
+    // The bar is the bare rules for every scroller; a scroller's own rules only round its corners.
+    const own = RULES.filter((r) =>
+      r.selectors.some((s) => s.includes('::-webkit-scrollbar') && !s.startsWith('::-webkit-scrollbar'))
+    );
+    expect([...new Set(own.flatMap((r) => [...r.decls.keys()]))].sort()).toEqual([
+      'border-bottom-right-radius',
+      'border-radius',
+      'border-top-right-radius'
+    ]);
+  });
+
+  it('gives the bar of a scroller with rounded corners the corners of its box, inside its border', () => {
+    // Drawn square, the gutter showed past a dialog's curve.
+    const rounded = SCROLLERS.filter((s) => !/^0(px)?$/.test(declsFor(s).get('border-radius') ?? '0'));
+    expect([...rounded].sort()).toEqual(['.diagnostics__text', '.legend', '.modal']);
+    for (const s of rounded) {
+      const decls = declsFor(s);
+      const r = parseFloat(decls.get('border-radius') ?? '') - parseFloat(decls.get('border') ?? '');
+      expect(declsFor(`${s}::-webkit-scrollbar`).get('border-radius')).toBe(`0 ${r}px ${r}px 0`);
+      const button = `${s}::-webkit-scrollbar-button:single-button:vertical`;
+      expect(declsFor(`${button}:decrement`).get('border-top-right-radius')).toBe(`${r}px`);
+      expect(declsFor(`${button}:increment`).get('border-bottom-right-radius')).toBe(`${r}px`);
+    }
+  });
+
+  it('rounds the bar and the resize handle of a field that can be made taller to the field', () => {
+    // A text field scrolls without an overflow rule; its lower corner is the handle's.
+    const fields = [
+      ...new Set(
+        RULES.filter((r) => /^(vertical|both)$/.test(r.decls.get('resize') ?? '')).flatMap((r) => r.selectors)
+      )
+    ];
+    expect(fields.sort()).toEqual(['.editor__area', '.paste-field textarea']);
+    for (const s of fields) {
+      const decls = declsFor(s);
+      const r = `${parseFloat(decls.get('border-radius') ?? '') - parseFloat(decls.get('border') ?? '')}px`;
+      expect(declsFor(`${s}::-webkit-scrollbar`).get('border-top-right-radius')).toBe(r);
+      expect(
+        declsFor(`${s}::-webkit-scrollbar-button:single-button:vertical:decrement`).get(
+          'border-top-right-radius'
+        )
+      ).toBe(r);
+      expect(declsFor(`${s}::-webkit-scrollbar-corner`).get('border-bottom-right-radius')).toBe(r);
+      expect(declsFor(`${s}::-webkit-resizer`).get('border-bottom-right-radius')).toBe(r);
+    }
+  });
+
+  it("draws the corner as the gutter and the resize handle in --ink-faint, not the browser's framed one", () => {
+    expect([...declsFor('::-webkit-scrollbar-corner')]).toEqual([
+      ['background', 'var(--scrollbar-track)'],
+      ['border-left', '1px solid var(--border)']
+    ]);
+    const handle = (declsFor('::-webkit-resizer').get('background') ?? '')
+      .replace(/\s+/g, ' ')
+      .replace(/\( /g, '(')
+      .replace(/ \)/g, ')');
+    expect(handle).toMatch(/^linear-gradient\(135deg, .*\) right 3px bottom 3px \/ 9px 9px no-repeat$/);
+    expect([...handle.matchAll(/var\((--[\w-]+)\)/g)].map((m) => m[1])).toEqual([
+      '--ink-faint',
+      '--ink-faint'
+    ]);
+  });
+
+  it("leaves every scroller to these rules: no scrollbar-color, and scrollbar-width only to hide the chips' row's", () => {
+    // Either one, but for `auto`, gives the element the browser's own bar instead.
+    expect(RULES.filter((r) => r.decls.has('scrollbar-color')).map((r) => r.selectors.join(', '))).toEqual(
+      []
+    );
+    expect(
+      RULES.filter((r) => r.decls.has('scrollbar-width')).map((r) => [
+        r.selectors.join(', '),
+        r.decls.get('scrollbar-width')
+      ])
+    ).toEqual([['.chips', 'none']]);
+  });
+});
+
 /**
  * Every light value. theme.4 changed nothing in light, so a light screenshot is
  * read against theme.4's list of deliberate light differences in PLAN.md. The
@@ -553,7 +688,12 @@ const LIGHT_VALUES: Record<string, string> = {
   // two bands since its review, the prose's the faint one.
   '--selection-bg': 'rgb(0 190 200 / 45%)',
   '--selection-prose-bg': 'rgb(70 255 255 / 20%)',
-  '--selection-ink': 'var(--ink)'
+  '--selection-ink': 'var(--ink)',
+  // Added by polish.2: the scrollbar's gutter and thumb, where the browser drew its own bar.
+  '--scrollbar-track': 'var(--panel-alt)',
+  '--scrollbar-thumb': '#d0cabe',
+  '--scrollbar-thumb-hover': '#c5beb0',
+  '--scrollbar-thumb-active': '#b7b0a2'
 };
 
 /**
@@ -609,6 +749,11 @@ const DARK_VALUES: Record<string, string> = {
   '--selection-bg': 'rgb(0 120 128 / 55%)',
   '--selection-prose-bg': 'rgb(0 90 95 / 20%)',
   '--selection-ink': 'var(--ink)',
+  // polish.2: the scrollbar's gutter, and its thumb a shade off it in three steps.
+  '--scrollbar-track': 'var(--panel-alt)',
+  '--scrollbar-thumb': '#454139',
+  '--scrollbar-thumb-hover': '#4e4940',
+  '--scrollbar-thumb-active': '#585248',
   '--shadow-rgb': '0 0 0',
   '--backdrop': 'rgb(0 0 0 / 60%)',
   '--modal-shadow': 'rgb(0 0 0 / 45%)',
