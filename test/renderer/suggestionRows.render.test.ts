@@ -202,6 +202,25 @@ describe("a row's buttons show its decision (polish.12)", () => {
     expect(row.acts[2]?.svg).toBe(pendingX);
     expect(row.acts[2]?.svg).toContain('M3.5 3.5 12.5 12.5M12.5 3.5 3.5 12.5');
   });
+
+  /* polish.14 review: a faded button's ink is translucent, and each shape of
+     an icon is painted on its own, so where two meet the ink builds up. The
+     pencil, drawn as two paths, showed two darker spots on every faded row,
+     1.90:1 in light and 2.43 in dark where its x and tick are 1.47 and 1.74.
+     One path's stroke is painted once, its subpaths and the x's crossing
+     included. */
+  it('draws every icon as one path, so a faded one is one even ink (polish.14 review)', () => {
+    const acts = rows(render()).flatMap((r) => r.acts);
+    expect(acts).toHaveLength(ALL.length * 3);
+    expect(acts.filter((a) => a.cls === 'row__act row__act--faded')).toHaveLength(6);
+    for (const a of acts) {
+      expect(a.svg.match(/<(path|line|polyline|polygon|circle|ellipse|rect|use|g|text)\b/g)).toEqual([
+        '<path'
+      ]);
+    }
+    // The pencil's ferrule is a subpath of its outline's path.
+    expect(acts[0]?.svg).toContain('M11.2 2.6 13.4 4.8 5.6 12.6 2.8 13.2 3.4 10.4zM9.8 4 12 6.2');
+  });
 });
 
 describe('Show states (polish.12)', () => {

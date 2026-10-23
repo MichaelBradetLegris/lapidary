@@ -73,12 +73,18 @@ export function IconArrow({ size = 10 }: IconProps = {}): React.JSX.Element {
   );
 }
 
-/** Edit: opens the editor popover on a suggestion, a selection or a comment. */
+/**
+ * Edit: opens the editor popover on a suggestion, a selection or a comment.
+ *
+ * One path, the outline and the ferrule's line as two subpaths, so its stroke
+ * is painted once: a faded row button draws it in a translucent ink
+ * (polish.14), and as two paths the ink built up where the line's ends meet
+ * the outline, two darker spots on every faded pencil.
+ */
 export function IconPencil({ size = 12 }: IconProps = {}): React.JSX.Element {
   return (
     <svg {...svgProps(size)}>
-      <path d="M11.2 2.6 13.4 4.8 5.6 12.6 2.8 13.2 3.4 10.4z" />
-      <path d="M9.8 4 12 6.2" />
+      <path d="M11.2 2.6 13.4 4.8 5.6 12.6 2.8 13.2 3.4 10.4zM9.8 4 12 6.2" />
     </svg>
   );
 }
