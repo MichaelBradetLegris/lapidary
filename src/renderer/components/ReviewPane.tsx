@@ -10,6 +10,7 @@ import {
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import { buildRenderBlocks, type RenderBlock } from '../../shared/render';
 import { splitParagraphs } from '../../shared/text/paragraphs';
+import { chipHidden } from '../../shared/ui/chips';
 import { gutterComments as gutterCommentsOf } from '../../shared/ui/comments';
 import { marginMarks, markAnchorName, type MarginMark } from '../../shared/ui/marks';
 import type { Review, ReviewComment } from '../../shared/types';
@@ -123,7 +124,7 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
 
   const blocks = useMemo(() => {
     const paragraphs = splitParagraphs(review.base.text);
-    const visible = review.hunks.filter((h) => !hiddenCategories.includes(h.category ?? 'other'));
+    const visible = review.hunks.filter((h) => !chipHidden(h, hiddenCategories));
     return buildRenderBlocks(review.base.text, paragraphs, visible);
   }, [review.base.text, review.hunks, hiddenCategories]);
 
@@ -227,7 +228,7 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
     const length = Math.max(1, review.base.text.length);
     return review.hunks
       .filter((h) => h.anchor !== 'stale' && h.status === 'pending')
-      .filter((h) => !hiddenCategories.includes(h.category ?? 'other'))
+      .filter((h) => !chipHidden(h, hiddenCategories))
       .map((h) => ({ id: h.id, category: h.category ?? 'other', at: h.start / length }));
   }, [review.hunks, review.base.text.length, hiddenCategories]);
 

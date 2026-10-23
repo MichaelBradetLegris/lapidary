@@ -79,6 +79,13 @@ describe('suggestion list', () => {
     expect(inline).toEqual([]);
   });
 
+  it("hides the author's own edits with You, and only with You (polish.11)", () => {
+    const mine = hunk({ id: 'm', start: 3, category: 'other', source: 'manual' });
+    const theirs = hunk({ id: 'o', start: 4, category: 'other' });
+    expect(groupSuggestions([mine, theirs], ['you']).inline.map((h) => h.id)).toEqual(['o']);
+    expect(groupSuggestions([mine, theirs], ['other']).inline.map((h) => h.id)).toEqual(['m']);
+  });
+
   it('summarises a change on one line', () => {
     expect(summaryLine(hunk({ id: 'a', original: 'began', replacement: 'begun' }))).toBe('began → begun');
     expect(summaryLine(hunk({ id: 'a', original: 'a\n  b', replacement: '' }))).toBe('a b → (nothing)');
@@ -165,6 +172,28 @@ describe('bulk confirmation semantics', () => {
     expect(plan.count).toBe(0);
     expect(plan.emptyNote).toBe('There are no pending suggestions to accept.');
     expect(bulkPlan([], 'reset', 'typo').emptyNote).toBe('There are no typo decisions to reset.');
+  });
+
+  it("scopes to the author's own edits for the You chip, and leaves them out of other (polish.11)", () => {
+    const mixed = [
+      hunk({ id: 'y1', category: 'other', source: 'manual', status: 'pending' }),
+      hunk({ id: 'y2', category: 'other', source: 'manual', status: 'pending' }),
+      hunk({ id: 'y3', category: 'other', source: 'manual', status: 'accepted' }),
+      hunk({ id: 'o1', category: 'other', status: 'pending' }),
+      hunk({ id: 'd1', source: 'diff', status: 'pending' })
+    ];
+    const you = bulkPlan(mixed, 'accept', 'you');
+    expect(you.ids).toEqual(['y1', 'y2']);
+    expect(you.category).toBe('you');
+    expect(you.title).toBe('Accept your 2 pending edits?');
+    expect(bodyLines(you.body)).toEqual(['Edits you already dismissed are not changed.', NOTHING_UNTIL_SAVE]);
+    expect(bulkPlan(mixed.slice(0, 1), 'dismiss', 'you').title).toBe('Dismiss your 1 pending edit?');
+    expect(bulkPlan(mixed, 'dismiss', 'you').body).toBe('Edits you already accepted are not changed.');
+    expect(bulkPlan(mixed, 'reset', 'you').title).toBe('Return your 1 edit to pending?');
+    expect(bulkPlan([], 'accept', 'you').emptyNote).toBe('You have no pending edits to accept.');
+    expect(bulkPlan([], 'reset', 'you').emptyNote).toBe('None of your edits has a decision to reset.');
+    // other: the model's other, and a manual review's suggestions, which carry no category.
+    expect(bulkPlan(mixed, 'accept', 'other').ids).toEqual(['o1', 'd1']);
   });
 });
 

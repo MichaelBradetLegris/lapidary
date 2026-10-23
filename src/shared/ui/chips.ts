@@ -1,19 +1,23 @@
 /**
- * The category chips (polish.6, polish.10, PLAN 7). Since `polish.10` they are
- * in the toolbar's row, where the chapter's name was before it moved to the
- * window's title: compact, each chip a category's name and count, the whole
- * chip one toggle of its filter, with Accept all and Dismiss all for its
- * category in a small menu on it. They fit the default window beside the
- * toolbar's four buttons; when they do not, as in a narrow window or zoomed
- * in, the row scrolls sideways and never wraps. Chromium scrolls such a row
- * with a sideways wheel or trackpad and with Shift and the wheel, but an
- * ordinary wheel turned over it did nothing, so `chipsWheelLeft` turns that
- * into a sideways scroll. Tab brought a chip into view only when none of it
- * showed, so a chip half cut off at the row's edge took the focus as it was;
- * `chipsRevealLeft` brings the whole chip in. The row draws no scrollbar: ‹ and
- * › buttons laid over its ends page it (`chipsEnds`, `chipsPageLeft`), and a
- * 2 px line under it shows where it is (`chipsIndicator`), the two together
- * `chipsView`. Pure, so it runs in node.
+ * The category chips (polish.6, polish.10, polish.11, PLAN 7). Since
+ * `polish.10` they are in the toolbar's row, where the chapter's name was
+ * before it moved to the window's title, each chip a category's name and
+ * count. Since `polish.11` each chip is a menu button: a click anywhere on it
+ * opens its menu, Hide or Show, Show only, Accept all N and Dismiss all N
+ * (`chipMenuLabels`); an eye before the row shows or hides them all
+ * (`eyeLabel`); and the author's own edits have a chip of their own, You,
+ * last in the row (`chipKeyOf`, `chipCounts`). The chips are drawn at the
+ * size they had before `polish.10` and shrink, in steps, only as far as they
+ * must to fit (`CHIP_STEPS`, `chipsStep`); only at the smallest step do they
+ * overflow, and the row then scrolls sideways and never wraps. Chromium
+ * scrolls such a row with a sideways wheel or trackpad and with Shift and the
+ * wheel, but an ordinary wheel turned over it did nothing, so
+ * `chipsWheelLeft` turns that into a sideways scroll. Tab brought a chip into
+ * view only when none of it showed, so a chip half cut off at the row's edge
+ * took the focus as it was; `chipsRevealLeft` brings the whole chip in. The
+ * row draws no scrollbar: ‹ and › buttons laid over its ends page it
+ * (`chipsEnds`, `chipsPageLeft`), and a 2 px line under it shows where it is
+ * (`chipsIndicator`), the two together `chipsView`. Pure, so it runs in node.
  */
 
 import type { ChangeCategory, Hunk } from '../types';
@@ -25,11 +29,42 @@ import type { BulkAction } from './bulk';
  */
 export const CHIPS_ARROW_WIDTH = 22;
 
+/** The chip of the author's own edits (polish.11). */
+export const YOU_CHIP = 'you';
+
+/**
+ * What a chip stands for, and what the filter hides: a category of the
+ * model's, or the author's own edits.
+ */
+export type ChipKey = ChangeCategory | typeof YOU_CHIP;
+
+/**
+ * The chip a suggestion is counted and filtered under (polish.11): You for an
+ * edit the author made (`source: 'manual'`), which carries `other` as its
+ * category; otherwise its category, `other` for one that has none, as a
+ * manual review's do. A model's suggestion the author reworded (`edited`)
+ * keeps its category's chip: the change and its category are the model's.
+ */
+export function chipKeyOf(hunk: Pick<Hunk, 'source' | 'category'>): ChipKey {
+  if (hunk.source === 'manual') return YOU_CHIP;
+  return hunk.category ?? 'other';
+}
+
+/** Whether the filter hides this suggestion: its chip is hidden. */
+export function chipHidden(hunk: Pick<Hunk, 'source' | 'category'>, hidden: readonly ChipKey[]): boolean {
+  return hidden.length > 0 && hidden.includes(chipKeyOf(hunk));
+}
+
+/** The words on a chip before its count: the category's name, or "You". */
+export function chipName(key: ChipKey): string {
+  return key === YOU_CHIP ? 'You' : key;
+}
+
 /**
  * Room kept between a chip brought into view and the edge of the row's
  * scrolling area: the arrow over that end and 6 px beside it, so a chip the
  * keyboard reaches is never left under an arrow. The row's own padding, 3 px
- * at the start and 10 at the end, is inside this.
+ * at each end since the ▾ went (polish.11), is inside this.
  */
 export const CHIPS_REVEAL_MARGIN = CHIPS_ARROW_WIDTH + 6;
 
@@ -59,36 +94,139 @@ export interface ChipsRow {
 /**
  * The chips, one for each category of a suggestion drawn in the text (an
  * unanchored one has no place there), with how many it has: the most first,
- * then by name. A suggestion with no category counts as other.
+ * then by name, and You, the author's own edits, last whatever its count
+ * (polish.11). A suggestion with no category counts as other (`chipKeyOf`).
  */
-export function chipCategories(
-  hunks: readonly Pick<Hunk, 'anchor' | 'category'>[]
-): [ChangeCategory, number][] {
-  const counts = new Map<ChangeCategory, number>();
+export function chipCounts(
+  hunks: readonly Pick<Hunk, 'anchor' | 'category' | 'source'>[]
+): [ChipKey, number][] {
+  const counts = new Map<ChipKey, number>();
   for (const hunk of hunks) {
     if (hunk.anchor === 'stale') continue;
-    const key: ChangeCategory = hunk.category ?? 'other';
+    const key = chipKeyOf(hunk);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const you = counts.get(YOU_CHIP);
+  counts.delete(YOU_CHIP);
+  const chips = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return you === undefined ? chips : [...chips, [YOU_CHIP, you]];
 }
 
-/** "Accept all punctuation", "Dismiss all punctuation": the items of a chip's menu, and of Actions for the chip last focused. */
-export function chipBulkLabel(action: Exclude<BulkAction, 'reset'>, category: ChangeCategory): string {
-  return `${action === 'accept' ? 'Accept' : 'Dismiss'} all ${category}`;
+/**
+ * "Accept all punctuation", "Dismiss all your edits": the items Actions lists
+ * for the chip last focused (polish.10).
+ */
+export function chipBulkLabel(action: Exclude<BulkAction, 'reset'>, key: ChipKey): string {
+  return `${action === 'accept' ? 'Accept' : 'Dismiss'} all ${key === YOU_CHIP ? 'your edits' : key}`;
 }
 
-/** The name of a chip's ▾ and of the menu it opens. */
-export function chipMenuLabel(category: ChangeCategory): string {
-  return `Accept or dismiss all ${category}`;
+/** The name of a chip's menu: "punctuation suggestions", "Your edits". */
+export function chipMenuLabel(key: ChipKey): string {
+  return key === YOU_CHIP ? 'Your edits' : `${key} suggestions`;
+}
+
+/**
+ * The items of a chip's menu (polish.11), in order: Hide, or Show for a
+ * hidden chip; Show only, which shows this chip and hides every other; and,
+ * under a line, Accept all and Dismiss all with the number of its suggestions
+ * still pending, which is how many each would move.
+ */
+export function chipMenuLabels(
+  hidden: boolean,
+  pending: number
+): { toggle: string; only: string; accept: string; dismiss: string } {
+  return {
+    toggle: hidden ? 'Show' : 'Hide',
+    only: 'Show only',
+    accept: `Accept all ${pending}`,
+    dismiss: `Dismiss all ${pending}`
+  };
 }
 
 /**
  * A chip's tooltip, which Chromium also gives screen readers as its
- * description: what a click does, and where its menu is.
+ * description (polish.11): whether its suggestions are shown, which is the
+ * chip's state as a menu button has no pressed state, and what a click opens.
+ * The You chip says first what it counts.
  */
-export function chipTitle(hidden: boolean): string {
-  return `${hidden ? 'Show' : 'Hide'} these. Right-click, or press the menu key, for Accept all and Dismiss all.`;
+export function chipTitle(key: ChipKey, hidden: boolean): string {
+  const what = key === YOU_CHIP ? 'Your own edits. ' : '';
+  return `${what}${hidden ? 'Hidden' : 'Shown'}. Click for ${hidden ? 'Show' : 'Hide'}, Show only, Accept all and Dismiss all.`;
+}
+
+/**
+ * What the filter hides after Show only on `key` (polish.11): every other
+ * chip in the row. A chip that comes later, as You does with the author's
+ * first edit, is shown.
+ */
+export function showOnlyHidden(chips: readonly ChipKey[], key: ChipKey): ChipKey[] {
+  return chips.filter((chip) => chip !== key);
+}
+
+/** Whether every chip in the row is shown: the eye is open then (polish.11). */
+export function allChipsShown(chips: readonly ChipKey[], hidden: readonly ChipKey[]): boolean {
+  return chips.every((chip) => !hidden.includes(chip));
+}
+
+/** Whether every chip in the row is hidden. */
+export function allChipsHidden(chips: readonly ChipKey[], hidden: readonly ChipKey[]): boolean {
+  return chips.every((chip) => hidden.includes(chip));
+}
+
+/** The eye's two names, which say what it does, and the items Actions lists beside it (polish.11). */
+export const SHOW_ALL_CATEGORIES = 'Show all categories';
+export const HIDE_ALL_CATEGORIES = 'Hide all categories';
+
+/**
+ * The name of the eye at the left of the toolbar: open while every chip is
+ * shown, when a click hides them all, and closed otherwise, when a click
+ * shows them all.
+ */
+export function eyeLabel(allShown: boolean): string {
+  return allShown ? HIDE_ALL_CATEGORIES : SHOW_ALL_CATEGORIES;
+}
+
+/**
+ * The sizes a chip is drawn at (polish.11), largest first: the size it had
+ * before `polish.10` (`polish.6`: 13 px type, 2 by 8 px of padding, 6 px
+ * between chips), two between, and `polish.10`'s compact size (11.5 px on a
+ * 16 px line, 1 by 5 px, 4 px apart). app.css draws each, under
+ * `[data-chip-step]`; a test holds the two to each other.
+ */
+export const CHIP_STEPS: readonly {
+  fontSize: number;
+  lineHeight: string;
+  padding: string;
+  gap: number;
+}[] = [
+  { fontSize: 13, lineHeight: 'normal', padding: '2px 8px', gap: 6 },
+  { fontSize: 12.5, lineHeight: 'normal', padding: '2px 7px', gap: 5 },
+  { fontSize: 12, lineHeight: '16px', padding: '1px 6px', gap: 5 },
+  { fontSize: 11.5, lineHeight: '16px', padding: '1px 5px', gap: 4 }
+];
+
+/** The row's padding at its two ends together, in CSS px (app.css, `.chips`). */
+export const CHIPS_ROW_PADDING = 6;
+
+/**
+ * The step the chips are drawn at (polish.11): the first, the largest, at
+ * which they fit the row, and the last, the compact one, when none does, the
+ * row then overflowing to its arrows. `width` is the room the row has for its
+ * chips, its width less its padding; `natural[step]` is each chip's width as
+ * drawn at that step, measured from a copy of the chips out of sight at every
+ * step, so the choice never depends on the step drawn and cannot swing
+ * between two. The chips at a step take their widths and the step's gap
+ * between each two.
+ */
+export function chipsStep(width: number, natural: readonly (readonly number[])[]): number {
+  const last = CHIP_STEPS.length - 1;
+  for (let step = 0; step < last; step += 1) {
+    const widths = natural[step] ?? [];
+    const gap = CHIP_STEPS[step]?.gap ?? 0;
+    const total = widths.reduce((sum, w) => sum + w, 0) + gap * Math.max(0, widths.length - 1);
+    if (total <= width) return step;
+  }
+  return last;
 }
 
 /**

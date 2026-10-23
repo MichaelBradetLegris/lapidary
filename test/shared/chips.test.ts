@@ -1,15 +1,23 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import type { Hunk } from '../../src/shared/types';
+import { CHANGE_CATEGORIES, type Hunk } from '../../src/shared/types';
 import {
+  allChipsHidden,
+  allChipsShown,
+  CHIP_STEPS,
   CHIPS_ARROW_WIDTH,
   CHIPS_FIT,
   CHIPS_REVEAL_MARGIN,
   CHIPS_THUMB_MIN,
   chipBulkLabel,
-  chipCategories,
+  chipCounts,
+  chipHidden,
+  chipKeyOf,
   chipMenuLabel,
+  chipMenuLabels,
   chipMenuPlacement,
+  chipName,
+  chipsStep,
   chipsEnds,
   chipsIndicator,
   chipsPageLeft,
@@ -17,8 +25,14 @@ import {
   chipsView,
   chipsWheelLeft,
   chipTitle,
+  eyeLabel,
+  HIDE_ALL_CATEGORIES,
   sameChipsView,
+  SHOW_ALL_CATEGORIES,
+  showOnlyHidden,
   WHEEL_LINE_PX,
+  YOU_CHIP,
+  type ChipKey,
   type ChipsRow,
   type ChipsWheel
 } from '../../src/shared/ui/chips';
@@ -28,7 +42,11 @@ import {
    wheels are left to the browser, and a chip the keyboard reaches comes wholly
    into view. polish.10: the row is in the toolbar, its chips compact, with a
    menu each; it draws no scrollbar, and while the chips overflow, ‹ and › over
-   its ends page it and a 2 px line under it shows where it is. */
+   its ends page it and a 2 px line under it shows where it is. polish.11:
+   each chip is a menu button (Hide or Show, Show only, Accept all N, Dismiss
+   all N), an eye shows or hides them all, the author's own edits have a chip
+   of their own, You, and the chips keep the size they had before polish.10
+   until they must shrink, in steps, to fit (`chipsStep`). */
 
 const wheel = (over: Partial<ChipsWheel> = {}): ChipsWheel => ({
   deltaX: 0,
@@ -171,22 +189,24 @@ describe('a chip the keyboard reaches comes wholly into view (polish.6)', () => 
   });
 });
 
-describe('the chips, one per category in the text (polish.10)', () => {
+describe('the chips, one per category in the text, and You (polish.10, polish.11)', () => {
   const hunk = (
     category: Hunk['category'],
-    anchor: Hunk['anchor'] = 'exact'
-  ): Pick<Hunk, 'anchor' | 'category'> => (category === undefined ? { anchor } : { anchor, category });
+    anchor: Hunk['anchor'] = 'exact',
+    source: Hunk['source'] = 'claude'
+  ): Pick<Hunk, 'anchor' | 'category' | 'source'> =>
+    category === undefined ? { anchor, source } : { anchor, category, source };
 
   it('counts each category of a suggestion in the text, the most first, then by name', () => {
     expect(
-      chipCategories([
+      chipCounts([
         hunk('typo'),
         hunk('grammar'),
         hunk('typo'),
         hunk('awkward'),
         hunk('grammar'),
         hunk('spelling', 'stale'),
-        hunk(undefined),
+        hunk(undefined, 'exact', 'diff'),
         hunk('punctuation', 'fuzzy'),
         hunk('tense', 'ambiguous')
       ])
@@ -198,19 +218,98 @@ describe('the chips, one per category in the text (polish.10)', () => {
       ['punctuation', 1],
       ['tense', 1]
     ]);
-    expect(chipCategories([])).toEqual([]);
-    expect(chipCategories([hunk('spelling', 'stale')])).toEqual([]);
+    expect(chipCounts([])).toEqual([]);
+    expect(chipCounts([hunk('spelling', 'stale')])).toEqual([]);
   });
 
-  it('names the menu, its items and what a click does', () => {
+  it("counts the author's own edits under You, last whatever its count, and never under other", () => {
+    // An edit of the author's carries `other` as its category (manualHunk in src/shared/edit.ts).
+    expect(
+      chipCounts([
+        hunk('other', 'exact', 'manual'),
+        hunk('other', 'exact', 'manual'),
+        hunk('other', 'exact', 'manual'),
+        hunk('other'),
+        hunk('typo'),
+        hunk('other', 'stale', 'manual')
+      ])
+    ).toEqual([
+      ['other', 1],
+      ['typo', 1],
+      [YOU_CHIP, 3]
+    ]);
+    expect(chipCounts([hunk('other', 'exact', 'manual')])).toEqual([[YOU_CHIP, 1]]);
+  });
+
+  it('puts each suggestion under one chip: You for an edit of the author, else its category, other for none', () => {
+    expect(chipKeyOf(hunk('other', 'exact', 'manual'))).toBe(YOU_CHIP);
+    expect(chipKeyOf(hunk('other'))).toBe('other');
+    // A manual review's suggestions carry no category.
+    expect(chipKeyOf(hunk(undefined, 'exact', 'diff'))).toBe('other');
+    expect(chipKeyOf(hunk('grammar', 'exact', 'diff'))).toBe('grammar');
+    // A model's suggestion the author reworded keeps its category's chip.
+    expect(chipKeyOf({ ...hunk('punctuation'), edited: true } as Pick<Hunk, 'source' | 'category'>)).toBe(
+      'punctuation'
+    );
+    expect(chipHidden(hunk('other', 'exact', 'manual'), [YOU_CHIP])).toBe(true);
+    expect(chipHidden(hunk('other', 'exact', 'manual'), ['other'])).toBe(false);
+    expect(chipHidden(hunk('other'), [YOU_CHIP])).toBe(false);
+    expect(chipHidden(hunk(undefined, 'exact', 'diff'), ['other'])).toBe(true);
+    expect(chipHidden(hunk('typo'), [])).toBe(false);
+  });
+
+  it('counts every suggestion in the text once, so You and other never share one', () => {
+    const anyHunk = fc.record({
+      category: fc.option(fc.constantFrom(...CHANGE_CATEGORIES), { nil: undefined }),
+      anchor: fc.constantFrom<Hunk['anchor']>('exact', 'fuzzy', 'ambiguous', 'stale'),
+      source: fc.constantFrom<Hunk['source']>('claude', 'diff', 'manual')
+    });
+    fc.assert(
+      fc.property(fc.array(anyHunk, { maxLength: 60 }), (raw) => {
+        const hunks = raw.map((h) => hunk(h.category, h.anchor, h.source));
+        const chips = chipCounts(hunks);
+        const placed = hunks.filter((h) => h.anchor !== 'stale');
+        expect(chips.reduce((sum, [, n]) => sum + n, 0)).toBe(placed.length);
+        expect(new Set(chips.map(([key]) => key)).size).toBe(chips.length);
+        for (const [key, n] of chips) {
+          expect(placed.filter((h) => chipKeyOf(h) === key)).toHaveLength(n);
+        }
+        const you = chips.findIndex(([key]) => key === YOU_CHIP);
+        expect(you === -1 || you === chips.length - 1).toBe(true);
+        expect(you !== -1).toBe(placed.some((h) => h.source === 'manual'));
+        // Hiding a chip hides exactly the suggestions it counts.
+        for (const [key, n] of chips) {
+          expect(placed.filter((h) => chipHidden(h, [key]))).toHaveLength(n);
+        }
+      })
+    );
+  });
+
+  it('names a chip, its menu, its items and what a click opens', () => {
+    expect(chipName('punctuation')).toBe('punctuation');
+    expect(chipName(YOU_CHIP)).toBe('You');
     expect(chipBulkLabel('accept', 'punctuation')).toBe('Accept all punctuation');
     expect(chipBulkLabel('dismiss', 'word-choice')).toBe('Dismiss all word-choice');
-    expect(chipMenuLabel('typo')).toBe('Accept or dismiss all typo');
-    expect(chipTitle(false)).toBe(
-      'Hide these. Right-click, or press the menu key, for Accept all and Dismiss all.'
-    );
-    expect(chipTitle(true)).toBe(
-      'Show these. Right-click, or press the menu key, for Accept all and Dismiss all.'
+    expect(chipBulkLabel('accept', YOU_CHIP)).toBe('Accept all your edits');
+    expect(chipBulkLabel('dismiss', YOU_CHIP)).toBe('Dismiss all your edits');
+    expect(chipMenuLabel('typo')).toBe('typo suggestions');
+    expect(chipMenuLabel(YOU_CHIP)).toBe('Your edits');
+    expect(chipMenuLabels(false, 3)).toEqual({
+      toggle: 'Hide',
+      only: 'Show only',
+      accept: 'Accept all 3',
+      dismiss: 'Dismiss all 3'
+    });
+    expect(chipMenuLabels(true, 0)).toEqual({
+      toggle: 'Show',
+      only: 'Show only',
+      accept: 'Accept all 0',
+      dismiss: 'Dismiss all 0'
+    });
+    expect(chipTitle('grammar', false)).toBe('Shown. Click for Hide, Show only, Accept all and Dismiss all.');
+    expect(chipTitle('grammar', true)).toBe('Hidden. Click for Show, Show only, Accept all and Dismiss all.');
+    expect(chipTitle(YOU_CHIP, false)).toBe(
+      'Your own edits. Shown. Click for Hide, Show only, Accept all and Dismiss all.'
     );
   });
 
@@ -221,6 +320,147 @@ describe('the chips, one per category in the text (polish.10)', () => {
     // Never past the left edge.
     expect(chipMenuPlacement({ left: -30, bottom: 31 }, 160, 884)).toEqual({ left: 4, top: 35 });
     expect(chipMenuPlacement({ left: 10, bottom: 31 }, 900, 884)).toEqual({ left: 4, top: 35 });
+  });
+});
+
+describe('Show only and the eye (polish.11)', () => {
+  const ROW: ChipKey[] = ['grammar', 'typo', 'other', YOU_CHIP];
+
+  it('hides every other chip in the row for Show only, and nothing that is not in it', () => {
+    expect(showOnlyHidden(ROW, 'typo')).toEqual(['grammar', 'other', YOU_CHIP]);
+    expect(showOnlyHidden(ROW, YOU_CHIP)).toEqual(['grammar', 'typo', 'other']);
+    expect(showOnlyHidden(['grammar'], 'grammar')).toEqual([]);
+  });
+
+  it('opens the eye only while every chip in the row is shown, and names what it does', () => {
+    expect(allChipsShown(ROW, [])).toBe(true);
+    // A hidden category with no chip in the row leaves the eye open.
+    expect(allChipsShown(ROW, ['spelling'])).toBe(true);
+    expect(allChipsShown(ROW, [YOU_CHIP])).toBe(false);
+    expect(allChipsHidden(ROW, ROW)).toBe(true);
+    expect(allChipsHidden(ROW, ['grammar', 'typo', 'other'])).toBe(false);
+    expect(eyeLabel(true)).toBe(HIDE_ALL_CATEGORIES);
+    expect(eyeLabel(false)).toBe(SHOW_ALL_CATEGORIES);
+    expect([HIDE_ALL_CATEGORIES, SHOW_ALL_CATEGORIES]).toEqual([
+      'Hide all categories',
+      'Show all categories'
+    ]);
+  });
+
+  it('closes the eye after Show only on any chip of a row of two or more, and opens it after Show all', () => {
+    const row = fc
+      .uniqueArray(fc.constantFrom<ChipKey>(...CHANGE_CATEGORIES, YOU_CHIP), { minLength: 1, maxLength: 14 })
+      .chain((keys) => fc.tuple(fc.constant(keys), fc.constantFrom(...keys)));
+    fc.assert(
+      fc.property(row, ([keys, key]) => {
+        const hidden = showOnlyHidden(keys, key);
+        expect(hidden).not.toContain(key);
+        expect(keys.filter((k) => !hidden.includes(k))).toEqual([key]);
+        expect(allChipsShown(keys, hidden)).toBe(keys.length === 1);
+        // The eye then shows them all, and Hide all hides them all.
+        expect(allChipsShown(keys, [])).toBe(true);
+        expect(allChipsHidden(keys, keys)).toBe(true);
+        expect(allChipsShown(keys, keys)).toBe(false);
+      })
+    );
+  });
+});
+
+describe('the size the chips are drawn at (polish.11)', () => {
+  /** What the steps' chips take in all: their widths and the step's gap between each two. */
+  const total = (step: number, widths: readonly number[]): number =>
+    widths.reduce((sum, w) => sum + w, 0) + (CHIP_STEPS[step]?.gap ?? 0) * Math.max(0, widths.length - 1);
+
+  /**
+   * A chip's width at each step from the width of its words at 13 px, as
+   * Chromium draws it near enough: the words scaled with the type, the
+   * padding at both ends and the 1 px border.
+   */
+  const widthsAt = (words: readonly number[]): number[][] =>
+    CHIP_STEPS.map((step) => {
+      const pad = parseFloat(step.padding.split(' ')[1] ?? '0');
+      return words.map((w) => (w * step.fontSize) / 13 + 2 * pad + 2);
+    });
+
+  it('goes from the size before polish.10 down to its compact size', () => {
+    expect(CHIP_STEPS[0]).toEqual({ fontSize: 13, lineHeight: 'normal', padding: '2px 8px', gap: 6 });
+    expect(CHIP_STEPS[CHIP_STEPS.length - 1]).toEqual({
+      fontSize: 11.5,
+      lineHeight: '16px',
+      padding: '1px 5px',
+      gap: 4
+    });
+    for (let i = 1; i < CHIP_STEPS.length; i += 1) {
+      expect(CHIP_STEPS[i]?.fontSize ?? 0).toBeLessThan(CHIP_STEPS[i - 1]?.fontSize ?? 0);
+      expect(CHIP_STEPS[i]?.gap ?? 0).toBeLessThanOrEqual(CHIP_STEPS[i - 1]?.gap ?? 0);
+    }
+  });
+
+  it('keeps the largest size that fits, and shrinks a step at a time as the row narrows', () => {
+    // Thirteen chips of about 60 px of words at 13 px.
+    const natural = widthsAt(Array.from({ length: 13 }, (_, i) => 50 + i * 2));
+    const at = natural.map((widths, step) => total(step, widths));
+    expect(at[0]).toBeGreaterThan(at[1] ?? 0);
+    expect(at[1]).toBeGreaterThan(at[2] ?? 0);
+    expect(at[2]).toBeGreaterThan(at[3] ?? 0);
+    expect(chipsStep(2000, natural)).toBe(0);
+    expect(chipsStep(at[0] ?? 0, natural)).toBe(0);
+    expect(chipsStep((at[0] ?? 0) - 0.01, natural)).toBe(1);
+    expect(chipsStep(at[1] ?? 0, natural)).toBe(1);
+    expect(chipsStep(at[2] ?? 0, natural)).toBe(2);
+    expect(chipsStep((at[2] ?? 0) - 0.01, natural)).toBe(3);
+    // Short even of the compact size: that, and the row overflows to its arrows.
+    expect(chipsStep((at[3] ?? 0) - 1, natural)).toBe(3);
+    expect(chipsStep(0, natural)).toBe(3);
+    // One chip, and none.
+    expect(chipsStep(80, widthsAt([60]))).toBe(0);
+    expect(chipsStep(0, [[], [], [], []])).toBe(0);
+  });
+
+  it('picks the first step that fits for any widths, else the last, and never a larger one for less room', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.double({ min: 10, max: 160, noNaN: true }), { minLength: 1, maxLength: 15 }),
+        fc.double({ min: 0, max: 2600, noNaN: true }),
+        fc.double({ min: 0, max: 2600, noNaN: true }),
+        (words, a, b) => {
+          const natural = widthsAt(words);
+          const last = CHIP_STEPS.length - 1;
+          const narrow = Math.min(a, b);
+          const wide = Math.max(a, b);
+          const step = chipsStep(narrow, natural);
+          expect(step).toBeGreaterThanOrEqual(0);
+          expect(step).toBeLessThanOrEqual(last);
+          for (let larger = 0; larger < step; larger += 1) {
+            expect(total(larger, natural[larger] ?? [])).toBeGreaterThan(narrow);
+          }
+          if (step < last) expect(total(step, natural[step] ?? [])).toBeLessThanOrEqual(narrow);
+          // Only once the compact size does not fit either does the row overflow.
+          if (total(last, natural[last] ?? []) > narrow) expect(step).toBe(last);
+          // More room never draws them smaller.
+          expect(chipsStep(wide, natural)).toBeLessThanOrEqual(step);
+        }
+      )
+    );
+  });
+
+  it('reads only the widths it is given, whatever they are', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.array(fc.double({ min: 0, max: 200, noNaN: true }), { minLength: 1, maxLength: 15 }), {
+          minLength: CHIP_STEPS.length,
+          maxLength: CHIP_STEPS.length
+        }),
+        fc.double({ min: 0, max: 3000, noNaN: true }),
+        (natural, width) => {
+          const step = chipsStep(width, natural);
+          const first = natural.findIndex(
+            (widths, at) => at < CHIP_STEPS.length - 1 && total(at, widths) <= width
+          );
+          expect(step).toBe(first === -1 ? CHIP_STEPS.length - 1 : first);
+        }
+      )
+    );
   });
 });
 

@@ -26,7 +26,8 @@ interface Props {
  * What the three states look like in the pane, since the swap can confuse
  * (item 6), how a small change is drawn and found (PLAN 11.7, `small.10`), and
  * what the unsaved dot means, in the window's title (polish.10; in the toolbar
- * from apply.4) and the chapter list (apply.5).
+ * from apply.4) and the chapter list (apply.5), and what the chips count and
+ * do, You and the eye included (polish.11).
  */
 function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -97,6 +98,12 @@ function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
           changes its file does not have yet. For the open chapter, Save to chapter and the status bar count
           them. Your decisions are kept automatically in the review, and the status bar says when they were
           last kept.
+        </li>
+        <li>
+          <span className="legend__swatch legend__swatch--chip" /> <b>Categories.</b> The chips at the top
+          count the suggestions in each category, and You counts your own edits, in the colour of their YOU
+          tag. Click a chip to hide or show it, to show only it, or to accept or dismiss all of it. The eye
+          before the chips shows or hides them all.
         </li>
       </ul>
       <p className="legend__foot">

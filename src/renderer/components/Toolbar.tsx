@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { Review } from '../../shared/types';
 import { SHOW_BACKUPS, SHOW_BACKUPS_TITLE } from '../../shared/ui/backups';
-import { chipBulkLabel, chipCategories } from '../../shared/ui/chips';
+import {
+  allChipsHidden,
+  allChipsShown,
+  chipBulkLabel,
+  chipCounts,
+  HIDE_ALL_CATEGORIES,
+  SHOW_ALL_CATEGORIES
+} from '../../shared/ui/chips';
 import { ACTIONS_MENU, REVIEW_MENU } from '../../shared/ui/menu';
 import { saveButtonInput, saveButtonState } from '../../shared/ui/save';
 import { SAVE_HINT_ID, saveHintText, saveHintVisible } from '../../shared/ui/saveHint';
@@ -42,9 +49,11 @@ interface Props {
  * it: what can be shown, what can act on it, then what writes it out. The
  * chapter's name and its unsaved dot are in the window's title since
  * `polish.10` (`windowTitle`, set by App), and the category chips took their
- * place: they take the room the buttons leave and give way first, scrolling
- * sideways once they do not fit (FilterChips); once they are down to about
- * 8em, the last buttons move to a second row instead (app.css, `.toolbar`).
+ * place, after the eye that shows or hides them all (polish.11): they take
+ * the room the buttons leave and give way first, shrinking in steps and then
+ * scrolling sideways once they do not fit (FilterChips); once they are down
+ * to about 8em, the last buttons move to a second row instead (app.css,
+ * `.toolbar`).
  * Model and effort moved into the review dialog, where they are chosen once
  * per review rather than sitting in the way all day (item 6). While the Setup
  * screen or the welcome guide stands in place of the chapter, there are no
@@ -53,10 +62,11 @@ interface Props {
  * Four controls since `polish.7`: Review, a menu holding With AI and Manual
  * (which open Review with AI and Submit manual review); Actions, a menu
  * holding the three bulk actions, Copy result and Show backups, which left the
- * side panel's footer, and since `polish.10` Accept all and Dismiss all of the
+ * side panel's footer, since `polish.10` Accept all and Dismiss all of the
  * category whose chip the focus was last on, while it has not left the
- * toolbar (`useChipFocus`, `watchToolbarFocus`); Save to chapter; and Settings
- * (`ToolbarMenu`).
+ * toolbar (`useChipFocus`, `watchToolbarFocus`), and since `polish.11` Show
+ * all categories and Hide all categories, as the eye before the chips does;
+ * Save to chapter; and Settings (`ToolbarMenu`).
  * While a review runs, its progress and Cancel come before Review, whose With
  * AI waits until it ends.
  *
@@ -122,12 +132,11 @@ export function Toolbar({
 
   /* Accept all and Dismiss all of the chip the focus was last on, in Actions
      too, under the bulk items (polish.10); the chip's own menu holds the same
-     two. Only for a chip that is drawn. */
-  const chips = useMemo(() => (review ? chipCategories(review.hunks) : []), [review]);
+     two, with the count. Only for a chip that is drawn. */
+  const chips = useMemo(() => (review ? chipCounts(review.hunks).map(([key]) => key) : []), [review]);
   const lastChip = useChipFocus((s) => s.category);
   const chipShown = review !== null && !singleScreen;
-  const focusedChip =
-    chipShown && lastChip !== null && chips.some(([category]) => category === lastChip) ? lastChip : null;
+  const focusedChip = chipShown && lastChip !== null && chips.includes(lastChip) ? lastChip : null;
   /* The chip is forgotten once the focus leaves the toolbar: `onBlur` below,
      and the page watched for the way out it misses, a menu closed by a press
      outside, whose focused item is gone before the press moves the focus. */
@@ -154,6 +163,28 @@ export function Toolbar({
         }
       ]
     : [];
+
+  /* The eye's two, under a line after the chip's (polish.11), while the chips
+     are drawn: each off when it would change nothing. */
+  const hidden = useApp((s) => s.hiddenCategories);
+  const setHiddenCategories = useApp((s) => s.setHiddenCategories);
+  const clearCategoryFilter = useApp((s) => s.clearCategoryFilter);
+  const categoryItems: MenuItem[] =
+    chipShown && chips.length > 0
+      ? [
+          {
+            label: SHOW_ALL_CATEGORIES,
+            onSelect: clearCategoryFilter,
+            disabled: allChipsShown(chips, hidden),
+            separated: true
+          },
+          {
+            label: HIDE_ALL_CATEGORIES,
+            onSelect: () => setHiddenCategories(chips),
+            disabled: allChipsHidden(chips, hidden)
+          }
+        ]
+      : [];
 
   return (
     <header
@@ -211,6 +242,7 @@ export function Toolbar({
           { label: 'Dismiss all', onSelect: () => runBulk('dismiss'), disabled: bulkOff, title: bulkTitle },
           { label: 'Reset', onSelect: () => runBulk('reset'), disabled: bulkOff, title: bulkTitle },
           ...chipItems,
+          ...categoryItems,
           { label: 'Copy result', onSelect: onCopyResult, separated: true },
           { label: SHOW_BACKUPS, onSelect: onShowBackups, title: SHOW_BACKUPS_TITLE }
         ]}

@@ -246,9 +246,10 @@ describe('Save to chapter is primary only while changes are waiting or saving (p
 
 /* polish.10: one bar at the top. The chapter's name went to the window's
    title, and the category chips took its place in the toolbar's row, before
-   the buttons: each chip one toggle named by its category and count, with a
-   ▾ that opens its menu and is no Tab stop. */
-describe('the category chips lead the toolbar (polish.10)', () => {
+   the buttons. polish.11: an eye before them shows or hides them all, each
+   chip is one menu button named by its category and count, and the author's
+   own edits have a chip of their own, You, last. */
+describe('the category chips lead the toolbar (polish.10, polish.11)', () => {
   /** Three suggestions: two grammar, one punctuation. */
   const CHIPPED: Review = (() => {
     const diff = createDiffReview({
@@ -264,14 +265,23 @@ describe('the category chips lead the toolbar (polish.10)', () => {
     };
   })();
 
-  it('draws a chip for each category, the most first, before Review, and no chapter name', () => {
+  /** The same, with the last one an edit of the author's, accepted, as the paragraph box makes them. */
+  const EDITED: Review = {
+    ...CHIPPED,
+    hunks: CHIPPED.hunks.map((h, i) =>
+      i === 2
+        ? { ...h, source: 'manual' as const, category: 'other' as const, status: 'accepted' as const }
+        : h
+    )
+  };
+
+  it('draws the eye, then a chip for each category, the most first, before Review, and no chapter name', () => {
     storeWith({ review: CHIPPED });
     const html = render(CHIPPED);
     expect(buttons(html).map((b) => b.text)).toEqual([
+      '',
       'grammar 2',
-      '',
       'punctuation 1',
-      '',
       'Review',
       'Actions',
       'Save to chapter',
@@ -282,35 +292,87 @@ describe('the category chips lead the toolbar (polish.10)', () => {
     expect(html).not.toContain('toolbar__name');
   });
 
-  it('makes each chip a toggle with its menu on a ▾ that is no Tab stop', () => {
+  it('makes each chip one menu button, its description saying whether it is shown, with no ▾', () => {
     storeWith({ review: CHIPPED });
-    const all = buttons(render(CHIPPED));
-    const toggle = all.find((b) => b.text === 'grammar 2')?.attrs ?? '';
-    expect(toggle).toContain('class="chip__toggle"');
-    expect(toggle).toContain('aria-pressed="true"');
-    expect(toggle).toContain(
-      'title="Hide these. Right-click, or press the menu key, for Accept all and Dismiss all."'
-    );
-    const more = all.filter((b) => b.attrs.includes('chip__more'));
-    expect(more).toHaveLength(2);
-    expect(more[0]?.attrs).toContain('tabindex="-1"');
-    expect(more[0]?.attrs).toContain('aria-haspopup="menu"');
-    expect(more[0]?.attrs).toContain('aria-expanded="false"');
-    expect(more[0]?.attrs).toContain('title="Accept or dismiss all grammar"');
+    const html = render(CHIPPED);
+    const chip = buttons(html).find((b) => b.text === 'grammar 2')?.attrs ?? '';
+    expect(chip).toContain('class="chip__button"');
+    expect(chip).toContain('aria-haspopup="menu"');
+    expect(chip).toContain('aria-expanded="false"');
+    expect(chip).not.toContain('aria-pressed');
+    expect(chip).not.toContain('tabindex');
+    expect(chip).toContain('title="Shown. Click for Hide, Show only, Accept all and Dismiss all."');
+    expect(html).not.toContain('chip__more');
     // Closed, no list is drawn, and while the chips fit no arrow and no line.
-    expect(render(CHIPPED)).not.toContain('role="menu"');
-    expect(render(CHIPPED)).not.toContain('chips__arrow');
-    expect(render(CHIPPED)).not.toContain('chips__line');
+    expect(html).not.toContain('role="menu"');
+    expect(html).not.toContain('chips__arrow');
+    expect(html).not.toContain('chips__line');
+    // Drawn at the largest step until the window has measured them.
+    expect(html).toContain('class="chips" data-chip-step="0"');
   });
 
-  it('marks a hidden category, and fades the row while a review of the chapter runs', () => {
+  it('opens the eye while every chip is shown, and closes it once one is hidden, named by what it does', () => {
+    storeWith({ review: CHIPPED, hiddenCategories: [] });
+    let eye = buttons(render(CHIPPED)).find((b) => b.attrs.includes('chips__eye'))?.attrs ?? '';
+    expect(eye).toContain('aria-label="Hide all categories"');
+    expect(eye).toContain('title="Hide all categories"');
     storeWith({ review: CHIPPED, hiddenCategories: ['punctuation'] });
-    let html = render(CHIPPED);
-    expect(buttons(html).find((b) => b.text === 'punctuation 1')?.attrs).toContain('aria-pressed="false"');
+    eye = buttons(render(CHIPPED)).find((b) => b.attrs.includes('chips__eye'))?.attrs ?? '';
+    expect(eye).toContain('aria-label="Show all categories"');
+    // A hidden category with no chip leaves it open.
+    storeWith({ review: CHIPPED, hiddenCategories: ['spelling'] });
+    eye = buttons(render(CHIPPED)).find((b) => b.attrs.includes('chips__eye'))?.attrs ?? '';
+    expect(eye).toContain('aria-label="Hide all categories"');
+  });
+
+  it("gives the author's own edits a chip of their own, You, last, which other no longer counts", () => {
+    storeWith({ review: EDITED });
+    const html = render(EDITED);
+    expect(buttons(html).map((b) => b.text)).toEqual([
+      '',
+      'grammar 1',
+      'punctuation 1',
+      'You 1',
+      'Review',
+      'Actions',
+      'Save 1 change to chapter',
+      'Settings'
+    ]);
+    expect(html).toContain('class="chip cat-you"');
+    expect(html).not.toContain('class="chip cat-other');
+    expect(buttons(html).find((b) => b.text === 'You 1')?.attrs).toContain(
+      'title="Your own edits. Shown. Click for Hide, Show only, Accept all and Dismiss all."'
+    );
+  });
+
+  it('marks a hidden chip, and fades the row and the eye while a review of the chapter runs', () => {
+    storeWith({ review: EDITED, hiddenCategories: ['punctuation', 'you'] });
+    let html = render(EDITED);
+    expect(buttons(html).find((b) => b.text === 'punctuation 1')?.attrs).toContain(
+      'title="Hidden. Click for Show, Show only, Accept all and Dismiss all."'
+    );
     expect(html).toContain('class="chip cat-punctuation chip--off"');
+    expect(html).toContain('class="chip cat-you chip--off"');
     storeWith({ review: CHIPPED, hiddenCategories: [], aiBusyPath: CHIPPED.sourcePath });
     html = render(CHIPPED, true);
     expect(html).toContain('class="chips-bar chips--locked" inert=""');
+    expect(html.indexOf('chips__eye')).toBeGreaterThan(html.indexOf('chips--locked'));
+  });
+
+  it('draws the copy the steps are measured from, out of sight and hidden from screen readers', () => {
+    storeWith({ review: CHIPPED });
+    const html = render(CHIPPED);
+    expect(html).toContain('class="chips__measure" aria-hidden="true"');
+    expect(html.match(/class="chips__measure-row" data-chip-step="\d"/g)).toEqual([
+      'class="chips__measure-row" data-chip-step="0"',
+      'class="chips__measure-row" data-chip-step="1"',
+      'class="chips__measure-row" data-chip-step="2"',
+      'class="chips__measure-row" data-chip-step="3"'
+    ]);
+    // Its chips are words, not buttons.
+    const copy = html.slice(html.indexOf('class="chips__measure"'), html.indexOf('<span class="menu">'));
+    expect(copy).toContain('<span class="chip__button">grammar <span class="chip__count">2</span></span>');
+    expect(copy).not.toContain('<button');
   });
 
   it('draws none behind the Setup screen or the welcome guide, nor with no review open', () => {

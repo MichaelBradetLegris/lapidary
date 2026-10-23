@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CHIPS_ARROW_WIDTH } from '../../src/shared/ui/chips';
+import { CHIP_STEPS, CHIPS_ARROW_WIDTH, CHIPS_ROW_PADDING } from '../../src/shared/ui/chips';
 import {
   chipFocused,
   toolbarFocusLeft,
@@ -15,9 +15,13 @@ import {
    title, compact, each one toggle with a menu of its own; they scroll
    sideways only when they overflow, with the wheel, ‹ and › over the row's
    ends and Tab, and a 2 px line under the row in place of a scrollbar.
-   polish.6 had put them at the top of the centre column. Source checks, since
-   the tests run without a DOM; the window checks (1424 by 900 and 900 by 600,
-   both themes, 100% to 200%) are in PLAN (polish.10). The rules are in
+   polish.6 had put them at the top of the centre column. polish.11 (C.107):
+   each chip is a menu button, the ▾ gone; an eye before them shows or hides
+   them all; the author's own edits have a chip, You; and the chips keep the
+   size they had before polish.10 until they must shrink, in steps, to fit.
+   Source checks, since the tests run without a DOM; the window checks (1424
+   by 900 and 900 by 600, both themes) are in PLAN (polish.10, polish.11).
+   The rules are in
    src/shared/ui/chips.ts, tested in test/shared/chips.test.ts, and the menu's
    keys in test/shared/menu.test.ts. */
 
@@ -113,8 +117,14 @@ describe('the chips are in the toolbar, where the name was (polish.10)', () => {
 
   it('lets the chips take the room the buttons leave, give way first, and never wrap', () => {
     expect(Object.fromEntries(declsFor('.chips-bar'))).toMatchObject({
-      position: 'relative',
+      display: 'flex',
       flex: '1 1 8em',
+      'min-width': '0'
+    });
+    // The row's box, which holds the arrows and the line, fills what the eye leaves.
+    expect(Object.fromEntries(declsFor('.chips-view'))).toMatchObject({
+      position: 'relative',
+      flex: '1 1 auto',
       'min-width': '0'
     });
     const row = declsFor('.chips');
@@ -131,56 +141,125 @@ describe('the chips are in the toolbar, where the name was (polish.10)', () => {
     expect(chip.get('flex')).toBe('0 0 auto');
     expect(chip.get('white-space')).toBe('nowrap');
   });
+});
 
-  it('keeps the chips compact: smaller type and padding, and no second row in the toolbar for them', () => {
-    const toggle = declsFor('.chip__toggle');
-    expect(toggle.get('font-size')).toBe('11.5px');
-    expect(toggle.get('padding')).toBe('1px 5px');
-    expect(declsFor('.chips').get('gap')).toBe('4px');
-    // A chip's height (16 px of line, 2 of padding, 2 of border) and the row's
-    // 6 px of padding stay under a button's, so the toolbar keeps its height.
-    expect(toggle.get('line-height')).toBe('16px');
-    expect(declsFor('.chips').get('padding')).toBe('3px 8px 3px 3px');
+describe('the chips keep their old size, and shrink in steps only to fit (polish.11)', () => {
+  it('draws each step as CHIP_STEPS has it, from the size before polish.10 to its compact size', () => {
+    CHIP_STEPS.forEach((step, at) => {
+      expect(declsFor(`[data-chip-step='${at}']`).get('gap'), `step ${at}`).toBe(`${step.gap}px`);
+      expect(Object.fromEntries(declsFor(`[data-chip-step='${at}'] .chip__button`)), `step ${at}`).toEqual({
+        padding: step.padding,
+        'font-size': `${step.fontSize}px`,
+        'line-height': step.lineHeight
+      });
+    });
+    expect(declsFor(`[data-chip-step='${CHIP_STEPS.length}']`).size).toBe(0);
+    // The row's padding at its two ends, which the room for the chips leaves out.
+    const [vertical, horizontal] = (declsFor('.chips').get('padding') ?? '').split(' ');
+    expect(2 * parseFloat(horizontal ?? '')).toBe(CHIPS_ROW_PADDING);
+    expect(vertical).toBe('2px');
+  });
+
+  it('keeps the row as tall as a toolbar button at the largest step, so no step changes the toolbar', () => {
+    // A button: 13 px on a normal line, 4 px of padding and a 1 px border above and below.
+    const button = declsFor('button');
+    expect(button.get('font')).toBe('inherit');
+    expect(declsFor('body').get('font-size')).toBe('13px');
+    expect(button.get('padding')).toBe('4px 9px');
+    expect(button.get('border')).toBe('1px solid var(--border)');
+    // The chip at the largest step: the same type and line, its padding, its
+    // border and the row's padding, which come to the same.
+    const first = CHIP_STEPS[0];
+    expect(first?.fontSize).toBe(13);
+    expect(first?.lineHeight).toBe('normal');
+    const chipPad = parseFloat(first?.padding ?? '');
+    const rowPad = parseFloat(declsFor('.chips').get('padding') ?? '');
+    expect(declsFor('.chip').get('border')).toBe('1px solid var(--border)');
+    expect(chipPad + 1 + rowPad).toBe(4 + 1);
+    // The smaller steps are no taller.
+    for (const step of CHIP_STEPS.slice(1)) {
+      expect(step.fontSize).toBeLessThan(13);
+      expect(parseFloat(step.padding)).toBeLessThanOrEqual(chipPad);
+    }
+  });
+
+  it('decides the step from the row and a copy of the chips at every step, out of sight', () => {
+    expect(CHIPS).toContain('const [step, setStep] = useState(0);');
+    expect(CHIPS).toMatch(
+      /const room = row\.getBoundingClientRect\(\)\.width - CHIPS_ROW_PADDING;\s*setStep\(chipsStep\(room, naturalWidths\(copyRef\.current\)\)\);/
+    );
+    expect(CHIPS).toMatch(/className="chips"\s+data-chip-step=\{step\}/);
+    // One row of the copy for each step, its chips as the row's, with their words.
+    expect(CHIPS).toMatch(
+      /<div ref=\{copyRef\} className="chips__measure" aria-hidden="true">\s*\{CHIP_STEPS\.map\(\(_, at\) => \(\s*<div key=\{at\} className="chips__measure-row" data-chip-step=\{at\}>\s*\{chips\.map\(\(\[key, count\]\) => \(\s*<span key=\{key\} className=\{`chip cat-\$\{key\}`\}>\s*<span className="chip__button">\s*\{chipName\(key\)\} <span className="chip__count">\{count\}<\/span>/
+    );
+    expect(Object.fromEntries(declsFor('.chips__measure'))).toMatchObject({
+      position: 'absolute',
+      width: '0',
+      height: '0',
+      overflow: 'hidden',
+      visibility: 'hidden',
+      'pointer-events': 'none'
+    });
+    expect(declsFor('.chips__measure-row').get('width')).toBe('max-content');
+    // Measured again when the copy changes size, as when the fonts come in.
+    expect(CHIPS).toContain('for (const copy of copyRef.current?.children ?? []) observer.observe(copy);');
   });
 });
 
-describe('a chip is one toggle with a menu of its own (polish.10)', () => {
-  it('toggles its filter from anywhere on its name and count, which name it', () => {
+describe('a chip is a menu button (polish.11)', () => {
+  it('is one button named by its words, whose description says whether its suggestions are shown', () => {
     expect(CHIPS).toMatch(
-      /<button\s+ref=\{toggleRef\}\s+type="button"\s+className="chip__toggle"\s+aria-pressed=\{!off\}\s+title=\{chipTitle\(off\)\}\s+onClick=\{onToggle\}/
+      /<button\s+ref=\{buttonRef\}\s+type="button"\s+className="chip__button"\s+aria-haspopup="menu"\s+aria-expanded=\{shown\}\s+aria-controls=\{shown \? listId : undefined\}\s+title=\{chipTitle\(chip, off\)\}\s+onClick=\{\(\) => \(shown \? close\(false\) : openOn\('first'\)\)\}/
     );
-    expect(CHIPS).toContain('{category} <span className="chip__count">{count}</span>');
-    expect(CHIPS).not.toContain('chip__bulk');
-    expect(CHIPS).not.toContain('IconCheck');
+    expect(CHIPS).toContain('{chipName(chip)} <span className="chip__count">{count}</span>');
+    // A menu button, not a toggle: aria-pressed would make Chromium call it a toggle button.
+    expect(CHIPS).not.toContain('aria-pressed');
+    // The ▾ went: the whole chip opens the menu.
+    expect(CHIPS).not.toContain('chip__more');
+    expect(CHIPS).not.toContain('IconChevronDown');
+    expect(CSS).not.toContain('chip__more');
+    expect(CSS).not.toContain('chip__toggle');
   });
 
-  it('opens its menu by a right-click, the menu key or Shift+F10, and the ▾, which is no Tab stop', () => {
+  it('opens its menu by a click, Enter, Space, the arrows, the menu key, Shift+F10 and a right-click', () => {
     expect(CHIPS).toMatch(/onContextMenu=\{onContextMenu\}/);
     expect(CHIPS).toMatch(
       /const onContextMenu = \(event: React\.MouseEvent\): void => \{\s*if \(event\.defaultPrevented\) return;\s*event\.preventDefault\(\);\s*openMenu\(\);/
     );
     expect(CHIPS).toMatch(
-      /if \(!contextMenuKey\(event\)\) return;\s*event\.preventDefault\(\);\s*event\.stopPropagation\(\);\s*openMenu\(\);/
+      /const where = contextMenuKey\(event\) \? 'first' : menuButtonKey\(event\);\s*if \(where === null\) return;\s*event\.preventDefault\(\);\s*event\.stopPropagation\(\);\s*openMenu\(where\);/
     );
-    expect(CHIPS).toContain('onKeyDown={onToggleKey}');
+    expect(CHIPS).toContain('onKeyDown={onChipKey}');
     expect(CHIPS).toMatch(
-      /className="chip__more"\s+tabIndex=\{-1\}\s+aria-haspopup="menu"\s+aria-expanded=\{shown\}\s+aria-controls=\{shown \? listId : undefined\}\s+title=\{label\}\s+onMouseDown=\{\(event\) => event\.preventDefault\(\)\}/
+      /const openMenu = \(where: 'first' \| 'last' = 'first'\): void => \{\s*if \(shown\) focusItem\(where === 'first' \? firstEnabled\(enabled\) : lastEnabled\(enabled\)\);\s*else openOn\(where\);/
     );
   });
 
+  it('holds Hide or Show, Show only, and Accept all and Dismiss all with the count under a line', () => {
+    expect(CHIPS).toMatch(
+      /const items: MenuItem\[\] = \[\s*\{ label: labels\.toggle, onSelect: onToggle \},\s*\{ label: labels\.only, onSelect: onShowOnly \},\s*\{ \.\.\.bulkItem\('accept'\), separated: true \},\s*bulkItem\('dismiss'\)\s*\];/
+    );
+    expect(CHIPS).toContain('const labels = chipMenuLabels(off, pending);');
+    // Off when the toolbar's bulk items are, and with nothing pending, the tooltip saying why.
+    expect(CHIPS).toMatch(
+      /label: labels\[action\],\s*onSelect: \(\) => onBulk\(action\),\s*disabled: bulkOff \|\| pending === 0,\s*title: bulkOff \? bulkTitle : pending === 0 \? emptyNotes\[action\] : undefined/
+    );
+    // The count and the notes are the question's own (bulkPlan).
+    expect(CHIPS).toMatch(
+      /accept: bulkPlan\(review\.hunks, 'accept', key\), dismiss: bulkPlan\(review\.hunks, 'dismiss', key\)/
+    );
+    expect(CHIPS).toContain('pending={plan?.accept.count ?? 0}');
+    expect(CHIPS).toContain('onToggle={() => toggleCategory(key)}');
+    expect(CHIPS).toContain('onShowOnly={() => setHiddenCategories(showOnlyHidden(keys, key))}');
+    expect(CHIPS).toContain('onBulk={(action) => runBulk(action, key)}');
+  });
+
   it('behaves as the toolbar menus do, gives the focus back to the chip, and goes while the chapter is read-only', () => {
-    expect(CHIPS).toMatch(/useMenu\(\s*items,\s*toggleRef,\s*locked\s*\)/);
+    expect(CHIPS).toMatch(/useMenu\(\s*items,\s*buttonRef,\s*locked\s*\)/);
     expect(CHIPS).toMatch(
-      /<MenuList\s+id=\{listId\}\s+label=\{label\}\s+items=\{items\}\s+className="chip__menu"\s+listRef=\{listRef\}\s+\{\.\.\.list\}\s+\/>/
+      /<MenuList\s+id=\{listId\}\s+label=\{chipMenuLabel\(chip\)\}\s+items=\{items\}\s+className="chip__menu"\s+listRef=\{listRef\}\s+\{\.\.\.list\}\s+\/>/
     );
-    // Accept all and Dismiss all of the category, off when the toolbar's are.
-    expect(CHIPS).toMatch(
-      /label: chipBulkLabel\('accept', category\),\s*onSelect: \(\) => onBulk\('accept'\),\s*disabled: bulkOff,\s*title: bulkTitle/
-    );
-    expect(CHIPS).toMatch(
-      /label: chipBulkLabel\('dismiss', category\),\s*onSelect: \(\) => onBulk\('dismiss'\),\s*disabled: bulkOff,\s*title: bulkTitle/
-    );
-    expect(CHIPS).toContain('onBulk={(action) => runBulk(action, category)}');
   });
 
   it('places the list in the window under the chip, as the row clips, and closes it when the row scrolls', () => {
@@ -195,31 +274,20 @@ describe('a chip is one toggle with a menu of its own (polish.10)', () => {
     expect(CHIPS).toMatch(/const onScroll = \(\): void => close\(true\);/);
   });
 
-  it('shows the ▾ on hover or a keyboard focus, growing over the gap so nothing after it moves', () => {
-    const more = declsFor('.chip__more');
-    expect(more.get('width')).toBe('0');
-    expect(more.get('opacity')).toBe('0');
-    const shown = declsFor('.chip:hover > .chip__more');
-    expect(shown.get('width')).toBe('8px');
-    expect(shown.get('opacity')).toBe('1');
-    for (const state of ['.chip:has(:focus-visible) > .chip__more', '.chip--menu > .chip__more']) {
-      expect(Object.fromEntries(declsFor(state)), state).toEqual(Object.fromEntries(shown));
+  it('moves nothing on hover or focus, and lights the chip whose menu is open', () => {
+    for (const state of ['.chip:hover', '.chip:has(:focus-visible)']) {
+      expect(declsFor(state).size, state).toBe(0);
     }
-    // As much given back as the ▾ takes.
-    for (const state of ['.chip:hover', '.chip:has(:focus-visible)', '.chip.chip--menu']) {
-      expect(declsFor(state).get('margin-right'), state).toBe(`-${shown.get('width')}`);
-      expect(declsFor(state).get('box-shadow'), state).toBe('0 0 0 2px var(--panel)');
-    }
-    // The chip whose menu is open is at the menus' layer, as its list is drawn inside it.
-    expect(declsFor('.chip.chip--menu').get('z-index')).toBe(declsFor('.menu__list').get('z-index'));
+    expect(declsFor('.chip.chip--menu').get('margin-right')).toBeUndefined();
+    expect(declsFor('.chip--menu > .chip__button').get('background')).toBe('var(--panel-alt)');
   });
 
-  it('raises the chip whose menu is open over the hover and focus rules, and so over the cards (polish.10 review)', () => {
-    /* The pointer or the focus is almost always on the chip whose menu is
-       open, so the rule that raises it must win over the two that raise a
-       chip by 1: as specific and later, or more specific. It once lost to
-       both (0,1,0 against 0,2,0), and its menu opened under the notification
-       cards. Every rule that sets a chip's own z-index, in app.css's order. */
+  it('raises the chip whose menu is open to the menus, over the cards (polish.10 review)', () => {
+    /* Its list is drawn inside it. polish.10 raised a chip by 1 under the
+       pointer or the keyboard's focus as well, and the open chip's rule once
+       lost to those (0,1,0 against 0,2,0), so its menu opened under the
+       notification cards. The ▾ went with polish.11, and those rules with it;
+       any rule that sets a chip's z-index again must lose to the open chip's. */
     const rules = [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap((match) => {
       const body = match[2] ?? '';
       const z = /(?:^|;)\s*z-index\s*:\s*(\d+)/.exec(body);
@@ -240,15 +308,15 @@ describe('a chip is one toggle with a menu of its own (polish.10)', () => {
     const open = rules.filter((rule) => rule.selector.includes('chip--menu'));
     const others = rules.filter((rule) => !rule.selector.includes('chip--menu'));
     expect(open).toHaveLength(1);
-    expect(others.map((rule) => rule.selector).sort()).toEqual(['.chip:has(:focus-visible)', '.chip:hover']);
+    expect(others).toEqual([]);
     const menu = open[0] ?? { selector: '', at: -1, z: 0 };
+    expect(menu.selector).toBe('.chip.chip--menu');
     for (const other of others) {
       const order = compareSpecificity(specificity(menu.selector), specificity(other.selector));
       expect(
         order > 0 || (order === 0 && menu.at > other.at),
         `${menu.selector} over ${other.selector}`
       ).toBe(true);
-      expect(menu.z).toBeGreaterThan(other.z);
     }
     // At the menus' layer, over the notification cards, the lock card, the first-use hint and a drawer.
     expect(menu.z).toBe(Number(declsFor('.menu__list').get('z-index')));
@@ -268,10 +336,35 @@ describe('a chip is one toggle with a menu of its own (polish.10)', () => {
     );
   });
 
-  it("fades a hidden category's chip, but not the menu drawn inside it", () => {
+  it('fades a hidden chip, but not the menu drawn inside it', () => {
     expect(declsFor('.chip--off').get('opacity')).toBeUndefined();
-    expect(declsFor('.chip--off > .chip__toggle').get('opacity')).toBe('0.4');
-    expect(declsFor('.chip--off > .chip__more').get('opacity')).toBe('0.4');
+    expect(declsFor('.chip--off > .chip__button').get('opacity')).toBe('0.4');
+  });
+});
+
+describe('the eye and the You chip (polish.11)', () => {
+  it('puts the eye first, before the row, open while every chip is shown, named by what it does', () => {
+    const bar = CHIPS.indexOf('<div className={`chips-bar');
+    const eye = CHIPS.indexOf('className="chips__eye"');
+    const view = CHIPS.indexOf('<div className="chips-view">');
+    expect(bar).toBeGreaterThan(0);
+    expect(eye).toBeGreaterThan(bar);
+    expect(view).toBeGreaterThan(eye);
+    expect(CHIPS).toMatch(
+      /className="chips__eye"\s+aria-label=\{eye\}\s+title=\{eye\}\s+onClick=\{\(\) => \(allShown \? setHiddenCategories\(keys\) : clearCategoryFilter\(\)\)\}\s*>\s*\{allShown \? <IconEye \/> : <IconEyeClosed \/>\}/
+    );
+    expect(CHIPS).toContain('const allShown = allChipsShown(keys, hidden);');
+    expect(CHIPS).toContain('const eye = eyeLabel(allShown);');
+    // In the bar, so it is faded and inert with the chips while a review of the chapter runs.
+    expect(CHIPS).toContain("<div className={`chips-bar${locked ? ' chips--locked' : ''}`} inert={locked}>");
+    expect(declsFor('.chips__eye').get('flex')).toBe('none');
+  });
+
+  it('draws You in the colour of the you tag on its rows', () => {
+    expect(declsFor('.row__you').get('color')).toBe('var(--accent)');
+    expect(declsFor('.cat-you').get('--cat')).toBe('var(--accent)');
+    expect(declsFor('.chip__button').get('color')).toBe('var(--cat, var(--ink))');
+    expect(CHIPS).toContain('className={`chip cat-${chip}');
   });
 });
 
@@ -289,7 +382,7 @@ describe('only when the chips overflow: wheel, arrows, Tab and the line (polish.
   it('brings a chip the keyboard reaches wholly into view, and leaves the row still under a click or for its menu', () => {
     expect(CHIPS).toContain('onFocus={revealChip}');
     expect(CHIPS).toContain(
-      "if (!(target instanceof HTMLElement) || !target.classList.contains('chip__toggle')) return;"
+      "if (!(target instanceof HTMLElement) || !target.classList.contains('chip__button')) return;"
     );
     expect(CHIPS).toContain("if (!target.matches(':focus-visible')) return;");
     expect(CHIPS).toMatch(
@@ -316,9 +409,9 @@ describe('only when the chips overflow: wheel, arrows, Tab and the line (polish.
     const arrow = declsFor('.chips__arrow');
     expect(arrow.get('width')).toBe(`${CHIPS_ARROW_WIDTH}px`);
     expect(arrow.get('position')).toBe('absolute');
-    // Translucent, over a raised chip and under the menus.
+    // Translucent, over the chips and under the menus.
     expect(arrow.get('background')).toBe('color-mix(in srgb, var(--panel) 80%, transparent)');
-    expect(Number(arrow.get('z-index'))).toBeGreaterThan(Number(declsFor('.chip:hover').get('z-index')));
+    expect(Number(arrow.get('z-index'))).toBeGreaterThan(0);
     expect(Number(arrow.get('z-index'))).toBeLessThan(Number(declsFor('.menu__list').get('z-index')));
     expect(declsFor('.chips__arrow--start').get('left')).toBe('0');
     expect(declsFor('.chips__arrow--end').get('right')).toBe('0');
@@ -345,7 +438,7 @@ describe('only when the chips overflow: wheel, arrows, Tab and the line (polish.
   });
 });
 
-describe('Actions lists the chip the focus was last on (polish.10)', () => {
+describe("Actions lists the chip the focus was last on (polish.10), and the eye's two (polish.11)", () => {
   afterEach(() => {
     useChipFocus.setState({ category: null });
   });
@@ -365,7 +458,7 @@ describe('Actions lists the chip the focus was last on (polish.10)', () => {
     toolbarFocusLeft(null, true);
     expect(useChipFocus.getState().category).toBeNull();
     // Elsewhere, as the window loses the focus too.
-    chipFocused('typo');
+    chipFocused('you');
     toolbarFocusLeft(false, false);
     expect(useChipFocus.getState().category).toBeNull();
   });
@@ -373,7 +466,7 @@ describe('Actions lists the chip the focus was last on (polish.10)', () => {
   it('adds its two items after Reset, for a chip that is drawn, and forgets it as the focus leaves the toolbar', () => {
     expect(TOOLBAR).toContain('const lastChip = useChipFocus((s) => s.category);');
     expect(TOOLBAR).toMatch(
-      /const focusedChip =\s*chipShown && lastChip !== null && chips\.some\(\(\[category\]\) => category === lastChip\) \? lastChip : null;/
+      /const focusedChip =\s*chipShown && lastChip !== null && chips\.includes\(lastChip\) \? lastChip : null;/
     );
     expect(TOOLBAR).toMatch(
       /label: chipBulkLabel\('accept', focusedChip\),\s*onSelect: \(\) => runBulk\('accept', focusedChip\),\s*disabled: bulkOff,\s*title: bulkTitle,\s*separated: true/
@@ -383,17 +476,25 @@ describe('Actions lists the chip the focus was last on (polish.10)', () => {
     );
     const reset = TOOLBAR.indexOf("{ label: 'Reset'");
     const chip = TOOLBAR.indexOf('...chipItems,');
+    const categories = TOOLBAR.indexOf('...categoryItems,');
     const copy = TOOLBAR.indexOf("{ label: 'Copy result'");
     expect(chip).toBeGreaterThan(reset);
-    expect(copy).toBeGreaterThan(chip);
+    expect(categories).toBeGreaterThan(chip);
+    expect(copy).toBeGreaterThan(categories);
     expect(TOOLBAR).toMatch(
       /onBlur=\{\(event\) => \{\s*const next = event\.relatedTarget;\s*toolbarFocusLeft\(\s*next instanceof Node \? event\.currentTarget\.contains\(next\) : null,\s*document\.hasFocus\(\)\s*\);/
     );
-    expect(CHIPS).toContain('onFocus={() => chipFocused(category)}');
+    expect(CHIPS).toContain('onFocus={() => chipFocused(chip)}');
     // And watches the page for the way out onBlur misses (below).
     expect(TOOLBAR).toContain('ref={headerRef}');
     expect(TOOLBAR).toMatch(
       /useEffect\(\(\) => \{\s*const header = headerRef\.current;\s*if \(!header\) return undefined;\s*return watchToolbarFocus\(document, \(target\) => target instanceof Node && header\.contains\(target\)\);\s*\}, \[\]\);/
+    );
+  });
+
+  it('lists Show all categories and Hide all categories under a line while the chips are drawn, each off when it would do nothing', () => {
+    expect(TOOLBAR).toMatch(
+      /const categoryItems: MenuItem\[\] =\s*chipShown && chips\.length > 0\s*\? \[\s*\{\s*label: SHOW_ALL_CATEGORIES,\s*onSelect: clearCategoryFilter,\s*disabled: allChipsShown\(chips, hidden\),\s*separated: true\s*\},\s*\{\s*label: HIDE_ALL_CATEGORIES,\s*onSelect: \(\) => setHiddenCategories\(chips\),\s*disabled: allChipsHidden\(chips, hidden\)\s*\}\s*\]\s*: \[\];/
     );
   });
 });

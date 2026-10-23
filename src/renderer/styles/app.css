@@ -1045,58 +1045,79 @@ input[type='text'] {
 /* ---------- filter chips ---------- */
 
 /* In the toolbar's row, where the chapter's name was before it moved to the
-   window's title (polish.10). The bar takes the room the buttons leave and is
-   what gives way first, down to about 8em, before any button moves to a
-   second row, as the name did (apply.4). It holds the row, the ‹ and › laid
-   over the row's ends and the line under it. */
+   window's title (polish.10): the eye, then the chips (polish.11). The bar
+   takes the room the buttons leave and is what gives way first, down to about
+   8em, before any button moves to a second row, as the name did (apply.4). */
 .chips-bar {
-  position: relative;
   display: flex;
   flex: 1 1 8em;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Open while every chip is shown and closed otherwise (polish.11): a toolbar
+   button round a 16 px eye, 30 by 26 CSS px at 100%. */
+.chips__eye {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  color: var(--ink-soft);
+}
+
+.chips__eye svg {
+  display: block;
+}
+
+/* The row, the ‹ and › laid over its ends, the line under it and the copy of
+   the chips out of sight. Its width is what the bar leaves beside the eye,
+   whatever the chips hold, so the step they are drawn at never changes it. */
+.chips-view {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
 /* One row that never wraps (polish.6): wrapped, thirteen categories took
-   three rows in the smallest window at 100% and six at 200%. When the chips do
-   not fit it scrolls sideways, by the wheel (`chipsWheelLeft`), the arrows and
-   Tab, and draws no scrollbar of its own: the line under it shows where it is
-   (polish.10). Opaque, as every scroller is (theme.1), in the toolbar's own
-   colour. 3 px of room at the start and above and below keep a chip's focus
-   ring inside what the row shows, and 8 px at the end the last chip's ▾. */
+   three rows in the smallest window at 100% and six at 200%. The chips shrink
+   in steps as far as they must to fit (polish.11, `chipsStep`); at the
+   smallest it scrolls sideways when they still do not fit, by the wheel
+   (`chipsWheelLeft`), the arrows and Tab, and draws no scrollbar of its own:
+   the line under it shows where it is (polish.10). Opaque, as every scroller
+   is (theme.1), in the toolbar's own colour. 2 px of room above and below and
+   3 px at each end keep a chip's focus ring inside what the row shows, and
+   keep the row as tall as a toolbar button at the largest step. */
 .chips {
   display: flex;
   flex: 1 1 auto;
   flex-wrap: nowrap;
-  gap: 4px;
   min-width: 0;
-  padding: 3px 8px 3px 3px;
+  padding: 2px 3px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   background: var(--panel);
 }
 
-/* A chip is its category's name and count, small, in the category's colour,
-   and the whole of it is one toggle of the category's filter (polish.10). The
-   type and padding are what let thirteen categories fit beside the toolbar's
-   four buttons in the default window at 100%. */
+/* A chip is its category's name, or You, and its count, in the category's
+   colour, the whole of it one menu button (polish.11). */
 .chip {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: stretch;
   white-space: nowrap;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--panel);
 }
 
-.chip__toggle {
+.chip__button {
   border: none;
-  border-radius: 9px;
+  border-radius: 11px;
   background: none;
-  padding: 1px 5px;
-  font-size: 11.5px;
-  line-height: 16px;
   color: var(--cat, var(--ink));
 }
 
@@ -1104,56 +1125,85 @@ input[type='text'] {
   font-variant-numeric: tabular-nums;
 }
 
-/* The ▾ that opens the chip's menu has no width until the pointer is on the
-   chip, the keyboard's focus is on it or its menu is open. The chip then
-   grows by the ▾'s 8 px over the 4 px gap and the next chip's border and
-   padding, short of its words, and gives as much back with its margin, so
-   nothing after it moves; raised, so it lies over its neighbour, with a ring
-   in the bar's colour that parts the two where they cross. Its menu's chip is
-   at the menus' own layer (30), as the list is drawn in it, over the
-   notification cards (12) and the lock card (20): `.chip.chip--menu`, as
-   specific as the hover and focus rules and after them, since the pointer or
-   the focus is almost always on that chip too (polish.10 review). */
-.chip__more {
-  display: inline-flex;
-  align-items: center;
+/* The steps a chip is drawn at (polish.11, `CHIP_STEPS`), on the row and on
+   each row of its copy out of sight: the size the chips had before polish.10
+   (polish.6), two between, and polish.10's compact size. At the first the row
+   is as tall as a toolbar button, so no step changes the toolbar's height. */
+[data-chip-step='0'] {
+  gap: 6px;
+}
+
+[data-chip-step='0'] .chip__button {
+  padding: 2px 8px;
+  font-size: 13px;
+  line-height: normal;
+}
+
+[data-chip-step='1'] {
+  gap: 5px;
+}
+
+[data-chip-step='1'] .chip__button {
+  padding: 2px 7px;
+  font-size: 12.5px;
+  line-height: normal;
+}
+
+[data-chip-step='2'] {
+  gap: 5px;
+}
+
+[data-chip-step='2'] .chip__button {
+  padding: 1px 6px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+[data-chip-step='3'] {
+  gap: 4px;
+}
+
+[data-chip-step='3'] .chip__button {
+  padding: 1px 5px;
+  font-size: 11.5px;
+  line-height: 16px;
+}
+
+/* The copy the steps are measured from: laid out, never seen, and nothing
+   that reaches the pointer or a screen reader (aria-hidden). */
+.chips__measure {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 0;
-  padding: 0;
+  height: 0;
   overflow: hidden;
-  border: none;
-  border-radius: 0 9px 9px 0;
-  background: none;
-  color: var(--ink-soft);
-  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
-.chip:hover,
-.chip:has(:focus-visible) {
-  z-index: 1;
-  margin-right: -8px;
-  box-shadow: 0 0 0 2px var(--panel);
+.chips__measure-row {
+  display: flex;
+  width: max-content;
 }
 
+/* The chip whose menu is open is at the menus' own layer (30), as its list is
+   drawn inside it, over the notification cards (12), the lock card (20) and
+   the first-use hint (11), and stays lit as under the pointer. */
 .chip.chip--menu {
   z-index: 30;
-  margin-right: -8px;
-  box-shadow: 0 0 0 2px var(--panel);
 }
 
-.chip:hover > .chip__more,
-.chip:has(:focus-visible) > .chip__more,
-.chip--menu > .chip__more {
-  width: 8px;
-  opacity: 1;
+.chip--menu > .chip__button {
+  background: var(--panel-alt);
 }
 
-/* A hidden category's chip is faded, its menu, drawn inside it, not. */
+/* A hidden chip is faded, its menu, drawn inside it, not. */
 .chip--off {
   border-color: color-mix(in srgb, var(--border) 40%, transparent);
 }
 
-.chip--off > .chip__toggle,
-.chip--off > .chip__more {
+.chip--off > .chip__button {
   opacity: 0.4;
 }
 
@@ -1170,7 +1220,7 @@ input[type='text'] {
 /* While the chips overflow: a translucent ‹ or › over each end that has chips
    out of sight, which pages the row (`chipsPageLeft`), and a 2 px line under
    it, its thumb where the row stands, in place of a scrollbar (the author's
-   design, polish.10). Above a raised chip (1), under the menus (30). */
+   design, polish.10). Over the chips, under the menus (30). */
 .chips__arrow {
   position: absolute;
   top: 0;
@@ -1804,6 +1854,11 @@ input[type='text'] {
 .cat-formatting,
 .cat-other {
   --cat: var(--cat-other);
+}
+/* The You chip, the author's own edits (polish.11), in the colour of the you
+   tag on their rows (.row__you). */
+.cat-you {
+  --cat: var(--accent);
 }
 
 /* ---------- side panel ---------- */
@@ -3665,6 +3720,16 @@ button.help {
   margin: 0 4px;
   border-radius: 50%;
   background: var(--unsaved);
+}
+
+/* A chip as the toolbar draws one, an empty pill, centred in the swatch's 16 px
+   (polish.11). */
+.legend__swatch--chip {
+  width: 14px;
+  height: 10px;
+  margin: 0 1px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
 }
 
 /* `.legend p` would otherwise take the gap above it away. */

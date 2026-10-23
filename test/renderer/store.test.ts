@@ -222,6 +222,29 @@ describe('review store', () => {
     expect(useApp.getState().focusedHunkId).toBe(before);
   });
 
+  it("hides the author's own edits with You, sets the filter whole, and a new review clears it (polish.11)", () => {
+    const review = useApp.getState().review!;
+    const [first, second] = review.hunks;
+    // The second change is the author's own edit.
+    useApp.setState({
+      review: { ...review, hunks: [first!, { ...second!, source: 'manual', category: 'other' }] },
+      focusedHunkId: first!.id
+    });
+    useApp.getState().setHiddenCategories(['you', 'you', 'grammar']);
+    expect(useApp.getState().hiddenCategories).toEqual(['you', 'grammar']);
+    useApp.getState().moveFocus(1);
+    expect(useApp.getState().focusedHunkId).toBe(first!.id);
+    // Hiding other leaves the author's edit in reach.
+    useApp.getState().setHiddenCategories(['other']);
+    useApp.getState().moveFocus(1);
+    expect(useApp.getState().focusedHunkId).toBe(second!.id);
+    useApp.getState().clearCategoryFilter();
+    expect(useApp.getState().hiddenCategories).toEqual([]);
+    useApp.getState().setHiddenCategories(['typo']);
+    useApp.getState().setReview(fresh());
+    expect(useApp.getState().hiddenCategories).toEqual([]);
+  });
+
   it('steps through find matches and wraps at both ends', () => {
     useApp.getState().openFind();
     useApp.getState().setFindQuery('the');

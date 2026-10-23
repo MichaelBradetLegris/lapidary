@@ -1,20 +1,21 @@
 import { create } from 'zustand';
-import type { ChangeCategory } from '../../shared/types';
+import type { ChipKey } from '../../shared/ui/chips';
 
 /**
  * The category chip the focus was last on (polish.10, PLAN 7): the Actions
- * menu lists Accept all and Dismiss all for its category, beside the chip's
- * own menu. A chip's toggle sets it as it takes the focus, by Tab or a click.
+ * menu lists Accept all and Dismiss all for its category, or for the
+ * author's own edits on You (polish.11), beside the chip's own menu. A chip
+ * sets it as it takes the focus, by Tab or a click.
  * It is kept while the focus stays in the toolbar, so Tab or a click can take
  * it from the chip to Actions, and forgotten once the focus goes anywhere
  * else in the page (`toolbarFocusLeft`, from the toolbar's `onBlur` and
  * `watchToolbarFocus`). A window that loses the focus keeps it, as the focus
  * comes back to the same place. No DOM here, so it is tested in node.
  */
-export const useChipFocus = create<{ category: ChangeCategory | null }>(() => ({ category: null }));
+export const useChipFocus = create<{ category: ChipKey | null }>(() => ({ category: null }));
 
 /** A chip took the focus. */
-export function chipFocused(category: ChangeCategory): void {
+export function chipFocused(category: ChipKey): void {
   useChipFocus.setState({ category });
 }
 

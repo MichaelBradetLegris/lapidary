@@ -1,7 +1,8 @@
 /**
  * The keys of the toolbar's two menus, Review and Actions (`polish.7`, PLAN
- * section 7), and of a category chip's menu (`polish.10`, which opens it from
- * the chip with `contextMenuKey` as well): a menu button that opens a list of
+ * section 7), and of a category chip's menu (`polish.10`; since `polish.11`
+ * the chip is itself a menu button, which opens it with `contextMenuKey` as
+ * well): a menu button that opens a list of
  * items, with the keyboard of a proper menu. The button opens the list with Enter or Space, on its first
  * item, or with the down or up arrow, on its first or last; in the list the
  * arrows step through the items, round from the last to the first and back,
