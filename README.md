@@ -8,7 +8,7 @@ A Windows desktop app for reviewing AI-suggested copyedits to novel chapters kep
 
 You open a chapter, ask for a review, and every suggested change floats above the words it would replace. You accept or dismiss each one, in either direction, as often as you like. Larger issues (continuity, pacing, point of view) arrive as comments in the margin. Nothing is written to your chapter until you press **Save to chapter**.
 
-![Chapter 1 of the sample manuscript after a review: suggested changes float above the words they would replace, two of them accepted and one dismissed, comments sit in the margin, and the side panel lists the suggestions and the comments.](docs/images/review.png)
+![Chapter 1 of the sample manuscript after a review: suggested changes float above the words they would replace, two of them accepted and one dismissed, and comments sit in the margin. The category chips are at the left of the toolbar, and the side panel lists the suggestions, each with its category's tag, a green tick on the two accepted and a red x on the dismissed one, and then the comments.](docs/images/review.png)
 
 Two services can do the reviewing. You need one of them:
 
