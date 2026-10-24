@@ -14,14 +14,33 @@
  * `ToolbarMenu` and a chip's menu (FilterChips) share.
  */
 
-/** The toolbar's Review menu and its two items, which open Review with AI and Submit manual review. */
-export const REVIEW_MENU = { label: 'Review', withAi: 'With AI', manual: 'Manual' } as const;
+import { PROVIDER_LABELS, type Provider } from '../types';
+
+/**
+ * The toolbar's Review menu: an item for each provider, in `PROVIDERS`'
+ * order and named as the review dialog's Provider list names it, each
+ * opening Review with AI with that provider chosen (codex.3; one With AI
+ * until then, `polish.7`), then Manual, which opens Submit manual review.
+ */
+export const REVIEW_MENU = { label: 'Review', manual: 'Manual' } as const;
+
+/** What each provider's item in the Review menu says when the pointer is on it. */
+export const REVIEW_WITH_TITLES: Readonly<Record<Provider, string>> = {
+  claude: 'Review this chapter with Claude, through Claude Code',
+  chatgpt: 'Review this chapter with ChatGPT, on your ChatGPT plan',
+  openai: 'Review this chapter with OpenAI, billed per token to your API key'
+};
+
+/** The item's label: the provider's, as the review dialog's Provider list gives it. */
+export function reviewMenuLabel(provider: Provider): string {
+  return PROVIDER_LABELS[provider];
+}
 
 /** The toolbar's Actions menu, in Bulk's place: the bulk actions, Copy result and Show backups. */
 export const ACTIONS_MENU = 'Actions';
 
-/** Where Setup and the empty page say a review with AI starts. */
-export const WITH_AI_IN_MENU = `${REVIEW_MENU.withAi}, in the ${REVIEW_MENU.label} menu,`;
+/** Where Setup says a review with Claude starts: the Review menu's Claude. */
+export const WITH_CLAUDE_IN_MENU = `${PROVIDER_LABELS.claude}, in the ${REVIEW_MENU.label} menu,`;
 
 /** The parts of a keydown event the menu reads. */
 export interface MenuKey {

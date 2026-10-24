@@ -20,9 +20,16 @@ import {
 } from '../ai/claudeStatus';
 import { APP_NAME } from '../branding';
 import type { ConnectionTestResult, RateLimitInfo, RuntimeStatus } from '../ipc';
-import type { ErrorCode } from '../types';
-import { WITH_AI_IN_MENU } from './menu';
+import type { ErrorCode, Provider } from '../types';
+import { WITH_CLAUDE_IN_MENU } from './menu';
 import { isPlanLimit, usageLimitAdvice } from './usage';
+
+/**
+ * Which service the Setup screen sets up: Claude, through the Claude Code the
+ * author installs (5.6), or ChatGPT, through Sign in with ChatGPT (codex.2,
+ * PLAN 5.7). Each has a view of its own on the one screen.
+ */
+export type SetupFor = 'claude' | 'chatgpt';
 
 export type SetupViewId =
   /** no status yet: the first check is still running */
@@ -119,7 +126,11 @@ export function setupView(runtime: RuntimeStatus | null, last: LastFailure | nul
   return 'ready';
 }
 
-/** The status bar's words for a provider's runtime. */
+/**
+ * The status bar's words for a provider's runtime. `last` is the provider's
+ * own last failure: Claude's moves its view (`setupView`), and ChatGPT's
+ * says when its last review stopped at a usage limit (codex.3).
+ */
 export function runtimeLabel(
   runtime: RuntimeStatus | null | undefined,
   last: LastFailure | null = null
@@ -129,6 +140,12 @@ export function runtimeLabel(
     return runtime.state === 'ready'
       ? `OpenAI ready (key ends ${runtime.keyLast4 ?? '????'})`
       : 'OpenAI: no API key';
+  }
+  if (runtime.provider === 'chatgpt') {
+    if (runtime.state === 'not-signed-in') return 'ChatGPT: not signed in';
+    if (runtime.state !== 'ready') return 'ChatGPT: could not check';
+    if (last?.code === 'chatgpt-usage-limit') return 'ChatGPT: usage limit reached';
+    return `ChatGPT ready${runtime.plan ? ` (${runtime.plan})` : ''}`;
   }
   switch (setupView(runtime, last)) {
     case 'not-installed':
@@ -377,7 +394,7 @@ export interface RuntimeCardInput {
   showing: boolean;
   /** an earlier check in this run has had its chance to put the card up */
   pastLaunch: boolean;
-  provider: 'claude' | 'openai';
+  provider: Provider;
   setupOpen: boolean;
   /** the welcome guide is showing, whose first step says the same (setup.11) */
   welcomeOpen?: boolean;
@@ -475,18 +492,18 @@ function claudeCode(runtime: RuntimeStatus | null | undefined): string {
 function readyLines(runtime: RuntimeStatus | null | undefined): string[] {
   if (runtime?.credential === 'cloud') {
     return [
-      `${claudeCode(runtime)} is signed in through your cloud provider. ${WITH_AI_IN_MENU} can use Claude.`
+      `${claudeCode(runtime)} is signed in through your cloud provider. ${WITH_CLAUDE_IN_MENU} starts a review.`
     ];
   }
   if (runtime?.credential === 'auth-token') {
     return [
-      `${claudeCode(runtime)} signs in with the token in ${AUTH_TOKEN_VARIABLE}, such as a gateway or proxy hands out, so reviews are billed to the account behind that token, not through your Claude sign-in. ${WITH_AI_IN_MENU} can use Claude.`,
+      `${claudeCode(runtime)} signs in with the token in ${AUTH_TOKEN_VARIABLE}, such as a gateway or proxy hands out, so reviews are billed to the account behind that token, not through your Claude sign-in. ${WITH_CLAUDE_IN_MENU} starts a review.`,
       `To use your Claude sign-in instead, remove ${AUTH_TOKEN_VARIABLE} from your environment and start ${APP_NAME} again.`
     ];
   }
   const who = runtime?.email ? ` as ${runtime.email}` : '';
   const plan = runtime?.subscriptionType ? ` (${runtime.subscriptionType})` : '';
-  return [`${claudeCode(runtime)} is signed in${who}${plan}. ${WITH_AI_IN_MENU} can use Claude.`];
+  return [`${claudeCode(runtime)} is signed in${who}${plan}. ${WITH_CLAUDE_IN_MENU} starts a review.`];
 }
 
 /**
@@ -906,9 +923,12 @@ export function advancedRows(runtime: RuntimeStatus | null | undefined, os: Setu
 /** What a Copy button says when the clipboard refused the command. */
 export const COPY_FAILED_TEXT = 'Could not copy. Select the command and copy it yourself.';
 
-/** The status bar's runtime label is a button: Setup for Claude, Settings for OpenAI. */
-export function runtimeButtonTitle(provider: 'claude' | 'openai'): string {
-  return provider === 'claude' ? 'Open Setup' : 'Open Settings';
+/**
+ * The status bar's runtime label is a button: Setup for Claude and for
+ * ChatGPT, each its own view (codex.3), Settings for OpenAI.
+ */
+export function runtimeButtonTitle(provider: Provider): string {
+  return provider === 'openai' ? 'Open Settings' : 'Open Setup';
 }
 
 /* ------------------------------------------------------------------ */

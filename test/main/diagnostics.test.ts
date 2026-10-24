@@ -340,6 +340,7 @@ describe('switchWords', () => {
         packaged: false,
         userDataDir: 'D:\\scratch',
         openAiBaseUrl: 'http://127.0.0.1:4599/v1',
+        chatGptAuthUrl: 'http://127.0.0.1:4600',
         noClaudeCode: true,
         fakeUpdate: '1.0.1',
         quietWindow: true,
@@ -350,6 +351,7 @@ describe('switchWords', () => {
     ).toEqual([
       'isolated user data',
       'OpenAI base URL',
+      'ChatGPT sign-in URL',
       'no Claude Code',
       'fake update 1.0.1',
       'quiet window',

@@ -1,4 +1,5 @@
 import { SHOW_ALL_BACKUPS, SHOW_BACKUPS } from '../../shared/ui/backups';
+import { MANAGE_USAGE_BUTTON } from '../../shared/ui/chatgpt';
 import { UPDATE_ACTION_LABELS, UPDATE_CARD_KEY, actionKeepsCard } from '../../shared/ui/update';
 import { useApp, type NotificationAction } from '../state/store';
 import { IconX } from './icons';
@@ -10,6 +11,8 @@ const ACTION_LABELS: Record<NotificationAction, string> = {
   'reveal-drafts': 'Show the text',
   'reveal-backups': SHOW_BACKUPS,
   'reveal-all-backups': SHOW_ALL_BACKUPS,
+  // OpenAI's first action for a ChatGPT usage limit (codex.3)
+  'chatgpt-usage': MANAGE_USAGE_BUTTON,
   ...UPDATE_ACTION_LABELS
 };
 

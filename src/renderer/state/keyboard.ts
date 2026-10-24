@@ -10,7 +10,7 @@ import { editHunk } from './edit';
 import { saveHintGivesWay } from './hints';
 import { SAVE_CARD, type SaveOptions, type SaveOutcome } from './saveChapter';
 import { readingRange, scrollToElement } from './scroll';
-import { isModalOpen, reviewKeysActive, saveShortcutContext, useApp } from './store';
+import { currentMode, isModalOpen, reviewKeysActive, saveShortcutContext, useApp } from './store';
 
 /** A text field, a select or editable text, but not a checkbox (`isTypingField`, polish.12 review). */
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -26,7 +26,9 @@ function isTypingTarget(target: EventTarget | null): boolean {
  * runs Save to chapter (apply.3), wherever the focus is, under the rules of
  * `saveShortcutAction`. None of them acts behind a dialog, a question,
  * Settings or the Setup screen (`reviewKeysActive`, `isModalOpen`; apply.20
- * review).
+ * review). The review keys are Main's: in Full edit and Preview none acts,
+ * and the arrows and the page keys are left to the browser, which scrolls
+ * the page (rr.2 review).
  */
 export function useKeyboardBindings(save: (options: SaveOptions) => Promise<SaveOutcome>): void {
   useEffect(() => {
@@ -39,7 +41,11 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
         const target = event.target instanceof Element ? event.target : null;
         const shortcut = saveShortcutAction(
           event,
-          saveShortcutContext(state, target?.closest('.para-editor') != null)
+          saveShortcutContext(
+            state,
+            target?.closest('.para-editor') != null,
+            target?.closest('.fulledit') != null
+          )
         );
         if (shortcut.kind !== 'pass') {
           event.preventDefault();
@@ -50,8 +56,9 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
       }
 
       if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'f') {
-        // Not behind a dialog: the focus would go to the bar behind it.
-        if (!state.review || isModalOpen(state)) return;
+        // Not behind a dialog: the focus would go to the bar behind it. The
+        // find bar is Main's: Full edit's box and Preview's page have none (rr.2).
+        if (!state.review || isModalOpen(state) || currentMode(state) !== 'main') return;
         state.openFind();
         event.preventDefault();
         // Pressing it again while the bar is open goes back to the box with the
@@ -109,7 +116,8 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
       if (isTypingTarget(event.target)) return;
       // Nothing behind a dialog, a question, Settings or the Setup screen,
       // with the suggestion editor open, or while a review of this chapter
-      // runs (round 3, item 3).
+      // runs (round 3, item 3); nothing outside Main, where no suggestion
+      // shows and the arrows scroll the page (rr.2 review).
       if (!reviewKeysActive(state)) return;
 
       const review = state.review;

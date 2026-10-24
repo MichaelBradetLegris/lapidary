@@ -2,7 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { composeReview, unsavedDecisionCount } from '../shared/diff/compose';
 import { rebaseReview } from '../shared/diff/rebase';
 import { proPreselection } from '../shared/ai/claudeModels';
+import { toRoyalRoadHtml } from '../shared/text/royalroad';
 import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
+import {
+  PLAN_WELCOME_HINT,
+  chatGptFailureRoute,
+  chatGptUsageLimitCard,
+  planWelcomeShown
+} from '../shared/ui/chatgpt';
+import { copiedHtmlNote } from '../shared/ui/copy';
+import { FINISH_FULL_EDIT_FIRST } from '../shared/ui/modes';
 import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
 import { mergeReloadRun, rebaseCardText, rebaseCardTone, type ReloadRun } from '../shared/ui/rebase';
 import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
@@ -26,17 +35,21 @@ import type { UpdateAction } from '../shared/ui/update';
 import type { ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
 import { PROVIDER_NAMES, type Provider, type Review } from '../shared/types';
 import { AboutDialog } from './components/AboutDialog';
+import { ChatGptSetup } from './components/ChatGptSetup';
 import { ColumnStrip } from './components/ColumnStrip';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { DiagnosticsDialog } from './components/DiagnosticsDialog';
 import { EditPopover } from './components/EditPopover';
 import { FileList } from './components/FileList';
 import { FindBar } from './components/FindBar';
+import { FullEdit } from './components/FullEdit';
 import { HunkTooltip } from './components/HunkTooltip';
 import { LockCard } from './components/LockCard';
 import { ManualReviewDialog } from './components/ManualReviewDialog';
+import { ModeBar } from './components/ModeBar';
 import { NewChapterDialog } from './components/NewChapterDialog';
 import { NotificationCards } from './components/NotificationCards';
+import { PreviewPane } from './components/PreviewPane';
 import { ReviewDialog } from './components/ReviewDialog';
 import { ReviewPane } from './components/ReviewPane';
 import { SettingsDialog } from './components/SettingsDialog';
@@ -47,6 +60,7 @@ import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
 import { UpdateOverlay } from './components/UpdateOverlay';
 import { WelcomeScreen } from './components/WelcomeScreen';
+import { useChatGpt } from './state/chatgpt';
 import { ApiError, call, errorMessage } from './state/client';
 import { installCloseGuard, prepareToLeaveApp, type CloseGuardDeps } from './state/closeGuard';
 import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state/drafts';
@@ -54,13 +68,16 @@ import { useColumnHandle } from './state/columnHandles';
 import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
 import { dismissHint, type HintIo } from './state/hints';
 import { CLOSE_GUARD_IO, PAGE_WRITES } from './state/pageIo';
+import { chooseProvider as chooseReviewProvider } from './state/providerChoice';
+import type { SettingIo } from './state/settingWrites';
 import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { noteMergeMarkers } from './state/mergeMarkers';
 import { useKeyboardBindings } from './state/keyboard';
+import { useModePlaces } from './state/modePlaces';
 import { useProgressLabel } from './state/progress';
 import { reviewWithoutSaving, saveThenReview } from './state/reviewStart';
 import { readSettings, useSettingsRead, type SettingsReadIo } from './state/settingsRead';
-import { useApp, type NotificationAction } from './state/store';
+import { currentMode, fullEditDraft, useApp, type NotificationAction } from './state/store';
 import { closeWelcome, reopenWelcome, type WelcomeIo } from './state/welcome';
 import {
   flushReviewWrites,
@@ -89,6 +106,11 @@ const DRAFT_IO: DraftIo = {
 
 /** How a one-time hint is put away for good (apply.12, state/hints.ts). */
 const HINT_IO: HintIo = {
+  setSettings: (patch) => call('settings:set', patch)
+};
+
+/** How the provider a Review menu item chooses is written (codex.3, state/providerChoice.ts). */
+const SETTINGS_WRITE_IO: SettingIo = {
   setSettings: (patch) => call('settings:set', patch)
 };
 
@@ -149,6 +171,8 @@ export function App(): React.JSX.Element {
   const setSettingsOpen = useApp((s) => s.setSettingsOpen);
   const setupOpen = useApp((s) => s.setupOpen);
   const setSetupOpen = useApp((s) => s.setSetupOpen);
+  const setupFor = useApp((s) => s.setupFor);
+  const setSetupFor = useApp((s) => s.setSetupFor);
   const diagnosticsOpen = useApp((s) => s.diagnosticsOpen);
   const setDiagnosticsOpen = useApp((s) => s.setDiagnosticsOpen);
   const aboutOpen = useApp((s) => s.aboutOpen);
@@ -161,6 +185,10 @@ export function App(): React.JSX.Element {
   const settingsFailedAgain = useSettingsRead((s) => s.failedAgain);
   const chapterSaving = useApp((s) => s.chapterSaving);
   const questionOpen = useApp((s) => s.confirmSpec !== null);
+  /* Main, Full edit or Preview (rr.2): the window's own, never a setting.
+     Each keeps its own place in the chapter's one scroller. */
+  const mode = useApp(currentMode);
+  const modePlaces = useModePlaces(mode, review?.sourcePath ?? null);
 
   const [files, setFiles] = useState<ChapterFile[]>([]);
   const [filesProblem, setFilesProblem] = useState<string | null>(null);
@@ -171,6 +199,8 @@ export function App(): React.JSX.Element {
 
   const ai = useAi();
   const claudeRuntime = ai.runtimes.claude ?? null;
+  /* Sign in with ChatGPT (codex.2): main's status and the sign-in the page waits on. */
+  const chatgpt = useChatGpt();
   const progressLabel = useProgressLabel(ai.running, ai.startedAt, ai.progress?.outputTokens);
 
   /* The chapter's name, and the dot while changes are not saved to it, in
@@ -206,7 +236,14 @@ export function App(): React.JSX.Element {
 
   const activeProvider = settings?.provider ?? 'claude';
   const claudeView = setupView(claudeRuntime, ai.lastFailure);
-  const claudeInUse = activeProvider === 'claude' || setupOpen;
+  /* The Setup screen shows Claude's view or ChatGPT's (codex.2); only
+     Claude's says what the launch card says, and only it puts Claude in use. */
+  const claudeSetupOpen = setupOpen && setupFor === 'claude';
+  const claudeInUse = activeProvider === 'claude' || claudeSetupOpen;
+  /* ChatGPT's view, or ChatGPT as the provider with Claude's view not open
+     (codex.3): the status bar's usage notice is then the ChatGPT plan's. */
+  const chatGptSetupOpen = setupOpen && setupFor === 'chatgpt';
+  const chatGptInUse = chatGptSetupOpen || (activeProvider === 'chatgpt' && !claudeSetupOpen);
   const settingsLoaded = settings !== null;
 
   /* The launch card (section 7): once the settings and Claude's first check
@@ -227,7 +264,7 @@ export function App(): React.JSX.Element {
       showing,
       pastLaunch: runtimeCardPastLaunch.current,
       provider: activeProvider,
-      setupOpen,
+      setupOpen: claudeSetupOpen,
       welcomeOpen
     });
     runtimeCardPastLaunch.current = true;
@@ -241,7 +278,7 @@ export function App(): React.JSX.Element {
     claudeView,
     settingsLoaded,
     activeProvider,
-    setupOpen,
+    claudeSetupOpen,
     welcomeOpen,
     upsertNotification,
     dismissNotificationsByKey
@@ -257,6 +294,33 @@ export function App(): React.JSX.Element {
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, [recheckOnFocus, claudeInUse, claudeView]);
+
+  /* ---------------- ChatGPT's sign-in and its reviews (codex.3) ---------------- */
+
+  /* The sign-in as the ChatGPT view and Settings show it (useChatGpt) and its
+     runtime as the status bar and Review with AI read it (useAi) follow each
+     other. A sign-in, a sign-out or a plan that changes checks the runtime
+     again and forgets the model list, which is the account's; the first
+     status read at launch is what the launch check read already. A runtime
+     that finds no sign-in, as when a model list found it ended, has the
+     status read again. */
+  const chatGptSignedIn = chatgpt.status?.signedIn ?? null;
+  const chatGptPlan = chatgpt.status?.plan ?? null;
+  const { chatGptAccountChanged } = ai;
+  const chatGptSeen = useRef(false);
+  useEffect(() => {
+    if (chatGptSignedIn === null) return;
+    if (!chatGptSeen.current) {
+      chatGptSeen.current = true;
+      return;
+    }
+    chatGptAccountChanged();
+  }, [chatGptSignedIn, chatGptPlan, chatGptAccountChanged]);
+  const chatGptRuntimeState = ai.runtimes.chatgpt?.state ?? null;
+  const { refresh: refreshChatGpt } = chatgpt;
+  useEffect(() => {
+    if (chatGptRuntimeState === 'not-signed-in') refreshChatGpt();
+  }, [chatGptRuntimeState, refreshChatGpt]);
 
   /* ---------------- loading ---------------- */
 
@@ -672,6 +736,18 @@ export function App(): React.JSX.Element {
       .catch((err: unknown) => notify('error', errorMessage(err)));
   }, [review, notify]);
 
+  /* Export HTML (rr.1), under Copy result in Actions: the same text, as HTML for
+     Royal Road's chapter editor (`toRoyalRoadHtml`, PLAN C.111). Nothing is
+     written anywhere but the clipboard. */
+  const exportHtml = useCallback(() => {
+    if (!review) return;
+    const html = toRoyalRoadHtml(composeReview(review));
+    navigator.clipboard
+      .writeText(html)
+      .then(() => notify('info', copiedHtmlNote(html.length)))
+      .catch((err: unknown) => notify('error', errorMessage(err)));
+  }, [review, notify]);
+
   /* Show backups (apply.11, PLAN 6.5), in the toolbar's Actions menu since
      `polish.7` and on the save card: a chapter's own backup folder, with its
      newest backup selected, which main works out from the chapter's path; with
@@ -751,8 +827,19 @@ export function App(): React.JSX.Element {
     setReviewDialogOpen(false);
     setSettingsOpen(false);
     dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);
+    setSetupFor('claude');
     setSetupOpen(true);
-  }, [setReviewDialogOpen, setSettingsOpen, setSetupOpen, dismissNotificationsByKey]);
+  }, [setReviewDialogOpen, setSettingsOpen, setSetupFor, setSetupOpen, dismissNotificationsByKey]);
+
+  /* The Setup screen's ChatGPT view (codex.2), from Settings' ChatGPT account
+     row: the sign-in and the training warning. Claude's launch card says
+     nothing it says, so it stays. */
+  const openChatGptSetup = useCallback(() => {
+    setReviewDialogOpen(false);
+    setSettingsOpen(false);
+    setSetupFor('chatgpt');
+    setSetupOpen(true);
+  }, [setReviewDialogOpen, setSettingsOpen, setSetupFor, setSetupOpen]);
 
   /* Test the connection, on the Setup screen (setup.8): one very small
      request. A test that fails for a reason Setup can fix checks again, as a
@@ -793,13 +880,16 @@ export function App(): React.JSX.Element {
     void reopenWelcome(WELCOME_IO).catch(fail);
   }, [setSettingsOpen, setSetupOpen, fail]);
 
-  /** A new review replaces the working set, so open paragraph editors must be dealt with first. */
+  /** A new review replaces the working set, so open paragraph editors, and Full edit (rr.2), must be dealt with first. */
   const refuseWhileEditing = useCallback((): boolean => {
-    const open = Object.keys(useApp.getState().drafts).length;
+    const drafts = useApp.getState().drafts;
+    const open = Object.keys(drafts).length;
     if (open === 0) return false;
     notify(
       'info',
-      `Finish or cancel the ${open === 1 ? 'paragraph' : `${open} paragraphs`} you are editing first.`,
+      fullEditDraft(drafts)
+        ? FINISH_FULL_EDIT_FIRST
+        : `Finish or cancel the ${open === 1 ? 'paragraph' : `${open} paragraphs`} you are editing first.`,
       'review-drafts'
     );
     return true;
@@ -812,32 +902,57 @@ export function App(): React.JSX.Element {
 
   /**
    * The dialog collects provider, model and effort before anything is sent
-   * (item 6). The Claude Setup screen stands in front of it only when Claude
-   * is the provider and Claude Code is missing or definitely signed out; a
-   * check that failed or an old Claude Code opens the dialog with a warning
-   * (`reviewGate`, setup.7, 11.3 f). OpenAI's only prerequisite is a key,
-   * which the dialog itself shows, and a card points at Settings when there is
-   * none (Phase 5c).
+   * (item 6). The Review menu has an item for each provider, which becomes
+   * the one the dialog starts with (codex.3). The Claude Setup screen stands
+   * in front of it only when Claude is the provider and Claude Code is
+   * missing or definitely signed out; a check that failed or an old Claude
+   * Code opens the dialog with a warning (`reviewGate`, setup.7, 11.3 f).
+   * ChatGPT's view stands in front of it when no ChatGPT sign-in is kept,
+   * and the dialog itself asks for the data settings box (5.7 item 7).
+   * OpenAI's only prerequisite is a key, which the dialog itself shows, and a
+   * card points at Settings when there is none (Phase 5c).
    */
-  const openReviewDialog = useCallback(() => {
-    const current = useApp.getState().review;
-    if (!current?.sourcePath) return;
-    if (refuseWhileEditing()) return;
-    const provider = settings?.provider ?? 'claude';
-    if (provider === 'claude' && reviewGate(claudeRuntime) === 'setup') {
-      openSetup();
-      return;
-    }
-    if (provider === 'openai' && ai.keyStatus && !ai.keyStatus.configured) {
-      notify(
-        'warn',
-        'OpenAI needs an API key before it can review. Paste one into Settings, or switch the provider back to Claude.',
-        'openai-key',
-        'open-settings'
-      );
-    }
-    setReviewDialogOpen(true);
-  }, [settings, claudeRuntime, ai.keyStatus, notify, setReviewDialogOpen, refuseWhileEditing, openSetup]);
+  const openReviewFor = useCallback(
+    (provider: Provider) => {
+      const current = useApp.getState().review;
+      if (!current?.sourcePath) return;
+      if (refuseWhileEditing()) return;
+      void chooseReviewProvider(provider, SETTINGS_WRITE_IO);
+      if (provider === 'claude' && reviewGate(claudeRuntime) === 'setup') {
+        openSetup();
+        return;
+      }
+      if (provider === 'chatgpt' && chatgpt.status !== null && !chatgpt.status.signedIn) {
+        openChatGptSetup();
+        return;
+      }
+      if (provider === 'openai' && ai.keyStatus && !ai.keyStatus.configured) {
+        notify(
+          'warn',
+          'OpenAI needs an API key before it can review. Paste one into Settings, or switch the provider back to Claude.',
+          'openai-key',
+          'open-settings'
+        );
+      }
+      setReviewDialogOpen(true);
+    },
+    [
+      claudeRuntime,
+      chatgpt.status,
+      ai.keyStatus,
+      notify,
+      setReviewDialogOpen,
+      refuseWhileEditing,
+      openSetup,
+      openChatGptSetup
+    ]
+  );
+
+  /** Review with AI with the provider already chosen, as Setup's Try the review anyway opens it. */
+  const openReviewDialog = useCallback(
+    () => openReviewFor(useApp.getState().settings?.provider ?? 'claude'),
+    [openReviewFor]
+  );
 
   /**
    * Run a review. The chapter's review is read-only until it returns (round 3,
@@ -898,6 +1013,28 @@ export function App(): React.JSX.Element {
         notify('info', `${name} suggested ${summary}.${note}`);
       })
       .catch((err: unknown) => {
+        /* ChatGPT (codex.3): a sign-in that is not there, or has ended, and
+           the box not ticked open its view, with the words under its
+           buttons, never a failed review's card; a usage limit puts up its
+           card with Manage usage. */
+        if (err instanceof ApiError && settings.provider === 'chatgpt') {
+          const route = chatGptFailureRoute(err.code);
+          if (route === 'setup') {
+            chatgpt.refresh();
+            chatgpt.say({ tone: 'warn', text: err.message });
+            openChatGptSetup();
+            return;
+          }
+          if (route === 'usage-card') {
+            notify(
+              'error',
+              chatGptUsageLimitCard(err.message, ai.latestChatGptRateLimit(), new Date()),
+              'chatgpt-usage',
+              'chatgpt-usage'
+            );
+            return;
+          }
+        }
         // Setup can fix these: re-check, then show what to do (setup.5).
         if (err instanceof ApiError && SETUP_FAILURES.has(err.code)) {
           ai.check('claude');
@@ -924,7 +1061,17 @@ export function App(): React.JSX.Element {
         fail(err);
       })
       .finally(() => useApp.getState().setAiBusy(null));
-  }, [ai, adoptReview, notify, setReviewDialogOpen, fail, refreshFiles, openSetup]);
+  }, [
+    ai,
+    chatgpt,
+    adoptReview,
+    notify,
+    setReviewDialogOpen,
+    fail,
+    refreshFiles,
+    openSetup,
+    openChatGptSetup
+  ]);
 
   /* No stranded decisions (apply.20, state/reviewStart.ts): with changes not
      saved to the chapter, the dialog's blue button saves them and starts the
@@ -950,8 +1097,13 @@ export function App(): React.JSX.Element {
   }, [setSetupOpen, openReviewDialog]);
 
   const activeRuntime = ai.runtimes[activeProvider];
-  const runtimeLabel =
-    labelForRuntime(activeRuntime, activeProvider === 'claude' ? ai.lastFailure : null) ?? undefined;
+  const activeLastFailure =
+    activeProvider === 'claude'
+      ? ai.lastFailure
+      : activeProvider === 'chatgpt'
+        ? ai.chatGptLastFailure
+        : null;
+  const runtimeLabel = labelForRuntime(activeRuntime, activeLastFailure) ?? undefined;
 
   // The first-use hint hangs over the prose when the side panel is folded
   // (ui.3); the Setup screen and the welcome guide have no side panel,
@@ -968,11 +1120,12 @@ export function App(): React.JSX.Element {
       saving={chapterSaving}
       sideFolded={sideFolded}
       singleScreen={singleScreen}
-      onReviewWithAi={openReviewDialog}
+      onReviewWith={openReviewFor}
       onCancelReview={ai.cancel}
       onManualReview={openManualReview}
       onSaveChapter={saveChapter}
       onCopyResult={copyResult}
+      onExportHtml={exportHtml}
       onShowBackups={() => revealBackups(review?.sourcePath)}
       onSettings={() => setSettingsOpen(true)}
       onSaveHintDone={() => void dismissHint(SAVE_HINT_ID, HINT_IO)}
@@ -1011,22 +1164,32 @@ export function App(): React.JSX.Element {
         case 'update-open-page':
           onUpdateAction(action);
           break;
+        case 'chatgpt-usage':
+          // ChatGPT's usage settings, by name: the page never hands main an address (codex.3).
+          void call('shell:open-external', { page: 'chatgpt-usage' }).catch(fail);
+          break;
       }
     },
     [openSettings, openSetup, fail, revealBackups, setDiagnosticsOpen, onUpdateAction]
   );
 
-  /* The status bar's runtime label is a button: Setup for Claude, Settings
-     for OpenAI (setup.7). */
+  /* The status bar's runtime label is a button: Setup for Claude, its
+     ChatGPT view for ChatGPT (codex.3), Settings for OpenAI (setup.7). */
   const statusRuntime = {
     ...(runtimeLabel ? { runtimeLabel } : {}),
-    onRuntime: activeProvider === 'claude' ? openSetup : openSettings,
+    onRuntime:
+      activeProvider === 'claude'
+        ? openSetup
+        : activeProvider === 'chatgpt'
+          ? openChatGptSetup
+          : openSettings,
     runtimeTitle: runtimeButtonTitle(activeProvider)
   };
   /* Claude's usage, in the status bar while Claude is in use: the notice is
      about the Claude plan, and beside OpenAI's status it would read as
-     OpenAI's (setup.9). */
-  const usageNotice = claudeInUse ? ai.rateLimit : null;
+     OpenAI's (setup.9). The ChatGPT plan's in its place while ChatGPT is in
+     use (codex.3). */
+  const usageNotice = chatGptInUse ? ai.chatGptRateLimit : claudeInUse ? ai.rateLimit : null;
 
   /* The dialogs, each drawn only when it can be. They sit outside the
      page, which is inert while one of them is open, so Tab and Shift+Tab go
@@ -1068,6 +1231,7 @@ export function App(): React.JSX.Element {
         settings={settings}
         models={ai.models}
         modelsLoading={ai.modelsLoading}
+        modelsError={ai.modelsError}
         runtimes={ai.runtimes}
         keyStatus={ai.keyStatus}
         history={history}
@@ -1078,11 +1242,18 @@ export function App(): React.JSX.Element {
         onStartWithout={startReviewWithoutSaving}
         onApplySettings={setSettings}
         onNeedModels={ai.ensureModels}
+        onRetryModels={ai.retryModels}
         onOpenSettings={openSettings}
         onCheckClaude={() => ai.check('claude')}
         checking={ai.checking}
         claudeLastFailure={ai.lastFailure}
         onOpenSetup={openSetup}
+        chatgpt={chatgpt.status}
+        chatgptWaiting={chatgpt.waiting}
+        onOpenChatGptSetup={openChatGptSetup}
+        onConfirmDataSettings={chatgpt.setDataSettingsConfirmed}
+        onOpenDataControls={chatgpt.openDataControls}
+        onManageUsage={chatgpt.openUsage}
         onStart={startReview}
         onClose={() => setReviewDialogOpen(false)}
       />
@@ -1094,6 +1265,8 @@ export function App(): React.JSX.Element {
         models={ai.models.claude ?? []}
         runtime={claudeRuntime}
         keyStatus={ai.keyStatus}
+        chatgpt={chatgpt.status}
+        chatgptWaiting={chatgpt.waiting}
         onKeyChanged={ai.keyChanged}
         onApply={(next) => {
           setSettings(next);
@@ -1101,6 +1274,7 @@ export function App(): React.JSX.Element {
         }}
         onClose={() => setSettingsOpen(false)}
         onOpenSetup={openSetup}
+        onOpenChatGptSetup={openChatGptSetup}
         onShowWelcome={showWelcomeAgain}
         onAbout={() => {
           setSettingsOpen(false);
@@ -1201,7 +1375,24 @@ export function App(): React.JSX.Element {
           {toolbar}
           <div className="body body--single">
             <NotificationCards onAction={onCardAction} />
-            {setupOpen ? (
+            {setupOpen && setupFor === 'chatgpt' ? (
+              <ChatGptSetup
+                status={chatgpt.status}
+                waiting={chatgpt.waiting}
+                busy={chatgpt.busy}
+                outcome={chatgpt.outcome}
+                onSignIn={chatgpt.signIn}
+                onCancelSignIn={chatgpt.cancelSignIn}
+                onSignOut={chatgpt.signOut}
+                onConfirmDataSettings={chatgpt.setDataSettingsConfirmed}
+                onOpenDataControls={chatgpt.openDataControls}
+                welcome={planWelcomeShown(chatgpt.status, settings?.dismissedHints)}
+                onManageUsage={chatgpt.openUsage}
+                onWelcomeDone={() => void dismissHint(PLAN_WELCOME_HINT, HINT_IO)}
+                onClose={() => setSetupOpen(false)}
+                version={updateStatus?.current ?? null}
+              />
+            ) : setupOpen ? (
               <SetupScreen
                 runtime={claudeRuntime}
                 lastFailure={ai.lastFailure}
@@ -1224,7 +1415,9 @@ export function App(): React.JSX.Element {
                 claude={claudeRuntime}
                 claudeLastFailure={ai.lastFailure}
                 openai={ai.runtimes.openai ?? null}
+                chatgpt={chatgpt.status}
                 onSetUpClaude={openSetup}
+                onSetUpChatGpt={openChatGptSetup}
                 onUseProvider={chooseProvider}
                 onOpenSettings={openSettings}
                 onChooseFolder={chooseManuscriptFolder}
@@ -1298,31 +1491,41 @@ export function App(): React.JSX.Element {
           {/* The centre column: the manuscript pane, from the toolbar's foot,
               as the chapter list and the side panel are. The category chips
               were at its top from polish.6 and are in the toolbar's row since
-              polish.10. */}
+              polish.10. The Mode select is at its top right, above the prose,
+              with a chapter open (rr.2). */}
           <div className="center-col">
+            {review ? <ModeBar /> : null}
             {/* The find bar is a strip above the scroller, not a sticky bar inside
               it: inside, it scrolled out of view once the author was more than
               a screen down, and Ctrl+F then seemed to do nothing (round 4). The
-              notification cards and the lock card are pinned to this wrapper. */}
-            <div className={`center-wrap ${findOpen ? 'center-wrap--find' : ''}`}>
-              {review ? <FindBar /> : null}
+              notification cards and the lock card are pinned to this wrapper.
+              The find bar is Main's: Full edit and Preview have none (rr.2). */}
+            <div className={`center-wrap ${findOpen && mode === 'main' ? 'center-wrap--find' : ''}`}>
+              {review && mode === 'main' ? <FindBar /> : null}
               {/* A press in the prose closes an open drawer, as a click
                   outside a menu closes it (ui.3), and does what it would anyway. */}
               <main
-                className="center"
+                {...modePlaces}
+                className={`center center--${mode}`}
                 onPointerDown={() => {
                   if (useDrawer.getState().open !== null) useDrawer.getState().setOpen(null);
                 }}
               >
                 {review ? (
-                  <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
+                  mode === 'edit' ? (
+                    <FullEdit review={review} />
+                  ) : mode === 'preview' ? (
+                    <PreviewPane review={review} />
+                  ) : (
+                    <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
+                  )
                 ) : (
                   <div className="empty">
                     <h1>Nothing open</h1>
                     <p>
                       Pick a chapter on the left, or start one with the + beside Chapters. In the Review menu,
-                      With AI asks for suggestions and Manual turns a corrected copy into the same kind of
-                      list. You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
+                      Claude, ChatGPT or OpenAI asks for suggestions, and Manual turns a corrected copy into
+                      the same kind of list. You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
                     </p>
                   </div>
                 )}

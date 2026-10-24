@@ -96,6 +96,45 @@ export function splitParagraphs(text: string): Paragraph[] {
   return out;
 }
 
+/** A paragraph of body text: its words, from `start` to `end` in the text it was read from. */
+export interface BodyPiece {
+  start: number;
+  end: number;
+  text: string;
+}
+
+/**
+ * The paragraphs of `text` between `from` and `to`, read as body text: split
+ * as `splitParagraphs` splits the body, a run of blank lines between two, and
+ * blank lines at either end of a piece left out, but with no frontmatter
+ * looked for, so a `---` line at the start is just a line. Full edit reads the
+ * chapter's words and the author's so (`planChapterEdit`, rr.2).
+ */
+export function bodyPieces(text: string, from = 0, to = text.length): BodyPiece[] {
+  const rest = text.slice(from, to);
+  const pieces: BodyPiece[] = [];
+  const separator = new RegExp(SEPARATOR.source, 'g');
+  let last = 0;
+  const push = (start: number, end: number): void => {
+    const raw = rest.slice(start, end);
+    if (raw.trim().length === 0) return;
+    const lead = LEADING_BLANK_LINES.exec(raw)?.[0].length ?? 0;
+    const trail = TRAILING_BLANK_LINES.exec(raw)?.[0].length ?? 0;
+    pieces.push({
+      start: from + start + lead,
+      end: from + end - trail,
+      text: raw.slice(lead, raw.length - trail)
+    });
+  };
+  let match: RegExpExecArray | null;
+  while ((match = separator.exec(rest)) !== null) {
+    push(last, match.index);
+    last = match.index + match[0].length;
+  }
+  push(last, rest.length);
+  return pieces;
+}
+
 /**
  * How many paragraphs `text` holds when it is read as part of a chapter's
  * body: split as `splitParagraphs` splits, but with no frontmatter looked

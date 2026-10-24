@@ -5,7 +5,8 @@
  * so it holds only short scalar facts about what happened, never content. These
  * helpers enforce that at the boundary:
  *
- * - `scrub` removes API key shapes, Bearer tokens, email addresses and the
+ * - `scrub` removes API key shapes, Bearer tokens, signed tokens (JWTs, the
+ *   shape of a ChatGPT sign-in's tokens, codex.2), email addresses and the
  *   user's home directory from any string;
  * - `formatFields` keeps only scalar values, each scrubbed and cut short;
  * - `loggableErrorFields` is the one policy for errors. It drops the parts of an
@@ -30,6 +31,8 @@ export type FieldValue = string | number | boolean | null;
 
 const KEY_SHAPE = /(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}/g;
 const BEARER = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi;
+/** A JSON Web Token: three base64url parts, the first a JSON header (`eyJ`). */
+const JWT = /\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*/g;
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
 
 function escapeRegExp(text: string): string {
@@ -55,7 +58,11 @@ function homePattern(home: string): RegExp | null {
 }
 
 export function scrub(text: string, ctx: ScrubContext = {}): string {
-  let out = text.replace(KEY_SHAPE, '[key]').replace(BEARER, 'Bearer [token]').replace(EMAIL, '[email]');
+  let out = text
+    .replace(KEY_SHAPE, '[key]')
+    .replace(BEARER, 'Bearer [token]')
+    .replace(JWT, '[token]')
+    .replace(EMAIL, '[email]');
   const home = ctx.home ? homePattern(ctx.home) : null;
   if (home) out = out.replace(home, '~');
   return out;

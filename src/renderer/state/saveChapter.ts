@@ -6,9 +6,10 @@ import { mergeMarkersCard } from '../../shared/text/sync';
 import type { Review, ReviewBase } from '../../shared/types';
 import { SHOW_BACKUPS_CARD } from '../../shared/ui/backups';
 import { rebaseCardText } from '../../shared/ui/rebase';
+import { applyFullEditBeforeSavePrompt } from '../../shared/ui/modes';
 import { CHAPTER_MATCHES_PAGE } from '../../shared/ui/save';
 import { noteMergeMarkers } from './mergeMarkers';
-import { changedParagraphCount, isLocked, savedReview, useApp } from './store';
+import { changedParagraphCount, fullEditDraft, isLocked, savedReview, useApp } from './store';
 
 /*
  * Save to chapter (apply.3, PLAN 6.3): the one path from the page to the
@@ -128,13 +129,17 @@ async function runSave(options: SaveOptions, deps: SaveDeps): Promise<SaveOutcom
     return 'nothing-to-save';
   }
   if (changed > 0 && options.applyDrafts === 'ask') {
-    const ok = await start.askConfirm({
-      title: 'Apply paragraph edits first?',
-      body: `${changed} paragraph${changed === 1 ? ' is' : 's are'} still open for editing. Apply ${
-        changed === 1 ? 'its changes' : 'their changes'
-      } as accepted suggestions, then save the chapter?`,
-      confirmLabel: 'Apply and save'
-    });
+    const ok = await start.askConfirm(
+      fullEditDraft(start.drafts)
+        ? applyFullEditBeforeSavePrompt()
+        : {
+            title: 'Apply paragraph edits first?',
+            body: `${changed} paragraph${changed === 1 ? ' is' : 's are'} still open for editing. Apply ${
+              changed === 1 ? 'its changes' : 'their changes'
+            } as accepted suggestions, then save the chapter?`,
+            confirmLabel: 'Apply and save'
+          }
+    );
     if (!ok) return 'cancelled';
   }
   if (open > 0) {
@@ -146,7 +151,9 @@ async function runSave(options: SaveOptions, deps: SaveDeps): Promise<SaveOutcom
     const { blocked } = app().commitAllDrafts();
     if (blocked.length > 0) {
       for (const message of blocked) app().notify('warn', message);
-      app().notify('error', 'Nothing was saved. Resolve the paragraphs above, then save again.', SAVE_CARD);
+      // Full edit's box is never open beside a paragraph box, and stays open when it is refused (rr.2).
+      const what = fullEditDraft(app().drafts) ? 'Full edit as the card above says' : 'the paragraphs above';
+      app().notify('error', `Nothing was saved. Resolve ${what}, then save again.`, SAVE_CARD);
       return 'blocked';
     }
   }

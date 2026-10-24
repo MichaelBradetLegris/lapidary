@@ -10,7 +10,7 @@ import {
   toStoredDrafts
 } from '../../shared/ui/drafts';
 import { createKeyedWriter } from './persist';
-import { useApp } from './store';
+import { fullEditDraft, useApp } from './store';
 
 /*
  * Paragraph boxes kept on disk (apply.16, PLAN 11.3 j and 7.4).
@@ -84,9 +84,16 @@ function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** The card, and the close guard's line, when boxes could not be written. */
+/**
+ * The card, and the close guard's line, when boxes could not be written. Full
+ * edit's box is never open beside a paragraph box (rr.2), so the words name
+ * whichever is open.
+ */
 function notKeptText(message: string): string {
-  return `The paragraphs you are editing could not be kept: ${message}`;
+  const what = fullEditDraft(useApp.getState().drafts)
+    ? 'What you typed in Full edit'
+    : 'The paragraphs you are editing';
+  return `${what} could not be kept: ${message}`;
 }
 
 function sameReview(a: Review | null, b: Review | null): boolean {

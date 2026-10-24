@@ -59,6 +59,7 @@ describe('buildClaudeEnv', () => {
     CLAUDE_CONFIG_DIR: 'C:\\cfg',
     claude_code_simple: '1',
     MANUSCRIPT_REVIEW_OPENAI_BASE_URL: 'http://127.0.0.1:4599/v1',
+    MANUSCRIPT_REVIEW_CHATGPT_AUTH_URL: 'http://127.0.0.1:4600',
     MREV_VERBOSE: '1',
     HTTPS_PROXY: 'http://proxy:8080',
     UNSET: undefined

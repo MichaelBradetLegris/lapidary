@@ -519,7 +519,7 @@ describe('setupStatus', () => {
       tone: 'ok',
       title: 'Claude is ready',
       lines: [
-        `Claude Code ${CURRENT} is signed in as ann@example.com (Claude Max). With AI, in the Review menu, can use Claude.`
+        `Claude Code ${CURRENT} is signed in as ann@example.com (Claude Max). Claude, in the Review menu, starts a review.`
       ]
     });
     const key = setupStatus('api-key', claude({ credential: 'api-key', apiKeySource: 'ANTHROPIC_API_KEY' }));
@@ -905,7 +905,7 @@ describe('a token in ANTHROPIC_AUTH_TOKEN (setup.17)', () => {
     expect(setupView(token, null)).toBe('ready');
     expect(runtimeLabel(token)).toBe('Claude ready (token)');
     expect(setupStatus('ready', token).lines).toEqual([
-      `Claude Code ${CURRENT} signs in with the token in ANTHROPIC_AUTH_TOKEN, such as a gateway or proxy hands out, so reviews are billed to the account behind that token, not through your Claude sign-in. With AI, in the Review menu, can use Claude.`,
+      `Claude Code ${CURRENT} signs in with the token in ANTHROPIC_AUTH_TOKEN, such as a gateway or proxy hands out, so reviews are billed to the account behind that token, not through your Claude sign-in. Claude, in the Review menu, starts a review.`,
       `To use your Claude sign-in instead, remove ANTHROPIC_AUTH_TOKEN from your environment and start ${APP_NAME} again.`
     ]);
     expect(connectionTestNote(token)).toBe(CONNECTION_TEST_NOTES['auth-token']);

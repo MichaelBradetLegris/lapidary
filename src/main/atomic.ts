@@ -21,6 +21,12 @@ export interface AtomicWriteOptions {
   /** run before each retry; without it a retry never stops early */
   beforeRetry?: () => Promise<TargetCheck>;
   platform?: NodeJS.Platform;
+  /**
+   * Off Windows, the file's permission bits, whatever the target's were: 0o600
+   * for secrets.json, which only its owner may read (codex.2). Left out, the
+   * temp file takes the target's.
+   */
+  mode?: number;
 }
 
 export type AtomicWriteOutcome = 'written' | 'stale';
@@ -61,7 +67,10 @@ export async function atomicWriteFile(
   try {
     handle = await fs.open(tmp, 'wx');
     await handle.writeFile(bytes);
-    if (platform !== 'win32') await copyMode(target, handle);
+    if (platform !== 'win32') {
+      if (options.mode === undefined) await copyMode(target, handle);
+      else await handle.chmod(options.mode);
+    }
     await handle.sync();
     await handle.close();
     handle = undefined;

@@ -18,24 +18,28 @@ const MENU =
   read('components/ToolbarMenu.tsx') + read('components/useMenu.ts') + read('components/MenuList.tsx');
 
 describe("the menus' items (polish.7)", () => {
-  it('gives Review With AI, off while a review runs, and Manual, with the tooltip Submit manual review had', () => {
+  it('gives Review an item for each provider, off while a review runs, and Manual, with the tooltip Submit manual review had', () => {
     const review = TOOLBAR.slice(
       TOOLBAR.indexOf('label={REVIEW_MENU.label}'),
       TOOLBAR.indexOf('label={ACTIONS_MENU}')
     );
+    // codex.3: With AI gave way to Claude, ChatGPT and OpenAI (API key), each opening
+    // Review with AI with that provider chosen, in PROVIDERS' order.
     expect(review).toMatch(
-      /label: REVIEW_MENU\.withAi,\s*onSelect: onReviewWithAi,\s*disabled: running,\s*title: running \? 'Wait until the review that is running ends, or cancel it' : undefined/
+      /\.\.\.PROVIDERS\.map\(\(provider\): MenuItem => \(\{\s*label: reviewMenuLabel\(provider\),\s*onSelect: \(\) => onReviewWith\(provider\),\s*disabled: running,\s*title: running\s*\?\s*'Wait until the review that is running ends, or cancel it'\s*:\s*REVIEW_WITH_TITLES\[provider\]\s*\}\)\)/
     );
     expect(review).toMatch(
-      /label: REVIEW_MENU\.manual,\s*onSelect: onManualReview,\s*title: 'Paste a corrected version of this chapter and turn the differences into suggestions'/
+      /label: REVIEW_MENU\.manual,\s*onSelect: onManualReview,\s*title: 'Paste a corrected version of this chapter and turn the differences into suggestions',\s*separated: true/
     );
     expect(review).toContain('disabled={!review?.sourcePath || locked}');
+    expect(review).not.toContain('withAi');
   });
 
-  it('gives Actions the three bulk items, off while the chapter is read-only or a paragraph is open, then Copy result and Show backups', () => {
+  it('gives Actions the three bulk items, off while the chapter is read-only or a paragraph is open, then Copy result, Export HTML and Show backups', () => {
     expect(TOOLBAR).toContain('const bulkOff = locked || editing > 0;');
-    expect(TOOLBAR).toContain(
-      "const bulkTitle = editing > 0 ? 'Finish or cancel the paragraphs you are editing first' : undefined;"
+    // Full edit's box is one of the drafts, and the tooltip names it (rr.2).
+    expect(TOOLBAR).toMatch(
+      /const bulkTitle =\s*editing > 0\s*\?\s*fullEdit\s*\?\s*FINISH_FULL_EDIT_TITLE\s*:\s*'Finish or cancel the paragraphs you are editing first'\s*:\s*undefined;/
     );
     for (const [label, action] of [
       ['Accept all', 'accept'],
@@ -47,6 +51,8 @@ describe("the menus' items (polish.7)", () => {
       );
     }
     expect(TOOLBAR).toContain("{ label: 'Copy result', onSelect: onCopyResult, separated: true }");
+    // rr.1: never disabled, as Copy result is not.
+    expect(TOOLBAR).toContain('{ label: EXPORT_HTML, onSelect: onExportHtml, title: EXPORT_HTML_TITLE }');
     expect(TOOLBAR).toContain('{ label: SHOW_BACKUPS, onSelect: onShowBackups, title: SHOW_BACKUPS_TITLE }');
   });
 });

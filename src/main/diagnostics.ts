@@ -25,7 +25,7 @@ import { isDefaultReviewsFolder, resolveReviewsFolder } from './reviews';
  * `diagnosticsReport` (src/shared/diagnostics/report.ts), which writes them
  * out and scrubs them.
  *
- * It never runs a check of Claude or OpenAI: it reads what the last check
+ * It never runs a check of Claude, ChatGPT or OpenAI: it reads what the last check
  * found (`lastRuntime`, `lastFailure`), the Claude Code the last lookup found
  * (`installedCli`, through `info`) and Setup's own Claude lines
  * (`claudeDiagnostics`), so opening the report costs nothing and logs no
@@ -64,6 +64,7 @@ export function switchWords(switches: DevSwitches): string[] {
   return [
     ...(switches.userDataDir ? ['isolated user data'] : []),
     ...(switches.openAiBaseUrl ? ['OpenAI base URL'] : []),
+    ...(switches.chatGptAuthUrl ? ['ChatGPT sign-in URL'] : []),
     ...(switches.noClaudeCode ? ['no Claude Code'] : []),
     ...(switches.fakeUpdate ? [`fake update ${switches.fakeUpdate}`] : []),
     ...(switches.quietWindow ? ['quiet window'] : []),
@@ -205,10 +206,12 @@ export async function collectDiagnostics(deps: DiagnosticsDeps): Promise<Diagnos
     settings: {
       provider: settings.provider,
       model: settings.model,
+      chatgptModel: settings.chatgptModel,
       openaiModel: settings.openaiModel,
       effort: settings.effort
     },
     claude: claudeDiagnostics(deps.lastRuntime('claude'), deps.lastFailure('claude')),
+    chatgpt: { runtime: deps.lastRuntime('chatgpt'), lastFailure: deps.lastFailure('chatgpt') },
     openai: { runtime: deps.lastRuntime('openai'), lastFailure: deps.lastFailure('openai') },
     folders,
     guidelines,

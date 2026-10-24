@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme, safeStorage, screen, 
 import { existsSync, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { APP_REPOSITORY } from '../shared/branding';
+import { APP_NAME, APP_REPOSITORY } from '../shared/branding';
 import { diagnosticsReport, type DisplayFacts } from '../shared/diagnostics/report';
 import type { Settings } from '../shared/types';
 import type {
@@ -16,7 +16,9 @@ import type {
 } from '../shared/ipc';
 import { chapterName } from '../shared/review';
 import { noBackupsYet } from '../shared/ui/backups';
+import { externalPageUrl } from '../shared/ui/chatgpt';
 import { backupsRootFor, chapterBackupHooks, chapterBackups } from './backups';
+import { createChatGptAuth, type ChatGptAuth } from './chatgpt';
 import { boxAnswer, createCloseGuard, messageBoxOptions } from './closeGuard';
 import { getDevSwitches } from './devSwitches';
 import {
@@ -39,7 +41,8 @@ import {
   lastFailure,
   lastRuntime,
   noteTest,
-  providers
+  providers,
+  setChatGptAuth
 } from './providers';
 import { testConnection } from './providers/connectionTest';
 import { abortAll, registerController } from './providers/controllers';
@@ -224,6 +227,7 @@ export function registerCoreHandlers(): void {
   registerDraftHandlers();
   registerAiHandlers();
   registerSecretHandlers();
+  registerChatGptHandlers();
   registerCloseGuardHandlers();
   registerDiagnosticsHandlers();
   registerUpdates();
@@ -457,6 +461,52 @@ function registerSecretHandlers(): void {
   handle('secrets:openai-status', async () => openAiKeyStatus(safeStorage, dir()));
   handle('secrets:openai-set', async ({ key }) => storeOpenAiKey(safeStorage, dir(), key));
   handle('secrets:openai-clear', async () => clearOpenAiKey(safeStorage, dir()));
+}
+
+/**
+ * Sign in with ChatGPT (codex.2, PLAN 5.7), made once: main signs in through
+ * the browser and a loopback port, keeps the tokens encrypted beside the key
+ * (src/main/chatgpt), and the page only ever gets the status. A sign-in waits
+ * for the browser, so it is not a tracked write: Restart now would wait on
+ * it. Quitting ends it (`registerController`), and its writes of
+ * secrets.json are tracked one by one.
+ */
+let chatGptAuth: ChatGptAuth | null = null;
+
+function chatGpt(): ChatGptAuth {
+  chatGptAuth ??= createChatGptAuth({
+    userDataDir: () => app.getPath('userData'),
+    vault: safeStorage,
+    shell: systemShell,
+    fetch: (input, init) => fetch(input, init),
+    authBase: () => getDevSwitches().chatGptAuthUrl,
+    log,
+    track: registerController,
+    write: trackWrite
+  });
+  return chatGptAuth;
+}
+
+function registerChatGptHandlers(): void {
+  // The ChatGPT provider asks the same sign-in for the bearer of a review (codex.3).
+  setChatGptAuth(chatGpt);
+  handle('chatgpt:status', () => chatGpt().status());
+  handle('chatgpt:sign-in', ({ another }) => chatGpt().signIn({ another: another === true }));
+  handle('chatgpt:cancel-sign-in', () => {
+    chatGpt().cancelSignIn();
+    return Promise.resolve();
+  });
+  handle('chatgpt:sign-out', () => chatGpt().signOut());
+  handle('chatgpt:confirm-data-settings', ({ confirmed }) =>
+    chatGpt().confirmDataSettings(confirmed === true)
+  );
+  /* A page by its name, never an address from the page: ChatGPT's Data
+     controls (codex.2). The shell stub writes it to the terminal instead. */
+  handle('shell:open-external', async ({ page }) => {
+    const url = externalPageUrl(page);
+    if (url === null) throw fail('invalid-input', `That is not a page ${APP_NAME} opens.`);
+    await systemShell().openExternal(url);
+  });
 }
 
 /**

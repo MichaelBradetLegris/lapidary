@@ -7,6 +7,7 @@ import { createReview } from '../../src/shared/review';
 import { DEFAULT_SETTINGS, type Review } from '../../src/shared/types';
 import { MERGE_MARKERS_CARD, mergeMarkersText } from '../../src/shared/text/sync';
 import { SHOW_BACKUPS_CARD, noBackupsYet } from '../../src/shared/ui/backups';
+import { applyFullEditBeforeSavePrompt } from '../../src/shared/ui/modes';
 import {
   CHAPTER_MATCHES_PAGE,
   PRESS_DONE_FIRST,
@@ -263,6 +264,50 @@ describe('Save to chapter (apply.3)', () => {
     expect(cards().some((t) => t.startsWith('Paragraph 2 changed while you were editing it'))).toBe(true);
     expect(lastCard()).toBe('Nothing was saved. Resolve the paragraphs above, then save again.');
     expect(state().drafts[1]?.text).toBe('She said nothing.');
+  });
+
+  it('writes nothing when a changed Full edit cannot be applied, and says to resolve Full edit (rr.2)', async () => {
+    expect(state().openFullEdit()).toBeNull();
+    state().setDraftText(-1, CHAPTER.replace('nothing at all', 'nothing'));
+    // The chapter changed on disk under Full edit: the watcher reloaded the same review.
+    const r = state().review!;
+    state().setReview(
+      { ...r, base: { ...r.base, text: CHAPTER.replace('nothing at all', 'little'), hash: 'h9' } },
+      REVIEW_PATH
+    );
+    const h = harness();
+    expect(await saveChapter({ applyDrafts: 'apply' }, h.deps)).toBe('blocked');
+    expect(h.requests).toEqual([]);
+    expect(cards().some((t) => t.startsWith('The chapter changed on disk while Full edit was open'))).toBe(
+      true
+    );
+    expect(lastCard()).toBe('Nothing was saved. Resolve Full edit as the card above says, then save again.');
+    expect(state().drafts[-1]?.text).toBe(CHAPTER.replace('nothing at all', 'nothing'));
+  });
+
+  /* rr.2 review: Save to chapter from the toolbar with a changed Full edit
+     asked the paragraph boxes' question in a mutation and every test passed. */
+  it('asks "Apply Full edit first?" for a changed Full edit: Cancel keeps it, Apply writes it (rr.2)', async () => {
+    expect(state().openFullEdit()).toBeNull();
+    const typed = CHAPTER.replace('nothing at all', 'nothing');
+    state().setDraftText(-1, typed);
+    let h = harness();
+    let run = saveChapter({ applyDrafts: 'ask' }, h.deps);
+    await tick();
+    expect(state().confirmSpec).toEqual(applyFullEditBeforeSavePrompt());
+    state().answerChoice('cancel');
+    expect(await run).toBe('cancelled');
+    expect(h.requests).toEqual([]);
+    expect(state().drafts[-1]?.text).toBe(typed);
+
+    h = harness({ status: 'written', hash: 'h2' });
+    run = saveChapter({ applyDrafts: 'ask' }, h.deps);
+    await tick();
+    expect(state().confirmSpec?.title).toBe('Apply Full edit first?');
+    state().answerChoice('confirm');
+    expect(await run).toBe('saved');
+    expect(h.requests[0]?.text).toBe(typed);
+    expect(state().drafts).toEqual({});
   });
 
   it('is blocked while a review of the chapter runs, and with no chapter open', async () => {

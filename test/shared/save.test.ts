@@ -999,3 +999,94 @@ describe('wording rules', () => {
     expect(source.toLowerCase()).not.toContain(APP_NAME.toLowerCase());
   });
 });
+
+/* rr.2: Full edit's box counts among the changed boxes, and every question
+   that names the boxes names Full edit instead while it is the one open. */
+describe('Full edit in the questions (rr.2)', () => {
+  const FULL_EDIT_KEPT =
+    'What you typed in Full edit is kept as you left it and opens in Full edit again when you come back to this chapter.';
+
+  it('the leave question says Full edit is kept, and Apply and save first applies it', () => {
+    const prompt = leavePrompt(leaving({ unsavedDecisions: 2, changedParagraphs: 1, fullEdit: true }), {
+      kind: 'chapter',
+      path: OTHER
+    });
+    expect(prompt?.body.split('\n')).toEqual([
+      '2 changes are not saved to the chapter yet.',
+      KEPT,
+      FULL_EDIT_KEPT
+    ]);
+    expect(prompt?.confirmLabel).toBe('Apply and save first');
+    expect(prompt?.altLabel).toBe('Keep for later');
+    // A box's line when it is not Full edit, as before.
+    expect(
+      leavePrompt(leaving({ changedParagraphs: 1 }), { kind: 'chapter', path: OTHER })?.body.split('\n')
+    ).toEqual([BOX_KEPT]);
+  });
+
+  it('the close question says so too, with Apply, save and close', () => {
+    const prompt = closePrompt(guard({ changedParagraphs: 1, fullEdit: true }));
+    expect(prompt?.body.split('\n')).toEqual([FULL_EDIT_KEPT]);
+    expect(prompt?.confirmLabel).toBe('Apply, save and close');
+    expect(prompt?.altLabel).toBe('Close, keep for later');
+    expect(focusedChoice({ ...prompt!, defaultButton: prompt!.defaultButton })).toBe('alt');
+  });
+
+  it("main's box names what typed in Full edit may lose", () => {
+    expect(unresponsiveDetail('no-answer', guard({ changedParagraphs: 1, fullEdit: true })).detail).toContain(
+      'Text typed in Full edit just before it stopped responding may be lost.'
+    );
+    expect(unresponsiveDetail('no-answer', guard({ changedParagraphs: 1 })).detail).toContain(
+      'Paragraph text typed just before it stopped responding may be lost.'
+    );
+  });
+
+  it("Save to chapter's tooltip says it asks about Full edit first", () => {
+    expect(saveButtonState(button({ unsavedDecisions: 2, changedParagraphs: 1, fullEdit: true })).title).toBe(
+      'Write your decisions into the chapter file (Ctrl+S). You are asked first about what you typed in Full edit.'
+    );
+    expect(saveButtonState(button({ changedParagraphs: 2 })).title).toBe(
+      'Write your decisions into the chapter file (Ctrl+S). You are asked first about the 2 paragraphs you are editing.'
+    );
+    const context: ToolbarSaveContext = {
+      review: null,
+      changedParagraphs: 1,
+      fullEdit: true,
+      saving: false,
+      locked: false
+    };
+    expect(saveButtonInput(context).fullEdit).toBe(true);
+    expect('fullEdit' in saveButtonInput({ ...context, fullEdit: false })).toBe(false);
+  });
+
+  it('Ctrl+S from inside Full edit says to press Done first, as from a paragraph box', () => {
+    const key: ShortcutKey = {
+      key: 's',
+      code: 'KeyS',
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      repeat: false
+    };
+    const context: SaveShortcutContext = {
+      hasChapter: true,
+      modalOpen: false,
+      inParagraphBox: false,
+      inFullEdit: true,
+      suggestionEditorOpen: false,
+      locked: false,
+      saving: false,
+      unsavedDecisions: 2,
+      changedParagraphs: 1
+    };
+    expect(saveShortcutAction(key, context)).toEqual({
+      kind: 'card',
+      message: 'Full edit is still open. Press Done or Ctrl+Enter to apply it, then save.'
+    });
+    // From outside the box, Save asks about it first (runSave), as for a box.
+    expect(saveShortcutAction(key, { ...context, inFullEdit: false })).toEqual({ kind: 'save' });
+    // Behind a dialog nothing happens, as ever.
+    expect(saveShortcutAction(key, { ...context, modalOpen: true })).toEqual({ kind: 'ignore' });
+  });
+});

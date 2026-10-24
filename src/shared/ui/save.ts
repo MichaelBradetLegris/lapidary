@@ -24,6 +24,7 @@ import { samePath } from '../paths';
 import { chapterName } from '../review';
 import type { Review } from '../types';
 import type { ConfirmChoice } from './confirm';
+import { FULL_EDIT_DONE_FIRST } from './modes';
 
 /* ------------------------------------------------------------------ */
 /* Shared wording                                                       */
@@ -67,7 +68,11 @@ const KEPT_LINE = `Your decisions are kept in this review. ${SAVE_ONLY}`;
  * not to a review (C.53): after a close or a move to another chapter they open
  * again when the chapter does, on whichever of its reviews is on screen.
  */
-function paragraphLine(p: number): string {
+function paragraphLine(p: number, fullEdit = false): string {
+  // Full edit's box is never open beside a paragraph box (rr.2).
+  if (fullEdit) {
+    return 'What you typed in Full edit is kept as you left it and opens in Full edit again when you come back to this chapter.';
+  }
   return p === 1
     ? 'The paragraph you are editing is kept as you left it and opens for editing again when you come back to this chapter.'
     : `The ${p} paragraphs you are editing are kept as you left them and open for editing again when you come back to this chapter.`;
@@ -87,6 +92,8 @@ export interface SaveButtonInput {
   unsavedDecisions: number;
   /** paragraph boxes whose text differs from what they opened with */
   changedParagraphs: number;
+  /** one of them is Full edit's box (rr.2); absent is false */
+  fullEdit?: boolean;
   /** a Save to chapter is under way */
   saving: boolean;
   /** a review of this chapter is running, so the page is read-only */
@@ -98,6 +105,8 @@ export interface ToolbarSaveContext {
   /** the review on screen, or null when none is open */
   review: Pick<Review, 'sourcePath' | 'hunks'> | null;
   changedParagraphs: number;
+  /** one of them is Full edit's box (rr.2); absent is false */
+  fullEdit?: boolean;
   saving: boolean;
   locked: boolean;
 }
@@ -113,6 +122,7 @@ export function saveButtonInput(context: ToolbarSaveContext): SaveButtonInput {
     hasChapter: Boolean(context.review?.sourcePath),
     unsavedDecisions: context.review ? unsavedDecisionCount(context.review.hunks) : 0,
     changedParagraphs: context.changedParagraphs,
+    ...(context.fullEdit ? { fullEdit: true } : {}),
     saving: context.saving,
     locked: context.locked
   };
@@ -181,10 +191,11 @@ export function saveButtonState(input: SaveButtonInput): SaveButtonState {
   if (input.changedParagraphs > 0) {
     const boxes =
       input.changedParagraphs === 1 ? 'the paragraph' : `the ${input.changedParagraphs} paragraphs`;
+    const what = input.fullEdit ? 'what you typed in Full edit' : `${boxes} you are editing`;
     return {
       label,
       disabled: false,
-      title: `Write your decisions into the chapter file (Ctrl+S). You are asked first about ${boxes} you are editing.`,
+      title: `Write your decisions into the chapter file (Ctrl+S). You are asked first about ${what}.`,
       dot,
       primary
     };
@@ -293,7 +304,7 @@ export function closePrompt(state: CloseGuardState): SavePrompt | null {
 
   const lines: string[] = [];
   if (n > 0) lines.push(countLine(n), KEPT_LINE);
-  if (p > 0) lines.push(paragraphLine(p));
+  if (p > 0) lines.push(paragraphLine(p, state.fullEdit === true));
   if (running) lines.push(RUNNING_LINE);
   if (state.dialogText) lines.push(DIALOG_LINE);
 
@@ -320,7 +331,7 @@ export type LeaveTarget =
 
 export interface LeaveState extends Pick<
   CloseGuardState,
-  'chapter' | 'unsavedDecisions' | 'changedParagraphs' | 'locked'
+  'chapter' | 'unsavedDecisions' | 'changedParagraphs' | 'fullEdit' | 'locked'
 > {
   /** the id of the review on screen */
   reviewId: string | null;
@@ -360,7 +371,7 @@ export function leavePrompt(state: LeaveState, target: LeaveTarget): SavePrompt 
 
   const lines: string[] = [];
   if (n > 0) lines.push(countLine(n), KEPT_LINE);
-  if (p > 0) lines.push(paragraphLine(p));
+  if (p > 0) lines.push(paragraphLine(p, state.fullEdit === true));
 
   let confirmLabel = '';
   if (state.chapter !== null) confirmLabel = p > 0 ? 'Apply and save first' : `Save ${changeCount(n)} first`;
@@ -565,7 +576,11 @@ export function unresponsiveDetail(stage: UnresponsiveStage, state: CloseGuardSt
       );
     }
     if (state.changedParagraphs > 0 && stage === 'no-answer') {
-      lines.push('Paragraph text typed just before it stopped responding may be lost.');
+      lines.push(
+        state.fullEdit
+          ? 'Text typed in Full edit just before it stopped responding may be lost.'
+          : 'Paragraph text typed just before it stopped responding may be lost.'
+      );
     }
     if (state.reviewRunning || state.locked) lines.push(RUNNING_LINE);
     if (state.dialogText) lines.push(DIALOG_LINE);
@@ -650,6 +665,8 @@ export interface SaveShortcutContext {
   modalOpen: boolean;
   /** the key came from inside a paragraph box */
   inParagraphBox: boolean;
+  /** the key came from inside Full edit's box (rr.2); absent is false */
+  inFullEdit?: boolean;
   /**
    * the suggestion editor (`EditPopover`, `store.editor`) is open, wherever the
    * focus is. It is a floating panel, not a modal, so the page behind it still
@@ -677,7 +694,7 @@ export type SaveShortcutAction =
  * Ctrl+S, or Cmd+S, runs Save to chapter (PLAN 11.1): not behind a modal, so it
  * can never cancel or answer a prompt; not on a held key's repeats; not while a
  * review of the chapter runs or a save is under way; from inside a paragraph
- * box it says to press Done first; while the suggestion editor is open it says
+ * box, or Full edit's box (rr.2), it says to press Done first; while the suggestion editor is open it says
  * to press that editor's Save first, since saving now would write the chapter
  * without the words typed there; and with nothing to write it does nothing.
  * The S is read from `key`, or from the physical key on a layout whose S key
@@ -692,6 +709,7 @@ export function saveShortcutAction(event: ShortcutKey, context: SaveShortcutCont
     return { kind: 'ignore' };
   }
   if (context.inParagraphBox) return { kind: 'card', message: PRESS_DONE_FIRST };
+  if (context.inFullEdit === true) return { kind: 'card', message: FULL_EDIT_DONE_FIRST };
   if (context.suggestionEditorOpen) return { kind: 'card', message: PRESS_EDITOR_SAVE_FIRST };
   if (context.unsavedDecisions === 0 && context.changedParagraphs === 0) return { kind: 'ignore' };
   return { kind: 'save' };

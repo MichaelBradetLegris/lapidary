@@ -10,7 +10,9 @@
  * other text it would undo whatever changed the paragraph. A box that cannot
  * go back and holds something typed is set aside as a .txt instead
  * (`setAsideFileName`, `setAsideText`), so nothing typed is ever thrown away
- * unasked. File work is in `src/main/drafts.ts`, the store side in
+ * unasked. Full edit's box (rr.2), which holds the whole chapter, is kept the
+ * same way once something is typed in it (`whole`, `WHOLE_DRAFT_KEY`). File
+ * work is in `src/main/drafts.ts`, the store side in
  * `src/renderer/state/drafts.ts`.
  *
  * Pure (CLAUDE.md rule 4).
@@ -18,7 +20,7 @@
 
 import { formatLocalStamp } from '../backups';
 import { APP_NAME } from '../branding';
-import { liveTextIn } from '../edit';
+import { fullEditText, liveTextIn } from '../edit';
 import type { DraftFile, StoredDraft } from '../ipc';
 import { paragraphNumber } from '../prompt/chapter';
 import { buildRenderBlocks } from '../render';
@@ -29,6 +31,13 @@ import type { ConfirmSpec } from './confirm';
 
 /** The `version` of a drafts file this app writes and reads. */
 export const DRAFT_FILE_VERSION = 1;
+
+/**
+ * The key of Full edit's box (rr.2), which holds the whole chapter: no
+ * paragraph has it, since a paragraph box's key is its first paragraph's
+ * index, from 0.
+ */
+export const WHOLE_DRAFT_KEY = -1;
 
 /** At most this many boxes are kept for one chapter. */
 export const MAX_DRAFTS = 200;
@@ -43,19 +52,32 @@ export const MAX_DRAFT_TEXT_BYTES = 1024 * 1024;
 const isIndex = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 
-/** A `StoredDraft` in shape: a key, the block's paragraphs starting with it, and two texts. */
+/**
+ * A `StoredDraft` in shape: a key, the block's paragraphs starting with it, and
+ * two texts; or Full edit's box (rr.2), `whole`, under `WHOLE_DRAFT_KEY` with
+ * no paragraphs.
+ */
 export function isStoredDraft(value: unknown): value is StoredDraft {
   if (typeof value !== 'object' || value === null) return false;
   const draft = value as Record<string, unknown>;
   const paragraphs = draft['paragraphs'];
+  const texts = typeof draft['initial'] === 'string' && typeof draft['text'] === 'string';
+  if (draft['whole'] !== undefined) {
+    return (
+      draft['whole'] === true &&
+      draft['key'] === WHOLE_DRAFT_KEY &&
+      Array.isArray(paragraphs) &&
+      paragraphs.length === 0 &&
+      texts
+    );
+  }
   return (
     isIndex(draft['key']) &&
     Array.isArray(paragraphs) &&
     paragraphs.length > 0 &&
     paragraphs.every(isIndex) &&
     paragraphs[0] === draft['key'] &&
-    typeof draft['initial'] === 'string' &&
-    typeof draft['text'] === 'string'
+    texts
   );
 }
 
@@ -94,7 +116,9 @@ export function draftSetProblem(drafts: unknown): string | null {
   for (const draft of drafts) {
     if (!isStoredDraft(draft)) return 'A paragraph box to keep was not in the expected form.';
     if (utf8Length(draft.text) > MAX_DRAFT_TEXT_BYTES || utf8Length(draft.initial) > MAX_DRAFT_TEXT_BYTES) {
-      return `The box for ${paragraphPhrase([draft]).toLowerCase()} holds more than 1 MB of text, more than can be kept. Copy it somewhere safe.`;
+      return draft.whole
+        ? 'Full edit holds more than 1 MB of text, more than can be kept. Copy it somewhere safe.'
+        : `The box for ${paragraphPhrase([draft]).toLowerCase()} holds more than 1 MB of text, more than can be kept. Copy it somewhere safe.`;
     }
   }
   return null;
@@ -129,12 +153,24 @@ export function parseDraftFile(value: unknown): DraftFile | null {
 }
 
 function copyDraft(draft: StoredDraft): StoredDraft {
-  return { key: draft.key, paragraphs: [...draft.paragraphs], initial: draft.initial, text: draft.text };
+  return {
+    key: draft.key,
+    paragraphs: [...draft.paragraphs],
+    initial: draft.initial,
+    text: draft.text,
+    ...(draft.whole ? { whole: true as const } : {})
+  };
 }
 
-/** The boxes open on screen, as they are kept: first paragraph first, without their selection. */
+/**
+ * The boxes open on screen, as they are kept: first paragraph first, without
+ * their selection. Full edit's box is kept only once something is typed in it
+ * (rr.2): left as it opened it holds nothing to lose, and the chapter then
+ * opens in Main, as a chapter does.
+ */
 export function toStoredDrafts(drafts: Readonly<Record<number, StoredDraft>>): StoredDraft[] {
   return Object.values(drafts)
+    .filter((draft) => !draft.whole || draft.text !== draft.initial)
     .map(copyDraft)
     .sort((a, b) => a.key - b.key);
 }
@@ -167,7 +203,9 @@ export interface DraftPlacement {
  * than guessed onto a paragraph that happens to read the same. A box whose
  * block is covered by a box already `open`, or by one placed before it, does
  * not go back either. One that cannot go back is set aside when its text
- * differs from its `initial`, and dropped when it does not.
+ * differs from its `initial`, and dropped when it does not. Full edit's box
+ * goes back where the chapter's body reads as `initial` and no box is open,
+ * and only when something was typed in it (rr.2).
  *
  * Which review the box was typed in does not matter: the test is the text,
  * whatever decisions produced it.
@@ -175,17 +213,37 @@ export interface DraftPlacement {
 export function placeDrafts(
   page: DraftPage,
   stored: readonly StoredDraft[],
-  open: readonly Pick<StoredDraft, 'paragraphs'>[] = []
+  open: readonly Pick<StoredDraft, 'paragraphs' | 'whole'>[] = []
 ): DraftPlacement {
   const blocks = buildRenderBlocks(page.base, splitParagraphs(page.base), page.hunks).filter(
     (block) => !block.isFrontmatter
   );
   const taken = new Set<number>(open.flatMap((draft) => draft.paragraphs));
   const placement: DraftPlacement = { reopen: [], setAside: [], dropped: [] };
+  /* Full edit's box holds every paragraph (rr.2), so it goes back only onto a
+     page with no box open, by the same test Done applies (`fullEditText`), and
+     no box goes back beside it. Its key sorts it first. One left as it opened
+     is dropped, so the chapter opens in Main. */
+  let whole = open.some((draft) => draft.whole === true);
 
   for (const draft of [...stored].sort((a, b) => a.key - b.key)) {
+    if (draft.whole) {
+      const typed = draft.text !== draft.initial;
+      const fits =
+        typed && !whole && taken.size === 0 && fullEditText(page.base, page.hunks) === draft.initial;
+      if (fits) {
+        whole = true;
+        placement.reopen.push(copyDraft(draft));
+      } else if (typed) {
+        placement.setAside.push(copyDraft(draft));
+      } else {
+        placement.dropped.push(copyDraft(draft));
+      }
+      continue;
+    }
     const block = blocks.find((b) => b.paragraphs[0] === draft.key);
     const fits =
+      !whole &&
       block !== undefined &&
       !block.paragraphs.some((p) => taken.has(p)) &&
       liveTextIn(page.base, page.hunks, block) === draft.initial;
@@ -238,18 +296,34 @@ function paragraphPhrase(drafts: readonly Pick<StoredDraft, 'paragraphs'>[]): st
 export function restoredCardText(reopened: readonly StoredDraft[]): string | null {
   const typed = reopened.filter((draft) => draft.text !== draft.initial);
   if (typed.length === 0) return null;
+  // Full edit's box goes back alone, as no paragraph box goes back beside it (rr.2).
+  if (typed.some((draft) => draft.whole)) return 'Full edit is open again, as you left it.';
   return plural(typed)
     ? `${paragraphPhrase(typed)} are open for editing again, as you left them.`
     : `${paragraphPhrase(typed)} is open for editing again, as you left it.`;
 }
 
+/** Why Full edit's box was not put back (rr.2), before the words the card and the .txt add. */
+const WHOLE_NOT_REOPENED =
+  'The chapter no longer reads as it did when you left Full edit open, so Full edit was not opened again.';
+
+/** Why paragraph boxes were not put back, before the words the card adds. */
+function boxesNotReopened(boxes: readonly StoredDraft[]): string {
+  const many = plural(boxes);
+  const box = boxes.length === 1 ? `${many ? 'their' : 'its'} box was` : 'their boxes were';
+  return many
+    ? `${paragraphPhrase(boxes)} no longer read as they did when you left them open for editing, so ${box} not reopened.`
+    : `${paragraphPhrase(boxes)} no longer reads as it did when you left it open for editing, so ${box} not reopened.`;
+}
+
 /** The card when boxes were set aside into the file `name`; its button is Show the text. */
 export function setAsideCardText(setAside: readonly StoredDraft[], name: string): string {
-  const many = plural(setAside);
-  const box = setAside.length === 1 ? `${many ? 'their' : 'its'} box was` : 'their boxes were';
-  return many
-    ? `${paragraphPhrase(setAside)} no longer read as they did when you left them open for editing, so ${box} not reopened. What you typed is kept in ${name}.`
-    : `${paragraphPhrase(setAside)} no longer reads as it did when you left it open for editing, so ${box} not reopened. What you typed is kept in ${name}.`;
+  const boxes = setAside.filter((draft) => !draft.whole);
+  const reasons = [
+    ...(setAside.some((draft) => draft.whole) ? [WHOLE_NOT_REOPENED] : []),
+    ...(boxes.length > 0 ? [boxesNotReopened(boxes)] : [])
+  ];
+  return `${reasons.join(' ')} What you typed is kept in ${name}.`;
 }
 
 /** An error message as a sentence of its own: ending in a full stop. */
@@ -260,10 +334,21 @@ function asSentence(message: string): string {
 
 /** The card when boxes that cannot go back could not be written to a .txt either. */
 export function setAsideFailedCardText(setAside: readonly StoredDraft[], message: string): string {
-  const many = plural(setAside);
-  return `${paragraphPhrase(setAside)} no longer ${many ? 'read as they' : 'reads as it'} did when you left ${
-    many ? 'them' : 'it'
-  } open for editing, and what you typed could not be set aside: ${asSentence(message)} It is still kept, and is tried again the next time you open this chapter.`;
+  const boxes = setAside.filter((draft) => !draft.whole);
+  const whole = setAside.some((draft) => draft.whole);
+  const many = plural(boxes);
+  const phrase = paragraphPhrase(boxes);
+  const what = [
+    ...(whole ? ['The chapter no longer reads as it did when you left Full edit open'] : []),
+    ...(boxes.length > 0
+      ? [
+          `${whole ? phrase.toLowerCase() : phrase} no longer ${many ? 'read as they' : 'reads as it'} did when you left ${
+            many ? 'them' : 'it'
+          } open for editing`
+        ]
+      : [])
+  ];
+  return `${what.join(', and ')}, and what you typed could not be set aside: ${asSentence(message)} It is still kept, and is tried again the next time you open this chapter.`;
 }
 
 /**
@@ -339,17 +424,43 @@ export function setAsideText(sourcePath: string, drafts: readonly StoredDraft[],
   const file = segments[segments.length - 1] ?? sourcePath;
   const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  const many = plural(drafts);
+  const boxes = drafts.filter((draft) => !draft.whole);
+  const many = plural(boxes);
+  const intro: string[] = [];
+  if (drafts.some((draft) => draft.whole)) {
+    intro.push(
+      `You left Full edit open on ${file}. The chapter no longer reads as it did when you opened it, so ${APP_NAME} did not open it again. Copy what you want to keep into the chapter.`
+    );
+  }
+  if (boxes.length > 0) {
+    intro.push(
+      many
+        ? `You left these paragraphs of ${file} open for editing. They no longer read as they did when you opened them, so ${APP_NAME} did not put the boxes back. Copy what you want to keep into the chapter.`
+        : `You left this paragraph of ${file} open for editing. It no longer reads as it did when you opened it, so ${APP_NAME} did not put the box back. Copy what you want to keep into the chapter.`
+    );
+  }
   const lines = [
     `Set aside by ${APP_NAME} on ${day} at ${time}.`,
     '',
-    many
-      ? `You left these paragraphs of ${file} open for editing. They no longer read as they did when you opened them, so ${APP_NAME} did not put the boxes back. Copy what you want to keep into the chapter.`
-      : `You left this paragraph of ${file} open for editing. It no longer reads as it did when you opened it, so ${APP_NAME} did not put the box back. Copy what you want to keep into the chapter.`,
+    intro.join(' '),
     '',
     `Chapter file: ${sourcePath}`
   ];
   for (const draft of [...drafts].sort((a, b) => a.key - b.key)) {
+    if (draft.whole) {
+      lines.push(
+        '',
+        '',
+        'Full edit, as you left it:',
+        '',
+        draft.text,
+        '',
+        'The chapter, as it read when you opened Full edit:',
+        '',
+        draft.initial
+      );
+      continue;
+    }
     const label = draftLabel(draft.paragraphs);
     const two = draft.paragraphs.length > 1;
     const name = two ? `Paragraphs ${label}` : `Paragraph ${label}`;

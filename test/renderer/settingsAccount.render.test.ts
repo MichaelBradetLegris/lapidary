@@ -48,6 +48,9 @@ function accountRow(runtime: RuntimeStatus | null): string {
         onKeyChanged: () => undefined,
         onClose: () => undefined,
         onOpenSetup: () => undefined,
+        chatgpt: null,
+        chatgptWaiting: false,
+        onOpenChatGptSetup: () => undefined,
         onShowWelcome: () => undefined,
         onAbout: () => undefined
       })

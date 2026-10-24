@@ -54,6 +54,7 @@ beforeEach(() => {
   state().answerChoice('cancel');
   useApp.setState({
     drafts: {},
+    viewMode: 'main',
     aiBusyPath: null,
     chapterSaving: false,
     editor: null,
@@ -117,6 +118,20 @@ describe('reviewKeysActive (apply.20 review)', () => {
     expect(reviewKeysActive(state())).toBe(false);
   });
 
+  /* rr.2 review: in Preview, j moved the focus to a suggestion the page did
+     not mark, a accepted it, e opened the suggestion editor over the page,
+     and the down arrow, taken to step, did not scroll it. The handler returns
+     before preventDefault when this says no, so the browser scrolls. */
+  it('stops them in Preview and in Full edit, which show no suggestion, and not in Main', () => {
+    state().setViewMode('preview');
+    expect(isModalOpen(state())).toBe(false);
+    expect(reviewKeysActive(state())).toBe(false);
+    state().setViewMode('main');
+    expect(reviewKeysActive(state())).toBe(true);
+    expect(state().openFullEdit()).toBeNull();
+    expect(reviewKeysActive(state())).toBe(false);
+  });
+
   it('stops them while a review of the chapter runs, and with no review on screen', () => {
     useApp.setState({ aiBusyPath: SOURCE });
     expect(reviewKeysActive(state())).toBe(false);
@@ -160,9 +175,12 @@ describe('the key handler asks it (apply.20 review)', () => {
     );
   });
 
-  it('opens the find bar on Ctrl+F only when nothing covers the page', () => {
+  it('opens the find bar on Ctrl+F only when nothing covers the page, and only in Main (rr.2)', () => {
     const find = code.indexOf("event.key.toLowerCase() === 'f'");
-    const guard = code.indexOf('if (!state.review || isModalOpen(state)) return;', find);
+    const guard = code.indexOf(
+      "if (!state.review || isModalOpen(state) || currentMode(state) !== 'main') return;",
+      find
+    );
     expect(guard).toBeGreaterThan(find);
     expect(guard).toBeLessThan(code.indexOf('state.openFind();'));
   });

@@ -123,9 +123,11 @@ export interface DiagnosticsData {
   /** false once a write to the log file failed, so the log stopped */
   logWriting: boolean;
   display: DisplayFacts;
-  settings: Pick<Settings, 'provider' | 'model' | 'openaiModel' | 'effort'>;
+  settings: Pick<Settings, 'provider' | 'model' | 'chatgptModel' | 'openaiModel' | 'effort'>;
   /** what the last check of Claude found, as `claudeDiagnostics` words it */
   claude: readonly string[];
+  /** what the last check of the ChatGPT sign-in found, and its last failure (codex.3) */
+  chatgpt: { runtime: RuntimeStatus | null; lastFailure: LastFailure | null };
   /** what the last check of OpenAI found, and its last failure */
   openai: { runtime: RuntimeStatus | null; lastFailure: LastFailure | null };
   folders: FolderFacts;
@@ -287,6 +289,20 @@ function claudeCodeLine(code: ClaudeCodeInfo): string {
   return `${code.version ?? 'unknown version'}, ${code.onPath ? 'found' : 'not found'} by name in a terminal`;
 }
 
+/**
+ * The ChatGPT part (codex.3): whether the sign-in was there at the last
+ * check, the plan it named and the last failure; never a token, the account
+ * or a message.
+ */
+function chatGptLines(chatgpt: DiagnosticsData['chatgpt']): string[] {
+  const runtime = chatgpt.runtime;
+  return [
+    `ChatGPT: ${runtime ? runtime.state : 'not checked yet'}`,
+    ...(runtime?.plan ? [`Plan: ${runtime.plan}`] : []),
+    `Last failure: ${chatgpt.lastFailure?.code ?? 'none'}`
+  ];
+}
+
 /** The OpenAI part: the state and where the key comes from; never its last four characters or a message. */
 function openAiLines(openai: DiagnosticsData['openai']): string[] {
   const runtime = openai.runtime;
@@ -383,11 +399,13 @@ export function reportSections(data: DiagnosticsData): Array<{ title: string; li
       lines: [
         `Provider: ${PROVIDER_NAMES[settings.provider]}`,
         `Claude model: ${settings.model}`,
+        `ChatGPT model: ${settings.chatgptModel || 'the default'}`,
         `OpenAI model: ${settings.openaiModel || 'the default'}`,
         `Effort: ${settings.effort}`
       ]
     },
     { title: 'Claude', lines: [...data.claude] },
+    { title: 'ChatGPT', lines: chatGptLines(data.chatgpt) },
     { title: 'OpenAI', lines: openAiLines(data.openai) },
     {
       title: 'Manuscript folder',

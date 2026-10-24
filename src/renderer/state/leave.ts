@@ -1,7 +1,16 @@
 import { unsavedDecisionCount } from '../../shared/diff/compose';
+import { FINISH_FULL_EDIT_FIRST } from '../../shared/ui/modes';
 import { isOpenTarget, leavePrompt, type LeaveState, type LeaveTarget } from '../../shared/ui/save';
+import { FULL_EDIT_CARD } from './modes';
 import { pendingSave, type SaveOptions, type SaveOutcome } from './saveChapter';
-import { changedParagraphCount, isLocked, useApp, type AppState } from './store';
+import {
+  changedParagraphCount,
+  fullEditChanged,
+  fullEditDraft,
+  isLocked,
+  useApp,
+  type AppState
+} from './store';
 
 /*
  * Leaving the chapter or review on screen (apply.7, PLAN 11.3 i and 7.7): a
@@ -16,7 +25,12 @@ import { changedParagraphCount, isLocked, useApp, type AppState } from './store'
  *
  * Another review of the open chapter is never asked about (apply.26): the
  * chapter opens with the review last on screen, so nothing is left where the
- * author would not find it, and the boxes go with the author (C.53).
+ * author would not find it, and the boxes go with the author (C.53). While
+ * Full edit is open it is refused instead, as Review with AI is (rr.2
+ * review): Full edit's box holds the whole body as this review composes it,
+ * so over another review whose decisions differ anywhere it could not go
+ * back, and what was typed was set aside with a card saying the chapter had
+ * changed, which it had not.
  *
  * Main is reached only through `LeaveDeps`, so this module needs neither the
  * DOM nor the preload bridge and is tested in node.
@@ -34,6 +48,7 @@ export function leaveStateOf(state: Pick<AppState, 'review' | 'drafts' | 'aiBusy
     chapter: review?.sourcePath ? review.sourcePath : null,
     unsavedDecisions: review ? unsavedDecisionCount(review.hunks) : 0,
     changedParagraphs: changedParagraphCount(state.drafts),
+    ...(fullEditChanged(state.drafts) ? { fullEdit: true } : {}),
     locked: isLocked(state),
     reviewId: review?.id ?? null
   };
@@ -76,15 +91,21 @@ let leaveSeq = 0;
  * Before another chapter or review replaces the one on screen: let a save
  * under way end first, so its review is not read back in the middle of being
  * recorded (apply.3), then ask (`confirmLeave`) when another chapter is
- * clicked. Of several clicks made while a save runs or a question is open,
- * only the last goes ahead.
+ * clicked. Another review while Full edit is open stays, with "Finish or
+ * cancel Full edit first." (rr.2 review). Of several clicks made while a save
+ * runs or a question is open, only the last goes ahead.
  */
 export async function beforeLeaving(target: LeaveTarget, deps: LeaveDeps): Promise<LeaveDecision> {
   const ticket = ++leaveSeq;
   const latest = (): boolean => ticket === leaveSeq;
   await pendingSave();
   if (!latest()) return 'stay';
-  if (isOpenTarget(leaveStateOf(useApp.getState()), target)) return 'here';
+  const state = useApp.getState();
+  if (isOpenTarget(leaveStateOf(state), target)) return 'here';
+  if (target.kind === 'review' && fullEditDraft(state.drafts)) {
+    state.notify('info', FINISH_FULL_EDIT_FIRST, FULL_EDIT_CARD);
+    return 'stay';
+  }
   if (!(await confirmLeave(target, deps))) return 'stay';
   return latest() ? 'go' : 'stay';
 }

@@ -269,6 +269,9 @@ describe("Settings' Show the welcome guide again", () => {
         onKeyChanged: () => undefined,
         onClose: () => undefined,
         onOpenSetup: () => undefined,
+        chatgpt: null,
+        chatgptWaiting: false,
+        onOpenChatGptSetup: () => undefined,
         onShowWelcome: () => undefined,
         onAbout: () => undefined
       })

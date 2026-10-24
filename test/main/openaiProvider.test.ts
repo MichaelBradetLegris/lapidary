@@ -655,7 +655,7 @@ describe('client options', () => {
 });
 
 describe('provider registry', () => {
-  const stub = (id: 'claude' | 'openai'): ReviewProvider => ({
+  const stub = (id: 'claude' | 'chatgpt' | 'openai'): ReviewProvider => ({
     id,
     label: id,
     runtime: () => Promise.resolve({ provider: id, state: 'ready' }),
@@ -663,20 +663,24 @@ describe('provider registry', () => {
     review: () => Promise.reject(new Error('not used'))
   });
 
-  it('serves every provider by id', () => {
-    const registry = createRegistry([stub('claude'), stub('openai')]);
-    expect(registry.ids().sort()).toEqual(['claude', 'openai']);
+  it('serves every provider by id, ChatGPT among them (codex.3)', () => {
+    const registry = createRegistry([stub('claude'), stub('chatgpt'), stub('openai')]);
+    expect(registry.ids().sort()).toEqual(['chatgpt', 'claude', 'openai']);
     expect(registry.get('openai').id).toBe('openai');
     expect(registry.get('claude').id).toBe('claude');
+    expect(registry.get('chatgpt').id).toBe('chatgpt');
   });
 
   it('refuses a registry that leaves a provider out or lists one twice', () => {
-    expect(() => createRegistry([stub('claude')])).toThrow(/openai/);
-    expect(() => createRegistry([stub('claude'), stub('openai'), stub('openai')])).toThrow(/twice/);
+    expect(() => createRegistry([stub('claude'), stub('chatgpt')])).toThrow(/openai/);
+    expect(() => createRegistry([stub('claude'), stub('openai')])).toThrow(/chatgpt/);
+    expect(() => createRegistry([stub('claude'), stub('chatgpt'), stub('openai'), stub('openai')])).toThrow(
+      /twice/
+    );
   });
 
   it('answers an unknown id from another process with an app error', () => {
-    const registry = createRegistry([stub('claude'), stub('openai')]);
+    const registry = createRegistry([stub('claude'), stub('chatgpt'), stub('openai')]);
     expect(() => registry.get('gemini' as 'claude')).toThrow(/Unknown AI provider/);
   });
 });

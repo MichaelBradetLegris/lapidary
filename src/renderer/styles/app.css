@@ -449,6 +449,19 @@ button.primary ::selection,
   border-bottom-right-radius: 3px;
 }
 
+/* Full edit's box (rr.2), a field that scrolls and cannot be made taller. */
+.fulledit__area::-webkit-scrollbar {
+  border-radius: 0 4px 4px 0;
+}
+
+.fulledit__area::-webkit-scrollbar-button:single-button:vertical:decrement {
+  border-top-right-radius: 4px;
+}
+
+.fulledit__area::-webkit-scrollbar-button:single-button:vertical:increment {
+  border-bottom-right-radius: 4px;
+}
+
 .paste-field textarea::-webkit-scrollbar,
 .editor__area::-webkit-scrollbar,
 .paste-field textarea::-webkit-scrollbar-button:single-button:vertical:decrement,
@@ -2912,12 +2925,89 @@ button.help {
   color: var(--danger);
 }
 
+/* A sign-out that OpenAI did not confirm (codex.2). */
+.setup__test-result--warn {
+  color: var(--warn);
+}
+
+/* The training warning on the Setup screen's ChatGPT view (codex.2): the
+   dialogs' orange box, its title, two paragraphs, then Open Data controls and
+   the box on one line, which wraps, and the box's note under them. */
+.setup .data-warning {
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.setup .data-warning p,
+.setup .data-warning .data-warning__title {
+  margin: 0;
+}
+
+.data-warning__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.data-warning__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
 .setup .modal__warn {
   margin-bottom: 18px;
 }
 
+/* The same warning in Review with AI, before the first ChatGPT review
+   (codex.3), its title a heading under the dialog's own. */
+.modal .data-warning {
+  gap: 6px;
+}
+
+.modal .data-warning p,
+.modal .data-warning .data-warning__title {
+  margin: 0;
+}
+
+.modal .data-warning .data-warning__title {
+  font-size: 1em;
+}
+
 .setup__section {
   margin-bottom: 18px;
+}
+
+/* OpenAI's welcome after the first ChatGPT sign-in (codex.3): a card like the
+   status card, its edge in the buttons' turquoise, with Manage usage and Got
+   it under its sentence. */
+.chatgpt-welcome {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-fill);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.chatgpt-welcome h2 {
+  margin: 0 0 6px;
+  font-size: 1em;
+}
+
+.chatgpt-welcome p {
+  margin: 0 0 10px;
+}
+
+.chatgpt-welcome__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chatgpt-welcome__actions button {
+  white-space: nowrap;
 }
 
 .setup__tabs {
@@ -3950,6 +4040,241 @@ button.help {
 
 .para-editor__foot > button:first-of-type {
   margin-left: auto;
+}
+
+/* ---------- modes (rr.2) ---------- */
+
+/* The Mode select at the top right of the prose column, inside it and above
+   the prose, where the author's screenshot put it; the toolbar stays as it
+   was. Its strip has the page's own colour, so the select reads as standing
+   at the top of the page, and the find bar, the notification cards and the
+   lock card keep the wrapper under it as theirs. */
+.modebar {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px 0;
+  background: var(--bg);
+}
+
+.modebar__label {
+  color: var(--ink-soft);
+}
+
+/* Full edit: the whole chapter in one box, the height of the column. The box
+   takes what the frontmatter above it and the foot under it leave and
+   scrolls itself; where the column is too short for 12em of it, the column
+   scrolls instead. The measure is the prose's, 66 characters of the prose's
+   typeface; the font size set here is what the measure is counted in.
+
+   The notification cards are pinned to the column's top right. Main keeps
+   the right of a column 820 CSS px wide or more for its margin notes
+   (`.pane--gutter`: 22 px of padding, a 22 px gap and a 300 px column, 344
+   px in all; `GUTTER_MIN_WIDTH` in ReviewPane.tsx), and the cards sit over
+   them; Full edit and Preview keep the same 344 px free on the right in such
+   a column, so the box and the page end where Main's prose ends and a card
+   does not cover their first lines (rr.2 review). The right padding is 40 px
+   up to 820 px and 344 px from there: `(100% - 819px) * 1000` is negative
+   below and past 344 px above, and a percentage in padding or max-width is
+   of the scroller's width. */
+.fulledit {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  max-width: calc(66ch + 66px + clamp(40px, (100% - 819px) * 1000, 344px));
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px clamp(40px, (100% - 819px) * 1000, 344px) 16px 40px;
+  font-family: var(--font-prose);
+  font-size: 17px;
+}
+
+.body--narrow .fulledit {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.fulledit__frontmatter {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+/* The paragraph box's look, with the browser's own focus ring. Its background
+   is opaque for LCD text while it scrolls (C.48). */
+.fulledit__area {
+  flex: 1 1 auto;
+  min-height: 12em;
+  width: 100%;
+  font: inherit;
+  line-height: 1.75;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--editor-bg);
+  color: var(--ink);
+  resize: none;
+}
+
+.fulledit__foot {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.fulledit__hint {
+  flex: 1 1 8em;
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.fulledit__foot > button:first-of-type {
+  margin-left: auto;
+}
+
+/* Preview: the chapter as Royal Road's reader page shows it, near enough to
+   judge it by, with nothing of theirs fetched: a sheet with its paragraphs a
+   line and a fifth apart and a tight block's lines together, in the prose's
+   serif, as the author's own converter previewed it. Its right is kept free
+   of the cards as Full edit's is (above). */
+.preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 16px clamp(40px, (100% - 819px) * 1000, 344px) 120px 40px;
+}
+
+.body--narrow .preview {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.preview__page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 40px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--font-prose);
+  font-size: 17px;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+
+.preview__page p {
+  margin: 0 0 1.2em;
+}
+
+.preview__page p.rr-tight {
+  margin-bottom: 0;
+}
+
+.preview__page h1,
+.preview__page h2,
+.preview__page h3,
+.preview__page h4,
+.preview__page h5,
+.preview__page h6 {
+  margin: 1.6em 0 0.6em;
+  line-height: 1.3;
+}
+
+.preview__page h1 {
+  font-size: 1.6em;
+}
+
+.preview__page h2 {
+  font-size: 1.4em;
+}
+
+.preview__page h3 {
+  font-size: 1.2em;
+}
+
+.preview__page h4,
+.preview__page h5,
+.preview__page h6 {
+  font-size: 1em;
+}
+
+.preview__page > :first-child {
+  margin-top: 0;
+}
+
+.preview__page hr {
+  margin: 1.5em 0;
+  border: none;
+  border-top: 1px solid var(--border-strong);
+}
+
+.preview__page blockquote {
+  margin: 0 0 1.2em;
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 4px solid var(--border-strong);
+  color: var(--ink-soft);
+}
+
+.preview__page blockquote > :last-child,
+.preview__page li > :last-child {
+  margin-bottom: 0;
+}
+
+.preview__page ul,
+.preview__page ol {
+  margin: 0 0 1.2em;
+  padding-left: 1.6em;
+}
+
+.preview__page table {
+  margin: 0 0 1.2em;
+  border-collapse: collapse;
+}
+
+.preview__page th,
+.preview__page td {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+}
+
+.preview__page .rr-align-left {
+  text-align: left;
+}
+
+.preview__page .rr-align-center {
+  text-align: center;
+}
+
+.preview__page .rr-align-right {
+  text-align: right;
+}
+
+.preview__link {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* A web image shows its words in a frame: the page fetches nothing from the web. */
+.preview__image {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 3px;
+  background: var(--panel-alt);
+  color: var(--ink-soft);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.preview__empty {
+  color: var(--ink-faint);
 }
 
 /* The editor popover. Floating rather than modal, because the author is editing

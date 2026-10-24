@@ -111,6 +111,25 @@ describe('saving and loading', () => {
     expect(await fs.readdir(draftsRoot)).toEqual([path.basename(file)]);
   });
 
+  it("writes Full edit's box with its flag and reads it back so (rr.2)", async () => {
+    const whole: StoredDraft = {
+      key: -1,
+      paragraphs: [],
+      initial: 'The body.',
+      text: 'The body, typed.',
+      whole: true
+    };
+    await saveDrafts(draftsRoot, { sourcePath: chapter, reviewId: 'r1', drafts: [whole] }, true);
+    const written = JSON.parse(await fs.readFile(draftFileFor(draftsRoot, chapter, true), 'utf8')) as {
+      drafts: unknown[];
+    };
+    expect(written.drafts).toEqual([whole]);
+    expect((await loadDrafts(draftsRoot, chapter, true))?.drafts).toEqual([whole]);
+    // A box with no flag never gains one.
+    await saveDrafts(draftsRoot, { sourcePath: chapter, reviewId: 'r1', drafts: [box(2)] }, true);
+    expect(JSON.stringify(await loadDrafts(draftsRoot, chapter, true))).not.toContain('whole');
+  });
+
   it('replaces the set on every save, and deletes the file when none is open', async () => {
     await saveDrafts(draftsRoot, { sourcePath: chapter, reviewId: 'r1', drafts: [box(2)] }, true);
     await saveDrafts(draftsRoot, { sourcePath: chapter, reviewId: 'r2', drafts: [box(3, 'other')] }, true);

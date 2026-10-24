@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../../shared/ipc';
+import type { ChatGptStatus, EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../../shared/ipc';
 import type { Provider, Settings } from '../../shared/types';
 import { openedGuidelinesNote } from '../../shared/ui/guidelines';
 import type { LastFailure } from '../../shared/ui/setup';
@@ -126,8 +126,12 @@ interface Props {
   claude: RuntimeStatus | null;
   claudeLastFailure: LastFailure | null;
   openai: RuntimeStatus | null;
+  /** the ChatGPT sign-in, for the first step while ChatGPT is the provider (codex.3) */
+  chatgpt?: ChatGptStatus | null;
   /** the Setup screen (setup.7), over the guide until it is closed */
   onSetUpClaude: () => void;
+  /** the Setup screen's ChatGPT view (codex.3), over the guide in the same way */
+  onSetUpChatGpt?: () => void;
   /** Use OpenAI instead, and back: the provider setting */
   onUseProvider: (provider: Provider) => void;
   onOpenSettings: () => void;
@@ -156,7 +160,9 @@ export function WelcomeScreen({
   claude,
   claudeLastFailure,
   openai,
+  chatgpt = null,
   onSetUpClaude,
+  onSetUpChatGpt,
   onUseProvider,
   onOpenSettings,
   onChooseFolder,
@@ -233,6 +239,9 @@ export function WelcomeScreen({
       case 'set-up-claude':
         onSetUpClaude();
         break;
+      case 'set-up-chatgpt':
+        onSetUpChatGpt?.();
+        break;
       case 'use-openai':
         onUseProvider('openai');
         break;
@@ -259,6 +268,7 @@ export function WelcomeScreen({
     claude,
     claudeLastFailure,
     openai,
+    chatgpt,
     manuscriptFolder,
     guidelinesSetting: guidelinesPath,
     paths,

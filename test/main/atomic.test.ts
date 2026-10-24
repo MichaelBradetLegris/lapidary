@@ -102,6 +102,20 @@ describe('atomicWriteFile', () => {
     await atomicWriteFile(target, Buffer.from('new'));
     expect((await fs.stat(target)).mode & 0o777).toBe(0o640);
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'gives the file the mode asked for, whatever the target had (codex.2)',
+    async () => {
+      const target = path.join(root, 'secrets.json');
+      await fs.writeFile(target, '{}');
+      await fs.chmod(target, 0o644);
+      await atomicWriteFile(target, Buffer.from('{"version":1}'), { mode: 0o600 });
+      expect((await fs.stat(target)).mode & 0o777).toBe(0o600);
+      const fresh = path.join(root, 'fresh.json');
+      await atomicWriteFile(fresh, Buffer.from('{}'), { mode: 0o600 });
+      expect((await fs.stat(fresh)).mode & 0o777).toBe(0o600);
+    }
+  );
 });
 
 describe('writeChapter while the chapter is locked', () => {

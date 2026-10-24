@@ -13,6 +13,7 @@ import { splitParagraphs } from '../../shared/text/paragraphs';
 import { chipHidden, commentsHidden } from '../../shared/ui/chips';
 import { gutterComments as gutterCommentsOf } from '../../shared/ui/comments';
 import { marginMarks, markAnchorName, type MarginMark } from '../../shared/ui/marks';
+import { editSummary } from '../../shared/ui/modes';
 import type { Review, ReviewComment } from '../../shared/types';
 import { editParagraph } from '../state/edit';
 import { useFindHighlight } from '../state/find';
@@ -35,7 +36,9 @@ interface Props {
  * Below this the gutter would squeeze the prose too hard, so comments fall back
  * to the sidebar alone. Measured against the scroller, not the window: the file
  * list and the side panel take up to 550px between them, and less once they
- * give way to the prose in a narrow window (ui.3).
+ * give way to the prose in a narrow window (ui.3). Full edit and Preview keep
+ * the margin's room free for the notification cards from the same width
+ * (`.fulledit` and `.preview` in app.css, rr.2 review).
  */
 const GUTTER_MIN_WIDTH = 820;
 
@@ -202,17 +205,8 @@ export function ReviewPane({ review, onSetCommentStatus }: Props): React.JSX.Ele
       if (outcome.status === 'blocked') {
         notify('warn', outcome.message, `draft-${key}`);
       } else if (outcome.status === 'applied') {
-        const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
-        const parts: string[] = [];
-        if (outcome.added > 0) parts.push(`${plural(outcome.added, 'change')} added, already accepted`);
-        if (outcome.accepted > 0) {
-          parts.push(`${plural(outcome.accepted, 'suggestion')} accepted, since you typed exactly that`);
-        }
-        if (outcome.superseded > 0) {
-          parts.push(`${plural(outcome.superseded, 'suggestion')} your edit replaced moved to Unanchored`);
-        }
-        const summary = parts.length > 0 ? parts.join('; ') : 'suggestions updated';
-        notify('info', `Paragraph ${paragraphNumber(key)}: ${summary}.`, 'edit');
+        // The words Full edit's Done uses after "Full edit: " (rr.2).
+        notify('info', `Paragraph ${paragraphNumber(key)}: ${editSummary(outcome)}.`, 'edit');
       }
     },
     [commitDraft, notify]

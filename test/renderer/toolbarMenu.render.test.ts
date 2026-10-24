@@ -59,11 +59,12 @@ function render(review: Review | null, running = false, saving = false, singleSc
       saving,
       sideFolded: false,
       singleScreen,
-      onReviewWithAi: noop,
+      onReviewWith: noop,
       onCancelReview: noop,
       onManualReview: noop,
       onSaveChapter: noop,
       onCopyResult: noop,
+      onExportHtml: noop,
       onShowBackups: noop,
       onSettings: noop,
       onSaveHintDone: noop
@@ -90,7 +91,14 @@ describe('the toolbar holds Review, Actions, Save to chapter and Settings (polis
     storeWith({ review: REVIEW });
     const html = render(REVIEW);
     expect(buttons(html).map((b) => b.text)).toEqual(['Review', 'Actions', 'Save to chapter', 'Settings']);
-    for (const gone of ['Review with AI', 'Submit manual review', 'Bulk', 'Copy result', 'Show backups']) {
+    for (const gone of [
+      'Review with AI',
+      'Submit manual review',
+      'Bulk',
+      'Copy result',
+      'Export HTML',
+      'Show backups'
+    ]) {
       expect(html, gone).not.toContain(`>${gone}<`);
     }
   });
@@ -145,7 +153,7 @@ describe('the toolbar holds Review, Actions, Save to chapter and Settings (polis
     storeWith({ review: REVIEW, aiBusyPath: REVIEW.sourcePath });
     html = render(REVIEW, true);
     expect(byText(html, 'Review')).toContain('disabled');
-    // Copy result and Show backups still work while the chapter is read-only.
+    // Copy result, Export HTML and Show backups still work while the chapter is read-only.
     expect(byText(html, 'Actions')).not.toContain('disabled');
   });
 });

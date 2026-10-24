@@ -2,8 +2,10 @@ import { app, safeStorage } from 'electron';
 import type { ConnectionTestResult, RuntimeStatus } from '../../shared/ipc';
 import type { Provider } from '../../shared/types';
 import type { LastFailure } from '../../shared/ui/setup';
+import type { ChatGptAuth } from '../chatgpt';
 import { log } from '../log';
 import { openAiKey, openAiKeyStatus } from '../secrets';
+import { createChatGptProvider } from './chatgpt';
 import { claudeProvider } from './claude';
 import { registerController } from './controllers';
 import { withLogging, type LoggedProvider } from './logged';
@@ -12,18 +14,33 @@ import { createRegistry, type ProviderRegistry } from './registry';
 
 /**
  * The app's providers. The OpenAI one is handed functions that read the key
- * from the encrypted secrets file at call time, so no provider ever holds a
- * credential between calls. Each is wrapped in `withLogging` (logged.ts),
- * which logs its calls as counts and remembers its last runtime status and
- * failure (hardening.3b).
+ * from the encrypted secrets file at call time, and the ChatGPT one (codex.3)
+ * the sign-in, which gives it the access token at call time, so no provider
+ * ever holds a credential between calls. Each is wrapped in `withLogging`
+ * (logged.ts), which logs its calls as counts and remembers its last runtime
+ * status and failure (hardening.3b).
  */
 
 let logged: readonly LoggedProvider[] | null = null;
 let registry: ProviderRegistry | null = null;
 
+/** The one ChatGPT sign-in, which ipc.ts makes (codex.2) and hands over as it registers its handlers. */
+let chatGptAuth: (() => ChatGptAuth) | null = null;
+
+/** ipc.ts hands over the ChatGPT sign-in, so the ChatGPT provider asks it for the bearer (codex.3). */
+export function setChatGptAuth(get: () => ChatGptAuth): void {
+  chatGptAuth = get;
+}
+
+function chatGptSession(): ChatGptAuth {
+  if (!chatGptAuth) throw new Error('The ChatGPT sign-in was asked for before ipc.ts handed it over.');
+  return chatGptAuth();
+}
+
 function loggedProviders(): readonly LoggedProvider[] {
   logged ??= [
     claudeProvider,
+    createChatGptProvider({ session: chatGptSession }),
     createOpenAiProvider({
       key: () => openAiKey(safeStorage, app.getPath('userData')),
       status: () => openAiKeyStatus(safeStorage, app.getPath('userData'))

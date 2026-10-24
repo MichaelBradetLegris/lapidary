@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { openAiKeyLine, openAiKeyRowLabel } from '../../shared/ai/openai';
-import type { EffectivePaths, ModelInfo, OpenAiKeyStatus, RuntimeStatus } from '../../shared/ipc';
+import type {
+  ChatGptStatus,
+  EffectivePaths,
+  ModelInfo,
+  OpenAiKeyStatus,
+  RuntimeStatus
+} from '../../shared/ipc';
 import { EFFORT_LEVELS, type EffortLevel, type Settings } from '../../shared/types';
 import { ABOUT_BUTTON } from '../../shared/ui/about';
+import { chatGptAccountLine } from '../../shared/ui/chatgpt';
 import { SETTINGS_BUTTON_SELECTOR } from '../../shared/ui/dialog';
 import { openedGuidelinesNote } from '../../shared/ui/guidelines';
 import {
@@ -10,6 +17,7 @@ import {
   APPEARANCE_NOTE,
   BACKUPS_ROW_NOTE,
   BACKUPS_TIP,
+  CHATGPT_ACCOUNT_TIP,
   CLAUDE_ACCOUNT_TIP,
   DONE_NOTE,
   EFFORT_TIP,
@@ -44,10 +52,16 @@ interface Props {
   /** Claude's runtime */
   runtime: RuntimeStatus | null;
   keyStatus: OpenAiKeyStatus | null;
+  /** the ChatGPT sign-in's status (codex.2), null until main has answered */
+  chatgpt: ChatGptStatus | null;
+  /** a ChatGPT sign-in is waiting for the browser */
+  chatgptWaiting: boolean;
   onApply: (next: Settings) => void;
   onKeyChanged: (status: OpenAiKeyStatus) => void;
   onClose: () => void;
   onOpenSetup: () => void;
+  /** the Setup screen's ChatGPT view (codex.2), in place of Settings */
+  onOpenChatGptSetup: () => void;
   /** Show the welcome guide again (setup.11): it comes back in place of the main view */
   onShowWelcome: () => void;
   /** About (release.9): it opens in place of Settings */
@@ -63,7 +77,8 @@ interface Props {
  * it, and back where it was, the Settings button as a rule, when it closes.
  * The page behind it is inert meanwhile, so Tab stays inside it (ui.4).
  *
- * Three sections, Review, Folders and Accounts, and at the foot the welcome
+ * Three sections, Review, Folders and Accounts (Claude, ChatGPT since codex.2,
+ * and the OpenAI key), and at the foot the welcome
  * guide, About and Done (polish.4). A row has at most one short note; the
  * longer explanations are the tooltips of the (?) in each row's last cell,
  * after its buttons, so that they stand in one line down the right of the
@@ -80,10 +95,13 @@ export function SettingsDialog({
   models,
   runtime,
   keyStatus,
+  chatgpt,
+  chatgptWaiting,
   onApply,
   onKeyChanged,
   onClose,
   onOpenSetup,
+  onOpenChatGptSetup,
   onShowWelcome,
   onAbout
 }: Props): React.JSX.Element {
@@ -396,6 +414,22 @@ export function SettingsDialog({
               </button>
             </span>
             <HelpTip id={id('claude-tip')} topic="the Claude account" text={CLAUDE_ACCOUNT_TIP} />
+          </div>
+
+          {/* Signed in or not, and the plan; Setup opens the Setup screen's
+              ChatGPT view, where the sign-in and the training warning are
+              (codex.2). */}
+          <div className="modal__row">
+            <span>ChatGPT account</span>
+            <span className="modal__path" id={id('chatgpt-line')} data-testid="chatgpt-account-line">
+              {chatGptAccountLine(chatgpt, chatgptWaiting)}
+            </span>
+            <span className="modal__buttons">
+              <button type="button" aria-describedby={id('chatgpt-line')} onClick={onOpenChatGptSetup}>
+                Setup
+              </button>
+            </span>
+            <HelpTip id={id('chatgpt-tip')} topic="the ChatGPT account" text={CHATGPT_ACCOUNT_TIP} />
           </div>
 
           <div className="modal__row">

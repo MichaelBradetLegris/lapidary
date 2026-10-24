@@ -3,12 +3,12 @@
  *
  * Each is an environment variable that helps a test run: a scratch userData
  * folder so a run cannot touch the author's real settings, a local mock in place
- * of the OpenAI API, Claude Code's stderr echoed to the terminal, a window that
- * stays out of the author's way, a shell that opens nothing, and so on. A
- * packaged build ignores all of them. A variable left in someone's shell
- * profile must never redirect the stored OpenAI key to another server, or move
- * an installed app's settings. The ignored names are kept so the log can say
- * they were seen.
+ * of the OpenAI API or of OpenAI's sign-in server, Claude Code's stderr echoed
+ * to the terminal, a window that stays out of the author's way, a shell that
+ * opens nothing, and so on. A packaged build ignores all of them. A variable
+ * left in someone's shell profile must never redirect the stored OpenAI key or
+ * a ChatGPT sign-in to another server, or move an installed app's settings.
+ * The ignored names are kept so the log can say they were seen.
  *
  * The one switch an installed build honours is the `--isolated-user-data=<dir>`
  * command-line flag. A flag has to be typed for each launch, so it cannot linger,
@@ -22,6 +22,7 @@
 export const DEV_SWITCH_NAMES = [
   'MANUSCRIPT_REVIEW_USER_DATA',
   'MANUSCRIPT_REVIEW_OPENAI_BASE_URL',
+  'MANUSCRIPT_REVIEW_CHATGPT_AUTH_URL',
   'MANUSCRIPT_REVIEW_DEV_NO_CLAUDE_CODE',
   'MANUSCRIPT_REVIEW_DEV_FAKE_UPDATE',
   'MANUSCRIPT_REVIEW_DEV_QUIET_WINDOW',
@@ -38,6 +39,13 @@ export interface DevSwitches {
   userDataDir: string | null;
   /** a stand-in for https://api.openai.com/v1, http or https only */
   openAiBaseUrl: string | null;
+  /**
+   * a stand-in for OpenAI's sign-in server, https://auth.openai.com, http or
+   * https only: the issuer and the base of the authorization, token,
+   * revocation and key endpoints Sign in with ChatGPT uses (codex.2,
+   * src/main/chatgpt)
+   */
+  chatGptAuthUrl: string | null;
   /** behave as if Claude Code were not installed, to test the Setup screen */
   noClaudeCode: boolean;
   /**
@@ -74,6 +82,7 @@ export const NO_DEV_SWITCHES: DevSwitches = Object.freeze({
   packaged: true,
   userDataDir: null,
   openAiBaseUrl: null,
+  chatGptAuthUrl: null,
   noClaudeCode: false,
   fakeUpdate: null,
   quietWindow: false,
@@ -119,6 +128,7 @@ export function readDevSwitches({ env, packaged, isolatedUserData }: DevSwitchIn
     packaged: false,
     userDataDir: fromFlag ?? text(env['MANUSCRIPT_REVIEW_USER_DATA']),
     openAiBaseUrl: httpUrl(env['MANUSCRIPT_REVIEW_OPENAI_BASE_URL']),
+    chatGptAuthUrl: httpUrl(env['MANUSCRIPT_REVIEW_CHATGPT_AUTH_URL']),
     noClaudeCode: flag(env['MANUSCRIPT_REVIEW_DEV_NO_CLAUDE_CODE']),
     fakeUpdate: text(env['MANUSCRIPT_REVIEW_DEV_FAKE_UPDATE']),
     quietWindow: flag(env['MANUSCRIPT_REVIEW_DEV_QUIET_WINDOW']),

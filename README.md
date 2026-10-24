@@ -10,9 +10,10 @@ You open a chapter, ask for a review, and every suggested change floats above th
 
 ![Chapter 1 of the sample manuscript after a review: suggested changes float above the words they would replace, two of them accepted and one dismissed, and comments sit in the margin. The category chips are at the left of the toolbar, and the side panel lists the suggestions, each with its category's tag, a green tick on the two accepted and a red x on the dismissed one, and then the comments.](docs/images/review.png)
 
-Two services can do the reviewing. You need one of them:
+Three services can do the reviewing. You need one of them:
 
 - **Claude**, through the Claude Code you install and sign in to yourself, on your own Claude plan or an Anthropic API key.
+- **ChatGPT**, on your own ChatGPT plan, through OpenAI's Sign in with ChatGPT, with no API key.
 - **OpenAI**, on an API key you paste into Settings, billed per token to your OpenAI account.
 
 ## Requirements
@@ -20,6 +21,7 @@ Two services can do the reviewing. You need one of them:
 - Windows 10 or 11, 64-bit (x64). No builds are made for other systems.
 - About 460 MB of disk space: about 345 MB for the app and 110 MB for the copy of its installer that updates start from.
 - For Claude: Claude Code 2.1.266 or newer, signed in with a Claude plan that includes Claude Code (Pro, Max, Team or Enterprise; the free plan does not), or with an Anthropic Console account or API key. Run `claude update` now and then to get the newest models.
+- For ChatGPT: a ChatGPT plan that OpenAI lets you use in apps such as this one; OpenAI names Plus and Pro.
 - For OpenAI: an OpenAI API key, on an account with credit.
 
 ## Installing
@@ -87,6 +89,18 @@ Before your first review, decide whether Anthropic may train its models on your 
 
 The key must be a real environment variable, set before the app starts. Claude Code settings in `~/.claude/settings.json`, such as an `env` block or `apiKeyHelper`, are not read, because the app starts Claude Code without your settings files.
 
+## Connecting ChatGPT
+
+A ChatGPT plan can do the reviewing with no API key, through Sign in with ChatGPT, which OpenAI offers to open-source apps. OpenAI decides which plans it allows; it names Plus and Pro.
+
+1. Open **Settings** and click **Setup** beside "ChatGPT account", or click **Review**, then **ChatGPT**: while you are not signed in, that opens the same view of the Setup screen.
+2. Click **Sign in with ChatGPT**. Lapidary opens OpenAI's sign-in page in your browser. Sign in there and allow Lapidary to use your ChatGPT plan; the browser then hands the sign-in back to Lapidary, and the view says "Signed in to ChatGPT", with your plan. The first time, it also says "You're using your ChatGPT plan", with **Manage usage**, which opens ChatGPT's usage settings, and **Got it**.
+3. Read the warning under it. On personal ChatGPT plans OpenAI may use what you send to train its models unless you turn that off: in ChatGPT, open Settings, then Data controls, and turn off Improve the model for everyone. **Open Data controls** opens that page. Lapidary cannot see the setting, so check it yourself, then tick **I have confirmed my data settings**. Your first ChatGPT review needs the box ticked, and it is kept for that ChatGPT account. You may leave training on, but turning it off is recommended.
+
+Then click **Review**, then **ChatGPT**. Review with AI shows your account, with **Open Setup**, "Using ChatGPT plan" with **Manage usage**, and the models your plan offers; unless you choose one, reviews use the first that is not a pro, codex or chat model, which the list marks "(default)". Reviews count against your plan's usage limits, and nothing is billed per token.
+
+**Later.** Lapidary renews the sign-in by itself while you review. If OpenAI no longer accepts it, as after a month without a review or once you disconnect Lapidary in ChatGPT's settings, the review does not run: the ChatGPT view opens and says your sign-in has ended, and you sign in again. When a review reaches your plan's usage limit, or one OpenAI sets for this app, a card says so, with when the limit resets if OpenAI says and **Manage usage**, and the status bar says "ChatGPT: usage limit reached" until a review goes through. When OpenAI's answers give your plan's usage, the status bar shows it as it shows Claude's, from 80% of a limit, as in "5-hour limit 85% used, resets 15:45". **Sign out**, on the same view, asks OpenAI to end the sign-in and removes it from your computer.
+
 ## Connecting OpenAI
 
 OpenAI in Lapidary is experimental: it has been tested only with a stand-in for OpenAI's service, not with a real key, so a review may fail in ways not yet seen. The review dialog and Settings say so too.
@@ -105,7 +119,7 @@ As a rough guide, OpenAI's prices of September 2026 put a chapter at about 5 US 
 
 The first time you start the app, a welcome guide takes the place of the main window. Each of its three steps says when it is done, and you can do them in any order:
 
-1. **Connect Claude** says where Claude stands, in Setup's words ("Claude Code is not installed", "Claude is ready" and so on). **Set up Claude** opens Setup ([Connecting Claude](#connecting-claude)), and its **Close** brings you back to the guide. To review with OpenAI instead, click **Use OpenAI instead (experimental, pay per use)**, then save a key in Settings ([Connecting OpenAI](#connecting-openai)).
+1. **Connect Claude** says where Claude stands, in Setup's words ("Claude Code is not installed", "Claude is ready" and so on). **Set up Claude** opens Setup ([Connecting Claude](#connecting-claude)), and its **Close** brings you back to the guide. To review with OpenAI instead, click **Use OpenAI instead (experimental, pay per use)**, then save a key in Settings ([Connecting OpenAI](#connecting-openai)). With ChatGPT chosen in the Review menu, the step says instead whether you are signed in with ChatGPT, and has **Set up ChatGPT** ([Connecting ChatGPT](#connecting-chatgpt)).
 2. **Choose your manuscript folder.** Click **Choose folder** and pick the folder that holds your novel's chapters: your Obsidian vault, or a folder inside it. The app lists the `.md` and `.txt` files in it and its subfolders as chapters, leaving out a few, among them the guidelines file, Excalidraw drawings and anything whose name starts with a dot, such as the `.obsidian` and `.trash` folders (the full list is under [Working in an Obsidian vault](#working-in-an-obsidian-vault)), so choose the novel's own folder rather than a vault full of other notes. It changes a chapter file only when you press **Save to chapter**, and first copies the version it replaces into a backup in its own data folder. The one file it adds of its own is `GUIDELINES.md` (the next step); the chapters you make with **New chapter**, the + beside "Chapters", go there too. Reviews are kept in the app's data folder unless you choose a **Reviews folder** in Settings.
 3. **Fill in your style sheet.** **Create and open** makes `GUIDELINES.md` from a template and opens it in your computer's app for `.md` files; once the file is there, the button reads **Open**. **Open folder** shows it in File Explorer instead, and also makes the file first if it is not there yet. Fill in its Style sheet section ([The guidelines file](#the-guidelines-file)), save it, and come back to the app: the step is done once the section holds something.
 
@@ -120,7 +134,7 @@ If your Claude plan is Pro, the guide sets the review model to Sonnet the first 
 ## Reviewing a chapter
 
 1. Pick a chapter on the left.
-2. Click **Review**, then **With AI**. The **Review with AI** dialog shows the chapter's size, the provider, model and effort, your guidelines file, and what happened last time. For OpenAI it also shows where the key comes from; **Start review** stays disabled until there is one.
+2. Click **Review**, then the service to review with: **Claude**, **ChatGPT** or **OpenAI (API key, experimental)**. The **Review with AI** dialog shows the chapter's size, the provider, which you can change there too, the model and effort, your guidelines file, and what happened last time. For ChatGPT it also shows your account and, before your first ChatGPT review, the warning about training with its box, and **Start review** stays disabled until you are signed in and have ticked it; for OpenAI it shows where the key comes from, and **Start review** stays disabled until there is one.
 3. While it runs, a card at the bottom of the page shows progress and a **Cancel review** button. A review usually takes a minute or two. The chapter is read-only until it finishes, because the result replaces the current set of suggestions; you can open other chapters meanwhile. If the page has changes that are not saved to the chapter yet, the dialog says so, because the review reads the chapter file: **Save 3 changes, then review** writes them into the chapter and then starts, so the review sees them (if the save does not go through, nothing is sent and the dialog says why), and **Review without them** asks first, then leaves them in the old review, which you can reopen from History.
 4. When it finishes, each suggestion appears in the text:
    - **Pending**: your original, underlined in the category colour, with the suggestion above it.
@@ -136,9 +150,9 @@ If your Claude plan is Pro, the guide sets the review model to Sonnet the first 
 
 ![The same chapter in dark mode.](docs/images/review-dark.png)
 
-**Models.** The review dialog lists the models the provider offers. For Claude the list comes from your installed Claude Code, so it depends on its version and your plan, and each model shows its version (such as Opus 5.5 or Sonnet 5). "Default" is whatever Claude Code currently recommends for your account.
+**Models.** The review dialog lists the models the provider offers. For Claude the list comes from your installed Claude Code, so it depends on its version and your plan, and each model shows its version (such as Opus 5.5 or Sonnet 5). "Default" is whatever Claude Code currently recommends for your account. For ChatGPT the list is the one OpenAI gives your plan.
 
-The status bar shows which provider and model answered and what it cost. Claude's figure is Claude Code's own estimate at API prices; on a Claude plan it is not what you pay. OpenAI's is marked "estimate": it is this app's arithmetic from a price table, and it is left out for models the table does not know. Every review is kept in **History** in the side panel, labelled with its provider and model. The list at the top of the side panel holds the same reviews: choose one to switch to it. A chapter opens with the review you last had on screen, usually the newest; when it is an older one, a warning mark beside the list says when the newest is from.
+The status bar shows which provider and model answered and what it cost. Claude's figure is Claude Code's own estimate at API prices; on a Claude plan it is not what you pay. OpenAI's is marked "estimate": it is this app's arithmetic from a price table, and it is left out for models the table does not know. A ChatGPT review shows none, as it counts against your plan. Every review is kept in **History** in the side panel, labelled with its provider and model. The list at the top of the side panel holds the same reviews: choose one to switch to it. A chapter opens with the review you last had on screen, usually the newest; when it is an older one, a warning mark beside the list says when the newest is from.
 
 **Review**, then **Manual**, opens **Submit manual review**, which turns a corrected copy of the chapter (pasted, or loaded from a file) into the same kind of suggestions, so you can review someone else's edits the same way. The copy is compared with the chapter file, so when the page has changes the file does not have yet, Build review asks first: save them, then build; build without them; or cancel.
 
@@ -156,9 +170,11 @@ What you type in a paragraph box is kept in the app's data folder within a secon
 
 Paragraphs are numbered from 1 beside the text, and the AI is shown the same numbers, so "paragraph 12" in a comment means the one labelled 12.
 
+**Full edit and Preview.** The **Mode** list at the top right of the chapter switches between **Main**, the page described above, **Full edit** and **Preview**; a chapter opens in Main, or in Full edit when you left something typed there. Main and Preview each keep their place in the chapter, and Full edit opens at its top. Full edit puts the whole chapter in one plain box, as it reads now, without the suggestions or comments, so you can go through it at once, with ProWritingAid for example; the frontmatter stands above the box and is left as it is. **Done** (or Ctrl+Enter) turns what you changed into your own edits, already accepted, as a paragraph box does, and goes back to Main; **Cancel** (or Escape) goes back without them, asking first if you typed anything. While Full edit is open the suggestions wait, another review of the chapter does not open until you finish or cancel it, and what you type is kept as a paragraph box's text is. **Preview** shows the chapter as it reads now, the way a Royal Road reader will see it, from the same HTML as **Export HTML**: the lines of a status screen close together, scene breaks, headings, quotes, lists and tables. Links in it do not open, and web images show their description instead of being loaded. The suggestion keys (`j`, `k`, `a`, `u`, `d` and `n`) work in Main only; in Preview the arrow keys scroll the page. Switching with something typed and not applied asks first what to do with it.
+
 ## Saving to the chapter
 
-**Save to chapter** is the only thing that writes to your manuscript. It writes the text as it currently reads, with every accepted change applied, in one atomic step that keeps the file's line endings and encoding. **Copy result**, in the **Actions** menu, puts the same text on the clipboard instead. Selecting part of the page and copying it gives just those words, as they currently read, in plain text: none of the floating suggestions or labels come with them.
+**Save to chapter** is the only thing that writes to your manuscript. It writes the text as it currently reads, with every accepted change applied, in one atomic step that keeps the file's line endings and encoding. **Copy result**, in the **Actions** menu, puts the same text on the clipboard instead. **Export HTML**, under it, puts the same text on the clipboard as HTML to paste into a Royal Road chapter: lines with no blank line between them stay close together, and Obsidian's frontmatter, comments, tags and footnote marks are left out. Selecting part of the page and copying it gives just those words, as they currently read, in plain text: none of the floating suggestions or labels come with them.
 
 If the chapter changes on disk while it is open (for example, you edit it in Obsidian), the app notices, re-anchors the suggestions onto the new text and tells you how many it could not place. Avoid editing the same chapter in Obsidian while you are accepting changes here ([Working in an Obsidian vault](#working-in-an-obsidian-vault) says why).
 
@@ -245,7 +261,7 @@ To report a problem, open an issue on [GitHub](https://github.com/MichaelBradetL
 - the chapter's text as saved on disk, without its frontmatter, as numbered paragraphs, a paragraph that holds nothing but comments, code or maths sent as its number alone;
 - the chapter's file name, without its folder or extension.
 
-It does not send the folder's path, other chapters, earlier reviews, your decisions or your settings. For OpenAI, the app also asks OpenAI for its list of models, which sends no chapter text, when the review dialog shows OpenAI or after you save a key.
+It does not send the folder's path, other chapters, earlier reviews, your decisions or your settings. For OpenAI, the app also asks OpenAI for its list of models, which sends no chapter text, when the review dialog shows OpenAI or after you save a key. For ChatGPT, it asks OpenAI for the models your plan offers when the review dialog shows ChatGPT, and renews your sign-in with OpenAI when it is about to run out; neither sends chapter text.
 
 **Claude Code at launch.** Each time the app starts, whichever provider you use, it runs your Claude Code to check its version and sign-in and to get its list of models. This launch check sends no model request, so it uses none of your plan's usage, and neither does Check again. **Test the connection**, on the Setup screen, sends one very small request, and only when you click it. Claude Code itself may contact Anthropic whenever it runs, as it does in a terminal.
 
@@ -260,23 +276,23 @@ They apply to Claude Code everywhere, not only in this app. Setting them in `~/.
 
 **No transcripts.** The app runs Claude Code with `--no-session-persistence`, so Claude Code saves no transcript of a review on your computer.
 
-**OpenAI.** Requests are sent with `store: false`, so OpenAI does not keep the response for later retrieval. OpenAI says it does not train on API data by default, but it may keep abuse-monitoring logs for up to 30 days.
+**OpenAI and ChatGPT.** Requests are sent with `store: false`, so OpenAI does not keep the response for later retrieval. OpenAI says it does not train on API data by default, but it may keep abuse-monitoring logs for up to 30 days. A review on a personal ChatGPT plan is another matter: OpenAI may train on it unless you turn that off under Data controls in ChatGPT's settings ([Connecting ChatGPT](#connecting-chatgpt)).
 
 **Credentials.**
 
 - **Claude**: the app never reads, stores, displays or proxies your Claude credentials. You sign in through Anthropic's own flow in Claude Code. An `ANTHROPIC_API_KEY` or other Claude Code sign-in variable in your environment reaches Claude Code unread and unchanged, because Claude Code inherits the app's environment.
-- **OpenAI**: your API key is the one credential the app stores. It is encrypted with Windows' data protection for your login (Electron `safeStorage`) and written to `secrets.json` in the app's data folder, never to `settings.json`. Only the app's background process decrypts it, at the moment of a request. It is never shown again and never sent to the app's window, which only learns whether a key exists and its last four characters. If Windows cannot encrypt, the app refuses to save the key and tells you to use `OPENAI_API_KEY` instead.
-- The app offers no "Sign in with ChatGPT": OpenAI documents API keys as the route for third-party apps, and a ChatGPT subscription does not pay for API use.
+- **OpenAI**: your API key is one of the two credentials the app stores; the other is your ChatGPT sign-in, below. It is encrypted with Windows' data protection for your login (Electron `safeStorage`) and written to `secrets.json` in the app's data folder, never to `settings.json`. Only the app's background process decrypts it, at the moment of a request. It is never shown again and never sent to the app's window, which only learns whether a key exists and its last four characters. If Windows cannot encrypt, the app refuses to save the key and tells you to use `OPENAI_API_KEY` instead.
+- **ChatGPT**: **Sign in with ChatGPT**, on the Setup screen's ChatGPT view (**Settings**, **ChatGPT account**, **Setup**), opens OpenAI's own sign-in page in your browser. You sign in there, so the app never sees your ChatGPT password; once you allow the app, your browser hands the sign-in back to it on your own computer. The app keeps the sign-in's tokens as it keeps the key: encrypted for your Windows login, in `secrets.json`, decrypted only by its background process, never shown and never sent to the app's window, which learns only whether you are signed in and your plan. Beside the tokens, unencrypted, it keeps your plan, whether you ticked the data settings box, an id for your ChatGPT account, the id OpenAI issued the app for that account and an id the app made for this computer. **Sign out** asks OpenAI to end the sign-in, then removes it. The same view warns that on personal ChatGPT plans OpenAI may use what you send to train its models unless you turn that off under **Data controls** in ChatGPT's settings, which the app cannot check; **Open Data controls** opens that page, and the box **I have confirmed my data settings** is kept for each ChatGPT account.
 
 ## Where the app keeps its data
 
 **The app's data folder** is `%APPDATA%\ai-grammar-checker`; its name dates from before the app was renamed. **Open data folder** in About opens it. It holds:
 
 - `settings.json`: your settings. If it was ever damaged (not valid JSON), Lapidary kept a copy named `settings.json.corrupt-<time>` beside it and started again from its default settings. While the app cannot read it, because another program holds it open, or because it is damaged and cannot be copied aside, the app says so with Try again and changes nothing in it.
-- `secrets.json`: the encrypted OpenAI key. It exists only once you have saved a key.
+- `secrets.json`: the OpenAI key and the ChatGPT sign-in's tokens, encrypted, and beside them, unencrypted, the sign-in's plan, its data settings box and its ids. It exists only once you have saved a key or signed in with ChatGPT. If it was ever damaged, Lapidary kept a copy named `secrets.json.corrupt-<time>` beside it before writing a new one. While another program holds it open, the app changes nothing in it and says so.
 - `reviews\`: your reviews, unless you chose another reviews folder in Settings. Each review holds the full text of its chapter.
 - `backups\`: the versions of your chapters that Save to chapter replaced, a folder for each chapter, with a `chapter.json` naming the chapter file.
-- `drafts\`: what you have typed in open paragraph boxes, and in `drafts\set-aside\` the text of boxes that could not be put back.
+- `drafts\`: what you have typed in open paragraph boxes and in Full edit, and in `drafts\set-aside\` the text of boxes that could not be put back.
 - `logs\main.log`, and `main.1.log` once it fills: the log ([When something goes wrong](#when-something-goes-wrong)).
 - `.updaterId`, once Lapidary has checked for updates: a random id the update library keeps. Lapidary never sends it.
 - Folders that Electron keeps for itself, such as caches.
@@ -289,7 +305,7 @@ Your chapters change only when you click **Save to chapter**. Besides them, the 
 
 In Windows 11, open **Settings > Apps > Installed apps**, click **...** beside Lapidary and choose **Uninstall**; in Windows 10, **Settings > Apps > Apps & features**, then Lapidary and **Uninstall**. This removes the app, its shortcuts and its entry in the list. It leaves your manuscript folder alone, and it also leaves the app's data folder and the copy of the installer, so a later install finds your settings and reviews again.
 
-To remove those too, delete the two folders once Lapidary is uninstalled: press Windows+R, type `%APPDATA%`, press Enter and delete the `ai-grammar-checker` folder; then do the same with `%LOCALAPPDATA%` and the `manuscript-review-updater` folder. Deleting the data folder deletes your saved OpenAI key, the backups and, unless you chose another reviews folder, your reviews. Claude Code is a separate program; it stays installed, and Anthropic's documentation says how to remove it.
+To remove those too, delete the two folders once Lapidary is uninstalled: press Windows+R, type `%APPDATA%`, press Enter and delete the `ai-grammar-checker` folder; then do the same with `%LOCALAPPDATA%` and the `manuscript-review-updater` folder. Deleting the data folder deletes your saved OpenAI key, your ChatGPT sign-in (sign out first for OpenAI to end it too), the backups and, unless you chose another reviews folder, your reviews. Claude Code is a separate program; it stays installed, and Anthropic's documentation says how to remove it.
 
 ## Building from source
 

@@ -170,9 +170,13 @@ describe('how a drawer closes (ui.3)', () => {
   });
 
   it('with a press in the prose', () => {
+    // In every mode (rr.2): the scroller is the same element, its class naming
+    // the mode, and it keeps each mode's place (`useModePlaces`, its ref and
+    // onScroll spread onto it).
     expect(APP).toMatch(
-      /<main\s+className="center"\s+onPointerDown=\{\(\) => \{\s*if \(useDrawer\.getState\(\)\.open !== null\) useDrawer\.getState\(\)\.setOpen\(null\);\s*\}\}\s*>/
+      /<main\s+\{\.\.\.modePlaces\}\s+className=\{`center center--\$\{mode\}`\}\s+onPointerDown=\{\(\) => \{\s*if \(useDrawer\.getState\(\)\.open !== null\) useDrawer\.getState\(\)\.setOpen\(null\);\s*\}\}\s*>/
     );
+    expect(APP).toContain('const modePlaces = useModePlaces(mode, review?.sourcePath ?? null);');
   });
 
   it('once a chapter is chosen from the list, or made with its +', () => {

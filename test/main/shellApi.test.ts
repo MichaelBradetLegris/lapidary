@@ -76,6 +76,14 @@ describe('where main hands things to the system', () => {
       /if \(target === 'guidelines'\) return revealGuidelines\(await loadSettings\(\), guidelinesTemplate\(\), system\);/
     );
     expect(ipc.match(/'guidelines'/g)).toHaveLength(1);
+    // shell:open-external opens only what externalPageUrl gives for a page's
+    // name, tested in test/shared/chatgpt.test.ts; never anything the page sent
+    // (codex.2 review).
+    expect(ipc).toMatch(
+      /handle\('shell:open-external', async \(\{ page \}\) => \{\s*const url = externalPageUrl\(page\);\s*if \(url === null\) throw fail\('invalid-input', `That is not a page \$\{APP_NAME\} opens\.`\);\s*await systemShell\(\)\.openExternal\(url\);\s*\}\);/
+    );
+    expect(ipc.match(/\.openExternal\(/g)).toHaveLength(1);
+    expect(ipc).not.toContain('EXTERNAL_PAGE_URLS');
     expect(ipc).not.toMatch(/\bensureGuidelinesFile\b/);
     expect(index.match(/void systemShell\(\)\.openExternal\(/g)).toHaveLength(2);
     expect(index).not.toMatch(/import \{[^}]*\bshell\b[^}]*\} from 'electron'/);

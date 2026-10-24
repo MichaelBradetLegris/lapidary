@@ -1,5 +1,8 @@
 /**
- * Claude's usage in words (setup.9, PLAN 5.1, section 7 and C.64).
+ * Claude's usage in words (setup.9, PLAN 5.1, section 7 and C.64), and since
+ * codex.3 a ChatGPT plan's, in the same words: its notices come from the
+ * answers to a ChatGPT review (`readChatGptLimits`, src/shared/ai/chatgpt.ts),
+ * marked `provider: 'chatgpt'`, and name their limits by their windows.
  *
  * Before each result Claude Code sends a `rate_limit_event`: which of the
  * plan's limits is closest, when it resets, and whether extra usage is paying
@@ -31,12 +34,30 @@ const LIMIT_NAMES: ReadonlyMap<string, string> = new Map([
   ['seven_day_sonnet', 'weekly Sonnet limit'],
   // A weekly limit for one model, which Claude Code names after the model.
   ['seven_day_overage_included', 'weekly model limit'],
-  ['overage', 'extra usage limit']
+  ['overage', 'extra usage limit'],
+  // A ChatGPT plan's limits, named by their windows (`windowKind`, codex.3).
+  ['hourly', 'hourly limit'],
+  ['daily', 'daily limit']
 ]);
 
-/** "5-hour limit", "weekly Opus limit"; "usage limit" for a kind not given or not known here. */
+/** A ChatGPT limit over another whole number of hours or days (`windowKind`): `<n>_hour`, `<n>_day`. */
+const WINDOW_KIND = /^(\d{1,4})_(hour|day)$/;
+
+/**
+ * "5-hour limit", "weekly Opus limit", "3-hour limit"; "usage limit" for a
+ * kind not given or not known here.
+ */
 export function limitName(kind: string | undefined): string {
-  return (kind === undefined ? undefined : LIMIT_NAMES.get(kind)) ?? 'usage limit';
+  if (kind === undefined) return 'usage limit';
+  const known = LIMIT_NAMES.get(kind);
+  if (known) return known;
+  const window = WINDOW_KIND.exec(kind);
+  return window ? `${Number(window[1])}-${window[2]} limit` : 'usage limit';
+}
+
+/** Whose plan a notice is about, in the tooltip's words: Claude's, unless it is marked ChatGPT's (codex.3). */
+function serviceOf(info: RateLimitInfo): 'Claude' | 'ChatGPT' {
+  return info.provider === 'chatgpt' ? 'ChatGPT' : 'Claude';
 }
 
 /**
@@ -193,8 +214,8 @@ export function describeRateLimit(
 }
 
 /** Whose limit it is, in a sentence: the plan's, or for extra usage the account's own. */
-function owned(kind: string | undefined): string {
-  return kind === 'overage' ? `your ${limitName(kind)}` : `your Claude plan's ${limitName(kind)}`;
+function owned(kind: string | undefined, service: 'Claude' | 'ChatGPT' = 'Claude'): string {
+  return kind === 'overage' ? `your ${limitName(kind)}` : `your ${service} plan's ${limitName(kind)}`;
 }
 
 /** What a reached limit stops, for a limit that holds one model only; every other holds Claude. */
@@ -213,6 +234,8 @@ const minuteOf = (time: Date): number => Math.floor(time.getTime() / MINUTE) * M
  * "85% of your Claude plan's 5-hour limit is used. It resets at 15:45, in
  * 2 hours and 10 minutes." The time left runs to the minute the clock time
  * names, so it is the difference between that clock time and the computer's.
+ * A ChatGPT plan's notice says "your ChatGPT plan's" and "reviews with
+ * ChatGPT" (codex.3).
  */
 export function rateLimitTitle(
   given: RateLimitInfo | null | undefined,
@@ -221,6 +244,7 @@ export function rateLimitTitle(
 ): string | null {
   if (!given || describeRateLimit(given, now, plan) === null) return null;
   const info = onPlan(given, plan);
+  const service = serviceOf(info);
   const reset = resetOf(info);
   const when = reset
     ? ` ${resetTimeInWords(reset, now)}, ${untilPhrase(minuteOf(reset) - now.getTime())}`
@@ -228,15 +252,19 @@ export function rateLimitTitle(
   if (info.usingOverage === true) {
     // The limit that ran out is the plan's; "overage" names extra usage itself.
     const planKind = info.kind === 'overage' ? undefined : info.kind;
-    return `${capitalise(owned(planKind))} is used up, so Claude Code is using extra usage, which may be billed.${
+    return `${capitalise(owned(planKind, service))} is used up, so Claude Code is using extra usage, which may be billed.${
       reset ? ` The limit resets${when}.` : ''
     }`;
   }
   if (info.status === 'rejected') {
-    const held = MODEL_HELD.get(info.kind ?? '') ?? 'Claude';
-    return `${capitalise(owned(info.kind))} is used up, so reviews with ${held} stop until it resets${when}.`;
+    if (service === 'ChatGPT' && info.kind === undefined) {
+      // OpenAI's refusal alone names no limit, and the limit may be the one it sets for the app (codex.3).
+      return `A ChatGPT usage limit has been reached, your plan's or one OpenAI sets for this app, so reviews with ChatGPT stop until it resets${when}.`;
+    }
+    const held = (service === 'Claude' ? MODEL_HELD.get(info.kind ?? '') : undefined) ?? service;
+    return `${capitalise(owned(info.kind, service))} is used up, so reviews with ${held} stop until it resets${when}.`;
   }
-  return `${percentUsed(info.utilization) ?? 0}% of ${owned(info.kind)} is used.${reset ? ` It resets${when}.` : ''}`;
+  return `${percentUsed(info.utilization) ?? 0}% of ${owned(info.kind, service)} is used.${reset ? ` It resets${when}.` : ''}`;
 }
 
 type OneModelLimit = 'seven_day_opus' | 'seven_day_sonnet' | 'seven_day_overage_included';

@@ -183,7 +183,7 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
     expect(APP).toContain('const singleScreen = setupOpen || welcomeOpen;');
     const toolbar = APP.slice(APP.indexOf('<Toolbar'), APP.indexOf('/>', APP.indexOf('<Toolbar')));
     expect(toolbar).toContain('singleScreen={singleScreen}');
-    expect(TOOLBAR).toMatch(/sideFolded,\s*singleScreen,\s*onReviewWithAi,/);
+    expect(TOOLBAR).toMatch(/sideFolded,\s*singleScreen,\s*onReviewWith,/);
   });
 
   it('stays under the cards on the Setup screen, where they sit in the flow above it (setup.7)', () => {
@@ -192,7 +192,7 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
     // (setup.11 review), but a card would win should the two ever meet.
     const setup = APP.slice(APP.indexOf('if (singleScreen) {'), APP.lastIndexOf('return ('));
     expect(setup).toMatch(
-      /<div className="body body--single">\s*<NotificationCards onAction=\{onCardAction\} \/>\s*\{setupOpen \? \(\s*<SetupScreen\s/
+      /<div className="body body--single">\s*<NotificationCards onAction=\{onCardAction\} \/>\s*\{setupOpen && setupFor === 'chatgpt' \? \(\s*<ChatGptSetup[\s\S]*?\/>\s*\) : setupOpen \? \(\s*<SetupScreen\s/
     );
     const notes = declsFor('.body--single > .notes');
     expect(notes.get('position')).toBe('relative');
