@@ -4,6 +4,7 @@ import { setupFooterText } from '../../shared/ui/about';
 import {
   ANOTHER_ACCOUNT_BUTTON,
   CANCEL_SIGN_IN_BUTTON,
+  CHATGPT_PLAN_NOTE,
   CHATGPT_PRIVACY_FOOTER,
   MANAGE_USAGE_BUTTON,
   PLAN_WELCOME_DONE,
@@ -11,6 +12,7 @@ import {
   PLAN_WELCOME_TITLE,
   SIGN_IN_BUTTON,
   SIGN_OUT_BUTTON,
+  USING_CHATGPT_PLAN,
   chatGptSetupStatus,
   type ChatGptOutcome
 } from '../../shared/ui/chatgpt';
@@ -51,11 +53,13 @@ interface Props {
  * whether a sign-in is kept and the plan it named, with Sign in with ChatGPT,
  * which opens OpenAI's page in the browser and waits for its answer, or Sign
  * out, and Use another account once an earlier sign-in registered the app;
- * the training warning with its button and its box, always, as a reminder;
- * the privacy footer and the version. Unlike Claude's view, this one signs
- * in: OpenAI documents this sign-in for open-source apps, where Anthropic's
- * policy forbids one (5.6 item 7, CLAUDE.md rule 2). Its words are in
- * `src/shared/ui/chatgpt.ts`.
+ * while signed in, OpenAI's first-sign-in welcome until Got it, and after it
+ * OpenAI's "Using ChatGPT plan" with Manage usage on the card (codex.5
+ * review); the training warning with its button and its box, always, as a
+ * reminder; the privacy footer and the version. Unlike Claude's view, this
+ * one signs in: OpenAI documents this sign-in for open-source apps, where
+ * Anthropic's policy forbids one (5.6 item 7, CLAUDE.md rule 2). Its words
+ * are in `src/shared/ui/chatgpt.ts`.
  */
 export function ChatGptSetup({
   status,
@@ -123,6 +127,24 @@ export function ChatGptSetup({
             {card.lines.map((line) => (
               <p key={line}>{line}</p>
             ))}
+            {/* OpenAI's label for the plan in use, with Manage usage (its UI
+                guidelines, Appendix A), which stays on the view once Got it
+                has put the welcome away; while the welcome is up it says the
+                same, with its own Manage usage. Review with AI had it by the
+                model choice until codex.5 (C.116). */}
+            {signedIn && !welcome ? (
+              <p data-testid="chatgpt-plan-note">
+                <b>{USING_CHATGPT_PLAN}.</b> {CHATGPT_PLAN_NOTE}
+                {onManageUsage ? (
+                  <>
+                    {' '}
+                    <button type="button" className="link" onClick={onManageUsage}>
+                      {MANAGE_USAGE_BUTTON}
+                    </button>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
           </div>
           <div className="setup__status-actions">
             {/* One button, Sign in or Sign out, under one key, so the focus

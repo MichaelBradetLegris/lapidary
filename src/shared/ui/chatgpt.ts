@@ -7,8 +7,8 @@
  * plans may train on what is sent unless the user turns that off, the app
  * cannot check it, and the box "I have confirmed my data settings" is kept for
  * each account. Since codex.3 also what a review on the plan says (PLAN 5.8):
- * Review with AI's account line and gate, OpenAI's "Using ChatGPT plan",
- * Manage usage and welcome, a sign-in that is not there or has ended, the
+ * Review with AI's account line and gate, OpenAI's welcome, "Using ChatGPT
+ * plan" and Manage usage, a sign-in that is not there or has ended, the
  * usage limit's card and the plan's other failures. Pure (CLAUDE.md rule 4).
  */
 
@@ -302,10 +302,23 @@ export function callbackFailedPage(message: string): CallbackPageWords {
 /* ------------------------------------------------------------------ */
 
 /**
+ * OpenAI's label for the plan in use (UI guidelines, Appendix A), on the
+ * ChatGPT view's status card while signed in, once the welcome has gone. The
+ * guidelines put it by the model choice, where Review with AI had it until
+ * codex.5 left it out of the dialog at the author's word; the view has kept it
+ * since the codex.5 review.
+ */
+export const USING_CHATGPT_PLAN = 'Using ChatGPT plan';
+
+/** What the view's status card says after "Using ChatGPT plan", before Manage usage. */
+export const CHATGPT_PLAN_NOTE =
+  "Reviews count against your ChatGPT plan's usage limits, and nothing is billed per token.";
+
+/**
  * OpenAI's link to ChatGPT's usage settings (UI guidelines): `shell:open-external`
- * with `chatgpt-usage`, on the ChatGPT view's welcome and the usage limit's
- * card. Review with AI had it too, after OpenAI's "Using ChatGPT plan" by the
- * model choice, until codex.5 left both out of the dialog at the author's word.
+ * with `chatgpt-usage`, on the ChatGPT view, in the welcome and then after
+ * "Using ChatGPT plan", and on the usage limit's card. Review with AI had it
+ * too until codex.5.
  */
 export const MANAGE_USAGE_BUTTON = 'Manage usage';
 

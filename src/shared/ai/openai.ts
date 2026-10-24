@@ -29,8 +29,9 @@ export type OpenAiEffort = (typeof OPENAI_EFFORTS)[number];
  * both, so the highest accepted value is the value itself and the table is the
  * identity. It is written out as a table anyway so that a new app effort level
  * fails to compile here until someone decides what it means to OpenAI. Not every
- * model accepts every level; the review dialog says so and the provider maps the
- * resulting 400 to a message that suggests a lower effort.
+ * model accepts every level: the ChatGPT provider maps the resulting 400 to a
+ * message that names the model or the effort level (`statusFailure` in
+ * src/main/providers/chatgpt.ts).
  */
 export const OPENAI_EFFORT_FOR: Record<EffortLevel, OpenAiEffort> = {
   low: 'low',

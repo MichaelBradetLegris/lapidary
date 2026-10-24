@@ -5,12 +5,16 @@ import { ChatGptSetup } from '../../src/renderer/components/ChatGptSetup';
 import { SettingsDialog } from '../../src/renderer/components/SettingsDialog';
 import type { ChatGptStatus } from '../../src/shared/ipc';
 import {
+  CHATGPT_PLAN_NOTE,
   CHATGPT_PRIVACY_FOOTER,
   DATA_SETTINGS_CHECKBOX,
+  MANAGE_USAGE_BUTTON,
+  PLAN_WELCOME_TITLE,
   SIGNED_OUT_NOT_REVOKED,
   TRAINING_CHOICE_TEXT,
   TRAINING_WARNING_TEXT,
   TRAINING_WARNING_TITLE,
+  USING_CHATGPT_PLAN,
   dataSettingsNote,
   type ChatGptOutcome
 } from '../../src/shared/ui/chatgpt';
@@ -59,7 +63,7 @@ const SIGNED_IN: ChatGptStatus = { ...SIGNED_OUT, signedIn: true, plan: 'Plus', 
 
 function render(
   status: ChatGptStatus | null,
-  options: { waiting?: boolean; busy?: boolean; outcome?: ChatGptOutcome | null } = {}
+  options: { waiting?: boolean; busy?: boolean; outcome?: ChatGptOutcome | null; welcome?: boolean } = {}
 ): string {
   return renderToStaticMarkup(
     createElement(ChatGptSetup, {
@@ -72,6 +76,9 @@ function render(
       onSignOut: () => undefined,
       onConfirmDataSettings: () => undefined,
       onOpenDataControls: () => undefined,
+      welcome: options.welcome ?? false,
+      onManageUsage: () => undefined,
+      onWelcomeDone: () => undefined,
       onClose: () => undefined,
       version: '1.0.0'
     })
@@ -113,7 +120,7 @@ describe("the Setup screen's ChatGPT view (codex.2)", () => {
     expect(html).toContain('setup__status--ok');
     expect(text(html)).toContain('Signed in to ChatGPT');
     expect(text(html)).toContain('Your ChatGPT account is on the Plus plan.');
-    expect(buttons(html)).toEqual(['Close', 'Sign out', 'Open Data controls']);
+    expect(buttons(html)).toEqual(['Close', MANAGE_USAGE_BUTTON, 'Sign out', 'Open Data controls']);
     expect(html).toMatch(/<input type="checkbox" aria-describedby="[^"]+"\/>/);
     const confirmed = render({ ...SIGNED_IN, dataSettingsConfirmed: true });
     expect(confirmed).toMatch(/<input type="checkbox" aria-describedby="[^"]+" checked=""\/>/);
@@ -167,6 +174,46 @@ describe("the Setup screen's ChatGPT view (codex.2)", () => {
       expect(decode(box)).toContain(TRAINING_WARNING_TEXT);
       expect(decode(box)).toContain(TRAINING_CHOICE_TEXT);
       expect(text(box)).toContain(DATA_SETTINGS_CHECKBOX);
+    }
+  });
+
+  /* The codex.5 review: the dialog lost "Using ChatGPT plan" with Manage
+     usage, which the task said stays on this view; before the fix the view
+     had them only in OpenAI's welcome, until Got it. */
+  it('says "Using ChatGPT plan" with Manage usage in the status card once the welcome has gone', () => {
+    const html = render(SIGNED_IN);
+    const card = html.slice(html.indexOf('aria-label="ChatGPT status"'), html.indexOf('</section>'));
+    const note = card.slice(card.indexOf('<p data-testid="chatgpt-plan-note">'));
+    expect(note).toMatch(
+      /^<p data-testid="chatgpt-plan-note"><b>[^<]+<\/b> [^<]+ <button type="button" class="link">[^<]+<\/button><\/p><\/div><div class="setup__status-actions">/
+    );
+    expect(text(note.slice(0, note.indexOf('</p>')))).toBe(
+      `${USING_CHATGPT_PLAN}. ${CHATGPT_PLAN_NOTE} ${MANAGE_USAGE_BUTTON}`
+    );
+    expect(USING_CHATGPT_PLAN).toBe('Using ChatGPT plan');
+    // Once on the page: the card's Manage usage is the only one.
+    expect(buttons(html).filter((b) => b === MANAGE_USAGE_BUTTON)).toHaveLength(1);
+  });
+
+  it('leaves the plan note to the welcome while the welcome is up, so Manage usage stands once', () => {
+    const html = render(SIGNED_IN, { welcome: true });
+    expect(text(html)).toContain(PLAN_WELCOME_TITLE);
+    expect(html).not.toContain('chatgpt-plan-note');
+    expect(text(html)).not.toContain(USING_CHATGPT_PLAN);
+    expect(buttons(html).filter((b) => b === MANAGE_USAGE_BUTTON)).toHaveLength(1);
+  });
+
+  it('has no plan note while not signed in', () => {
+    for (const html of [
+      render(null),
+      render(SIGNED_OUT),
+      render(SIGNED_OUT, { waiting: true }),
+      render({ ...SIGNED_OUT, registered: true }),
+      render({ ...SIGNED_OUT, encryptionAvailable: false })
+    ]) {
+      expect(html).not.toContain('chatgpt-plan-note');
+      expect(text(html)).not.toContain(USING_CHATGPT_PLAN);
+      expect(buttons(html)).not.toContain(MANAGE_USAGE_BUTTON);
     }
   });
 

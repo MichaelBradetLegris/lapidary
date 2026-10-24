@@ -97,9 +97,10 @@ interface Props {
  * the first review needs: Start stays disabled until there is a sign-in and
  * the box is ticked. No other words of ChatGPT's own: OpenAI's "Using ChatGPT
  * plan" with Manage usage and the note on how the effort is sent went in
- * codex.5, at the author's word. A model list that could not be fetched says
- * why under the Model row, with Try again, and is asked for again as the
- * dialog next opens (codex.3 review).
+ * codex.5, at the author's word, the first to the ChatGPT view's status card
+ * (ChatGptSetup). A model list that could not be fetched says why under the
+ * Model row, with Try again, and is asked for again as the dialog next opens
+ * (codex.3 review).
  */
 export function ReviewDialog({
   review,
