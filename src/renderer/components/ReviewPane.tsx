@@ -36,9 +36,9 @@ interface Props {
  * Below this the gutter would squeeze the prose too hard, so comments fall back
  * to the sidebar alone. Measured against the scroller, not the window: the file
  * list and the side panel take up to 550px between them, and less once they
- * give way to the prose in a narrow window (ui.3). Full edit and Preview keep
- * the margin's room free for the notification cards from the same width
- * (`.fulledit` and `.preview` in app.css, rr.2 review).
+ * give way to the prose in a narrow window (ui.3). Full edit and Preview have
+ * no margin notes and keep none of its room: they are centred in the column
+ * (`.fulledit` and `.preview` in app.css, rr.4).
  */
 const GUTTER_MIN_WIDTH = 820;
 

@@ -484,21 +484,47 @@ describe('the CSS of the three modes', () => {
     expect(CSS).not.toMatch(/\.fulledit__area:focus/);
   });
 
-  /* rr.2 review: the notification cards, pinned to the column's top right,
-     covered the first lines of Full edit's box and of Preview's page, which
-     ran under them where Main's prose stops short of its margin notes. From
-     Main's 820 px (GUTTER_MIN_WIDTH) both keep Main's 344 px free on the right. */
-  it('keeps the right of a wide column free for the cards in Full edit and Preview, as Main s margin is', () => {
-    const reserve = 'clamp(40px, (100% - 819px) * 1000, 344px)';
-    expect(rule('.fulledit')).toContain(`padding: 12px ${reserve} 16px 40px;`);
-    expect(rule('.fulledit')).toContain(`max-width: calc(66ch + 66px + ${reserve});`);
-    expect(rule('.preview')).toContain(`padding: 16px ${reserve} 120px 40px;`);
-    // Main's margin: 22 px of padding, a 22 px gap and a column of at most 300 px, from 820 px.
-    expect(rule('.pane--gutter')).toContain('padding-right: 22px;');
-    expect(CSS).toContain('grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);');
-    expect(CSS).toMatch(/\.pane--gutter \.pane__body \{[^}]*gap: 22px;/);
-    const pane = readFileSync(path.join(__dirname, '../../src/renderer/components/ReviewPane.tsx'), 'utf8');
-    expect(pane).toContain('const GUTTER_MIN_WIDTH = 820;');
+  /* rr.4: Full edit's box and Preview's page sat to the left, as the rr.2
+     review had them keep Main's 344 px margin for the notes free on the
+     right, though neither has margin notes. Both are centred in the column
+     now, with the same margin on each side, their text at the prose's 66ch
+     at most. */
+  it("centres Full edit's box and Preview's page in the column, at the prose's measure at most", () => {
+    /** A rule's padding as [top, right, bottom, left], from its shorthand. */
+    const padding = (selector: string): string[] => {
+      const found = /\n {2}padding: ([^;]+);/.exec(rule(selector))?.[1];
+      if (found === undefined) throw new Error(`no padding in ${selector}`);
+      const [top = '', right = top, bottom = top, left = right] = found.split(' ');
+      return [top, right, bottom, left];
+    };
+    // The same padding on each side, and the rest shared out by the auto margins.
+    expect(padding('.fulledit')).toEqual(['12px', '40px', '16px', '40px']);
+    expect(rule('.fulledit')).toContain('margin: 0 auto;');
+    expect(padding('.preview')).toEqual(['16px', '40px', '120px', '40px']);
+    expect(rule('.preview__page')).toContain('margin: 0 auto;');
+    expect(padding('.preview__page')).toEqual(['32px', '40px', '32px', '40px']);
+    // 66ch of text: the box's 26 px of padding and border and the 80 px of side
+    // padding; the page's 80 px of padding and 2 px of frame.
+    expect(rule('.fulledit')).toContain('max-width: calc(66ch + 106px);');
+    expect(rule('.fulledit__area')).toContain('padding: 10px 12px;');
+    expect(rule('.fulledit__area')).toContain('border: 1px solid var(--accent);');
+    expect(rule('.preview__page')).toContain('max-width: calc(66ch + 82px);');
+    expect(rule('.preview__page')).toContain('border: 1px solid var(--border);');
+    // The measure is counted in the prose's typeface at the prose's size, as Main's is.
+    for (const selector of ['.fulledit', '.preview__page']) {
+      expect(rule(selector)).toContain('font-family: var(--font-prose);');
+      expect(rule(selector)).toContain('font-size: 17px;');
+    }
+    expect(rule('.prose')).toContain('max-width: calc(66ch + 50px);');
+    // None of Main's room for the margin notes is kept, at any width.
+    for (const selector of ['.fulledit', '.preview', '.preview__page']) {
+      expect(rule(selector)).not.toMatch(/344px|819px|clamp\(/);
+    }
+    // The narrow window's padding stays the same on each side too.
+    for (const selector of ['.body--narrow .fulledit', '.body--narrow .preview']) {
+      expect(rule(selector)).toContain('padding-left: 16px;');
+      expect(rule(selector)).toContain('padding-right: 16px;');
+    }
   });
 
   it("draws Preview's paragraphs apart, a tight block's lines together, in the prose's serif", () => {

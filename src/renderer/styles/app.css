@@ -4135,26 +4135,20 @@ button.help {
    scrolls instead. The measure is the prose's, 66 characters of the prose's
    typeface; the font size set here is what the measure is counted in.
 
-   The notification cards are pinned to the column's top right. Main keeps
-   the right of a column 820 CSS px wide or more for its margin notes
-   (`.pane--gutter`: 22 px of padding, a 22 px gap and a 300 px column, 344
-   px in all; `GUTTER_MIN_WIDTH` in ReviewPane.tsx), and the cards sit over
-   them; Full edit and Preview keep the same 344 px free on the right in such
-   a column, so the box and the page end where Main's prose ends and a card
-   does not cover their first lines (rr.2 review). The right padding is 40 px
-   up to 820 px and 344 px from there: `(100% - 819px) * 1000` is negative
-   below and past 344 px above, and a percentage in padding or max-width is
-   of the scroller's width. */
+   The box is centred in the column, with the same margin on each side
+   (rr.4): Full edit has no margin notes, so it keeps none of Main's room
+   for them. At most 66ch of text, 26 px of the box's padding and border and
+   40 px of padding on each side; `margin: 0 auto` shares out the rest. */
 .fulledit {
   flex: 1 1 auto;
   min-width: 0;
   width: 100%;
-  max-width: calc(66ch + 66px + clamp(40px, (100% - 819px) * 1000, 344px));
+  max-width: calc(66ch + 106px);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px clamp(40px, (100% - 819px) * 1000, 344px) 16px 40px;
+  padding: 12px 40px 16px;
   font-family: var(--font-prose);
   font-size: 17px;
 }
@@ -4209,12 +4203,13 @@ button.help {
 /* Preview: the chapter as Royal Road's reader page shows it, near enough to
    judge it by, with nothing of theirs fetched: a sheet with its paragraphs a
    line and a fifth apart and a tight block's lines together, in the prose's
-   serif, as the author's own converter previewed it. Its right is kept free
-   of the cards as Full edit's is (above). */
+   serif, as the author's own converter previewed it. The sheet is centred in
+   the column as Full edit's box is (above, rr.4), its text at the prose's
+   measure at most: 66ch, with 80 px of padding and 2 px of frame. */
 .preview {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 16px clamp(40px, (100% - 819px) * 1000, 344px) 120px 40px;
+  padding: 16px 40px 120px;
 }
 
 .body--narrow .preview {
@@ -4223,7 +4218,7 @@ button.help {
 }
 
 .preview__page {
-  max-width: 760px;
+  max-width: calc(66ch + 82px);
   margin: 0 auto;
   padding: 32px 40px;
   border: 1px solid var(--border);
