@@ -13,9 +13,6 @@ describe("Review with AI's words for a model list that failed", () => {
     expect(modelListFailedText('chatgpt', CHATGPT_REVIEW_FAILURES.modelsNoAnswer)).toBe(
       'The models on your ChatGPT plan could not be listed. Could not reach OpenAI to list the models of your ChatGPT plan. Check your connection and try again.'
     );
-    expect(modelListFailedText('openai', 'OpenAI rejected the API key.')).toBe(
-      'The models for your OpenAI key could not be listed. OpenAI rejected the API key.'
-    );
     expect(modelListFailedText('claude', 'Claude Code did not answer.')).toBe(
       "Claude Code's models could not be listed. Claude Code did not answer."
     );

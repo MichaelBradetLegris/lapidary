@@ -6,8 +6,8 @@
  * of the OpenAI API or of OpenAI's sign-in server, Claude Code's stderr echoed
  * to the terminal, a window that stays out of the author's way, a shell that
  * opens nothing, and so on. A packaged build ignores all of them. A variable
- * left in someone's shell profile must never redirect the stored OpenAI key or
- * a ChatGPT sign-in to another server, or move an installed app's settings.
+ * left in someone's shell profile must never redirect a ChatGPT sign-in or its
+ * token to another server, or move an installed app's settings.
  * The ignored names are kept so the log can say they were seen.
  *
  * The one switch an installed build honours is the `--isolated-user-data=<dir>`

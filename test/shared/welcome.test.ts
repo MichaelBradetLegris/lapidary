@@ -1,23 +1,20 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { PRO_PRESELECT_HINT } from '../../src/shared/ai/claudeModels';
-import { OPENAI_MATURITY } from '../../src/shared/ai/openai';
 import { APP_NAME } from '../../src/shared/branding';
-import type { EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../../src/shared/ipc';
+import type { ChatGptStatus, EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../../src/shared/ipc';
 import { normalizeSettings } from '../../src/shared/settings';
 import { STYLE_SHEET_EMPTY, openFolderTitle, openGuidelinesTitle } from '../../src/shared/ui/guidelines';
 import { setupStatus, setupView, type LastFailure } from '../../src/shared/ui/setup';
 import {
+  CHATGPT_STEP_TEXT,
   CLAUDE_STEP_TEXT,
   CREATE_AND_OPEN,
   FOLDER_LISTS,
   FOLDER_SAVES,
-  OPENAI_STEP_TEXT,
   SHOW_WELCOME_AGAIN,
-  USE_OPENAI,
+  USE_CHATGPT,
   folderGuidelinesFact,
-  openAiChoiceLabel,
-  openAiStepText,
   folderReviewsFact,
   welcomeAgainPatch,
   welcomeNotKept,
@@ -60,7 +57,6 @@ const FRESH: WelcomeInput = {
   provider: 'claude',
   claude: null,
   claudeLastFailure: null,
-  openai: null,
   manuscriptFolder: null,
   guidelinesSetting: null,
   paths: null,
@@ -163,10 +159,7 @@ describe('1. Connect Claude', () => {
       expect(s.status).toBe(setupStatus(setupView(runtime, last), runtime, last).title);
       expect(s.done).toBe(done);
       expect(s.lines).toEqual([CLAUDE_STEP_TEXT]);
-      expect(buttons(s)).toEqual([
-        done ? 'Set up Claude' : 'Set up Claude [blue]',
-        'Use OpenAI instead (experimental, pay per use)'
-      ]);
+      expect(buttons(s)).toEqual([done ? 'Set up Claude' : 'Set up Claude [blue]', 'Use ChatGPT instead']);
     });
   }
 
@@ -185,43 +178,19 @@ describe('1. Connect Claude', () => {
     ]);
   });
 
-  it('offers OpenAI in the words of the task', () => {
-    expect(USE_OPENAI).toBe('Use OpenAI instead (experimental, pay per use)');
+  it('offers ChatGPT, in the place "Use OpenAI instead" held until codex.6', () => {
+    expect(USE_CHATGPT).toBe('Use ChatGPT instead');
+    expect(step(FRESH, 'claude').actions.map((a) => a.id)).toEqual(['set-up-claude', 'use-chatgpt']);
     expect(CLAUDE_STEP_TEXT).toContain(`${APP_NAME} reviews your chapters with Claude through Claude Code`);
   });
 
-  it('says OpenAI is experimental only while OPENAI_MATURITY does (hardening.11)', () => {
-    expect(USE_OPENAI).toBe(openAiChoiceLabel(OPENAI_MATURITY));
-    expect(OPENAI_STEP_TEXT).toBe(openAiStepText(OPENAI_MATURITY));
-    expect(openAiStepText('experimental')).toBe(
-      `Reviews go to OpenAI instead, billed per token to the account that owns the API key. OpenAI in ${APP_NAME} is experimental. Paste a key in Settings to finish this step.`
-    );
-    expect(openAiChoiceLabel('tested')).toBe('Use OpenAI instead (pay per use)');
-    expect(openAiStepText('tested')).toBe(
-      'Reviews go to OpenAI instead, billed per token to the account that owns the API key. Paste a key in Settings to finish this step.'
-    );
-  });
-
-  it('with OpenAI chosen: its key, Open Settings while there is none, and the way back to Claude', () => {
-    const none = step(
-      { ...FRESH, provider: 'openai', openai: { provider: 'openai', state: 'not-signed-in' } },
-      'claude'
-    );
-    expect(none.done).toBe(false);
-    expect(none.status).toBe('OpenAI: no API key');
-    expect(none.lines).toEqual([OPENAI_STEP_TEXT]);
-    expect(OPENAI_STEP_TEXT).toContain('experimental');
-    expect(buttons(none)).toEqual(['Open Settings [blue]', 'Use Claude instead']);
-
-    const keyed = step(
-      { ...FRESH, provider: 'openai', openai: { provider: 'openai', state: 'ready', keyLast4: 'abcd' } },
-      'claude'
-    );
-    expect(keyed.done).toBe(true);
-    expect(keyed.status).toBe('OpenAI ready (key ends abcd)');
-    expect(buttons(keyed)).toEqual(['Open Settings', 'Use Claude instead']);
-
-    expect(step({ ...FRESH, provider: 'openai' }, 'claude').status).toBe('Checking OpenAI…');
+  it("shows Claude's step for settings from before codex.6 that chose the OpenAI API key", () => {
+    const settings = normalizeSettings({ provider: 'openai', openaiModel: 'gpt-5-mini' });
+    expect(settings.provider).toBe('claude');
+    const s = step({ ...FRESH, provider: settings.provider }, 'claude');
+    expect(s.lines).toEqual([CLAUDE_STEP_TEXT]);
+    expect(s.actions.map((a) => a.label)).toEqual(['Set up Claude', 'Use ChatGPT instead']);
+    for (const action of s.actions) expect(action.label).not.toMatch(/OpenAI|key/i);
   });
 });
 
@@ -407,8 +376,19 @@ describe('whatever the app finds', () => {
     }),
     { nil: null }
   );
+  const chatgptArb: fc.Arbitrary<ChatGptStatus | null> = fc.option(
+    fc.record({
+      signedIn: fc.boolean(),
+      plan: fc.constantFrom('Plus', null),
+      dataSettingsConfirmed: fc.boolean(),
+      signingIn: fc.boolean(),
+      registered: fc.boolean(),
+      encryptionAvailable: fc.boolean()
+    }),
+    { nil: null }
+  );
   const inputArb: fc.Arbitrary<WelcomeInput> = fc.record({
-    provider: fc.constantFrom('claude', 'openai'),
+    provider: fc.constantFrom('claude', 'chatgpt'),
     claude: runtimeArb,
     claudeLastFailure: fc.option(
       fc.constantFrom<LastFailure>(
@@ -419,13 +399,7 @@ describe('whatever the app finds', () => {
       ),
       { nil: null }
     ),
-    openai: fc.option(
-      fc.constantFrom<RuntimeStatus>(
-        { provider: 'openai', state: 'ready', keyLast4: 'abcd' },
-        { provider: 'openai', state: 'not-signed-in' }
-      ),
-      { nil: null }
-    ),
+    chatgpt: chatgptArb,
     manuscriptFolder: fc.option(fc.constant(FOLDER), { nil: null }),
     guidelinesSetting: fc.option(fc.constantFrom('D:\\Notes\\style.md', 'D:\\Notes\\style.txt'), {
       nil: null
@@ -447,6 +421,11 @@ describe('whatever the app finds', () => {
       fc.property(inputArb, (input) => {
         const steps = welcomeSteps(input);
         expect(steps.map((s) => s.id)).toEqual(['claude', 'folder', 'style-sheet']);
+        // The first step offers the other provider, and never an OpenAI key (codex.6).
+        expect(steps[0]?.lines).toEqual([
+          input.provider === 'chatgpt' ? CHATGPT_STEP_TEXT : CLAUDE_STEP_TEXT
+        ]);
+        for (const action of steps[0]?.actions ?? []) expect(action.label).not.toMatch(/OpenAI|key/i);
         expect(welcomeStart(steps).disabled).toBe(input.manuscriptFolder === null);
         for (const s of steps) {
           const blue = s.actions.filter((a) => a.primary);

@@ -194,7 +194,18 @@ describe('reviewPicker (apply.26)', () => {
         pendingCount: 12,
         unsavedCount: 0
       })
-    ).toBe(`${historyWhen(T_OLDER)} · OpenAI · gpt-5-mini · 12 pending`);
+    ).toBe(`${historyWhen(T_OLDER)} · OpenAI (API key) · gpt-5-mini · 12 pending`);
+    // A review saved on an OpenAI API key before codex.6 is named so, never as ChatGPT's.
+    expect(
+      reviewChoiceLabel({
+        createdAt: T_OLDER,
+        generatorKind: 'chatgpt',
+        provider: 'chatgpt',
+        model: 'gpt-5.5',
+        pendingCount: 0,
+        unsavedCount: 0
+      })
+    ).toBe(`${historyWhen(T_OLDER)} · ChatGPT · gpt-5.5`);
     expect(
       reviewChoiceLabel({
         createdAt: T_OLDER,
@@ -306,7 +317,7 @@ describe('reviewPicker (apply.26)', () => {
     expect(unwritten.selected).toBe('');
     expect(unwritten.choices[0]).toEqual({
       value: '',
-      label: `${historyWhen('2026-10-17T18:00:00.000Z')} · OpenAI · gpt-5-mini · 3 pending`,
+      label: `${historyWhen('2026-10-17T18:00:00.000Z')} · OpenAI (API key) · gpt-5-mini · 3 pending`,
       createdAt: '2026-10-17T18:00:00.000Z'
     });
     expect(unwritten.notNewest).toBeNull();

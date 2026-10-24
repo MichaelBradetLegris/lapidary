@@ -115,11 +115,10 @@ describe('gating and entry points (setup.7)', () => {
     expect(openSetup).toContain('dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);');
     expect(openSetup).toContain('setSetupOpen(true);');
     expect(APP).toMatch(/case 'open-setup':\s*openSetup\(\);/);
-    // codex.3: ChatGPT's label opens its own view.
-    expect(APP).toMatch(
-      /onRuntime:\s*activeProvider === 'claude'\s*\?\s*openSetup\s*:\s*activeProvider === 'chatgpt'\s*\?\s*openChatGptSetup\s*:\s*openSettings,/
-    );
-    expect(APP).toContain('runtimeTitle: runtimeButtonTitle(activeProvider)');
+    // codex.3: ChatGPT's label opens its own view; since codex.6 no label opens Settings.
+    expect(APP).toMatch(/onRuntime:\s*activeProvider === 'chatgpt'\s*\?\s*openChatGptSetup\s*:\s*openSetup,/);
+    expect(APP).toContain('runtimeTitle: RUNTIME_BUTTON_TITLE');
+    expect(APP).not.toContain('openSettings');
     expect(APP.match(/onOpenSetup=\{openSetup\}/g)).toHaveLength(2);
   });
 
@@ -161,7 +160,7 @@ describe('gating and entry points (setup.7)', () => {
     expect(card).toMatch(
       /if \(action === 'withdraw'\) \{\s*dismissNotificationsByKey\(CLAUDE_RUNTIME_CARD\);\s*\} else if \(card && \(action === 'raise' \|\| action === 'update'\)\) \{\s*upsertNotification\(CLAUDE_RUNTIME_CARD, card\.tone, card\.text, 'open-setup'\);/
     );
-    // A switch to OpenAI, and Setup or the welcome guide opening, run the decision again.
+    // A switch to ChatGPT, and Setup or the welcome guide opening, run the decision again.
     expect(card).toMatch(
       /\}, \[\s*claudeRuntime,\s*claudeView,\s*settingsLoaded,\s*activeProvider,\s*claudeSetupOpen,\s*welcomeOpen,\s*upsertNotification,\s*dismissNotificationsByKey\s*\]\);/
     );
@@ -174,7 +173,10 @@ describe('gating and entry points (setup.7)', () => {
     expect(APP).toContain("const claudeSetupOpen = setupOpen && setupFor === 'claude';");
     expect(APP).toContain("const claudeInUse = activeProvider === 'claude' || claudeSetupOpen;");
     const ai = read('state/useAi.ts');
-    const recheck = ai.slice(ai.indexOf('const recheckOnFocus = '), ai.indexOf('const refreshKeyStatus = '));
+    const recheck = ai.slice(
+      ai.indexOf('const recheckOnFocus = '),
+      ai.indexOf('const chatGptAccountChanged = ')
+    );
     expect(recheck).toContain('inFlight: claudeChecking.current > 0,');
     expect(recheck).toContain('lastCheckAt: claudeCheckAt.current,');
     expect(recheck).toContain("if (due) check('claude');");
@@ -187,7 +189,7 @@ describe('gating and entry points (setup.7)', () => {
   it('tells the review dialog the last failure, for its warning, and how to open Setup', () => {
     expect(APP).toMatch(/claudeLastFailure=\{ai\.lastFailure\}\s*onOpenSetup=\{openSetup\}/);
     const dialog = read('components/ReviewDialog.tsx');
-    // Claude's alone since codex.3: ChatGPT and OpenAI have none.
+    // Claude's alone since codex.3: ChatGPT has none.
     expect(dialog).toContain("const isClaude = provider === 'claude';");
     expect(dialog).toContain(
       'const claudeWarning = isClaude ? reviewDialogWarning(runtime, claudeLastFailure) : null;'

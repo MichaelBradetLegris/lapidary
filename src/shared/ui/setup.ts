@@ -136,11 +136,6 @@ export function runtimeLabel(
   last: LastFailure | null = null
 ): string | null {
   if (!runtime) return null;
-  if (runtime.provider === 'openai') {
-    return runtime.state === 'ready'
-      ? `OpenAI ready (key ends ${runtime.keyLast4 ?? '????'})`
-      : 'OpenAI: no API key';
-  }
   if (runtime.provider === 'chatgpt') {
     if (runtime.state === 'not-signed-in') return 'ChatGPT: not signed in';
     if (runtime.state !== 'ready') return 'ChatGPT: could not check';
@@ -405,7 +400,7 @@ export interface RuntimeCardInput {
  * run, with the settings in, may put it up: when Claude is the provider, Setup
  * and the welcome guide are not open and there is something to do. While it
  * is up, a later check keeps its words current. It is taken away by its key
- * when nothing is left to do, when OpenAI becomes the provider, and when Setup
+ * when nothing is left to do, when ChatGPT becomes the provider, and when Setup
  * is open, which says the same at length, or the welcome guide, whose first
  * step does (setup.11). Once closed with its X, or taken away, it stays away.
  */
@@ -924,12 +919,10 @@ export function advancedRows(runtime: RuntimeStatus | null | undefined, os: Setu
 export const COPY_FAILED_TEXT = 'Could not copy. Select the command and copy it yourself.';
 
 /**
- * The status bar's runtime label is a button: Setup for Claude and for
- * ChatGPT, each its own view (codex.3), Settings for OpenAI.
+ * The tooltip of the status bar's runtime label, a button that opens the
+ * Setup screen: Claude's view, or ChatGPT's (codex.3).
  */
-export function runtimeButtonTitle(provider: Provider): string {
-  return provider === 'openai' ? 'Open Settings' : 'Open Setup';
-}
+export const RUNTIME_BUTTON_TITLE = 'Open Setup';
 
 /* ------------------------------------------------------------------ */
 /* Test the connection (setup.8)                                       */

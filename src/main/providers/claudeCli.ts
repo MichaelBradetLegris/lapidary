@@ -605,7 +605,6 @@ function finish(message: CliMessage, context: Context): ProviderResult {
     ...(model ? { model } : {}),
     // Claude Code's own figure, not this app's arithmetic.
     ...(typeof cost === 'number' ? { costUsd: cost } : {}),
-    costEstimated: false,
     usage,
     ...(typeof duration === 'number' ? { durationMs: duration } : {}),
     ...(typeof session === 'string' ? { sessionId: session } : {}),

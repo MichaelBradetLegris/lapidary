@@ -89,7 +89,6 @@ function dialog(
         ...(options.modelsError === undefined ? {} : { modelsError: { chatgpt: options.modelsError } }),
         onRetryModels: () => undefined,
         runtimes: { chatgpt: { provider: 'chatgpt', state: chatgpt?.signedIn ? 'ready' : 'not-signed-in' } },
-        keyStatus: null,
         history: [],
         reviewPath: null,
         unsavedDecisions: 0,
@@ -98,7 +97,6 @@ function dialog(
         onStartWithout: () => undefined,
         onApplySettings: () => undefined,
         onNeedModels: () => undefined,
-        onOpenSettings: () => undefined,
         onCheckClaude: () => undefined,
         checking: false,
         claudeLastFailure: null,
@@ -117,13 +115,14 @@ function dialog(
 }
 
 describe('Review with AI with ChatGPT chosen (codex.3)', () => {
-  it('lists ChatGPT between Claude and OpenAI (API key), and chooses it', () => {
+  it('lists Claude and ChatGPT, OpenAI (API key) gone since codex.6, and chooses ChatGPT', () => {
     const html = dialog(SIGNED_IN);
     const options = [...html.matchAll(/<option value="(\w+)"[^>]*>([^<]*)<\/option>/g)]
       .map(([, value = '', label = '']) => `${value}=${label}`)
       .filter((o) => /^(claude|chatgpt|openai)=/.test(o));
-    expect(options).toEqual(['claude=Claude', 'chatgpt=ChatGPT', 'openai=OpenAI (API key, experimental)']);
+    expect(options).toEqual(['claude=Claude', 'chatgpt=ChatGPT']);
     expect(html).toMatch(/<option value="chatgpt" selected="">ChatGPT<\/option>/);
+    expect(html).not.toContain('OpenAI (API key');
   });
 
   it('shows the account with Open Setup, "Using ChatGPT plan" with Manage usage, and the model list the sign-in allows', () => {
@@ -132,11 +131,12 @@ describe('Review with AI with ChatGPT chosen (codex.3)', () => {
     expect(text(html)).toContain(`${USING_CHATGPT_PLAN}. ${CHATGPT_PLAN_NOTE} ${MANAGE_USAGE_BUTTON}`);
     expect(buttons(html)).toEqual(expect.arrayContaining(['Open Setup', MANAGE_USAGE_BUTTON]));
     expect(html).toContain('<option value="gpt-5.5" selected="">GPT-5.5 (default)</option>');
-    // Claude's notes and OpenAI's key are not about ChatGPT.
+    // Claude's notes are not about ChatGPT, and nothing of the OpenAI API key's is left (codex.6).
     expect(html).not.toContain('data-testid="openai-key-line"');
     expect(html).not.toContain('data-testid="claude-setup-warning"');
     expect(html).not.toContain('Billed per token');
     expect(html).not.toContain('data-testid="openai-maturity-note"');
+    expect(html).not.toContain('Open Settings');
   });
 
   it('starts once signed in with the box ticked, with no training warning to show', () => {

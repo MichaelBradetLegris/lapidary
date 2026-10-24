@@ -185,11 +185,9 @@ describe("Settings' ChatGPT account row (codex.2)", () => {
           settings: { ...DEFAULT_SETTINGS, manuscriptFolder: 'C:\\Novel' }, // check-public: allow
           models: [],
           runtime: null,
-          keyStatus: null,
           chatgpt,
           chatgptWaiting: waiting,
           onApply: () => undefined,
-          onKeyChanged: () => undefined,
           onClose: () => undefined,
           onOpenSetup: () => undefined,
           onOpenChatGptSetup: () => undefined,
@@ -206,13 +204,17 @@ describe("Settings' ChatGPT account row (codex.2)", () => {
     return html.slice(start, html.indexOf('</div>', start));
   }
 
-  it('comes between the Claude account and the OpenAI key, with Setup and its (?)', () => {
+  it('comes after the Claude account, the last row of Accounts since codex.6 took out the OpenAI key, with Setup and its (?)', () => {
     const html = settings(SIGNED_IN);
-    const at = ['<span>Claude account</span>', '<span>ChatGPT account</span>', '<span>OpenAI API key'].map(
-      (part) => html.indexOf(part)
+    const at = ['<span>Claude account</span>', '<span>ChatGPT account</span>'].map((part) =>
+      html.indexOf(part)
     );
     expect(at.every((i) => i > -1)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(html).not.toContain('OpenAI API key');
+    // Accounts ends with it: the next thing is the foot.
+    expect(html.indexOf('</section>', at[1])).toBeLessThan(html.indexOf('settings__foot'));
+    expect(html.slice(at[1] ?? 0, html.indexOf('</section>', at[1]))).not.toContain('<input');
     const cells = row(html);
     expect(cells).toMatch(
       /<span class="modal__path" id="([^"]+)" data-testid="chatgpt-account-line">signed in \(Plus\)<\/span><span class="modal__buttons"><button type="button" aria-describedby="\1">Setup<\/button><\/span>/

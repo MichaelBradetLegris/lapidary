@@ -5,8 +5,8 @@
  * say at length is now the tooltip of the small (?) at the right end of the
  * row (`HelpTip`, polish.15), which is also what a screen reader gives as the
  * description of the row's control, or is in the README. Nothing a note said
- * that matters for the author's files or key was dropped: the tooltips keep
- * it.
+ * that matters for the author's files or sign-ins was dropped: the tooltips
+ * keep it.
  *
  * Pure (CLAUDE.md rule 4), tested in test/shared/settingsDialog.test.ts.
  */
@@ -31,10 +31,10 @@ export function helpButtonLabel(topic: string): string {
 /* ---------- Review ---------- */
 
 export const MODEL_TIP =
-  "Default lets Claude Code use your account's own default model. Review with AI shows this same setting, and is where the OpenAI model is chosen.";
+  "Default lets Claude Code use your account's own default model. Review with AI shows this same setting, and is where the ChatGPT model is chosen.";
 
 export const EFFORT_TIP =
-  "How much the model reasons before it answers, for Claude and OpenAI alike. A higher effort takes longer and uses more of your plan's limits or your API credit.";
+  "How much the model reasons before it answers, for Claude and ChatGPT alike. A higher effort takes longer and uses more of your plan's limits or your API credit.";
 
 /** The note under Appearance (theme.7), unchanged. */
 export const APPEARANCE_NOTE = "Match system follows your computer's light or dark setting.";
@@ -65,19 +65,6 @@ export const CLAUDE_ACCOUNT_TIP = `Reviews with Claude run through Claude Code o
 
 /** The ChatGPT account row's (?) (codex.2): what the sign-in is for, where it is kept, and Setup. */
 export const CHATGPT_ACCOUNT_TIP = `Reviews with ChatGPT use your ChatGPT plan, with no API key, once you sign in with ChatGPT on Setup, where the note on ChatGPT's data settings is too. The sign-in is encrypted with your Windows login, kept beside the settings file and never shown; only ${APP_NAME}'s background process uses it. Sign out removes it.`;
-
-/** The note under the key, before its link and after it. */
-export const OPENAI_KEY_NOTE = 'For OpenAI reviews, billed per token. Get one at';
-export const OPENAI_KEYS_PAGE = 'platform.openai.com/api-keys';
-export const OPENAI_KEYS_URL = `https://${OPENAI_KEYS_PAGE}`;
-export const OPENAI_KEYS_LINK_TITLE = "Opens OpenAI's page of API keys in your browser.";
-
-/** In place of the note when Windows cannot encrypt, so no key can be saved. */
-export const KEY_CANNOT_ENCRYPT =
-  'Windows cannot encrypt a key now, so none can be saved here. Use OPENAI_API_KEY.';
-
-/** Where the key is kept and who sees it: the safety facts the old note gave. */
-export const OPENAI_KEY_TIP = `The OpenAI account that owns the key pays, not a ChatGPT subscription. The key is encrypted with your Windows login, kept beside the settings file and never shown again; only ${APP_NAME}'s background process uses it. With no saved key, OPENAI_API_KEY from the environment is used, if it was set before ${APP_NAME} started.`;
 
 /* ---------- The foot ---------- */
 

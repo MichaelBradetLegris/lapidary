@@ -30,9 +30,8 @@ export interface ProviderResult {
   /** the model that actually answered, which need not be the one requested */
   model?: string;
   usage?: unknown;
+  /** the provider's own figure: Claude Code's estimate at API prices */
   costUsd?: number;
-  /** true when costUsd came from this app's price table rather than the provider */
-  costEstimated?: boolean;
   durationMs?: number;
   sessionId?: string;
   fallbackNote?: string;

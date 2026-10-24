@@ -39,16 +39,18 @@ describe('when the guide shows (setup.11)', () => {
       'settings={settings}',
       'claude={claudeRuntime}',
       'claudeLastFailure={ai.lastFailure}',
-      'openai={ai.runtimes.openai ?? null}',
+      'chatgpt={chatgpt.status}',
       'onSetUpClaude={openSetup}',
+      'onSetUpChatGpt={openChatGptSetup}',
       'onUseProvider={chooseProvider}',
-      'onOpenSettings={openSettings}',
       'onChooseFolder={chooseManuscriptFolder}',
       'onStart={finishWelcome}',
       'onSkip={finishWelcome}'
     ]) {
       expect(screen).toContain(prop);
     }
+    // Nothing of the OpenAI API key's, which codex.6 took out.
+    expect(screen).not.toMatch(/openai|onOpenSettings/i);
   });
 
   it('keeps the launch card off the guide, whose first step says the same', () => {
@@ -76,7 +78,7 @@ describe('Start, Skip and Show the welcome guide again', () => {
     expect(APP.indexOf('const welcomeOpen = ')).toBeLessThan(APP.indexOf('proPreselection(settings'));
   });
 
-  it('Use OpenAI instead and Use Claude instead write the provider', () => {
+  it('Use ChatGPT instead and Use Claude instead write the provider', () => {
     const choose = APP.slice(
       APP.indexOf('const chooseProvider = '),
       APP.indexOf('const showWelcomeAgain = ')
@@ -132,13 +134,13 @@ describe('what the guide reads, and when', () => {
       ['open-guidelines', 'openGuidelines()'],
       ['open-guidelines-folder', 'showGuidelines()'],
       ['set-up-claude', 'onSetUpClaude()'],
-      ['use-openai', "onUseProvider('openai')"],
+      ['set-up-chatgpt', 'onSetUpChatGpt?.()'],
+      ['use-chatgpt', "onUseProvider('chatgpt')"],
       ['use-claude', "onUseProvider('claude')"],
-      ['open-settings', 'onOpenSettings()'],
       ['choose-folder', 'onChooseFolder()']
     ] as const) {
       expect(SCREEN).toMatch(
-        new RegExp(`case '${id}':\\s*${call.replace(/[()]/g, (c) => `\\${c}`)};\\s*break;`)
+        new RegExp(`case '${id}':\\s*${call.replace(/[().?]/g, (c) => `\\${c}`)};\\s*break;`)
       );
     }
   });

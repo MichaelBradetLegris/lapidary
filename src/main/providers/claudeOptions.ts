@@ -56,9 +56,9 @@ export function claudeArgs(input: ClaudeArgsInput = {}): string[] {
 
 /**
  * Variables the child never sees. A model forced from the environment would
- * override the author's choice; the OpenAI key and the development switches are
- * none of Claude Code's business; and `CLAUDE_CODE_SIMPLE` is the switch behind
- * `--bare`, which would refuse the user's subscription sign-in.
+ * override the author's choice; an OpenAI key and the development switches
+ * are none of Claude Code's business; and `CLAUDE_CODE_SIMPLE` is the switch
+ * behind `--bare`, which would refuse the user's subscription sign-in.
  */
 const REMOVED = new Set(['ANTHROPIC_MODEL', 'OPENAI_API_KEY', 'CLAUDE_CODE_SIMPLE', ...DEV_SWITCH_NAMES]);
 

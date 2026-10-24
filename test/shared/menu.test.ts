@@ -38,12 +38,12 @@ describe('the menus and their names (polish.7)', () => {
   it('names Review, an item for each provider and Manual, and Actions (codex.3)', () => {
     expect(REVIEW_MENU).toEqual({ label: 'Review', manual: 'Manual' });
     // Named as the review dialog's Provider list names them, in its order.
-    expect(PROVIDERS.map(reviewMenuLabel)).toEqual(['Claude', 'ChatGPT', 'OpenAI (API key, experimental)']);
+    // OpenAI (API key) went in codex.6, ChatGPT being OpenAI's one route.
+    expect(PROVIDERS.map(reviewMenuLabel)).toEqual(['Claude', 'ChatGPT']);
     expect(PROVIDERS.map(reviewMenuLabel)).toEqual(PROVIDERS.map((id) => PROVIDER_LABELS[id]));
     expect(REVIEW_WITH_TITLES).toEqual({
       claude: 'Review this chapter with Claude, through Claude Code',
-      chatgpt: 'Review this chapter with ChatGPT, on your ChatGPT plan',
-      openai: 'Review this chapter with OpenAI, billed per token to your API key'
+      chatgpt: 'Review this chapter with ChatGPT, on your ChatGPT plan'
     });
     expect(ACTIONS_MENU).toBe('Actions');
     expect(WITH_CLAUDE_IN_MENU).toBe('Claude, in the Review menu,');

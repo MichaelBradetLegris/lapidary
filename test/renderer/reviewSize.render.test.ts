@@ -28,7 +28,7 @@ function chapterOf(words: number): string {
   return `---\ntags: [draft, long, chapter]\n---\n\n${paragraphs.join('\n\n')}\n`;
 }
 
-function dialog(words: number, provider: Provider = 'openai'): string {
+function dialog(words: number, provider: Provider = 'chatgpt'): string {
   const review: Review = {
     version: 1,
     id: 'chapter-09--2026-10-19T10-00-00-000Z',
@@ -48,7 +48,6 @@ function dialog(words: number, provider: Provider = 'openai'): string {
         models: {},
         modelsLoading: {},
         runtimes: {},
-        keyStatus: null,
         history: [],
         reviewPath: null,
         unsavedDecisions: 0,
@@ -57,7 +56,6 @@ function dialog(words: number, provider: Provider = 'openai'): string {
         onStartWithout: () => undefined,
         onApplySettings: () => undefined,
         onNeedModels: () => undefined,
-        onOpenSettings: () => undefined,
         onCheckClaude: () => undefined,
         checking: false,
         claudeLastFailure: null,

@@ -3,7 +3,6 @@ import type {
   AiProgressEvent,
   ConnectionTestResult,
   ModelInfo,
-  OpenAiKeyStatus,
   RateLimitInfo,
   RuntimeStatus
 } from '../../shared/ipc';
@@ -24,10 +23,10 @@ import { ApiError, call } from './client';
 
 /**
  * Everything the renderer knows about the AI providers: whether each can run,
- * which models each offers, whether an OpenAI key exists, and the one review
- * that may be running. Phase 5c generalised this from a Claude-only hook; the
- * provider is always named explicitly, so nothing here can quietly send a
- * Claude model name to OpenAI or the other way round.
+ * which models each offers, and the one review that may be running. Phase 5c
+ * generalised this from a Claude-only hook; the provider is always named
+ * explicitly, so nothing here can quietly send a Claude model name to ChatGPT
+ * or the other way round.
  */
 export interface AiController {
   runtimes: Partial<Record<Provider, RuntimeStatus>>;
@@ -41,8 +40,6 @@ export interface AiController {
    * (codex.3 review).
    */
   modelsError: Partial<Record<Provider, string>>;
-  /** the key status; never the key */
-  keyStatus: OpenAiKeyStatus | null;
   checking: boolean;
   running: boolean;
   /** which provider the running review belongs to */
@@ -101,9 +98,6 @@ export interface AiController {
    * shows ChatGPT, and forget its last failure.
    */
   chatGptAccountChanged: () => void;
-  refreshKeyStatus: () => void;
-  /** after the key changes: re-read its status, the OpenAI runtime and its models */
-  keyChanged: (status: OpenAiKeyStatus) => void;
   cancel: () => void;
   runReview: (review: Review, settings: Settings) => Promise<Review>;
 }
@@ -132,7 +126,6 @@ export function useAi(): AiController {
   const [models, setModels] = useState<Partial<Record<Provider, ModelInfo[]>>>({});
   const [modelsLoading, setModelsLoading] = useState<Partial<Record<Provider, boolean>>>({});
   const [modelsError, setModelsError] = useState<Partial<Record<Provider, string>>>({});
-  const [keyStatus, setKeyStatus] = useState<OpenAiKeyStatus | null>(null);
   const [checking, setChecking] = useState(false);
   const [running, setRunning] = useState(false);
   const [runningProvider, setRunningProvider] = useState<Provider | null>(null);
@@ -190,10 +183,10 @@ export function useAi(): AiController {
       .finally(() => setModelsLoading((prev) => ({ ...prev, [provider]: false })));
   }, []);
 
-  /* Claude's list comes with its runtime check, as it always has. OpenAI's is a
-     network call on the author's key, so it waits until the review dialog
-     actually shows OpenAI (ensureModels), and is refreshed whenever the key
-     changes. */
+  /* Claude's list comes with its runtime check, as it always has. ChatGPT's is
+     a network call on the author's sign-in, so it waits until the review
+     dialog actually shows ChatGPT (ensureModels), and is forgotten whenever
+     the sign-in changes (chatGptAccountChanged). */
   const apply = useCallback(
     (status: RuntimeStatus, fetchModels: boolean) => {
       setRuntimes((prev) => ({ ...prev, [status.provider]: status }));
@@ -267,20 +260,6 @@ export function useAi(): AiController {
     [check]
   );
 
-  const refreshKeyStatus = useCallback(() => {
-    void call('secrets:openai-status', undefined)
-      .then(setKeyStatus)
-      .catch(() => setKeyStatus(null));
-  }, []);
-
-  const keyChanged = useCallback(
-    (status: OpenAiKeyStatus) => {
-      setKeyStatus(status);
-      check('openai');
-    },
-    [check]
-  );
-
   const chatGptAccountChanged = useCallback(() => {
     setModels((prev) => without(prev, 'chatgpt'));
     setModelsError((prev) => without(prev, 'chatgpt'));
@@ -291,10 +270,10 @@ export function useAi(): AiController {
     recheckSignedOut.current = () => check('chatgpt', false);
   }, [check]);
 
-  /* Startup: the Claude runtime check as before (plan 5.6), plus the OpenAI key
-     status and runtime and the ChatGPT sign-in's (codex.3), which cost nothing
-     because they only read a local file. OpenAI's and ChatGPT's model lists
-     are fetched only when the review dialog shows them. */
+  /* Startup: the Claude runtime check as before (plan 5.6), plus the ChatGPT
+     sign-in's (codex.3), which costs nothing because it only reads a local
+     file. ChatGPT's model list is fetched only when the review dialog shows
+     it. */
   useEffect(() => {
     let alive = true;
     for (const provider of PROVIDERS) {
@@ -313,11 +292,6 @@ export function useAi(): AiController {
           if (provider === 'claude') claudeChecking.current -= 1;
         });
     }
-    call('secrets:openai-status', undefined)
-      .then((status) => {
-        if (alive) setKeyStatus(status);
-      })
-      .catch(() => undefined);
     return () => {
       alive = false;
     };
@@ -441,7 +415,6 @@ export function useAi(): AiController {
           effort: settings.effort,
           guidelinesHash: guidelinesFingerprint(guidelines.text),
           ...(response.costUsd === undefined ? {} : { costUsd: response.costUsd }),
-          ...(response.costEstimated ? { costEstimated: true } : {}),
           ...(response.usage === undefined ? {} : { usage: response.usage }),
           ...(response.durationMs === undefined ? {} : { durationMs: response.durationMs }),
           ...(response.sessionId ? { sessionId: response.sessionId } : {}),
@@ -476,7 +449,6 @@ export function useAi(): AiController {
     models,
     modelsLoading,
     modelsError,
-    keyStatus,
     checking,
     running,
     runningProvider,
@@ -496,8 +468,6 @@ export function useAi(): AiController {
     ensureModels,
     retryModels,
     chatGptAccountChanged,
-    refreshKeyStatus,
-    keyChanged,
     cancel,
     runReview
   };

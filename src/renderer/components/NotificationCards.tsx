@@ -5,7 +5,6 @@ import { useApp, type NotificationAction } from '../state/store';
 import { IconX } from './icons';
 
 const ACTION_LABELS: Record<NotificationAction, string> = {
-  'open-settings': 'Open Settings',
   'open-setup': 'Open Setup',
   'show-diagnostics': 'Show diagnostics',
   'reveal-drafts': 'Show the text',

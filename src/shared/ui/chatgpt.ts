@@ -386,8 +386,8 @@ export const CHATGPT_REVIEW_FAILURES = {
   usageLimitDuring: `ChatGPT's usage limit was reached during the review, so it stopped and no suggestions came back. It may be your ChatGPT plan's limit or one OpenAI sets for ${APP_NAME}: review your plan or this app's limit in ChatGPT's settings.`,
   usageUnavailable:
     'ChatGPT plan usage is not available just now, so the review did not run. Your sign-in is kept: try again in a few minutes.',
-  notEligible: `OpenAI says this ChatGPT account cannot use its plan in ${APP_NAME}, so the review did not run. Signing in again will not change that; Claude, or an OpenAI API key, can review instead.`,
-  structuredOutput: `OpenAI refused structured output (text.format) for a review on a ChatGPT plan, and ${APP_NAME} needs it to read the suggestions, so the review did not run. Claude, or an OpenAI API key, can review instead.`,
+  notEligible: `OpenAI says this ChatGPT account cannot use its plan in ${APP_NAME}, so the review did not run. Signing in again will not change that; Claude can review instead.`,
+  structuredOutput: `OpenAI refused structured output (text.format) for a review on a ChatGPT plan, and ${APP_NAME} needs it to read the suggestions, so the review did not run. Claude can review instead.`,
   routeNotSupported: `OpenAI did not accept the review's request on a ChatGPT plan (route not supported), so the review did not run. ${APP_NAME} may need an update.`,
   planUseRefused: `OpenAI did not let this sign-in use your ChatGPT plan here, so the review did not run. Sign out in Set up ChatGPT, then sign in again and allow ${APP_NAME} to use your plan.`,
   signInNotAccepted:

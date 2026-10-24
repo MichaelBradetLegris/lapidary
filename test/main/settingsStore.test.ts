@@ -314,6 +314,23 @@ describe('a save naming a folder or guidelines file the app cannot use', () => {
       sideSplit: 0.4
     });
   });
+
+  /* codex.6: a settings.json written while the OpenAI API key was a provider
+     names it, `openai`, and its model, `openaiModel`. It reads with Claude
+     as the provider and without the model, and the next save writes it so. */
+  it('reads a file that chose the OpenAI key before codex.6, and the next save leaves both out', async () => {
+    const dir = scratch();
+    writeFileSync(
+      path.join(dir, SETTINGS_FILE),
+      `${JSON.stringify({ ...DEFAULT_SETTINGS, manuscriptFolder: 'C:\\Novel', provider: 'openai', openaiModel: 'gpt-5-mini' }, null, 2)}\n`
+    );
+    const store = createSettingsStore({ dir, sleep: noWait });
+    expect(await store.load()).toEqual({ ...DEFAULT_SETTINGS, manuscriptFolder: 'C:\\Novel' });
+    await store.save({ zoom: 1.1 });
+    const raw = readFileSync(path.join(dir, SETTINGS_FILE), 'utf8');
+    expect(raw).not.toMatch(/openai/i);
+    expect(JSON.parse(raw)).toEqual({ ...DEFAULT_SETTINGS, manuscriptFolder: 'C:\\Novel', zoom: 1.1 });
+  });
 });
 
 /* hardening.15: a load says when settings.json could not be read, so

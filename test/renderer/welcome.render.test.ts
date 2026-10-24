@@ -39,7 +39,6 @@ const FRESH: WelcomeInput = {
   provider: 'claude',
   claude: { provider: 'claude', state: 'missing-binary' },
   claudeLastFailure: null,
-  openai: null,
   manuscriptFolder: null,
   guidelinesSetting: null,
   paths: null,
@@ -124,7 +123,7 @@ describe('the welcome guide on a fresh install (setup.11)', () => {
     expect(buttons(html)).toEqual([
       'Skip',
       'Set up Claude [blue]',
-      'Use OpenAI instead (experimental, pay per use)',
+      'Use ChatGPT instead',
       'Choose folder [blue]',
       'Open [disabled]',
       'Open folder [disabled]',
@@ -139,8 +138,8 @@ describe('the welcome guide on a fresh install (setup.11)', () => {
     expect([...(facts[0]?.[1] ?? '').matchAll(/<li>/g)]).toHaveLength(4);
   });
 
-  it('has no button labelled like a sign-in, with Claude or OpenAI chosen', () => {
-    for (const input of [FRESH, { ...FRESH, provider: 'openai' as const }, DONE]) {
+  it('has no button labelled like a sign-in, with Claude or ChatGPT chosen', () => {
+    for (const input of [FRESH, { ...FRESH, provider: 'chatgpt' as const }, DONE]) {
       const all = buttons(page(input));
       expect(all.length).toBeGreaterThan(4);
       expect(all.filter((label) => SIGN_IN_LIKE.test(label))).toEqual([]);
@@ -203,18 +202,18 @@ describe('which call each button makes', () => {
   }
 
   it('hands each step its own action, Skip and Start their own, and nothing for a disabled button', () => {
-    expect(press(FRESH)).toEqual(['skip', 'set-up-claude', 'use-openai', 'choose-folder']);
+    expect(press(FRESH)).toEqual(['skip', 'set-up-claude', 'use-chatgpt', 'choose-folder']);
     expect(press(DONE)).toEqual([
       'skip',
       'set-up-claude',
-      'use-openai',
+      'use-chatgpt',
       'choose-folder',
       'open-guidelines',
       'open-guidelines-folder',
       'start'
     ]);
-    expect(press({ ...DONE, provider: 'openai' })).toContain('use-claude');
-    expect(press({ ...DONE, provider: 'openai' })).toContain('open-settings');
+    expect(press({ ...DONE, provider: 'chatgpt' })).toContain('use-claude');
+    expect(press({ ...DONE, provider: 'chatgpt' })).toContain('set-up-chatgpt');
   });
 
   it('has Start disabled exactly when welcomeStart says', () => {
@@ -232,10 +231,8 @@ describe('the screen before its reads are in', () => {
         settings: { ...settings, ...patch },
         claude: null,
         claudeLastFailure: null,
-        openai: null,
         onSetUpClaude: () => undefined,
         onUseProvider: () => undefined,
-        onOpenSettings: () => undefined,
         onChooseFolder: () => undefined,
         onStart: () => undefined,
         onSkip: () => undefined
@@ -247,8 +244,8 @@ describe('the screen before its reads are in', () => {
     expect(fresh).toContain('Checking Claude Code…');
     expect(fresh).toContain('No folder chosen yet');
     expect(fresh).toContain('Choose a manuscript folder first');
-    const chosen = text(render({ manuscriptFolder: FOLDER, provider: 'openai' }));
-    expect(chosen).toContain('Checking OpenAI…');
+    const chosen = text(render({ manuscriptFolder: FOLDER, provider: 'chatgpt' }));
+    expect(chosen).toContain('Reading the ChatGPT sign-in…');
     expect(chosen).toContain(FOLDER);
     // The path comes from settings:effective, which an effect reads.
     expect(chosen).toContain('Not checked yet');
@@ -264,9 +261,7 @@ describe("Settings' Show the welcome guide again", () => {
         settings: DEFAULT_SETTINGS,
         models: [],
         runtime: null,
-        keyStatus: null,
         onApply: () => undefined,
-        onKeyChanged: () => undefined,
         onClose: () => undefined,
         onOpenSetup: () => undefined,
         chatgpt: null,

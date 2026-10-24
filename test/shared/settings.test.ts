@@ -90,6 +90,24 @@ describe('normalizeSettings', () => {
     }
   });
 
+  /* codex.6: the OpenAI API key went, and with it `openaiModel` and the
+     `openai` provider. A settings.json written before then is read as a file
+     with a key the app does not know and a provider it does not know: the
+     model is dropped, the provider reads as Claude, the default, and the rest
+     is read as ever (settingsStore.test.ts: the next write leaves both out). */
+  it('drops openaiModel and reads the openai provider as Claude, as codex.6 took out the key', () => {
+    expect(Object.keys(defaultSettings())).not.toContain('openaiModel');
+    const read = normalizeSettings({
+      provider: 'openai',
+      openaiModel: 'gpt-5-mini',
+      chatgptModel: 'gpt-5.5',
+      zoom: 1.25
+    });
+    expect(Object.keys(read)).not.toContain('openaiModel');
+    expect(read).toEqual({ ...defaultSettings(), provider: 'claude', chatgptModel: 'gpt-5.5', zoom: 1.25 });
+    expect(normalizeSettings({ provider: 'chatgpt' }).provider).toBe('chatgpt');
+  });
+
   /* hardening.8: a folder or a guidelines file the app cannot use is dropped to null, the usual one. */
   const NUL = '\u0000';
   const FOLDERS = ['manuscriptFolder', 'reviewsFolder'] as const;

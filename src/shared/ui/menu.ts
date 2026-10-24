@@ -27,8 +27,7 @@ export const REVIEW_MENU = { label: 'Review', manual: 'Manual' } as const;
 /** What each provider's item in the Review menu says when the pointer is on it. */
 export const REVIEW_WITH_TITLES: Readonly<Record<Provider, string>> = {
   claude: 'Review this chapter with Claude, through Claude Code',
-  chatgpt: 'Review this chapter with ChatGPT, on your ChatGPT plan',
-  openai: 'Review this chapter with OpenAI, billed per token to your API key'
+  chatgpt: 'Review this chapter with ChatGPT, on your ChatGPT plan'
 };
 
 /** The item's label: the provider's, as the review dialog's Provider list gives it. */

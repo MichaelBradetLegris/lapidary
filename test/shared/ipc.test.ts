@@ -19,4 +19,8 @@ describe('ipc contract', () => {
   it('has a default effort that is a legal effort level', () => {
     expect(EFFORT_LEVELS).toContain(DEFAULT_SETTINGS.effort);
   });
+
+  it('has no channel for an OpenAI API key, the provider codex.6 took out', () => {
+    expect(REQUEST_CHANNELS.filter((c) => c.startsWith('secrets:') || c.includes('openai'))).toEqual([]);
+  });
 });

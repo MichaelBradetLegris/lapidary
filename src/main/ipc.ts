@@ -46,7 +46,6 @@ import {
 } from './providers';
 import { testConnection } from './providers/connectionTest';
 import { abortAll, registerController } from './providers/controllers';
-import { clearOpenAiKey, openAiKeyStatus, storeOpenAiKey } from './secrets';
 import {
   OpenedChapters,
   assertSavableChapter,
@@ -226,7 +225,6 @@ export function registerCoreHandlers(): void {
   registerReviewHandlers();
   registerDraftHandlers();
   registerAiHandlers();
-  registerSecretHandlers();
   registerChatGptHandlers();
   registerCloseGuardHandlers();
   registerDiagnosticsHandlers();
@@ -310,7 +308,7 @@ const rendererLog = createRendererLog({ log });
 
 /**
  * Copy diagnostics and the versions (hardening.5). Neither runs a check of
- * Claude or OpenAI: they read what the last one found, so asking for them
+ * Claude or ChatGPT: they read what the last one found, so asking for them
  * costs nothing and logs no `ai.runtime`. The report is scrubbed here, where
  * the home folder is known, before it crosses to the page. The page's own
  * errors come in here too, for the log (`log:renderer`, hardening.4).
@@ -418,7 +416,6 @@ function registerAiHandlers(): void {
         raw: result.raw,
         ...(result.model ? { model: result.model } : {}),
         ...(result.costUsd === undefined ? {} : { costUsd: result.costUsd }),
-        ...(result.costEstimated === undefined ? {} : { costEstimated: result.costEstimated }),
         ...(result.usage === undefined ? {} : { usage: result.usage }),
         ...(result.durationMs === undefined ? {} : { durationMs: result.durationMs }),
         ...(result.sessionId ? { sessionId: result.sessionId } : {}),
@@ -453,19 +450,8 @@ function registerAiHandlers(): void {
 }
 
 /**
- * The OpenAI key. It arrives from the renderer once, is encrypted here, and the
- * only thing that ever goes back is `{configured, source, last4}`.
- */
-function registerSecretHandlers(): void {
-  const dir = (): string => app.getPath('userData');
-  handle('secrets:openai-status', async () => openAiKeyStatus(safeStorage, dir()));
-  handle('secrets:openai-set', async ({ key }) => storeOpenAiKey(safeStorage, dir(), key));
-  handle('secrets:openai-clear', async () => clearOpenAiKey(safeStorage, dir()));
-}
-
-/**
  * Sign in with ChatGPT (codex.2, PLAN 5.7), made once: main signs in through
- * the browser and a loopback port, keeps the tokens encrypted beside the key
+ * the browser and a loopback port, keeps the tokens encrypted in secrets.json
  * (src/main/chatgpt), and the page only ever gets the status. A sign-in waits
  * for the browser, so it is not a tracked write: Restart now would wait on
  * it. Quitting ends it (`registerController`), and its writes of

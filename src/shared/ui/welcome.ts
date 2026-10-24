@@ -17,12 +17,6 @@
  */
 
 import { PRO_PRESELECT_HINT } from '../ai/claudeModels';
-import {
-  OPENAI_MATURITY,
-  openAiMaturitySentence,
-  openAiMaturityWord,
-  type OpenAiMaturity
-} from '../ai/openai';
 import { APP_NAME } from '../branding';
 import type { ChatGptStatus, EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../ipc';
 import type { Provider, Settings } from '../types';
@@ -36,7 +30,7 @@ import {
   openGuidelinesTitle
 } from './guidelines';
 import { withHint } from './saveHint';
-import { runtimeLabel, setupStatus, setupView, type LastFailure } from './setup';
+import { setupStatus, setupView, type LastFailure } from './setup';
 
 /**
  * Whether the guide shows: once the settings are in, until Start or Skip.
@@ -85,15 +79,11 @@ export const WELCOME_SKIP_TITLE = `Close the guide. Settings has ${SHOW_WELCOME_
 
 export const SET_UP_CLAUDE = 'Set up Claude';
 /**
- * The button that makes OpenAI the provider: "Use OpenAI instead
- * (experimental, pay per use)" while `OPENAI_MATURITY` says so (hardening.11).
+ * The button that makes ChatGPT the provider, in the place "Use OpenAI
+ * instead" held until codex.6 took out the OpenAI API key: ChatGPT is
+ * OpenAI's one route now.
  */
-export function openAiChoiceLabel(maturity: OpenAiMaturity = OPENAI_MATURITY): string {
-  const word = openAiMaturityWord(maturity);
-  return word ? `Use OpenAI instead (${word}, pay per use)` : 'Use OpenAI instead (pay per use)';
-}
-
-export const USE_OPENAI = openAiChoiceLabel();
+export const USE_CHATGPT = 'Use ChatGPT instead';
 export const USE_CLAUDE = 'Use Claude instead';
 /** The button that opens the Setup screen's ChatGPT view, while ChatGPT is the provider (codex.3). */
 export const SET_UP_CHATGPT = 'Set up ChatGPT';
@@ -104,9 +94,8 @@ export type WelcomeStepId = 'claude' | 'folder' | 'style-sheet';
 export type WelcomeActionId =
   | 'set-up-claude'
   | 'set-up-chatgpt'
-  | 'use-openai'
+  | 'use-chatgpt'
   | 'use-claude'
-  | 'open-settings'
   | 'choose-folder'
   | 'open-guidelines'
   | 'open-guidelines-folder';
@@ -139,8 +128,6 @@ export interface WelcomeInput {
   /** Claude's last check, null until the first one answers */
   claude: RuntimeStatus | null;
   claudeLastFailure: LastFailure | null;
-  /** OpenAI's runtime: ready once a key is stored or in the environment */
-  openai: RuntimeStatus | null;
   /** the ChatGPT sign-in, for a guide shown with ChatGPT as the provider (codex.3); null until read */
   chatgpt?: ChatGptStatus | null;
   manuscriptFolder: string | null;
@@ -159,19 +146,6 @@ export interface WelcomeInput {
 export const CLAUDE_STEP_TITLE = 'Connect Claude';
 
 export const CLAUDE_STEP_TEXT = `${APP_NAME} reviews your chapters with Claude through Claude Code, Anthropic's command-line tool, which you install and sign in to yourself, with your Claude plan or an API key. ${SET_UP_CLAUDE} shows how, and this step says when Claude is ready.`;
-
-/** The step's text with OpenAI chosen; it says OpenAI is experimental while `OPENAI_MATURITY` does. */
-export function openAiStepText(maturity: OpenAiMaturity = OPENAI_MATURITY): string {
-  return [
-    'Reviews go to OpenAI instead, billed per token to the account that owns the API key.',
-    openAiMaturitySentence(maturity),
-    'Paste a key in Settings to finish this step.'
-  ]
-    .filter((sentence) => sentence !== null)
-    .join(' ');
-}
-
-export const OPENAI_STEP_TEXT = openAiStepText();
 
 /** The step's text with ChatGPT chosen (codex.3). */
 export const CHATGPT_STEP_TEXT = `Reviews go to ChatGPT instead, on your ChatGPT plan, with no API key. ${SET_UP_CHATGPT} signs you in with ChatGPT and says what to check in ChatGPT's data settings; this step is done once you are signed in.`;
@@ -203,26 +177,6 @@ function claudeStep(input: WelcomeInput): WelcomeStep {
       ]
     };
   }
-  if (input.provider === 'openai') {
-    const done = input.openai?.state === 'ready';
-    return {
-      id: 'claude',
-      title: CLAUDE_STEP_TITLE,
-      done,
-      status: runtimeLabel(input.openai) ?? 'Checking OpenAI…',
-      lines: [OPENAI_STEP_TEXT],
-      facts: [],
-      actions: [
-        {
-          id: 'open-settings',
-          label: 'Open Settings',
-          primary: !done,
-          title: 'Paste an OpenAI API key in Settings.'
-        },
-        { id: 'use-claude', label: USE_CLAUDE }
-      ]
-    };
-  }
   const done = claudeConnected(input);
   const view = setupView(input.claude, input.claudeLastFailure);
   return {
@@ -235,7 +189,7 @@ function claudeStep(input: WelcomeInput): WelcomeStep {
     facts: [],
     actions: [
       { id: 'set-up-claude', label: SET_UP_CLAUDE, primary: !done },
-      { id: 'use-openai', label: USE_OPENAI }
+      { id: 'use-chatgpt', label: USE_CHATGPT }
     ]
   };
 }

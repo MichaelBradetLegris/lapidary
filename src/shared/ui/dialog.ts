@@ -151,8 +151,9 @@ export interface Focusable {
 /**
  * Where the focus goes when a dialog closes: back where it was when it opened,
  * if that is still on the page, else the fallback, such as the toolbar button
- * that opens the dialog. Settings opened from Review with AI's Open Settings
- * finds the focus on nothing (`body`), since that button went with its dialog.
+ * that opens the dialog. Settings opened from a button that went with its
+ * dialog, as Review with AI's Open Settings did until codex.6 took out the
+ * OpenAI key's row, finds the focus on nothing (`body`).
  */
 export function focusReturnTarget<T extends Focusable>(
   previous: T | null,

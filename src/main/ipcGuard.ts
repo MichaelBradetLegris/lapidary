@@ -38,8 +38,6 @@ const TAKES_NOTHING = {
   'guidelines:ensure': true,
   'guidelines:open': true,
   'guidelines:status': true,
-  'secrets:openai-status': true,
-  'secrets:openai-clear': true,
   'chatgpt:status': true,
   'chatgpt:cancel-sign-in': true,
   'chatgpt:sign-out': true,

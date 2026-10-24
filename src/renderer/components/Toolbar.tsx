@@ -66,8 +66,8 @@ interface Props {
  * chips, as there is no text for them to filter.
  *
  * Four controls since `polish.7`: Review, a menu holding an item for each
- * provider, Claude, ChatGPT and OpenAI (API key), each opening Review with AI
- * with that provider chosen (codex.3; one With AI until then), and Manual,
+ * provider, Claude and ChatGPT, each opening Review with AI with that
+ * provider chosen (codex.3; one With AI until then), and Manual,
  * which opens Submit manual review; Actions, a menu
  * holding the three bulk actions, Copy result, Export HTML under it since
  * `rr.1`, and Show backups, which left the side panel's footer, and since

@@ -529,21 +529,9 @@ button.link {
 }
 
 /* Form controls take the theme's ink rather than the browser's field colours.
-   :where() gives these no weight, so any rule with a class still decides. The
-   password field (the OpenAI key) has no rule of its own for its background. A
-   background turns off the browser's own drawing of the field, which then falls
-   back to a 2 px inset border, dark at the top and left and light at the bottom
-   and right, so it takes the frame of the other text fields below as well. No
-   font here: .modal__key-input sets its own. */
+   :where() gives these no weight, so any rule with a class still decides. */
 :where(select, input, textarea) {
   color: var(--ink);
-}
-
-:where(input[type='password']) {
-  background-color: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 3px 6px;
 }
 
 select,
@@ -1002,8 +990,9 @@ input[type='text'] {
   color: var(--unsaved);
 }
 
-/* The provider's readiness is a button that opens Setup, or Settings for
-   OpenAI (setup.7), drawn as the text it was, underlined under the pointer. */
+/* The provider's readiness is a button that opens Setup, Claude's view or
+   ChatGPT's (setup.7, codex.3), drawn as the text it was, underlined under the
+   pointer. */
 .statusbar__runtime {
   padding: 0;
   border: none;
@@ -2509,6 +2498,13 @@ input[type='text'] {
   color: var(--ink-soft);
 }
 
+/* The provider badge keeps its words on one line, "OpenAI (API key)" for a
+   review on the key codex.6 took out among them; the time gives way first. */
+.history__item .badge {
+  flex: none;
+  white-space: nowrap;
+}
+
 /* The model beside the provider badge; the time gives way first when narrow. */
 .history__model {
   flex: 0 1 auto;
@@ -2649,15 +2645,9 @@ input[type='text'] {
   color: var(--ink);
 }
 
-/* A missing OpenAI key: the one row that blocks Start (Phase 5c). */
+/* A row that blocks Start: ChatGPT's account while not signed in (codex.3). */
 .modal__path--warn {
   color: var(--danger);
-}
-
-.modal__key-input {
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 12px;
-  min-width: 0;
 }
 
 /* Settings (polish.4): three sections under hairlines, as About's are. The
@@ -3294,8 +3284,7 @@ button.help {
 
 /* The buttons wrap onto more rows in a narrow column. A label could break
    inside its button only in a column narrower than the label, which even the
-   smallest window at 200% is not for "Use OpenAI instead (experimental, pay
-   per use)". */
+   smallest window at 200% is not for the longest, "Choose another folder". */
 .welcome__actions {
   display: flex;
   flex-wrap: wrap;

@@ -25,7 +25,9 @@
  * the API scenario (`apiScenario`, `--api-scenario <name>` or POST
  * /mock/api-scenario) as their `mock_scenario` claim, which
  * test/helpers/mockOpenAi.ts reads as the scenario of a ChatGPT review made
- * with them, as it reads an API key's (codex.3). Two ways to use it:
+ * with them (codex.3): every scenario of its ChatGPT route, the ones an
+ * OpenAI API key's words picked until codex.6 took that provider out among
+ * them (`malformed`, `slow`, `ratelimit` and the rest). Two ways to use it:
  *   vitest:  const mock = await startMockChatGptAuth(); ... mock.url ...
  *            mock.approve(url) plays the browser for the URL the app opened.
  *   by hand: node test/helpers/mockChatGptAuth.ts --port 4600 [--scenario ok] [--api-scenario nearlimit]
@@ -33,8 +35,12 @@
  *            (a development switch that a packaged build ignores). Under
  *            `dev:clean --shell-stub` the app prints the address it would
  *            open; GET it, follow the redirect to the app, and the app is
- *            signed in. POST /mock/scenario with a scenario's name changes the
- *            scenario, and GET /mock/requests lists what the app sent.
+ *            signed in, its tokens carrying `--api-scenario`'s name. POST
+ *            /mock/scenario with a scenario's name changes the scenario,
+ *            POST /mock/api-scenario the name the tokens of the next sign-in
+ *            or renewal carry (the API mock's own POST /mock/scenario changes
+ *            a review's at once), and GET /mock/requests lists what the app
+ *            sent.
  *
  * The file has no relative imports so Node can run it directly.
  */

@@ -17,8 +17,8 @@ import {
   type ChangeCategory,
   type CommentCategory,
   type GeneratorKind,
+  type GeneratorProvider,
   type Hunk,
-  type Provider,
   type Review,
   type ReviewBase,
   type ReviewComment,
@@ -194,8 +194,11 @@ export function migrateReview(review: Review): Review {
   return { ...review, generator: { ...review.generator, kind: 'manual' } };
 }
 
-/** The provider a generator kind implies, for a model-written review. */
-function providerForKind(kind: GeneratorKind): Provider | undefined {
+/**
+ * The provider a generator kind implies, for a model-written review: `openai`
+ * too, for a review saved on an OpenAI API key before codex.6.
+ */
+function providerForKind(kind: GeneratorKind): GeneratorProvider | undefined {
   return kind === 'claude' || kind === 'chatgpt' || kind === 'openai' ? kind : undefined;
 }
 

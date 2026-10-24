@@ -7,18 +7,13 @@ import {
   APPEARANCE_NOTE,
   BACKUPS_ROW_NOTE,
   BACKUPS_TIP,
+  CHATGPT_ACCOUNT_TIP,
   CLAUDE_ACCOUNT_TIP,
   DONE_NOTE,
   EFFORT_TIP,
   GUIDELINES_TIP,
-  KEY_CANNOT_ENCRYPT,
   MANUSCRIPT_TIP,
   MODEL_TIP,
-  OPENAI_KEY_NOTE,
-  OPENAI_KEY_TIP,
-  OPENAI_KEYS_LINK_TITLE,
-  OPENAI_KEYS_PAGE,
-  OPENAI_KEYS_URL,
   REVIEWS_FOLDER_TIP,
   SETTINGS_NOTE_MAX,
   SETTINGS_SECTIONS,
@@ -30,17 +25,11 @@ import { WELCOME_GUIDE_NOTE } from '../../src/shared/ui/welcome';
 /* polish.4: the Settings dialog's words. Each note under a row is one short
    line, and the longer explanations it used to give are the tooltips of the
    (?) beside the rows, keeping everything that matters for the author's
-   files and key. How the dialog lays them out is in
-   test/renderer/settingsDialog.render.test.ts. */
+   files and sign-ins. How the dialog lays them out is in
+   test/renderer/settingsDialog.render.test.ts. The OpenAI API key's row, its
+   note and its tooltip went with that provider (codex.6). */
 
-const NOTES = [
-  APPEARANCE_NOTE,
-  reviewsFolderNote(false),
-  reviewsFolderNote(true),
-  BACKUPS_ROW_NOTE,
-  `${OPENAI_KEY_NOTE} ${OPENAI_KEYS_PAGE}.`,
-  KEY_CANNOT_ENCRYPT
-];
+const NOTES = [APPEARANCE_NOTE, reviewsFolderNote(false), reviewsFolderNote(true), BACKUPS_ROW_NOTE];
 
 const TIPS = [
   MODEL_TIP,
@@ -50,7 +39,7 @@ const TIPS = [
   BACKUPS_TIP,
   GUIDELINES_TIP,
   CLAUDE_ACCOUNT_TIP,
-  OPENAI_KEY_TIP
+  CHATGPT_ACCOUNT_TIP
 ];
 
 describe('the sections', () => {
@@ -84,18 +73,6 @@ describe('the notes under the rows', () => {
     );
   });
 
-  it("send the key's link to the page the field's placeholder names", () => {
-    expect(OPENAI_KEYS_URL).toBe('https://platform.openai.com/api-keys');
-    expect(OPENAI_KEY_NOTE).toMatch(/billed per token/);
-    expect(OPENAI_KEYS_LINK_TITLE).toMatch(/browser/);
-  });
-
-  it('say, when no key can be encrypted, that none can be saved and what to use instead', () => {
-    expect(KEY_CANNOT_ENCRYPT).toMatch(/^Windows cannot encrypt/);
-    expect(KEY_CANNOT_ENCRYPT).toMatch(/none can be saved/);
-    expect(KEY_CANNOT_ENCRYPT).toContain('OPENAI_API_KEY');
-  });
-
   it('give the foot buttons short tooltips too', () => {
     for (const note of [WELCOME_GUIDE_NOTE, ABOUT_BUTTON_NOTE, DONE_NOTE]) {
       expect(note.length, note).toBeLessThanOrEqual(SETTINGS_NOTE_MAX);
@@ -106,13 +83,12 @@ describe('the notes under the rows', () => {
 });
 
 describe('the tooltips keep what the long notes said', () => {
-  it('keeps that the key is encrypted, never shown, used only in the background, and the environment fallback', () => {
-    expect(OPENAI_KEY_TIP).toMatch(/encrypted with your Windows login/);
-    expect(OPENAI_KEY_TIP).toMatch(/beside the settings file/);
-    expect(OPENAI_KEY_TIP).toMatch(/never shown again/);
-    expect(OPENAI_KEY_TIP).toContain(`only ${APP_NAME}'s background process uses it`);
-    expect(OPENAI_KEY_TIP).toMatch(/With no saved key, OPENAI_API_KEY from the environment is used/);
-    expect(OPENAI_KEY_TIP).toMatch(/not a ChatGPT subscription/);
+  it('keeps that the ChatGPT sign-in is encrypted, never shown and used only in the background, with no API key', () => {
+    expect(CHATGPT_ACCOUNT_TIP).toMatch(/encrypted with your Windows login/);
+    expect(CHATGPT_ACCOUNT_TIP).toMatch(/beside the settings file/);
+    expect(CHATGPT_ACCOUNT_TIP).toMatch(/never shown/);
+    expect(CHATGPT_ACCOUNT_TIP).toContain(`only ${APP_NAME}'s background process uses it`);
+    expect(CHATGPT_ACCOUNT_TIP).toMatch(/with no API key/);
   });
 
   it("keeps apply.11's backups note word for word, with the 20-and-30-days rule", () => {
@@ -138,10 +114,11 @@ describe('the tooltips keep what the long notes said', () => {
     expect(CLAUDE_ACCOUNT_TIP).toContain(`${APP_NAME} never sees your Claude password or sign-in token`);
   });
 
-  it('says what Default and the effort do, and where the OpenAI model is chosen', () => {
+  it('says what Default and the effort do, and where the ChatGPT model is chosen', () => {
     expect(MODEL_TIP).toMatch(/^Default lets Claude Code use your account's own default model/);
-    expect(MODEL_TIP).toMatch(/OpenAI model is chosen/);
-    expect(EFFORT_TIP).toMatch(/for Claude and OpenAI alike/);
+    expect(MODEL_TIP).toMatch(/ChatGPT model is chosen/);
+    expect(EFFORT_TIP).toMatch(/for Claude and ChatGPT alike/);
+    for (const tip of TIPS) expect(tip, tip).not.toMatch(/OpenAI (model|key)|OPENAI_API_KEY/);
   });
 
   it('never says "accepted changes"', () => {

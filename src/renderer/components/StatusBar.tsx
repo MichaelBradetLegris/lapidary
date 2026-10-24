@@ -13,7 +13,7 @@ import { IconCheck, IconMinus, IconPlus } from './icons';
 interface Props {
   review: Review | null;
   runtimeLabel?: string;
-  /** the label is a button: Setup for Claude, Settings for OpenAI (setup.7) */
+  /** the label is a button: Setup for Claude, its ChatGPT view for ChatGPT (setup.7, codex.3) */
   onRuntime?: () => void;
   /** what the button opens, as its tooltip */
   runtimeTitle?: string;

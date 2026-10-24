@@ -54,8 +54,6 @@ const TAKE_NOTHING: readonly RequestChannel[] = [
   'guidelines:ensure',
   'guidelines:open',
   'guidelines:status',
-  'secrets:openai-status',
-  'secrets:openai-clear',
   'chatgpt:status',
   'chatgpt:cancel-sign-in',
   'chatgpt:sign-out',

@@ -37,7 +37,7 @@ import {
   renewServerText,
   unsupportedRequestText
 } from '../../src/shared/ui/chatgpt';
-import { runtimeButtonTitle, runtimeLabel } from '../../src/shared/ui/setup';
+import { RUNTIME_BUTTON_TITLE, runtimeLabel } from '../../src/shared/ui/setup';
 import { describeRateLimit, limitName, rateLimitTitle } from '../../src/shared/ui/usage';
 import { CHATGPT_STEP_TEXT, SET_UP_CHATGPT, USE_CLAUDE, welcomeSteps } from '../../src/shared/ui/welcome';
 
@@ -85,7 +85,7 @@ describe('the model list a sign-in allows', () => {
     ]);
   });
 
-  it("reads an API key's shape too, each id as its own name, and nothing else", () => {
+  it('reads the shape the endpoint gives an API key too, each id as its own name, and nothing else', () => {
     expect(readChatGptModels({ object: 'list', data: [{ id: 'gpt-5.5' }, { id: '' }, { nope: 1 }] })).toEqual(
       [{ slug: 'gpt-5.5', displayName: 'gpt-5.5' }]
     );
@@ -104,7 +104,7 @@ describe('the model list a sign-in allows', () => {
     expect(defaultChatGptModel([])).toBeNull();
   });
 
-  it("marks the default as the API key's list does, and gives the slug where the name differs", () => {
+  it('marks the default "(default)", and gives the slug where the name differs', () => {
     expect(
       chatGptModelOptions([
         { slug: 'gpt-5.5-codex', displayName: 'GPT-5.5 Codex' },
@@ -281,10 +281,8 @@ describe("the status bar's words for ChatGPT", () => {
     expect(runtimeLabel(runtime({ plan: 'Plus' }), { code: 'chatgpt-failed' })).toBe('ChatGPT ready (Plus)');
   });
 
-  it('opens Setup, its ChatGPT view, from the label', () => {
-    expect(runtimeButtonTitle('chatgpt')).toBe('Open Setup');
-    expect(runtimeButtonTitle('claude')).toBe('Open Setup');
-    expect(runtimeButtonTitle('openai')).toBe('Open Settings');
+  it("opens Setup, its ChatGPT view, from the label, as Claude's opens its own", () => {
+    expect(RUNTIME_BUTTON_TITLE).toBe('Open Setup');
   });
 });
 
@@ -402,7 +400,6 @@ describe('ChatGPT in the settings, the reviews and the welcome guide', () => {
         provider: 'chatgpt',
         claude: null,
         claudeLastFailure: null,
-        openai: null,
         chatgpt,
         manuscriptFolder: null,
         guidelinesSetting: null,

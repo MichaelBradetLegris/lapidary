@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SettingsDialog } from '../../src/renderer/components/SettingsDialog';
-import type { ChatGptStatus, OpenAiKeyStatus, RuntimeStatus } from '../../src/shared/ipc';
+import type { ChatGptStatus, RuntimeStatus } from '../../src/shared/ipc';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
 import {
   APPEARANCE_NOTE,
@@ -12,12 +12,8 @@ import {
   CLAUDE_ACCOUNT_TIP,
   EFFORT_TIP,
   GUIDELINES_TIP,
-  KEY_CANNOT_ENCRYPT,
   MANUSCRIPT_TIP,
   MODEL_TIP,
-  OPENAI_KEY_NOTE,
-  OPENAI_KEY_TIP,
-  OPENAI_KEYS_PAGE,
   REVIEWS_FOLDER_TIP,
   SETTINGS_NOTE_MAX,
   helpButtonLabel,
@@ -33,7 +29,9 @@ import { SHOW_WELCOME_AGAIN } from '../../src/shared/ui/welcome';
    paths (settings:effective) are not read: the paths show as they do until
    main answers, and the window check in PLAN covers them read. The words
    themselves are tested in test/shared/settingsDialog.test.ts. This file is
-   type-checked with the renderer's project (tsconfig.web.json). */
+   type-checked with the renderer's project (tsconfig.web.json). The OpenAI
+   API key's two rows, its field and its link went with that provider
+   (codex.6). */
 
 const decode = (html: string): string =>
   html
@@ -45,18 +43,6 @@ const decode = (html: string): string =>
 
 const text = (html: string): string => decode(html.replace(/<[^>]+>/g, '')).trim();
 
-const STORED: OpenAiKeyStatus = {
-  configured: true,
-  source: 'stored',
-  last4: 'abcd',
-  encryptionAvailable: true
-};
-const NO_ENCRYPTION: OpenAiKeyStatus = {
-  configured: false,
-  source: 'none',
-  last4: '',
-  encryptionAvailable: false
-};
 const READY: RuntimeStatus = {
   provider: 'claude',
   state: 'ready',
@@ -68,7 +54,6 @@ const READY: RuntimeStatus = {
 function render(
   options: {
     settings?: Partial<Settings>;
-    keyStatus?: OpenAiKeyStatus | null;
     runtime?: RuntimeStatus | null;
     chatgpt?: ChatGptStatus | null;
   } = {}
@@ -81,9 +66,7 @@ function render(
         { value: 'sonnet', label: 'Sonnet' }
       ],
       runtime: options.runtime ?? null,
-      keyStatus: options.keyStatus ?? null,
       onApply: () => undefined,
-      onKeyChanged: () => undefined,
       onClose: () => undefined,
       onOpenSetup: () => undefined,
       chatgpt: options.chatgpt ?? null,
@@ -201,9 +184,6 @@ describe('the sections and rows (polish.4)', () => {
       '>Accounts</h3>',
       '<span>Claude account</span>',
       '<span>ChatGPT account</span>',
-      '<span>OpenAI API key (experimental)</span>',
-      'aria-label="OpenAI API key"',
-      '>Save key</button>',
       `>${SHOW_WELCOME_AGAIN}</button>`,
       '>About</button>',
       '>Done</button>'
@@ -236,8 +216,7 @@ describe('the (?) of a row (polish.4)', () => {
     ['backups', BACKUPS_TIP],
     ['the guidelines file', GUIDELINES_TIP],
     ['the Claude account', CLAUDE_ACCOUNT_TIP],
-    ['the ChatGPT account', CHATGPT_ACCOUNT_TIP],
-    ['the OpenAI API key', OPENAI_KEY_TIP]
+    ['the ChatGPT account', CHATGPT_ACCOUNT_TIP]
   ];
 
   it('is a button named for what it explains, described by its tooltip, which is hidden until shown', () => {
@@ -254,18 +233,18 @@ describe('the (?) of a row (polish.4)', () => {
   });
 
   /* polish.15: each (?) left the row's name for a cell of its own at the
-     right end of the row, so that the eight stand in one line down the right
-     of the dialog. */
-  it("is each row's fourth and last cell, after its buttons; Appearance and the key's field keep the cell empty", () => {
+     right end of the row, so that they stand in one line down the right of
+     the dialog. */
+  it("is each row's fourth and last cell, after its buttons; Appearance keeps the cell empty", () => {
     const html = render();
     const rows = [...html.matchAll(/<div class="modal__row">([\s\S]*?)<\/div>/g)].map(([, inner = '']) =>
       cells(inner)
     );
-    expect(rows).toHaveLength(11);
+    expect(rows).toHaveLength(9);
     for (const row of rows) {
       expect(row, row.join('')).toHaveLength(4);
       expect(row[3]).toMatch(/^<span class="modal__help">/);
-      // The name is the first cell, alone, with no (?) beside it (the key's field has none).
+      // The name is the first cell, alone, with no (?) beside it.
       expect(row[0]).toMatch(/^<(span|label)[^>]*>[^<]*<\/(span|label)>$/);
     }
     expect(rows.map((row) => text(row[0] ?? ''))).toEqual([
@@ -277,24 +256,20 @@ describe('the (?) of a row (polish.4)', () => {
       'Backups',
       'Guidelines file',
       'Claude account',
-      'ChatGPT account',
-      'OpenAI API key (experimental)',
-      ''
+      'ChatGPT account'
     ]);
     expect(rows.map((row) => /aria-label="More about ([^"]+)"/.exec(row[3] ?? '')?.[1] ?? null)).toEqual([
       ...TIPS.slice(0, 2).map(([topic]) => topic),
       null,
-      ...TIPS.slice(2).map(([topic]) => topic),
-      null
+      ...TIPS.slice(2).map(([topic]) => topic)
     ]);
     expect(rows[2]?.[3]).toBe('<span class="modal__help"></span>');
-    expect(rows[10]?.[3]).toBe('<span class="modal__help"></span>');
     expect(html.match(/class="help"/g)).toHaveLength(TIPS.length);
     expect(html).not.toContain('modal__name');
   });
 
   it("comes after the row's own controls, so Tab reaches it after them", () => {
-    const html = render({ keyStatus: STORED, runtime: READY });
+    const html = render({ runtime: READY });
     for (const [, inner = ''] of html.matchAll(/<div class="modal__row">([\s\S]*?)<\/div>/g)) {
       if (!inner.includes('class="help"')) continue;
       const tags = [...inner.matchAll(/<(button|select|input|a)\s[^>]*>/g)].map(([tag]) => tag);
@@ -311,26 +286,20 @@ describe('the notes under the rows (polish.4)', () => {
       text(inner)
     );
 
-  it('are the short ones, one line each, under Appearance, the reviews folder, the backups and the key', () => {
+  it('are the short ones, one line each, under Appearance, the reviews folder and the backups', () => {
     const shown = notes(render());
-    expect(shown).toEqual([
-      APPEARANCE_NOTE,
-      reviewsFolderNote(false),
-      BACKUPS_ROW_NOTE,
-      `${OPENAI_KEY_NOTE} ${OPENAI_KEYS_PAGE}.`
-    ]);
+    expect(shown).toEqual([APPEARANCE_NOTE, reviewsFolderNote(false), BACKUPS_ROW_NOTE]);
     for (const note of shown) expect(note.length, note).toBeLessThanOrEqual(SETTINGS_NOTE_MAX);
   });
 
-  it('says that no key can be saved, in red, when Windows cannot encrypt, and disables the field', () => {
-    const html = render({ keyStatus: NO_ENCRYPTION });
-    expect(notes(html).at(-1)).toBe(KEY_CANNOT_ENCRYPT);
-    expect(html).toMatch(
-      new RegExp(`<p class="modal__note modal__note--error" id="[^"]+">${KEY_CANNOT_ENCRYPT}</p>`)
-    );
-    expect(html).toMatch(
-      /<input type="password" class="modal__key-input" aria-label="OpenAI API key" [^>]*disabled=""/
-    );
+  it('has no row, field or link for an OpenAI API key, which codex.6 took out', () => {
+    const html = decode(render({ runtime: READY }));
+    expect(html).not.toContain('<input');
+    expect(html).not.toContain('<a ');
+    expect(html).not.toMatch(/OpenAI API key|Save key|Remove key|platform\.openai\.com|OPENAI_API_KEY/);
+    // The one API key Settings names is the one ChatGPT needs none of.
+    expect(html.match(/API key/g)).toEqual(['API key']);
+    expect(html).toContain('with no API key');
   });
 
   it('has no welcome guide row or note: its button is at the foot with its note as its tooltip', () => {
@@ -345,7 +314,7 @@ describe('the notes under the rows (polish.4)', () => {
 describe('every control has a name and a description (polish.4)', () => {
   const states: Array<[string, Parameters<typeof render>[0]]> = [
     ['nothing checked yet', {}],
-    ['a saved key and Claude ready', { keyStatus: STORED, runtime: READY }],
+    ['Claude ready', { runtime: READY }],
     [
       'signed in to ChatGPT',
       {
@@ -359,13 +328,25 @@ describe('every control has a name and a description (polish.4)', () => {
         }
       }
     ],
-    ['no encryption', { keyStatus: NO_ENCRYPTION }],
+    [
+      'no encryption for a ChatGPT sign-in',
+      {
+        chatgpt: {
+          signedIn: false,
+          plan: null,
+          dataSettingsConfirmed: false,
+          signingIn: false,
+          registered: false,
+          encryptionAvailable: false
+        }
+      }
+    ],
     ['no manuscript folder', { settings: { manuscriptFolder: null } }]
   ];
 
   it.each(states)('%s', (_label, options) => {
     const list = controls(render(options));
-    expect(list.length).toBeGreaterThanOrEqual(24);
+    expect(list.length).toBeGreaterThanOrEqual(23);
     for (const control of list) {
       const what = `${control.tag}${control.attrs}`;
       expect(control.name, what).not.toBe('');
@@ -375,7 +356,7 @@ describe('every control has a name and a description (polish.4)', () => {
   });
 
   it('describes each control by what it acts on', () => {
-    const list = controls(render({ keyStatus: STORED, runtime: READY }));
+    const list = controls(render({ runtime: READY }));
     const find = (name: string, nth = 0): Control => {
       const found = list.filter((c) => c.name === name)[nth];
       expect(found, name).toBeDefined();
@@ -392,9 +373,6 @@ describe('every control has a name and a description (polish.4)', () => {
     expect(find('Open folder').description).toBe('choose a manuscript folder first');
     expect(find('Setup').description).toBe('ann@example.com (Claude Max)');
     expect(find('Setup', 1).description).toBe('not read yet');
-    expect(find('Remove key').description).toBe('saved in Settings, encrypted (ends abcd)');
-    expect(find('OpenAI API key').description).toBe(`${OPENAI_KEY_NOTE} ${OPENAI_KEYS_PAGE}.`);
-    expect(find('Save key').description).toBe(OPENAI_KEY_TIP);
     expect(find('Done').description).toBe('Each setting is saved as soon as you change it.');
   });
 });

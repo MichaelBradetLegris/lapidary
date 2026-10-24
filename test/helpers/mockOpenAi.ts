@@ -1,80 +1,75 @@
 /**
- * A tiny stand-in for the two OpenAI endpoints this app uses, so the OpenAI
- * path can be exercised end to end without a real key or a network. Dev-only:
- * nothing in `src/` imports it.
+ * A tiny stand-in for the two OpenAI endpoints a ChatGPT review uses, so it
+ * can be run end to end with no ChatGPT account and no network (codex.3,
+ * PLAN 5.8). Dev-only: nothing in `src/` imports it.
  *
- * - GET  /v1/models     a fixed model list mixing text and non-text models
- * - POST /v1/responses  a streamed (SSE) or plain structured reply
+ * - GET  /v1/models     the models a ChatGPT sign-in may use
+ * - POST /v1/responses  a streamed (SSE) structured reply
  *
- * The API key picks the scenario, so the real app can be driven through every
- * path from its own Settings dialog: a key containing `unauthorized` gets a 401,
- * `ratelimit` a 429, `servererror` a 500, `malformed` a reply that is not JSON,
- * `prose` a reply written as prose (`PROSE_REPLY`), as a model that ignored
- * the schema might send (hardening.3b), `wrongshape` JSON of the wrong shape,
- * `slow` a reply that trickles out over several seconds (for Cancel), or an
- * unstreamed one that comes after them (for a connection test's time limit),
- * `obsidian` the review of the Obsidian sample chapter (`OBSIDIAN_REVIEW`),
- * `outputlimit` a streamed reply cut off at the model's output limit, which
- * ends `incomplete` (files.10), `unverified` the 400 OpenAI gives a streamed
- * request from an organisation that has not verified its identity, while an
- * unstreamed one is answered (`UNVERIFIED_STREAM_MESSAGE`, hardening.10),
- * `skippedonly` a model list holding only models the default passes over while
- * it has any other (`SKIPPED_ONLY_MODELS`, hardening.10), and anything else
- * the canned review of Chapter 01.
+ * It answers a bearer that is a ChatGPT sign-in's access token, a JWT for
+ * `https://api.openai.com/v1` granting `chatgpt.tokens.use.direct`, as
+ * test/helpers/mockChatGptAuth.ts makes them, as OpenAI's pages on models and
+ * inference, preview limitations and errors describe that route (Appendix A):
+ * the model list as a `models` array of `slug`, `display_name` and
+ * `visibility` (`CHATGPT_MODELS`); a review only with `store: false`,
+ * `stream: true`, `input` as a list and none of the parameters the route
+ * refuses, each refused as `subscription_sharing_unsupported_capability`
+ * naming it; a token whose `exp` has passed refused with a 401; and the
+ * plan's limits in the headers Codex reads (`x-codex-primary-used-percent`
+ * and the rest). Any other bearer, such as an OpenAI API key, which no
+ * provider has sent since codex.6, gets the 401 OpenAI gives a key it does
+ * not know.
  *
- * The ChatGPT route (codex.3, PLAN 5.8): a bearer that is a ChatGPT sign-in's
- * access token, a JWT for `https://api.openai.com/v1` granting
- * `chatgpt.tokens.use.direct`, as test/helpers/mockChatGptAuth.ts makes
- * them, is answered as OpenAI's pages on models and inference, preview
- * limitations and errors describe that route (Appendix A): the model list as
- * a `models` array of `slug`, `display_name` and `visibility`
- * (`CHATGPT_MODELS`); a review only with `store: false`, `stream: true`,
- * `input` as a list and none of the parameters the route refuses, each
- * refused as `subscription_sharing_unsupported_capability` naming it; a token
- * whose `exp` has passed refused with a 401; and the plan's limits in the
- * headers Codex reads (`x-codex-primary-used-percent` and the rest). The
- * token's `mock_scenario` claim picks the scenario, keyed as a key's are
- * (`chatGptScenarioFor`): `nearlimit` the 5-hour limit 85% used,
+ * The scenario changes the answers (`ChatGptScenario`, matched by
+ * `chatGptScenarioFor`: the first of `CHATGPT_SCENARIOS` the name holds, in
+ * any case). The plan's own: `nearlimit` the 5-hour limit 85% used,
  * `weeklylimit` the weekly limit reached, `usagelimit` a 429 for the plan's
  * usage limit with the 5-hour limit reached in its headers, `usagelimitbare`
  * the same 429 with no headers, `usagelimitstream` that limit reached during
  * a streamed reply (`response.failed`), `noheaders` an answer with no limits,
- * `noteligible` a 403 for an account that may not use its plan,
- * `noschema` a 400 for `text.format`, the route refusing structured output,
- * `unavailable` a 503 for usage that is not available, `invaliduser` a 401
- * for every request, `nomodels` an empty model list, and `obsidian`, `slow`,
- * `malformed`, `prose`, `wrongshape` and `outputlimit` as for a key; anything
- * else the canned review with the limits low. `POST /mock/scenario` with a
- * name sets the scenario of every ChatGPT request over the token's, and an
- * empty body clears it.
+ * `noteligible` a 403 for an account that may not use its plan, `noschema` a
+ * 400 for `text.format`, the route refusing structured output, `unavailable`
+ * a 503 for usage that is not available, `invaliduser` a 401 with the plan's
+ * code for every request, and `nomodels` an empty model list. Those an
+ * OpenAI API key's words picked until codex.6 took that provider out:
+ * `unauthorized` a 401 for every request (`invalid_api_key`); `ratelimit` a
+ * 429 (`rate_limit_exceeded`) and `servererror` a 500 for a review, while the
+ * model list still answers; `malformed` a reply that is not JSON; `prose` a
+ * reply written as prose (`PROSE_REPLY`), as a model that ignored the schema
+ * might send (hardening.3b); `wrongshape` JSON of the wrong shape; `slow` a
+ * reply that trickles out over about seven seconds (for Cancel); `obsidian`
+ * the review of the Obsidian sample chapter (`OBSIDIAN_REVIEW`, files.9);
+ * `outputlimit` a reply cut off at the model's output limit, which ends
+ * `incomplete` (files.10); `unverified` the 400 OpenAI gives a streamed
+ * request from an organisation that has not verified its identity
+ * (`UNVERIFIED_STREAM_MESSAGE`, hardening.10), while the model list answers;
+ * and `skippedonly` a model list holding only models the default passes over
+ * while it has any other (`CHATGPT_SKIPPED_ONLY_MODELS`, hardening.10).
+ * Anything else is the canned review of Chapter 01, the limits low.
+ *
+ * Where the scenario comes from: the access token's `mock_scenario` claim,
+ * which test/helpers/mockChatGptAuth.ts puts in every token it makes once it
+ * is given one (`--api-scenario <name>` as it starts, or `POST
+ * /mock/api-scenario` for the tokens of the next sign-in or renewal); or
+ * `POST /mock/scenario` here with a name, which sets the scenario of every
+ * ChatGPT request from then on, over the token's, and an empty body clears it.
  *
  * Two ways to use it:
  *   vitest:  const mock = await startMockOpenAi(); ... mock.url ... await mock.close();
  *   by hand: node test/helpers/mockOpenAi.ts --port 4599
- *            (Node 22.18+ strips the types itself), then start the app with
- *            MANUSCRIPT_REVIEW_OPENAI_BASE_URL=http://127.0.0.1:4599/v1
- *            (a development switch: `npm run dev` honours it, a packaged build
- *            ignores it, see src/main/devSwitches.ts)
+ *            (Node 22.18+ strips the types itself), with the sign-in mock
+ *            (node test/helpers/mockChatGptAuth.ts --port 4600), then start
+ *            the app with MANUSCRIPT_REVIEW_OPENAI_BASE_URL=http://127.0.0.1:4599/v1
+ *            and MANUSCRIPT_REVIEW_CHATGPT_AUTH_URL=http://127.0.0.1:4600
+ *            (development switches: `npm run dev` honours them, a packaged
+ *            build ignores them, see src/main/devSwitches.ts) and sign in
+ *            with ChatGPT as the sign-in mock's header says
  *
  * The file has no relative imports so Node can run it directly.
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-
-export type Scenario =
-  | 'ok'
-  | 'unauthorized'
-  | 'ratelimit'
-  | 'servererror'
-  | 'malformed'
-  | 'prose'
-  | 'wrongshape'
-  | 'slow'
-  | 'obsidian'
-  | 'outputlimit'
-  | 'unverified'
-  | 'skippedonly';
 
 /** The output limit the `outputlimit` scenario's reply reaches: gpt-5's 128,000 tokens. */
 export const MOCK_OUTPUT_LIMIT = 128_000;
@@ -104,7 +99,11 @@ export interface MockOpenAi {
   close: () => Promise<void>;
 }
 
-/** What a ChatGPT sign-in's request may meet (codex.3); see the comment at the top. */
+/**
+ * What a ChatGPT sign-in's request may meet (codex.3); see the comment at the
+ * top. The last eleven are those an OpenAI API key's words picked until
+ * codex.6; six of them, `malformed` to `outputlimit`, this route had already.
+ */
 export type ChatGptScenario =
   | 'ok'
   | 'nearlimit'
@@ -118,35 +117,45 @@ export type ChatGptScenario =
   | 'unavailable'
   | 'invaliduser'
   | 'nomodels'
-  | 'obsidian'
-  | 'slow'
+  | 'unauthorized'
+  | 'ratelimit'
+  | 'servererror'
   | 'malformed'
   | 'prose'
   | 'wrongshape'
-  | 'outputlimit';
+  | 'slow'
+  | 'obsidian'
+  | 'outputlimit'
+  | 'unverified'
+  | 'skippedonly';
 
 /** Every ChatGPT scenario but `ok`, longest first, so `usagelimitbare` is not read as `usagelimit`. */
 export const CHATGPT_SCENARIOS: readonly ChatGptScenario[] = [
   'usagelimitstream',
   'usagelimitbare',
+  'unauthorized',
   'weeklylimit',
+  'servererror',
+  'skippedonly',
+  'outputlimit',
+  'invaliduser',
+  'noteligible',
+  'unavailable',
   'usagelimit',
+  'unverified',
+  'wrongshape',
   'nearlimit',
   'noheaders',
-  'noteligible',
+  'ratelimit',
+  'malformed',
   'noschema',
-  'unavailable',
-  'invaliduser',
   'nomodels',
   'obsidian',
-  'slow',
-  'malformed',
   'prose',
-  'wrongshape',
-  'outputlimit'
+  'slow'
 ];
 
-/** The scenario a token's `mock_scenario` claim names: the first of `CHATGPT_SCENARIOS` it holds, in any case. */
+/** The scenario a token's `mock_scenario` claim, or a name, gives: the first of `CHATGPT_SCENARIOS` it holds, in any case. */
 export function chatGptScenarioFor(claim: unknown): ChatGptScenario {
   const word = typeof claim === 'string' ? claim.toLowerCase() : '';
   return CHATGPT_SCENARIOS.find((name) => word.includes(name)) ?? 'ok';
@@ -162,6 +171,20 @@ export const CHATGPT_MODELS = [
   { slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'list' },
   { slug: 'gpt-5.5-internal', display_name: 'GPT-5.5 Internal', visibility: 'hide' },
   { slug: 'gpt-5-mini', display_name: 'GPT-5 mini', visibility: 'list' }
+];
+
+/**
+ * The `skippedonly` scenario's model list (hardening.10, on this route since
+ * codex.6): only models `NOT_DEFAULT_MODEL` names, a -pro, a -codex and a
+ * -chat one, and gpt-5.5 hidden, which the list never shows. With nothing
+ * else to take, the default is the first listed, gpt-5.5-pro
+ * (`defaultChatGptModel`), never the hidden one.
+ */
+export const CHATGPT_SKIPPED_ONLY_MODELS = [
+  { slug: 'gpt-5.5-pro', display_name: 'GPT-5.5 Pro', visibility: 'list' },
+  { slug: 'gpt-5-codex', display_name: 'GPT-5 Codex', visibility: 'list' },
+  { slug: 'gpt-5-chat-latest', display_name: 'GPT-5 Chat', visibility: 'list' },
+  { slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'hide' }
 ];
 
 /** The parameters OpenAI's page on preview limitations says the ChatGPT route refuses (Appendix A). */
@@ -184,7 +207,7 @@ export const CHATGPT_REFUSED_PARAMETERS = [
   'user'
 ];
 
-/** The claims of a ChatGPT sign-in's access token, or null for a bearer that is not one (an API key). */
+/** The claims of a ChatGPT sign-in's access token, or null for a bearer that is not one, such as an API key. */
 export function chatGptClaims(authorization: string): Record<string, unknown> | null {
   const token = authorization.replace(/^Bearer\s+/i, '');
   const parts = token.split('.');
@@ -512,58 +535,6 @@ export const PROSE_REPLY =
   'Here is my review of the chapter. In the first paragraph, "the river had began to climb the steps" should read "the river had begun to climb the steps". ' +
   'In the second, "should of" is a mishearing of "should have". The ending lands well; I would keep the last line short.';
 
-const MODELS = [
-  { id: 'gpt-5.5', created: 1_780_000_000, object: 'model', owned_by: 'openai' },
-  { id: 'gpt-5-mini', created: 1_755_000_000, object: 'model', owned_by: 'openai' },
-  { id: 'gpt-5', created: 1_754_000_000, object: 'model', owned_by: 'openai' },
-  // Newer than every gpt-5, to prove the default prefers the gpt-5 family.
-  { id: 'gpt-6-preview-mock', created: 1_790_000_000, object: 'model', owned_by: 'openai' },
-  // Each newer than a gpt-5 the default could take, and never the default (hardening.10).
-  // The first three are listed; o3-deep-research is left out as a search model.
-  { id: 'gpt-5.5-pro', created: 1_781_000_000, object: 'model', owned_by: 'system' },
-  { id: 'gpt-5-codex', created: 1_758_000_000, object: 'model', owned_by: 'system' },
-  { id: 'gpt-5-chat-latest', created: 1_754_500_000, object: 'model', owned_by: 'system' },
-  { id: 'o3-deep-research', created: 1_749_000_000, object: 'model', owned_by: 'system' },
-  { id: 'gpt-4o', created: 1_715_000_000, object: 'model', owned_by: 'system' },
-  { id: 'o3', created: 1_744_000_000, object: 'model', owned_by: 'system' },
-  { id: 'text-embedding-3-large', created: 1_705_000_000, object: 'model', owned_by: 'system' },
-  { id: 'whisper-1', created: 1_677_000_000, object: 'model', owned_by: 'openai-internal' },
-  { id: 'tts-1-hd', created: 1_699_000_000, object: 'model', owned_by: 'system' },
-  { id: 'dall-e-3', created: 1_698_000_000, object: 'model', owned_by: 'system' },
-  { id: 'gpt-image-1', created: 1_745_000_000, object: 'model', owned_by: 'system' },
-  { id: 'omni-moderation-latest', created: 1_731_000_000, object: 'model', owned_by: 'system' },
-  { id: 'gpt-4o-realtime-preview', created: 1_727_000_000, object: 'model', owned_by: 'system' }
-];
-
-/**
- * The `skippedonly` scenario's model list (hardening.10): a -pro, a -codex
- * and a -chat model, newest first in that order, and one that is not text.
- * With nothing else to take, the default is the codex, never the newer pro
- * the list opens with.
- */
-export const SKIPPED_ONLY_MODELS = [
-  { id: 'gpt-5.5-pro', created: 1_781_000_000, object: 'model', owned_by: 'system' },
-  { id: 'gpt-5-codex', created: 1_758_000_000, object: 'model', owned_by: 'system' },
-  { id: 'gpt-5-chat-latest', created: 1_754_500_000, object: 'model', owned_by: 'system' },
-  { id: 'whisper-1', created: 1_677_000_000, object: 'model', owned_by: 'openai-internal' }
-];
-
-export function scenarioForKey(authorization: string): Scenario {
-  const key = authorization.toLowerCase();
-  if (key.includes('unauthorized')) return 'unauthorized';
-  if (key.includes('ratelimit')) return 'ratelimit';
-  if (key.includes('servererror')) return 'servererror';
-  if (key.includes('malformed')) return 'malformed';
-  if (key.includes('prose')) return 'prose';
-  if (key.includes('wrongshape')) return 'wrongshape';
-  if (key.includes('slow')) return 'slow';
-  if (key.includes('obsidian')) return 'obsidian';
-  if (key.includes('outputlimit')) return 'outputlimit';
-  if (key.includes('unverified')) return 'unverified';
-  if (key.includes('skippedonly')) return 'skippedonly';
-  return 'ok';
-}
-
 function sendJson(
   res: ServerResponse,
   status: number,
@@ -752,8 +723,19 @@ async function answerChatGpt(
     );
     return;
   }
+  if (scenario === 'unauthorized') {
+    // As OpenAI answers a bearer it does not take, with no plan's code (codex.6; an API key's until then).
+    refuse(401, 'invalid_api_key', 'Incorrect API key provided.');
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/v1/models') {
-    sendJson(res, 200, { models: scenario === 'nomodels' ? [] : CHATGPT_MODELS });
+    const models =
+      scenario === 'nomodels'
+        ? []
+        : scenario === 'skippedonly'
+          ? CHATGPT_SKIPPED_ONLY_MODELS
+          : CHATGPT_MODELS;
+    sendJson(res, 200, { models });
     return;
   }
   if (req.method !== 'POST' || url.pathname !== '/v1/responses') {
@@ -828,6 +810,46 @@ async function answerChatGpt(
     refuse(503, 'subscription_sharing_usage_unavailable', 'Plan usage is not available right now.');
     return;
   }
+  /* What an API key's words picked until codex.6 took that provider out: a
+     rate limit with no plan's code, a server error, and the refusal of a
+     stream to an organisation that has not verified its identity, each for a
+     review only, the model list still answering. */
+  if (scenario === 'ratelimit') {
+    sendJson(
+      res,
+      429,
+      {
+        error: {
+          message: 'Rate limit reached for requests. Please try again shortly.',
+          type: 'requests',
+          param: null,
+          code: 'rate_limit_exceeded'
+        }
+      },
+      { 'retry-after': '0' }
+    );
+    return;
+  }
+  if (scenario === 'servererror') {
+    sendJson(
+      res,
+      500,
+      {
+        error: {
+          message: 'The server had an error while processing your request.',
+          type: 'server_error',
+          param: null,
+          code: 'server_error'
+        }
+      },
+      { 'retry-after': '0' }
+    );
+    return;
+  }
+  if (scenario === 'unverified') {
+    refuse(400, 'unsupported_value', UNVERIFIED_STREAM_MESSAGE, 'stream');
+    return;
+  }
   const requested = typeof request['model'] === 'string' ? request['model'] : 'gpt-5.5';
   const full = JSON.stringify(scenario === 'obsidian' ? OBSIDIAN_REVIEW : CANNED_REVIEW);
   const text =
@@ -880,95 +902,15 @@ export async function startMockOpenAi(
         return;
       }
 
-      const scenario = scenarioForKey(authorization);
-      if (options.log) console.log(`[mock-openai] ${req.method ?? ''} ${url.pathname} -> ${scenario}`);
-
+      /* Any other bearer, such as an OpenAI API key, which no provider sends
+         since codex.6: refused as OpenAI refuses a key it does not know. */
+      if (options.log)
+        console.log(`[mock-openai] ${req.method ?? ''} ${url.pathname} -> not a ChatGPT token`);
       if (!authorization.startsWith('Bearer ')) {
         apiError(res, 401, 'invalid_request_error', 'missing_api_key', 'You did not provide an API key.');
         return;
       }
-      if (scenario === 'unauthorized') {
-        apiError(
-          res,
-          401,
-          'invalid_request_error',
-          'invalid_api_key',
-          'Incorrect API key provided: sk-...ized.'
-        );
-        return;
-      }
-      if (scenario === 'ratelimit' && url.pathname.endsWith('/responses')) {
-        res.setHeader('retry-after', '0');
-        apiError(res, 429, 'insufficient_quota', 'insufficient_quota', 'You exceeded your current quota.');
-        return;
-      }
-      if (scenario === 'servererror' && url.pathname.endsWith('/responses')) {
-        res.setHeader('retry-after', '0');
-        apiError(
-          res,
-          500,
-          'server_error',
-          'server_error',
-          'The server had an error while processing your request.'
-        );
-        return;
-      }
-
-      if (req.method === 'GET' && url.pathname === '/v1/models') {
-        sendJson(res, 200, {
-          object: 'list',
-          data: scenario === 'skippedonly' ? SKIPPED_ONLY_MODELS : MODELS
-        });
-        return;
-      }
-
-      if (req.method === 'POST' && url.pathname === '/v1/responses') {
-        const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
-        if (scenario === 'unverified' && request['stream'] === true) {
-          apiError(
-            res,
-            400,
-            'invalid_request_error',
-            'unsupported_value',
-            UNVERIFIED_STREAM_MESSAGE,
-            'stream'
-          );
-          return;
-        }
-        const requested = typeof request['model'] === 'string' ? request['model'] : 'gpt-5';
-        // The API answers with a dated snapshot of the model that was asked for.
-        const model = `${requested}-2026-06-01`;
-        const full = JSON.stringify(scenario === 'obsidian' ? OBSIDIAN_REVIEW : CANNED_REVIEW);
-        const text =
-          scenario === 'malformed'
-            ? '{"changes": [{"paragraph": 0, "before": "had began", "after": '
-            : scenario === 'prose'
-              ? PROSE_REPLY
-              : scenario === 'wrongshape'
-                ? JSON.stringify({ edits: [{ where: 0, what: 'had began' }] })
-                : scenario === 'outputlimit'
-                  ? full.slice(0, Math.floor(full.length / 2))
-                  : full;
-
-        if (request['stream'] === true) {
-          await streamResponse(res, model, text, scenario === 'slow' ? 600 : 15, scenario === 'outputlimit');
-        } else {
-          // As slow as the streamed reply, all at the end (a connection test that runs out of time).
-          if (scenario === 'slow') await sleep(600 * 12);
-          if (res.destroyed) return;
-          const response = responseObject(model, 'completed', text, Math.ceil(text.length / 4));
-          sendJson(res, 200, { ...response, output_text: text });
-        }
-        return;
-      }
-
-      apiError(
-        res,
-        404,
-        'invalid_request_error',
-        'not_found',
-        `No mock for ${req.method ?? ''} ${url.pathname}`
-      );
+      apiError(res, 401, 'invalid_request_error', 'invalid_api_key', 'Incorrect API key provided.');
     })();
   });
 

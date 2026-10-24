@@ -78,11 +78,11 @@ describe('the Claude Code line', () => {
     expect(claudeCodeLine(null, INFO.claudeCode)).toBe('Claude Code 2.1.302');
     expect(claudeCodeLine(null, { state: 'not-checked' })).toBe('Claude Code: not checked yet');
     expect(claudeCodeLine(null, null)).toBe('Claude Code: not checked yet');
-    // A status that knows nothing of the binary yet, and OpenAI's, are not Claude Code's word.
+    // A status that knows nothing of the binary yet, and ChatGPT's, are not Claude Code's word.
     expect(claudeCodeLine({ provider: 'claude', state: 'error' }, INFO.claudeCode)).toBe(
       'Claude Code 2.1.302'
     );
-    expect(claudeCodeLine({ provider: 'openai', state: 'ready' }, { state: 'not-installed' })).toBe(
+    expect(claudeCodeLine({ provider: 'chatgpt', state: 'ready' }, { state: 'not-installed' })).toBe(
       'Claude Code: not installed'
     );
   });

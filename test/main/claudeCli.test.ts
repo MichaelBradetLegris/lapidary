@@ -72,7 +72,6 @@ describe('runCliReview', () => {
     expect(result.output.comments).toHaveLength(1);
     expect(result.model).toBe('claude-haiku-4-5-20251001');
     expect(result.costUsd).toBe(0.0123);
-    expect(result.costEstimated).toBe(false);
     expect(result.durationMs).toBe(1234);
     // The usage notice, as Claude Code 2.1.302 sends it (setup.9), reduced to what the app reads:
     // `allowed` comes with no share used, which only `allowed_warning` carries (C.64).

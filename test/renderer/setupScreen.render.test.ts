@@ -455,7 +455,7 @@ describe('the review dialog with Claude not quite ready (setup.7)', () => {
   const dialog = (
     runtime: RuntimeStatus,
     last: LastFailure | null,
-    provider: 'claude' | 'openai' = 'claude',
+    provider: 'claude' | 'chatgpt' = 'claude',
     extra: { models?: ModelInfo[]; model?: string } = {}
   ) =>
     renderToStaticMarkup(
@@ -465,7 +465,6 @@ describe('the review dialog with Claude not quite ready (setup.7)', () => {
         models: extra.models ? { claude: extra.models } : {},
         modelsLoading: {},
         runtimes: { claude: runtime },
-        keyStatus: null,
         history: [],
         reviewPath: null,
         unsavedDecisions: 0,
@@ -474,7 +473,6 @@ describe('the review dialog with Claude not quite ready (setup.7)', () => {
         onStartWithout: () => undefined,
         onApplySettings: () => undefined,
         onNeedModels: () => undefined,
-        onOpenSettings: () => undefined,
         onCheckClaude: () => undefined,
         checking: false,
         claudeLastFailure: last,
@@ -515,9 +513,9 @@ describe('the review dialog with Claude not quite ready (setup.7)', () => {
     expect(buttons(older)).toContain('Check again');
   });
 
-  it('says nothing about Claude when it is ready, or when OpenAI is the provider', () => {
+  it('says nothing about Claude when it is ready, or when ChatGPT is the provider', () => {
     expect(dialog(claude(), null)).not.toMatch(/claude-setup-warning|claude-update-note/);
-    expect(dialog(claude({ state: 'error' }), null, 'openai')).not.toMatch(
+    expect(dialog(claude({ state: 'error' }), null, 'chatgpt')).not.toMatch(
       /claude-setup-warning|claude-update-note/
     );
   });

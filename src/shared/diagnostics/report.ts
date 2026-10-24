@@ -9,11 +9,11 @@
  * state of the last checks, folder paths with the home folder written `~`,
  * the number of chapters, and the log's warnings, each reduced to what
  * failed (`warningLine`). Never chapter text or chapter names, the
- * guidelines' words, the account's email address, a key or its last four
- * characters, a status message (it can carry what a probe said), drafts or
- * backups. Every line is scrubbed on the way out as the log's are
- * (`scrub`), so an email address or a key shape that slipped into a value
- * would still come out as `[email]` or `[key]`.
+ * guidelines' words, the account's email address, a key, a token, a status
+ * message (it can carry what a probe said), drafts or backups. Every line is
+ * scrubbed on the way out as the log's are (`scrub`), so an email address or
+ * a key shape that slipped into a value would still come out as `[email]` or
+ * `[key]`.
  *
  * Pure and dependency-free (CLAUDE.md rule 4).
  */
@@ -123,13 +123,11 @@ export interface DiagnosticsData {
   /** false once a write to the log file failed, so the log stopped */
   logWriting: boolean;
   display: DisplayFacts;
-  settings: Pick<Settings, 'provider' | 'model' | 'chatgptModel' | 'openaiModel' | 'effort'>;
+  settings: Pick<Settings, 'provider' | 'model' | 'chatgptModel' | 'effort'>;
   /** what the last check of Claude found, as `claudeDiagnostics` words it */
   claude: readonly string[];
   /** what the last check of the ChatGPT sign-in found, and its last failure (codex.3) */
   chatgpt: { runtime: RuntimeStatus | null; lastFailure: LastFailure | null };
-  /** what the last check of OpenAI found, and its last failure */
-  openai: { runtime: RuntimeStatus | null; lastFailure: LastFailure | null };
   folders: FolderFacts;
   guidelines: GuidelinesFacts;
   /** the log's last warnings and errors of this run, as written; the report keeps `warningLine` of each */
@@ -303,23 +301,6 @@ function chatGptLines(chatgpt: DiagnosticsData['chatgpt']): string[] {
   ];
 }
 
-/** The OpenAI part: the state and where the key comes from; never its last four characters or a message. */
-function openAiLines(openai: DiagnosticsData['openai']): string[] {
-  const runtime = openai.runtime;
-  return [
-    `OpenAI: ${runtime ? runtime.state : 'not checked yet'}`,
-    ...(runtime?.keySource ? [`Key: ${KEY_SOURCES[runtime.keySource]}`] : []),
-    ...(runtime?.checkedAt ? [`Checked: ${runtime.checkedAt}`] : []),
-    `Last failure: ${openai.lastFailure?.code ?? 'none'}`
-  ];
-}
-
-const KEY_SOURCES: Record<NonNullable<RuntimeStatus['keySource']>, string> = {
-  stored: 'saved in the app, encrypted',
-  environment: 'OPENAI_API_KEY from the environment',
-  none: 'none'
-};
-
 function windowLine(display: DisplayFacts): string {
   if (!display.window) return 'none open';
   const { width, height, maximized } = display.window;
@@ -400,13 +381,11 @@ export function reportSections(data: DiagnosticsData): Array<{ title: string; li
         `Provider: ${PROVIDER_NAMES[settings.provider]}`,
         `Claude model: ${settings.model}`,
         `ChatGPT model: ${settings.chatgptModel || 'the default'}`,
-        `OpenAI model: ${settings.openaiModel || 'the default'}`,
         `Effort: ${settings.effort}`
       ]
     },
     { title: 'Claude', lines: [...data.claude] },
     { title: 'ChatGPT', lines: chatGptLines(data.chatgpt) },
-    { title: 'OpenAI', lines: openAiLines(data.openai) },
     {
       title: 'Manuscript folder',
       lines:

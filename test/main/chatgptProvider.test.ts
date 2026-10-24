@@ -16,8 +16,9 @@ import type { ShellApi } from '../../src/main/shellApi';
 import { CHATGPT_LIMITS_UNKNOWN } from '../../src/shared/ai/chatgpt';
 import { replyLimitMessage } from '../../src/shared/ai/replyLimit';
 import type { RateLimitInfo, ReviewRequest } from '../../src/shared/ipc';
-import { renderChapter } from '../../src/shared/prompt/chapter';
+import { fromPromptNumbering, renderChapter } from '../../src/shared/prompt/chapter';
 import { buildSystemPrompt } from '../../src/shared/prompt/system';
+import { createAiReview, toChangeCategory } from '../../src/shared/review';
 import { normalizeText } from '../../src/shared/text/eol';
 import { chapterStats } from '../../src/shared/text/stats';
 import {
@@ -31,7 +32,12 @@ import { MOCK_EMAIL, startMockChatGptAuth, type MockChatGptAuth } from '../helpe
 import {
   CANNED_REVIEW,
   CHATGPT_REFUSED_PARAMETERS,
+  CHATGPT_SCENARIOS,
+  MOCK_OUTPUT_LIMIT,
+  OBSIDIAN_REVIEW,
   PROSE_REPLY,
+  UNVERIFIED_STREAM_MESSAGE,
+  chatGptScenarioFor,
   startMockOpenAi,
   type MockOpenAi,
   type RecordedRequest
@@ -72,6 +78,7 @@ const SAMPLE = path.join(
   'manuscript',
   'Chapter 01 - The Flood.md'
 );
+const OBSIDIAN_SAMPLE = path.join(path.dirname(SAMPLE), 'Chapter 03 - Obsidian.md');
 
 function fakeVault(): KeyVault {
   return {
@@ -256,7 +263,7 @@ describe('the model list a ChatGPT sign-in allows (codex.3)', () => {
 });
 
 describe('a review on the plan (codex.3)', () => {
-  it("sends the API key's streamed, store: false request, with the chapter as one user message and the bearer", async () => {
+  it('sends the streamed, store: false Responses request, with the chapter as one user message and the bearer', async () => {
     const session = await signedIn();
     const watch = hooks();
     const result = await provider(session).review(request(), watch);
@@ -311,7 +318,7 @@ describe('a review on the plan (codex.3)', () => {
     expect(describeRateLimit(notice, new Date())).toMatch(/^5-hour limit 85% used, resets \d\d:\d\d$/);
   });
 
-  it('takes the scenario from the token, keyed as an API key picks its own', async () => {
+  it("takes the scenario from the token's mock_scenario claim, which the sign-in mock puts in its tokens", async () => {
     authMock.apiScenario = 'weeklylimit';
     const session = await signedIn();
     const watch = hooks();
@@ -903,6 +910,217 @@ describe('the runtime, and the log (codex.3)', () => {
   });
 });
 
+/* codex.6: the scenarios an OpenAI API key's words picked until that provider
+   went, through the ChatGPT route, where a window run picks them too (the
+   sign-in mock's `--api-scenario`, or the API mock's POST /mock/scenario);
+   and the key provider's end-to-end checks, made on the plan. */
+describe('the scenarios an API key picked until codex.6, on the ChatGPT route', () => {
+  const KEY_SCENARIOS = [
+    'unauthorized',
+    'ratelimit',
+    'servererror',
+    'malformed',
+    'prose',
+    'wrongshape',
+    'slow',
+    'obsidian',
+    'outputlimit',
+    'unverified',
+    'skippedonly'
+  ] as const;
+
+  it('knows every one, and picks it from a name in any case, the longest first', () => {
+    for (const name of KEY_SCENARIOS) {
+      expect(CHATGPT_SCENARIOS, name).toContain(name);
+      expect(chatGptScenarioFor(`mock-${name.toUpperCase()}-7Qa2`), name).toBe(name);
+    }
+    expect(chatGptScenarioFor('usagelimitbare')).toBe('usagelimitbare');
+    expect(chatGptScenarioFor('usagelimitstream')).toBe('usagelimitstream');
+    expect(chatGptScenarioFor('anything else')).toBe('ok');
+  });
+
+  it("takes one from the tokens the sign-in mock makes, as --api-scenario gives it, and the API mock's own over it", async () => {
+    authMock.apiScenario = 'ratelimit';
+    const session = await signedIn();
+    const limited = await failure(provider(session).review(request({ model: 'gpt-5.5' }), hooks()));
+    expect(limited.message).toBe(
+      'OpenAI is limiting requests from your ChatGPT sign-in just now, so it could not review the chapter. Wait a moment and try again.'
+    );
+    api.chatGptScenario = 'servererror';
+    const broken = await failure(provider(session).review(request({ model: 'gpt-5.5' }), hooks()));
+    expect(broken.message).toBe('OpenAI had a server error (500). Wait a moment and try again.');
+  });
+
+  it('unauthorized: a 401 for every request, renewed once, then said as a sign-in OpenAI does not accept, the sign-in kept', async () => {
+    const session = await signedIn();
+    api.chatGptScenario = 'unauthorized';
+    const listing = await failure(provider(session).models());
+    expect(listing).toMatchObject({
+      code: 'chatgpt-failed',
+      message: CHATGPT_REVIEW_FAILURES.signInNotAccepted
+    });
+    const failed = await failure(provider(session).review(request({ model: 'gpt-5.5' }), hooks()));
+    expect(failed).toMatchObject({
+      code: 'chatgpt-failed',
+      message: CHATGPT_REVIEW_FAILURES.signInNotAccepted
+    });
+    expect(failed.detail).toContain('Incorrect API key provided.');
+    // Each 401 renewed the token once and sent the request again.
+    expect(renewals()).toHaveLength(2);
+    expect(apiRequests('/v1/responses')).toHaveLength(2);
+    expect((await session.status()).signedIn).toBe(true);
+  });
+
+  it('ratelimit and servererror: a review refused with a 429 or a 500 in plain words, the model list still answering', async () => {
+    const session = await signedIn();
+    for (const [scenario, words] of [
+      [
+        'ratelimit',
+        'OpenAI is limiting requests from your ChatGPT sign-in just now, so it could not review the chapter. Wait a moment and try again.'
+      ],
+      ['servererror', 'OpenAI had a server error (500). Wait a moment and try again.']
+    ] as const) {
+      api.chatGptScenario = scenario;
+      api.requests.length = 0;
+      expect(await provider(session).models(), scenario).toHaveLength(3);
+      const watch = hooks();
+      const failed = await failure(provider(session).review(request({ model: 'gpt-5.5' }), watch));
+      expect(failed, scenario).toMatchObject({ code: 'chatgpt-server', message: words });
+      // Not the plan's usage limit, and sent once: the route retries nothing.
+      expect(watch.notices, scenario).toEqual([]);
+      expect(apiRequests('/v1/responses'), scenario).toHaveLength(1);
+    }
+  });
+
+  it('malformed and wrongshape: a reply that is not JSON, or JSON of the wrong shape, named by its model, never quoted', async () => {
+    const session = await signedIn();
+    api.chatGptScenario = 'malformed';
+    const malformed = await failure(provider(session).review(request({ model: 'gpt-5.5' }), hooks()));
+    expect(malformed.code).toBe('chatgpt-invalid-output');
+    expect(malformed.message).toMatch(/^gpt-5\.5 answered but the response did not match the expected shape/);
+    expect(malformed.message).not.toContain('had began');
+    expect(malformed.detail).toMatch(/not JSON/);
+    api.chatGptScenario = 'wrongshape';
+    const wrong = await failure(provider(session).review(request({ model: 'gpt-5.5' }), hooks()));
+    expect(wrong.code).toBe('chatgpt-invalid-output');
+    expect(wrong.detail).toMatch(/changes/);
+  });
+
+  it('unverified: the 400 a stream to an unverified organisation gets, said as a request the route refused', async () => {
+    const session = await signedIn();
+    api.chatGptScenario = 'unverified';
+    // The model list is not refused; only the review's streamed request is.
+    expect(await provider(session).models()).toHaveLength(3);
+    const failed = await failure(provider(session).review(request({ model: 'gpt-5.5' }), hooks()));
+    expect(failed).toMatchObject({
+      code: 'chatgpt-failed',
+      message:
+        'OpenAI refused the request to review the chapter on your ChatGPT plan (status 400). The model or the effort level may not be available on it: choose another under Model or Effort in Review with AI.'
+    });
+    // Not a refusal of structured output, and OpenAI's own words stay in `detail`, which is never logged.
+    expect(failed.message).not.toBe(CHATGPT_REVIEW_FAILURES.structuredOutput);
+    expect(failed.detail).toContain(UNVERIFIED_STREAM_MESSAGE);
+  });
+
+  it('skippedonly: a list of only the models the default passes over, whose first is the default, never a hidden one', async () => {
+    const session = await signedIn();
+    api.chatGptScenario = 'skippedonly';
+    expect(await provider(session).models()).toEqual([
+      { value: 'gpt-5.5-pro', label: 'GPT-5.5 Pro (default)', isDefault: true, description: 'gpt-5.5-pro' },
+      { value: 'gpt-5-codex', label: 'GPT-5 Codex', description: 'gpt-5-codex' },
+      { value: 'gpt-5-chat-latest', label: 'GPT-5 Chat', description: 'gpt-5-chat-latest' }
+    ]);
+    api.requests.length = 0;
+    const result = await provider(session).review(request({ model: '' }), hooks());
+    expect(result.model).toBe('gpt-5.5-pro');
+    expect((apiRequests('/v1/responses')[0]?.body as Record<string, unknown>)['model']).toBe('gpt-5.5-pro');
+  });
+
+  it('obsidian: the review of the Obsidian sample, which the guard sorts (files.9)', async () => {
+    const session = await signedIn();
+    api.chatGptScenario = 'obsidian';
+    const text = normalizeText(await fs.readFile(OBSIDIAN_SAMPLE, 'utf8')).text;
+    const sourcePath = 'C:/vault/Chapter 03 - Obsidian.md';
+    const result = await provider(session).review(request({ text, sourcePath, model: 'gpt-5.5' }), hooks());
+    const sent = apiRequests('/v1/responses')[0]?.body as { input: Array<{ content: string }> };
+    expect(sent.input[0]?.content).toContain('paragraphs="21"');
+    expect(result.raw).toEqual(OBSIDIAN_REVIEW);
+    const output = fromPromptNumbering(result.output);
+    const review = createAiReview({
+      sourcePath,
+      base: { text, hash: 'h', eol: 'lf', bom: false, trailingNewline: true },
+      changes: output.changes.map((c) => ({ ...c, category: toChangeCategory(c.category) })),
+      comments: output.comments,
+      generator: { kind: 'chatgpt', provider: 'chatgpt', model: result.model ?? '' },
+      raw: result.raw
+    });
+    expect(review.hunks.filter((h) => h.anchor !== 'stale')).toHaveLength(13);
+    expect(review.hunks.filter((h) => h.keptOut !== undefined)).toHaveLength(10);
+    expect(review.hunks).toHaveLength(23);
+  });
+
+  it('produces hunks and comments that anchor in the sample chapter, with a progress count that only climbs', async () => {
+    const session = await signedIn();
+    const tokens: number[] = [];
+    const result = await provider(session).review(request({ model: 'gpt-5.5' }), {
+      ...hooks(),
+      onProgress: (_phase, count) => {
+        if (count !== undefined) tokens.push(count);
+      }
+    });
+    const streamed = tokens.slice(0, -1);
+    expect(streamed.length).toBeGreaterThan(3);
+    expect([...streamed].sort((a, b) => a - b)).toEqual(streamed);
+    // As the renderer does: the model answers in the prompt's numbers, from 1.
+    const output = fromPromptNumbering(result.output);
+    const review = createAiReview({
+      sourcePath: 'C:/vault/Chapter 01 - The Flood.md',
+      base: { text: chapter, hash: 'h', eol: 'crlf', bom: true, trailingNewline: true },
+      changes: output.changes.map((c) => ({ ...c, category: toChangeCategory(c.category) })),
+      comments: output.comments,
+      generator: { kind: 'chatgpt', provider: 'chatgpt', model: result.model ?? '' },
+      raw: result.raw
+    });
+    expect(review.hunks).toHaveLength(6);
+    expect(review.hunks.every((h) => h.anchor === 'exact')).toBe(true);
+    expect(review.hunks.map((h) => h.replacement)).toEqual(['begun', 'have', '', 'lose', "It's", 'came']);
+    expect(review.comments.map((c) => c.paragraph)).toEqual([5, 6, null]);
+  });
+
+  it("sends the Obsidian rule, and a note's paragraph only as its number and the hidden line (files.8)", async () => {
+    const session = await signedIn();
+    const text = `${chapter.trimEnd()}\n\n%% Ellen, not Mara: change it in chapter 3. %%\n`;
+    await provider(session).review(request({ text, model: 'gpt-5.5' }), hooks());
+    const sent = apiRequests('/v1/responses')[0]?.body as {
+      instructions: string;
+      input: Array<{ content: string }>;
+    };
+    expect(sent.instructions).toContain('The chapter is a note in an Obsidian vault');
+    expect(sent.input[0]?.content).toContain('paragraphs="11"');
+    expect(sent.input[0]?.content).toContain("\n\n[11] (author's note or code, hidden; skip it)\n</chapter>");
+    expect(JSON.stringify(sent)).not.toContain('Ellen');
+  });
+
+  it('outputlimit: says a long chapter cut off at the limit after a low-effort review is to be split (files.10)', async () => {
+    const session = await signedIn();
+    api.chatGptScenario = 'outputlimit';
+    // The sample chapter, repeated past 40,000 words: what Review with AI warns about.
+    const paragraphs = chapter.trim().split('\n\n');
+    const copies = Math.ceil(40_000 / chapterStats(chapter).words);
+    const text = `${Array.from({ length: copies }, () => paragraphs.join('\n\n')).join('\n\n')}\n`;
+    const words = chapterStats(text).words;
+    expect(words).toBeGreaterThanOrEqual(40_000);
+    const failed = await failure(
+      provider(session).review(request({ text, effort: 'low', model: 'gpt-5.5' }), hooks())
+    );
+    expect(failed.message).toBe(
+      replyLimitMessage('output', { who: 'gpt-5.5', maxTokens: MOCK_OUTPUT_LIMIT, words, effort: 'low' })
+    );
+    expect(failed.message).toMatch(/split it into two files and review each\.$/);
+    expect(failed.detail).toBe('max_output_tokens');
+  });
+});
+
 describe("the mock's ChatGPT route holds the app to OpenAI's rules (codex.3)", () => {
   it('refuses what the route does not take, and a token that has ended', async () => {
     const session = await signedIn();
@@ -936,5 +1154,14 @@ describe("the mock's ChatGPT route holds the app to OpenAI's rules (codex.3)", (
       headers: { authorization: `Bearer ${header}.${ended}.${signature}` }
     });
     expect(refused.status).toBe(401);
+  });
+
+  it("refuses a bearer that is not a ChatGPT sign-in's token, such as an API key, which no provider sends since codex.6", async () => {
+    const asKey = await fetch(`${api.url}/models`, { headers: { authorization: 'Bearer sk-test-ok-7Qa2' } });
+    expect(asKey.status).toBe(401);
+    expect(((await asKey.json()) as { error: { code: string } }).error.code).toBe('invalid_api_key');
+    const none = await fetch(`${api.url}/responses`, { method: 'POST', body: '{}' });
+    expect(none.status).toBe(401);
+    expect(((await none.json()) as { error: { code: string } }).error.code).toBe('missing_api_key');
   });
 });

@@ -15,8 +15,7 @@ export const LIST_MODELS_AGAIN = 'Try again';
 /** Whose models each provider lists, as the line under the Model row names them. */
 const LISTED: Record<Provider, string> = {
   claude: "Claude Code's models",
-  chatgpt: 'The models on your ChatGPT plan',
-  openai: 'The models for your OpenAI key'
+  chatgpt: 'The models on your ChatGPT plan'
 };
 
 /** What failed, then main's own words for why. */

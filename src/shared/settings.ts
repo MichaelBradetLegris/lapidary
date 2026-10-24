@@ -15,7 +15,9 @@ import { normalizeZoom } from './ui/zoom';
 /**
  * Settings as the app understands them, from whatever a settings.json holds
  * (PLAN 11.3 d). Tolerant: unknown keys are dropped and a bad value falls back to
- * its default, so a hand-edited or older file never stops the app starting.
+ * its default, so a hand-edited or older file never stops the app starting. So a
+ * file from before codex.6 loses `openaiModel` at the next save, and its
+ * `provider: "openai"`, a provider no longer offered, reads as the default.
  *
  * Pure (CLAUDE.md rule 4); reading and writing the file is src/main/settingsStore.ts.
  */
@@ -98,9 +100,7 @@ export function normalizeSettings(input: unknown): Settings {
     provider: isProvider(raw['provider']) ? raw['provider'] : DEFAULT_SETTINGS.provider,
     // Any model a file names is kept, even one the list no longer shows; empty means the default.
     model: typeof raw['model'] === 'string' && raw['model'] ? raw['model'] : DEFAULT_SETTINGS.model,
-    // Empty is meaningful here ("the list's default"), so only a non-string falls back.
-    openaiModel: typeof raw['openaiModel'] === 'string' ? raw['openaiModel'] : DEFAULT_SETTINGS.openaiModel,
-    // The same for ChatGPT's (codex.3): empty is the list's default.
+    // Empty is meaningful for ChatGPT's (codex.3), "the list's default", so only a non-string falls back.
     chatgptModel:
       typeof raw['chatgptModel'] === 'string' ? raw['chatgptModel'] : DEFAULT_SETTINGS.chatgptModel,
     effort: isEffort(raw['effort']) ? raw['effort'] : DEFAULT_SETTINGS.effort,

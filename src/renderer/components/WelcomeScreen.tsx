@@ -125,16 +125,14 @@ interface Props {
   /** Claude's last check, null until the first one answers */
   claude: RuntimeStatus | null;
   claudeLastFailure: LastFailure | null;
-  openai: RuntimeStatus | null;
   /** the ChatGPT sign-in, for the first step while ChatGPT is the provider (codex.3) */
   chatgpt?: ChatGptStatus | null;
   /** the Setup screen (setup.7), over the guide until it is closed */
   onSetUpClaude: () => void;
   /** the Setup screen's ChatGPT view (codex.3), over the guide in the same way */
   onSetUpChatGpt?: () => void;
-  /** Use OpenAI instead, and back: the provider setting */
+  /** Use ChatGPT instead, and Use Claude instead: the provider setting */
   onUseProvider: (provider: Provider) => void;
-  onOpenSettings: () => void;
   /** the folder picker, which sets the manuscript folder and reads the chapter list */
   onChooseFolder: () => void;
   /** Start and Skip both put the guide away for good (`onboardingDone`) */
@@ -159,12 +157,10 @@ export function WelcomeScreen({
   settings,
   claude,
   claudeLastFailure,
-  openai,
   chatgpt = null,
   onSetUpClaude,
   onSetUpChatGpt,
   onUseProvider,
-  onOpenSettings,
   onChooseFolder,
   onStart,
   onSkip
@@ -242,14 +238,11 @@ export function WelcomeScreen({
       case 'set-up-chatgpt':
         onSetUpChatGpt?.();
         break;
-      case 'use-openai':
-        onUseProvider('openai');
+      case 'use-chatgpt':
+        onUseProvider('chatgpt');
         break;
       case 'use-claude':
         onUseProvider('claude');
-        break;
-      case 'open-settings':
-        onOpenSettings();
         break;
       case 'choose-folder':
         onChooseFolder();
@@ -267,7 +260,6 @@ export function WelcomeScreen({
     provider: settings.provider,
     claude,
     claudeLastFailure,
-    openai,
     chatgpt,
     manuscriptFolder,
     guidelinesSetting: guidelinesPath,

@@ -17,6 +17,7 @@ import {
   NOT_INSTALLED_INTRO,
   NOT_RECOGNISED_QUESTION,
   OTHER_USAGE_LIMIT_TEXT,
+  RUNTIME_BUTTON_TITLE,
   SIGNED_IN_AGAIN,
   SIGNED_OUT_INTRO,
   USAGE_LIMIT_TEXT,
@@ -41,7 +42,6 @@ import {
   pathForTab,
   reviewDialogWarning,
   reviewGate,
-  runtimeButtonTitle,
   runtimeCard,
   runtimeCardAction,
   runtimeLabel,
@@ -198,11 +198,9 @@ describe('runtimeLabel', () => {
     expect(runtimeLabel(null)).toBeNull();
   });
 
-  it('labels OpenAI by its key', () => {
-    expect(runtimeLabel({ provider: 'openai', state: 'ready', keyLast4: 'ab12' })).toBe(
-      'OpenAI ready (key ends ab12)'
-    );
-    expect(runtimeLabel({ provider: 'openai', state: 'not-signed-in' })).toBe('OpenAI: no API key');
+  it('labels ChatGPT by its sign-in, never by a key (codex.6 took out the OpenAI API key)', () => {
+    expect(runtimeLabel({ provider: 'chatgpt', state: 'ready', plan: 'Plus' })).toBe('ChatGPT ready (Plus)');
+    expect(runtimeLabel({ provider: 'chatgpt', state: 'not-signed-in' })).toBe('ChatGPT: not signed in');
   });
 });
 
@@ -380,7 +378,7 @@ describe('the launch card after a check (runtimeCardAction)', () => {
   it('is put up by the first check only, with Claude the provider and Setup closed', () => {
     expect(act()).toBe('raise');
     expect(act({ pastLaunch: true })).toBe('none');
-    expect(act({ provider: 'openai' })).toBe('none');
+    expect(act({ provider: 'chatgpt' })).toBe('none');
     expect(act({ setupOpen: true })).toBe('none');
     expect(act({ card: null })).toBe('none');
   });
@@ -397,9 +395,9 @@ describe('the launch card after a check (runtimeCardAction)', () => {
     expect(act({ showing: true, pastLaunch: true })).toBe('update');
   });
 
-  it('is taken away once nothing is left to do, when OpenAI becomes the provider, or when Setup opens', () => {
+  it('is taken away once nothing is left to do, when ChatGPT becomes the provider, or when Setup opens', () => {
     expect(act({ showing: true, pastLaunch: true, card: null })).toBe('withdraw');
-    expect(act({ showing: true, pastLaunch: true, provider: 'openai' })).toBe('withdraw');
+    expect(act({ showing: true, pastLaunch: true, provider: 'chatgpt' })).toBe('withdraw');
     expect(act({ showing: true, pastLaunch: true, setupOpen: true })).toBe('withdraw');
     // Back on Claude, or Setup closed, it does not come back.
     expect(act({ showing: false, pastLaunch: true })).toBe('none');
@@ -939,9 +937,8 @@ describe('Advanced and the status bar button', () => {
     expect(checkedAtText('not a time')).toBe('not a time');
   });
 
-  it('labels the status bar button by what it opens', () => {
-    expect(runtimeButtonTitle('claude')).toBe('Open Setup');
-    expect(runtimeButtonTitle('openai')).toBe('Open Settings');
+  it('labels the status bar button by what it opens: Setup, for either provider', () => {
+    expect(RUNTIME_BUTTON_TITLE).toBe('Open Setup');
   });
 });
 
