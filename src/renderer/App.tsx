@@ -1213,7 +1213,6 @@ export function App(): React.JSX.Element {
         onOpenChatGptSetup={openChatGptSetup}
         onConfirmDataSettings={chatgpt.setDataSettingsConfirmed}
         onOpenDataControls={chatgpt.openDataControls}
-        onManageUsage={chatgpt.openUsage}
         onStart={startReview}
         onClose={() => setReviewDialogOpen(false)}
       />

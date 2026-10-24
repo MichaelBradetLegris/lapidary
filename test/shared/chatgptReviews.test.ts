@@ -27,7 +27,6 @@ import {
   PLAN_WELCOME_TEXT,
   PLAN_WELCOME_TITLE,
   SIGN_IN_BUTTON,
-  USING_CHATGPT_PLAN,
   chatGptFailureRoute,
   chatGptStartBlocker,
   chatGptUsageLimitCard,
@@ -360,8 +359,7 @@ describe('what the page says about a review on the plan', () => {
       expect(text).not.toContain('Lapidary Lapidary');
   });
 
-  it("uses OpenAI's words for the plan in use and its welcome, and opens ChatGPT's usage settings by name", () => {
-    expect(USING_CHATGPT_PLAN).toBe('Using ChatGPT plan');
+  it("uses OpenAI's words for Manage usage and the welcome, and opens ChatGPT's usage settings by name", () => {
     expect(MANAGE_USAGE_BUTTON).toBe('Manage usage');
     expect(PLAN_WELCOME_TITLE).toBe("You're using your ChatGPT plan");
     expect(PLAN_WELCOME_TEXT).toBe(

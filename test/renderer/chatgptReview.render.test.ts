@@ -5,18 +5,16 @@ import { ChatGptSetup } from '../../src/renderer/components/ChatGptSetup';
 import { ReviewDialog } from '../../src/renderer/components/ReviewDialog';
 import { StatusBar } from '../../src/renderer/components/StatusBar';
 import type { ChatGptStatus, ModelInfo, RateLimitInfo } from '../../src/shared/ipc';
-import { DEFAULT_SETTINGS, type Review } from '../../src/shared/types';
+import { DEFAULT_SETTINGS, type Provider, type Review } from '../../src/shared/types';
 import {
   CHATGPT_EMPTY_MODEL_LIST,
-  CHATGPT_PLAN_NOTE,
   CHATGPT_REVIEW_FAILURES,
   DATA_SETTINGS_CHECKBOX,
   MANAGE_USAGE_BUTTON,
   PLAN_WELCOME_DONE,
   PLAN_WELCOME_TEXT,
   PLAN_WELCOME_TITLE,
-  TRAINING_WARNING_TITLE,
-  USING_CHATGPT_PLAN
+  TRAINING_WARNING_TITLE
 } from '../../src/shared/ui/chatgpt';
 import { LIST_MODELS_AGAIN, NO_MODEL_BLOCKER } from '../../src/shared/ui/models';
 
@@ -73,22 +71,48 @@ const MODELS: ModelInfo[] = [
   { value: 'gpt-5.5', label: 'GPT-5.5 (default)', isDefault: true }
 ];
 
+const CLAUDE_MODELS: ModelInfo[] = [
+  { value: 'default', label: 'Default (recommended)', isDefault: true },
+  { value: 'sonnet', label: 'Sonnet' }
+];
+
+/** What ChatGPT's runtime check says in a development run on the mock, which the dialog left out from codex.5. */
+const DEV_ENDPOINT = 'Using a development endpoint: http://127.0.0.1:4599/v1';
+
 function dialog(
   chatgpt: ChatGptStatus | null,
   /** null for a list not fetched */
   models: ModelInfo[] | null = MODELS,
-  options: { modelsError?: string; loading?: boolean; chatgptModel?: string } = {}
+  options: {
+    modelsError?: string;
+    loading?: boolean;
+    chatgptModel?: string;
+    /** the provider chosen, ChatGPT unless said */
+    provider?: Provider;
+    /** a sign-in waits for the browser */
+    waiting?: boolean;
+    /** the ChatGPT runtime's message, as a development run gives it */
+    runtimeMessage?: string;
+  } = {}
 ): string {
+  const provider = options.provider ?? 'chatgpt';
   return decode(
     renderToStaticMarkup(
       createElement(ReviewDialog, {
         review: REVIEW,
-        settings: { ...DEFAULT_SETTINGS, provider: 'chatgpt', chatgptModel: options.chatgptModel ?? '' },
-        models: models === null ? {} : { chatgpt: models },
+        settings: { ...DEFAULT_SETTINGS, provider, chatgptModel: options.chatgptModel ?? '' },
+        models: { claude: CLAUDE_MODELS, ...(models === null ? {} : { chatgpt: models }) },
         modelsLoading: options.loading ? { chatgpt: true } : {},
         ...(options.modelsError === undefined ? {} : { modelsError: { chatgpt: options.modelsError } }),
         onRetryModels: () => undefined,
-        runtimes: { chatgpt: { provider: 'chatgpt', state: chatgpt?.signedIn ? 'ready' : 'not-signed-in' } },
+        runtimes: {
+          claude: { provider: 'claude', state: 'ready', credential: 'subscription' },
+          chatgpt: {
+            provider: 'chatgpt',
+            state: chatgpt?.signedIn ? 'ready' : 'not-signed-in',
+            ...(options.runtimeMessage === undefined ? {} : { message: options.runtimeMessage })
+          }
+        },
         history: [],
         reviewPath: null,
         unsavedDecisions: 0,
@@ -102,17 +126,30 @@ function dialog(
         claudeLastFailure: null,
         onOpenSetup: () => undefined,
         chatgpt,
-        chatgptWaiting: false,
+        chatgptWaiting: options.waiting ?? false,
         onOpenChatGptSetup: () => undefined,
         onConfirmDataSettings: () => undefined,
         onOpenDataControls: () => undefined,
-        onManageUsage: () => undefined,
         onStart: () => undefined,
         onClose: () => undefined
       })
     )
   );
 }
+
+/** The dialog's rows, by the name in their first column. */
+const rows = (html: string): string[] =>
+  [...html.matchAll(/<div class="modal__row[^"]*"><span>([^<]*)<\/span>/g)].map(([, name = '']) => name);
+
+/**
+ * The dialog's markup without what the two providers' dialogs may differ in
+ * (codex.5): ChatGPT's Account row, and the options of the Provider and Model
+ * lists, which name the provider chosen and its models.
+ */
+const withoutOwnRows = (html: string): string =>
+  html
+    .replace(/<div class="modal__row modal__row--account"><span>Account<\/span>[\s\S]*?<\/div>/, '')
+    .replace(/<option[^>]*>[^<]*<\/option>/g, '');
 
 describe('Review with AI with ChatGPT chosen (codex.3)', () => {
   it('lists Claude and ChatGPT, OpenAI (API key) gone since codex.6, and chooses ChatGPT', () => {
@@ -125,11 +162,9 @@ describe('Review with AI with ChatGPT chosen (codex.3)', () => {
     expect(html).not.toContain('OpenAI (API key');
   });
 
-  it('shows the account with Open Setup, "Using ChatGPT plan" with Manage usage, and the model list the sign-in allows', () => {
+  it('shows the account and the model list the sign-in allows', () => {
     const html = dialog(SIGNED_IN);
     expect(text(html)).toContain('Account signed in (Plus)');
-    expect(text(html)).toContain(`${USING_CHATGPT_PLAN}. ${CHATGPT_PLAN_NOTE} ${MANAGE_USAGE_BUTTON}`);
-    expect(buttons(html)).toEqual(expect.arrayContaining(['Open Setup', MANAGE_USAGE_BUTTON]));
     expect(html).toContain('<option value="gpt-5.5" selected="">GPT-5.5 (default)</option>');
     // Claude's notes are not about ChatGPT, and nothing of the OpenAI API key's is left (codex.6).
     expect(html).not.toContain('data-testid="openai-key-line"');
@@ -163,15 +198,84 @@ describe('Review with AI with ChatGPT chosen (codex.3)', () => {
     const html = dialog({ ...SIGNED_IN, signedIn: false, plan: null, dataSettingsConfirmed: false }, []);
     expect(text(html)).toContain('Account not signed in');
     expect(html).toContain('modal__path--warn');
+    expect(buttons(html)).toContain('Open Setup');
     expect(html).toMatch(/<option value=""( selected="")?>sign in first<\/option>/);
     expect(text(html)).toContain('The review cannot start until you sign in with ChatGPT.');
     expect(buttons(html)).toContain('Start review [primary] [disabled]');
   });
 
-  it('before the sign-in has been read says not read yet, and starts nothing', () => {
+  it('before the sign-in has been read says not read yet, with Open Setup, and starts nothing', () => {
     const html = dialog(null, []);
     expect(text(html)).toContain('Account not read yet');
+    expect(buttons(html)).toContain('Open Setup');
     expect(text(html)).toContain('The review cannot start until the ChatGPT sign-in has been read.');
+  });
+});
+
+describe('Review with AI as plain with ChatGPT as with Claude (codex.5)', () => {
+  const SIGNED_OUT: ChatGptStatus = { ...SIGNED_IN, signedIn: false, plan: null };
+
+  it("has Claude's rows with the account added, and nothing else of ChatGPT's own", () => {
+    const claude = dialog(SIGNED_IN, MODELS, { provider: 'claude' });
+    const chatgpt = dialog(SIGNED_IN);
+    expect(rows(claude)).toEqual(['Provider', 'Model', 'Effort', 'Guidelines']);
+    expect(rows(chatgpt)).toEqual(['Provider', 'Account', 'Model', 'Effort', 'Guidelines']);
+    // Line for line the same dialog, the Account row and the lists' options apart.
+    expect(withoutOwnRows(chatgpt)).toBe(withoutOwnRows(claude));
+  });
+
+  it('leaves out "Using ChatGPT plan" with Manage usage, and the note on how the effort is sent', () => {
+    for (const html of [
+      dialog(SIGNED_IN),
+      dialog(SIGNED_OUT, []),
+      dialog({ ...SIGNED_IN, dataSettingsConfirmed: false })
+    ]) {
+      expect(text(html)).not.toContain('Using ChatGPT plan');
+      expect(text(html)).not.toContain('usage limits');
+      expect(buttons(html)).not.toContain(MANAGE_USAGE_BUTTON);
+      expect(html).not.toContain('chatgpt-plan-note');
+      expect(text(html)).not.toMatch(/reasoning effort/i);
+      expect(html).not.toContain('openai-effort-note');
+    }
+  });
+
+  it('leaves out the line a development run gives the runtime, as it does for Claude', () => {
+    const html = dialog(SIGNED_IN, MODELS, { runtimeMessage: DEV_ENDPOINT });
+    expect(text(html)).not.toContain('development endpoint');
+    expect(withoutOwnRows(html)).toBe(withoutOwnRows(dialog(SIGNED_IN, MODELS, { provider: 'claude' })));
+  });
+
+  it('offers Open Setup beside the account only while there is no sign-in', () => {
+    const account = (html: string): string =>
+      /<div class="modal__row modal__row--account"><span>Account<\/span>([\s\S]*?)<\/div>/.exec(html)?.[1] ??
+      '';
+    expect(buttons(account(dialog(SIGNED_IN)))).toEqual([]);
+    expect(buttons(account(dialog({ ...SIGNED_IN, dataSettingsConfirmed: false })))).toEqual([]);
+    expect(buttons(account(dialog(SIGNED_OUT, [])))).toEqual(['Open Setup']);
+    expect(buttons(account(dialog(SIGNED_OUT, [], { waiting: true })))).toEqual(['Open Setup']);
+    expect(account(dialog(SIGNED_OUT, [], { waiting: true }))).toContain(
+      'data-testid="chatgpt-account-line">waiting for the browser</span>'
+    );
+    expect(buttons(account(dialog(null, [])))).toEqual(['Open Setup']);
+    // Signed in, the row has its third column still, empty, so the account keeps its width.
+    expect(account(dialog(SIGNED_IN))).toMatch(/<span class="modal__buttons"><\/span>$/);
+  });
+
+  it('keeps the training warning and its box before the first review, in its place under the account', () => {
+    const html = dialog({ ...SIGNED_IN, dataSettingsConfirmed: false });
+    const warning = html.indexOf('data-testid="chatgpt-training-warning"');
+    expect(warning).toBeGreaterThan(html.indexOf('data-testid="chatgpt-account-line"'));
+    expect(warning).toBeLessThan(html.indexOf('aria-label="Model"'));
+    expect(text(html)).toContain(DATA_SETTINGS_CHECKBOX);
+    expect(buttons(html)).toContain('Open Data controls');
+    // The rest is Claude's dialog: the warning and the gate it makes, the line
+    // beside a disabled Start, are the one thing more.
+    const rest = html
+      .replace(/<section[^>]*data-testid="chatgpt-training-warning"[\s\S]*?<\/section>/, '')
+      .replace(/<span class="modal__hint"[^>]*data-testid="chatgpt-start-blocker">[^<]*<\/span>/, '');
+    const enabled = (markup: string): string => withoutOwnRows(markup).replace(/ disabled=""/g, '');
+    expect(enabled(rest)).toBe(enabled(dialog(SIGNED_IN, MODELS, { provider: 'claude' })));
+    expect(buttons(html)).toContain('Start review [primary] [disabled]');
   });
 });
 

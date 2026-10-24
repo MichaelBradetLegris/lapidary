@@ -2629,6 +2629,14 @@ input[type='text'] {
   margin-bottom: 8px;
 }
 
+/* Review with AI's ChatGPT account (codex.5): as high as a row with a button
+   whether Open Setup is in it or not, so it is as high as the rows around it
+   and nothing moves when a sign-in comes or goes. A button is its line, 4 px
+   of padding and 1 px of border above and below. */
+.modal__row--account {
+  min-height: calc(1lh + 10px);
+}
+
 /* A row's name; a <label> where it names a control (Appearance, theme.7, and
    in Settings Claude model and Effort, polish.4). */
 .modal__row > span:first-child,

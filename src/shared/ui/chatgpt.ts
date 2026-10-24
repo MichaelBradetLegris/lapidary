@@ -301,15 +301,13 @@ export function callbackFailedPage(message: string): CallbackPageWords {
 /* Reviews on the plan (codex.3, PLAN 5.8)                             */
 /* ------------------------------------------------------------------ */
 
-/** OpenAI's label for the plan in use, by the model choice (UI guidelines, Appendix A). */
-export const USING_CHATGPT_PLAN = 'Using ChatGPT plan';
-
-/** OpenAI's link to ChatGPT's usage settings (UI guidelines): `shell:open-external` with `chatgpt-usage`. */
+/**
+ * OpenAI's link to ChatGPT's usage settings (UI guidelines): `shell:open-external`
+ * with `chatgpt-usage`, on the ChatGPT view's welcome and the usage limit's
+ * card. Review with AI had it too, after OpenAI's "Using ChatGPT plan" by the
+ * model choice, until codex.5 left both out of the dialog at the author's word.
+ */
 export const MANAGE_USAGE_BUTTON = 'Manage usage';
-
-/** What the review dialog says after "Using ChatGPT plan". */
-export const CHATGPT_PLAN_NOTE =
-  "Reviews count against your ChatGPT plan's usage limits, with no API key and nothing billed per token.";
 
 /** The first sign-in's welcome, in OpenAI's words (UI guidelines), on the ChatGPT view until Got it. */
 export const PLAN_WELCOME_TITLE = "You're using your ChatGPT plan";
