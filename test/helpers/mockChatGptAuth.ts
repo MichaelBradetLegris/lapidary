@@ -88,6 +88,8 @@ export type AuthScenario =
   | 'refreshexpired'
   /** a renewal answers 500 */
   | 'refresherror'
+  /** a renewal is refused: `invalid_client`, the registration no longer known (codex.3 review) */
+  | 'refreshinvalidclient'
   /** a renewal grants no plan use */
   | 'refreshnoplan'
   /** a renewal's ID token names the Pro plan */
@@ -122,6 +124,7 @@ export const AUTH_SCENARIOS: readonly AuthScenario[] = [
   'refreshfails',
   'refreshexpired',
   'refresherror',
+  'refreshinvalidclient',
   'refreshnoplan',
   'refreshpro',
   'refreshotheraccount',
@@ -392,6 +395,7 @@ export async function startMockChatGptAuth(
     if (mock.scenario === 'refresherror') return sendJson(res, 500, { error: 'server_error' });
     if (mock.scenario === 'refreshfails') return sendJson(res, 400, { error: 'invalid_grant' });
     if (mock.scenario === 'refreshexpired') return sendJson(res, 400, { error: 'refresh_token_expired' });
+    if (mock.scenario === 'refreshinvalidclient') return sendJson(res, 400, { error: 'invalid_client' });
     if (form['scope'] !== undefined) return sendJson(res, 400, { error: 'invalid_request' });
     const old = form['refresh_token'] ?? '';
     const entry = refreshes.get(old);

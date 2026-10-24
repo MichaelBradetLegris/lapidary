@@ -13,12 +13,14 @@ import { defaultIsOpus, proPlanNote } from '../../shared/ai/claudeModels';
 import { AI_OUTPUT_NOTICE } from '../../shared/branding';
 import { claudeUpdateAdvice } from '../../shared/ai/claudeStatus';
 import {
+  CHATGPT_EMPTY_MODEL_LIST,
   CHATGPT_PLAN_NOTE,
   MANAGE_USAGE_BUTTON,
   USING_CHATGPT_PLAN,
   chatGptAccountLine,
   chatGptStartBlocker
 } from '../../shared/ui/chatgpt';
+import { LIST_MODELS_AGAIN, NO_MODEL_BLOCKER, modelListFailedText } from '../../shared/ui/models';
 import { reviewDialogWarning, type LastFailure } from '../../shared/ui/setup';
 import { chapterStats, reviewSizeAdvice } from '../../shared/text/stats';
 import { historyCounts, historyWhen } from '../../shared/ui/history';
@@ -36,6 +38,7 @@ import {
   type Settings
 } from '../../shared/types';
 import { call, errorMessage } from '../state/client';
+import { heldButton } from '../state/heldButton';
 import { modelOptions, selectedModel } from '../state/models';
 import { useDialogEscape, useDialogFocus } from '../state/dialog';
 import { DataSettingsWarning } from './DataSettingsWarning';
@@ -47,6 +50,8 @@ interface Props {
   settings: Settings;
   models: Partial<Record<Provider, ModelInfo[]>>;
   modelsLoading: Partial<Record<Provider, boolean>>;
+  /** main's words for a model list that could not be fetched, by provider (codex.3 review) */
+  modelsError?: Partial<Record<Provider, string>>;
   runtimes: Partial<Record<Provider, RuntimeStatus>>;
   keyStatus: OpenAiKeyStatus | null;
   /** newest first; used for the "last reviewed" line */
@@ -68,6 +73,8 @@ interface Props {
   onApplySettings: (next: Settings) => void;
   /** fetch a provider's model list the first time it is shown */
   onNeedModels: (provider: Provider) => void;
+  /** fetch a provider's model list again after it failed: Try again, and once as the dialog opens */
+  onRetryModels?: (provider: Provider) => void;
   onOpenSettings: () => void;
   /** run the Claude runtime check again, after the author updated Claude Code */
   onCheckClaude: () => void;
@@ -102,13 +109,16 @@ interface Props {
  * account with Open Setup, OpenAI's "Using ChatGPT plan" with Manage usage,
  * and, while the account's data settings box is not ticked, the training
  * warning with the box, which the first review needs: Start stays disabled
- * until there is a sign-in and the box is ticked.
+ * until there is a sign-in and the box is ticked. A model list that could
+ * not be fetched says why under the Model row, with Try again, and is asked
+ * for again as the dialog next opens (codex.3 review).
  */
 export function ReviewDialog({
   review,
   settings,
   models,
   modelsLoading,
+  modelsError = {},
   runtimes,
   keyStatus,
   history,
@@ -119,6 +129,7 @@ export function ReviewDialog({
   onStartWithout,
   onApplySettings,
   onNeedModels,
+  onRetryModels,
   onOpenSettings,
   onCheckClaude,
   checking,
@@ -170,6 +181,23 @@ export function ReviewDialog({
     : isChatGpt
       ? chatGptBlocker === null && current !== ''
       : true;
+  /* A list that could not be fetched says why under the Model row, with Try
+     again, and so does a ChatGPT list that came back empty; Start, which
+     waits for a model, then says so beside it (codex.3 review). Both stay
+     while the list is asked for again, Try again held, so a press keeps the
+     focus on it until the answer. */
+  const listFailure = modelsError[provider];
+  const listEmpty = isChatGpt && chatgpt?.signedIn === true && models.chatgpt?.length === 0;
+  const listNote =
+    listFailure !== undefined
+      ? modelListFailedText(provider, listFailure)
+      : listEmpty
+        ? CHATGPT_EMPTY_MODEL_LIST
+        : null;
+  const modelBlocker =
+    !loading && current === '' && (isOpenAi ? hasKey : isChatGpt && chatGptBlocker === null)
+      ? NO_MODEL_BLOCKER
+      : null;
   const labels = reviewStartLabels(unsavedDecisions);
   const note = reviewStartNote(unsavedDecisions);
   const showNotSaved = notSaved.length > 0 && unsavedDecisions > 0;
@@ -195,9 +223,31 @@ export function ReviewDialog({
       .catch((err: unknown) => setError(errorMessage(err)));
   }, []);
 
+  /* Each provider's list is fetched the first time the dialog shows it. One
+     that failed before is asked for once more as this opening first shows
+     that provider, and then only by Try again: never on every draw (codex.3
+     review). */
+  const shown = useRef(new Set<Provider>());
+  const failedBefore = modelsError[provider] !== undefined;
   useEffect(() => {
-    onNeedModels(provider);
-  }, [provider, onNeedModels]);
+    const first = !shown.current.has(provider);
+    shown.current.add(provider);
+    if (first && failedBefore && onRetryModels) onRetryModels(provider);
+    else onNeedModels(provider);
+  }, [provider, failedBefore, onNeedModels, onRetryModels]);
+
+  /* Once the list arrives, the box with Try again goes, and with it a focus
+     left on its button: the Model select takes it, or the dialog's box while
+     the select has nothing to offer. */
+  const modelSelect = useRef<HTMLSelectElement>(null);
+  const hadListNote = useRef(listNote !== null);
+  useEffect(() => {
+    if (hadListNote.current && listNote === null && document.activeElement === document.body) {
+      const select = modelSelect.current;
+      (select && !select.disabled ? select : boxRef.current)?.focus();
+    }
+    hadListNote.current = listNote !== null;
+  }, [listNote]);
 
   /* Escape closes it, as in Settings (ui.1). A question asked over it, such
      as "Review without them", takes Escape for itself. The focus goes into
@@ -363,6 +413,7 @@ export function ReviewDialog({
         <div className="modal__row">
           <span>Model</span>
           <select
+            ref={modelSelect}
             aria-label="Model"
             value={current}
             disabled={list.length === 0 && stored === ''}
@@ -377,6 +428,16 @@ export function ReviewDialog({
           </select>
           <span />
         </div>
+        {listNote ? (
+          <div className="modal__warn" role="alert" data-testid="model-list-failed">
+            <span>{listNote}</span>
+            {onRetryModels ? (
+              <button type="button" {...heldButton(loading, () => onRetryModels(provider))}>
+                {LIST_MODELS_AGAIN}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {planNote ? (
           <p className="modal__note" data-testid="pro-plan-note">
             {planNote}
@@ -467,6 +528,10 @@ export function ReviewDialog({
           ) : chatGptBlocker ? (
             <span className="modal__hint" style={{ margin: 0 }} data-testid="chatgpt-start-blocker">
               {chatGptBlocker}
+            </span>
+          ) : modelBlocker ? (
+            <span className="modal__hint" style={{ margin: 0 }} data-testid="model-start-blocker">
+              {modelBlocker}
             </span>
           ) : null}
           <span className="spacer" />

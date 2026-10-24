@@ -1231,6 +1231,7 @@ export function App(): React.JSX.Element {
         settings={settings}
         models={ai.models}
         modelsLoading={ai.modelsLoading}
+        modelsError={ai.modelsError}
         runtimes={ai.runtimes}
         keyStatus={ai.keyStatus}
         history={history}
@@ -1241,6 +1242,7 @@ export function App(): React.JSX.Element {
         onStartWithout={startReviewWithoutSaving}
         onApplySettings={setSettings}
         onNeedModels={ai.ensureModels}
+        onRetryModels={ai.retryModels}
         onOpenSettings={openSettings}
         onCheckClaude={() => ai.check('claude')}
         checking={ai.checking}

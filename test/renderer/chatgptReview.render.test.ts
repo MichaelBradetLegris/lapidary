@@ -7,7 +7,9 @@ import { StatusBar } from '../../src/renderer/components/StatusBar';
 import type { ChatGptStatus, ModelInfo, RateLimitInfo } from '../../src/shared/ipc';
 import { DEFAULT_SETTINGS, type Review } from '../../src/shared/types';
 import {
+  CHATGPT_EMPTY_MODEL_LIST,
   CHATGPT_PLAN_NOTE,
+  CHATGPT_REVIEW_FAILURES,
   DATA_SETTINGS_CHECKBOX,
   MANAGE_USAGE_BUTTON,
   PLAN_WELCOME_DONE,
@@ -16,6 +18,7 @@ import {
   TRAINING_WARNING_TITLE,
   USING_CHATGPT_PLAN
 } from '../../src/shared/ui/chatgpt';
+import { LIST_MODELS_AGAIN, NO_MODEL_BLOCKER } from '../../src/shared/ui/models';
 
 /* codex.3: ChatGPT in Review with AI, the welcome on the Setup screen's
    ChatGPT view after the first sign-in, and the ChatGPT plan's usage in the
@@ -70,14 +73,21 @@ const MODELS: ModelInfo[] = [
   { value: 'gpt-5.5', label: 'GPT-5.5 (default)', isDefault: true }
 ];
 
-function dialog(chatgpt: ChatGptStatus | null, models: ModelInfo[] = MODELS): string {
+function dialog(
+  chatgpt: ChatGptStatus | null,
+  /** null for a list not fetched */
+  models: ModelInfo[] | null = MODELS,
+  options: { modelsError?: string; loading?: boolean; chatgptModel?: string } = {}
+): string {
   return decode(
     renderToStaticMarkup(
       createElement(ReviewDialog, {
         review: REVIEW,
-        settings: { ...DEFAULT_SETTINGS, provider: 'chatgpt' },
-        models: { chatgpt: models },
-        modelsLoading: {},
+        settings: { ...DEFAULT_SETTINGS, provider: 'chatgpt', chatgptModel: options.chatgptModel ?? '' },
+        models: models === null ? {} : { chatgpt: models },
+        modelsLoading: options.loading ? { chatgpt: true } : {},
+        ...(options.modelsError === undefined ? {} : { modelsError: { chatgpt: options.modelsError } }),
+        onRetryModels: () => undefined,
         runtimes: { chatgpt: { provider: 'chatgpt', state: chatgpt?.signedIn ? 'ready' : 'not-signed-in' } },
         keyStatus: null,
         history: [],
@@ -162,6 +172,73 @@ describe('Review with AI with ChatGPT chosen (codex.3)', () => {
     const html = dialog(null, []);
     expect(text(html)).toContain('Account not read yet');
     expect(text(html)).toContain('The review cannot start until the ChatGPT sign-in has been read.');
+  });
+});
+
+describe('a ChatGPT model list that failed, or came back empty (codex.3 review)', () => {
+  /** The box under the Model row: its words and buttons, or null. */
+  function listBox(html: string): { role: string; text: string; buttons: string[] } | null {
+    const box =
+      /<div class="modal__warn" role="(\w+)" data-testid="model-list-failed">([\s\S]*?)<\/div>/.exec(html);
+    const words = /<span>([\s\S]*?)<\/span>/.exec(box?.[2] ?? '');
+    return box ? { role: box[1] ?? '', text: text(words?.[1] ?? ''), buttons: buttons(box[2] ?? '') } : null;
+  }
+
+  it("says why under the Model row, in main's words, with Try again, and Start waits for a model", () => {
+    const html = dialog(SIGNED_IN, null, { modelsError: CHATGPT_REVIEW_FAILURES.modelsNoAnswer });
+    expect(listBox(html)).toEqual({
+      role: 'alert',
+      text: `The models on your ChatGPT plan could not be listed. ${CHATGPT_REVIEW_FAILURES.modelsNoAnswer}`,
+      buttons: [LIST_MODELS_AGAIN]
+    });
+    // Under the Model row, before the effort.
+    expect(html.indexOf('data-testid="model-list-failed"')).toBeGreaterThan(
+      html.indexOf('aria-label="Model"')
+    );
+    expect(html.indexOf('data-testid="model-list-failed"')).toBeLessThan(html.indexOf('aria-label="Effort"'));
+    expect(html).toContain(
+      `<span class="modal__hint" style="margin:0" data-testid="model-start-blocker">${NO_MODEL_BLOCKER}</span>`
+    );
+    expect(buttons(html)).toContain('Start review [primary] [disabled]');
+  });
+
+  it('keeps the box while the list is asked for again, Try again held, and says nothing beside Start meanwhile', () => {
+    const html = dialog(SIGNED_IN, null, { modelsError: 'Offline.', loading: true });
+    expect(html).toMatch(
+      /data-testid="model-list-failed"><span>[^<]*<\/span><button type="button" aria-disabled="true">Try again<\/button>/
+    );
+    expect(html).not.toContain('data-testid="model-start-blocker"');
+    expect(html).toMatch(/<option value=""( selected="")?>loading models…<\/option>/);
+  });
+
+  it('starts with the model the author chose even while the list cannot be read', () => {
+    const html = dialog(SIGNED_IN, null, { modelsError: 'Offline.', chatgptModel: 'gpt-5-mini' });
+    expect(listBox(html)?.text).toBe('The models on your ChatGPT plan could not be listed. Offline.');
+    expect(html).not.toContain('data-testid="model-start-blocker"');
+    expect(buttons(html)).toContain('Start review [primary]');
+  });
+
+  it('says an empty list, with Try again, and Start waits for a model', () => {
+    const html = dialog(SIGNED_IN, []);
+    expect(listBox(html)).toEqual({
+      role: 'alert',
+      text: CHATGPT_EMPTY_MODEL_LIST,
+      buttons: [LIST_MODELS_AGAIN]
+    });
+    expect(text(html)).toContain(NO_MODEL_BLOCKER);
+    expect(buttons(html)).toContain('Start review [primary] [disabled]');
+  });
+
+  it('says nothing of the list while signed out: the sign-in comes first', () => {
+    const html = dialog({ ...SIGNED_IN, signedIn: false, plan: null, dataSettingsConfirmed: false }, []);
+    expect(listBox(html)).toBeNull();
+    expect(html).not.toContain('data-testid="model-start-blocker"');
+  });
+
+  it('says nothing while the list loads the first time', () => {
+    const html = dialog(SIGNED_IN, null, { loading: true });
+    expect(listBox(html)).toBeNull();
+    expect(html).not.toContain('data-testid="model-start-blocker"');
   });
 });
 

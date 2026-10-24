@@ -60,6 +60,55 @@ describe('how the page wires ChatGPT in (codex.3)', () => {
   });
 });
 
+describe('a model list that failed is asked for again (codex.3 review)', () => {
+  const RENDERER = path.join(__dirname, '../../src/renderer');
+  const read = (file: string): string =>
+    readFileSync(path.join(RENDERER, file), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|\s)\/\/.*$/gm, '$1');
+  const AI = read('state/useAi.ts');
+  const DIALOG = read('components/ReviewDialog.tsx');
+  const APP = read('App.tsx');
+
+  it("leaves a list that failed unfetched, with main's words, never as an empty list", () => {
+    const load = AI.slice(AI.indexOf('const loadModels = '), AI.indexOf('const apply = '));
+    expect(load).toMatch(
+      /\.catch\(\(err: unknown\) => \{\s*if \(err instanceof ApiError && err\.code === 'chatgpt-not-signed-in'\) \{[\s\S]*?return;\s*\}\s*setModels\(\(prev\) => without\(prev, provider\)\);\s*setModelsError\(\(prev\) => \(\{ \.\.\.prev, \[provider\]: messageOf\(err\) \}\)\);\s*\}\)/
+    );
+    // The words go only with an answer, so the box and its Try again stay until then.
+    expect(load).toMatch(
+      /\.then\(\(list\) => \{\s*setModels\(\(prev\) => \(\{ \.\.\.prev, \[provider\]: list \}\)\);\s*setModelsError\(\(prev\) => without\(prev, provider\)\);\s*\}\)/
+    );
+  });
+
+  it('does not ask on every draw after a failure, and asks again on Try again', () => {
+    expect(AI).toMatch(
+      /const ensureModels = useCallback\(\s*\(provider: Provider\) => \{\s*if \(models\[provider\] !== undefined \|\| modelsLoading\[provider\]\) return;\s*if \(modelsError\[provider\] !== undefined\) return;/
+    );
+    expect(AI).toMatch(
+      /const retryModels = useCallback\(\s*\(provider: Provider\) => \{\s*if \(modelsLoading\[provider\]\) return;\s*if \(runtimes\[provider\]\?\.state === 'ready'\) loadModels\(provider\);/
+    );
+    expect(AI).toMatch(
+      /setModels\(\(prev\) => without\(prev, 'chatgpt'\)\);\s*setModelsError\(\(prev\) => without\(prev, 'chatgpt'\)\);/
+    );
+  });
+
+  it('asks once more as an opening of Review with AI first shows the provider whose list failed', () => {
+    expect(DIALOG).toMatch(
+      /const first = !shown\.current\.has\(provider\);\s*shown\.current\.add\(provider\);\s*if \(first && failedBefore && onRetryModels\) onRetryModels\(provider\);\s*else onNeedModels\(provider\);\s*\}, \[provider, failedBefore, onNeedModels, onRetryModels\]\);/
+    );
+    expect(DIALOG).toContain('{...heldButton(loading, () => onRetryModels(provider))}');
+    expect(APP).toContain('modelsError={ai.modelsError}');
+    expect(APP).toContain('onRetryModels={ai.retryModels}');
+  });
+
+  it('gives the focus left on Try again to the Model select once the list has come', () => {
+    expect(DIALOG).toMatch(
+      /if \(hadListNote\.current && listNote === null && document\.activeElement === document\.body\) \{\s*const select = modelSelect\.current;\s*\(select && !select\.disabled \? select : boxRef\.current\)\?\.focus\(\);\s*\}/
+    );
+  });
+});
+
 describe("the ChatGPT view's welcome (codex.3)", () => {
   it('hands the focus back to the account button when Got it takes the welcome away', () => {
     const view = readFileSync(path.join(__dirname, '../../src/renderer/components/ChatGptSetup.tsx'), 'utf8');

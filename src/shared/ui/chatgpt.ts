@@ -373,6 +373,13 @@ export function chatGptStartBlocker(status: ChatGptStatus | null): string | null
   return null;
 }
 
+/**
+ * Said under Review with AI's Model row, with Try again, when the ChatGPT
+ * sign-in's list came back empty (5.8 item 2, codex.3 review); a review with
+ * no model chosen then fails with `CHATGPT_REVIEW_FAILURES.noModels`.
+ */
+export const CHATGPT_EMPTY_MODEL_LIST = `Your ChatGPT sign-in lists no model ${APP_NAME} can review with.`;
+
 /** The failures of a review on the plan, as main words them (src/main/providers/chatgpt.ts). */
 export const CHATGPT_REVIEW_FAILURES = {
   usageLimit: `ChatGPT's usage limit has been reached, so the review did not run. It may be your ChatGPT plan's limit or one OpenAI sets for ${APP_NAME}: review your plan or this app's limit in ChatGPT's settings.`,
@@ -384,7 +391,7 @@ export const CHATGPT_REVIEW_FAILURES = {
   routeNotSupported: `OpenAI did not accept the review's request on a ChatGPT plan (route not supported), so the review did not run. ${APP_NAME} may need an update.`,
   planUseRefused: `OpenAI did not let this sign-in use your ChatGPT plan here, so the review did not run. Sign out in Set up ChatGPT, then sign in again and allow ${APP_NAME} to use your plan.`,
   signInNotAccepted:
-    'OpenAI did not accept your ChatGPT sign-in for this review, even after renewing it. If it happens again, sign out in Set up ChatGPT, then sign in again.',
+    'OpenAI did not accept your ChatGPT sign-in, even after renewing it. If it happens again, sign out in Set up ChatGPT, then sign in again.',
   forbidden:
     'OpenAI refused the review on your ChatGPT plan (status 403), as it does for a reason such as the region you are in.',
   noModels: `Your ChatGPT sign-in lists no model ${APP_NAME} can review with, so the review did not run.`,

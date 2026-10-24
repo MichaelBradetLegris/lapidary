@@ -476,24 +476,32 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
     const session = secrets.session;
     if (!session) return { status: await status(), revoked: true };
     const tokens = openTokens(deps.vault, session.ciphertext);
+    // A renewal held for its write has the refresh token OpenAI takes now; the
+    // one on disk was spent by it, so the held one is the sign-in to end
+    // (codex.3 review).
+    const pending = held?.from === session.ciphertext ? held : null;
+    const live = pending ? openTokens(deps.vault, pending.ciphertext) : tokens;
     const controller = new AbortController();
     const release = deps.track?.(controller) ?? ((): void => undefined);
     let revoked = false;
     try {
-      if (tokens?.refreshToken) {
+      if (live?.refreshToken) {
         revoked = await revokeRefreshToken(
           deps.fetch,
           authEndpoints(deps.authBase()).revoke,
           session.clientId,
-          tokens.refreshToken,
+          live.refreshToken,
           { signal: controller.signal, ...(deps.sleep ? { sleep: deps.sleep } : {}) }
         );
       }
+      // The spent one as well, should OpenAI still take it for a while; its answer says nothing of the sign-in.
+      if (pending) await letGo(session.clientId, tokens?.refreshToken ?? null, controller.signal);
     } finally {
       release();
     }
     // Removed whatever OpenAI said: the registration and the host id stay, for a later sign-in.
     await keep(() => updateChatGpt(dir, (c) => ({ ...c, session: null })));
+    dropHeld(session.ciphertext);
     deps.log('info', 'chatgpt.sign-out', { revoked });
     return { status: await status(), revoked };
   }
@@ -541,7 +549,8 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
    * A renewal secrets.json would not take, as while a sync, backup or
    * antivirus tool held it: OpenAI had rotated the refresh token by then, so
    * it is kept for the run, under the sign-in it renewed, and written with
-   * the next request rather than lost.
+   * the next request rather than lost. Sign out ends its refresh token at
+   * OpenAI, and it goes with the sign-in it renewed (`dropHeld`).
    */
   let held: { from: string; ciphertext: string; plan: string | null } | null = null;
 
@@ -564,11 +573,28 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
     );
   }
 
-  async function accessToken(options: AccessTokenOptions = {}): Promise<string> {
-    const dir = deps.userDataDir();
+  /** A held renewal goes with the sign-in it renewed: once that is removed, nothing is held for it. */
+  function dropHeld(from: string): void {
+    if (held?.from === from) held = null;
+  }
+
+  /**
+   * The kept sign-in and the tokens to use: a renewal held from before is
+   * written over it first, and from then on the sign-in kept is that
+   * renewal, so a renewal of it is compared with what the file holds (codex.3
+   * review: compared with the sign-in before, it read as replaced, and the
+   * new refresh token was ended at OpenAI). While secrets.json still refuses
+   * it, the held tokens are used over the sign-in on disk, and a renewal of
+   * them is held in its place.
+   */
+  async function readKept(): Promise<{
+    session: Session;
+    registration: Registration;
+    tokens: SessionTokens;
+  }> {
     // Checked: a sign-in that cannot be read is not one that is not there.
-    const secrets = remember(await readChatGptChecked(dir));
-    const session = secrets.session;
+    const secrets = remember(await readChatGptChecked(deps.userDataDir()));
+    let session = secrets.session;
     const registration = sessionRegistration(secrets);
     if (!session || !registration) throw notSignedIn('signed-out');
     let ciphertext = session.ciphertext;
@@ -576,7 +602,11 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
       const pending = held;
       try {
         const written = await keepRenewal(pending.from, pending.ciphertext, pending.plan);
-        if (written.session?.ciphertext === pending.ciphertext) held = null;
+        if (written.session?.ciphertext === pending.ciphertext) {
+          // Not one held since, by a renewal of this one that secrets.json refused in turn.
+          if (held === pending) held = null;
+          session = written.session;
+        }
       } catch {
         // Still held: written with the next request.
       }
@@ -584,12 +614,32 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
     }
     const tokens = openTokens(deps.vault, ciphertext);
     if (!tokens) throw fail('chatgpt-failed', CHATGPT_REVIEW_FAILURES.unreadable);
+    return { session, registration, tokens };
+  }
+
+  async function accessToken(options: AccessTokenOptions = {}): Promise<string> {
+    const { tokens } = await readKept();
     const refused = options.rejected !== undefined && sameSecret(options.rejected, tokens.accessToken);
     if (!refused && !needsRenewal(tokens.expiresAt, now())) return tokens.accessToken;
-    renewing ??= renew(session, registration, tokens).finally(() => {
+    renewing ??= renewKept(tokens.accessToken).finally(() => {
       renewing = null;
     });
     return options.signal ? untilAborted(renewing, options.signal) : renewing;
+  }
+
+  /**
+   * A renewal, from the sign-in kept as it starts, read again: one written
+   * since the request read the file has spent the refresh token that read
+   * holds, and OpenAI would refuse it as reused and end the sign-in (codex.3
+   * review). A token that has changed since the request saw it, and is not
+   * near its end, is the request's with no renewal.
+   */
+  async function renewKept(seen: string): Promise<string> {
+    const kept = await readKept();
+    if (!sameSecret(kept.tokens.accessToken, seen) && !needsRenewal(kept.tokens.expiresAt, now())) {
+      return kept.tokens.accessToken;
+    }
+    return renew(kept.session, kept.registration, kept.tokens);
   }
 
   /**
@@ -619,6 +669,7 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
 
     if (!tokens.refreshToken) {
       await keep(() => updateChatGpt(dir, (c) => (same(c) ? { ...c, session: null } : c)));
+      dropHeld(session.ciphertext);
       logRenewal('ended', { reason: 'no-refresh-token' });
       throw notSignedIn('ended');
     }
@@ -659,6 +710,7 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
               : c
           )
         );
+        dropHeld(session.ciphertext);
         logRenewal('ended', { reason: error, status: answer.status });
         throw notSignedIn('ended');
       }
@@ -692,6 +744,7 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
               };
         })
       );
+      dropHeld(session.ciphertext);
       logRenewal('ended', { reason: otherAccount ? 'other-account' : 'no-plan-use' });
       throw notSignedIn(otherAccount ? 'ended' : 'no-plan-use');
     }
@@ -710,6 +763,7 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
     if (written.session?.ciphertext !== ciphertext) {
       // Signed out, or signed in anew, while OpenAI answered: this renewal is not kept, so OpenAI ends it.
       await letGo(session.clientId, renewed.refreshToken, new AbortController().signal);
+      dropHeld(session.ciphertext);
       logRenewal('ended', { reason: written.session ? 'replaced' : 'signed-out' });
       // A sign-in made meanwhile has a token of its own, fresh, for the request.
       const fresh = written.session ? openTokens(deps.vault, written.session.ciphertext) : null;

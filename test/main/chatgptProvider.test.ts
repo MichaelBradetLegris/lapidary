@@ -1,10 +1,12 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createChatGptAuth, type ChatGptAuth, type ChatGptAuthDeps } from '../../src/main/chatgpt';
 import { RENEW_BEFORE_MS } from '../../src/main/chatgpt/oauth';
 import { openTokens, readChatGpt } from '../../src/main/chatgpt/store';
+import type * as StoreModule from '../../src/main/chatgpt/store';
+import { APP_NAME } from '../../src/shared/branding';
 import { AppFailure } from '../../src/main/errors';
 import { createChatGptProvider } from '../../src/main/providers/chatgpt';
 import { withLogging } from '../../src/main/providers/logged';
@@ -42,6 +44,25 @@ import {
    models and inference, preview limitations and errors describe it (PLAN 5.8,
    Appendix A). No ChatGPT account and no network: the author's own review on
    a Plus plan is the real check. */
+
+/* The checked read of secrets.json, as it is, but for one test that holds a
+   read's answer back (`readGate.next`) until another request's renewal has
+   been written, to show a read that came before that write is not used to
+   renew again (codex.3 review). */
+const readGate = vi.hoisted(() => ({ next: null as Promise<void> | null }));
+vi.mock('../../src/main/chatgpt/store', async (importOriginal) => {
+  const real = await importOriginal<typeof StoreModule>();
+  return {
+    ...real,
+    readChatGptChecked: async (dir: string) => {
+      const gate = readGate.next;
+      readGate.next = null;
+      const read = await real.readChatGptChecked(dir);
+      if (gate) await gate;
+      return read;
+    }
+  };
+});
 
 const SAMPLE = path.join(
   import.meta.dirname,
@@ -93,6 +114,7 @@ beforeEach(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mrev-chatgpt-review-'));
   logs = [];
   tokenFetch = null;
+  readGate.next = null;
   authMock.scenario = 'ok';
   authMock.apiScenario = '';
   api.chatGptScenario = null;
@@ -578,6 +600,167 @@ describe('renewing the access token (codex.3)', () => {
     expect(await session.accessToken()).toBe(renewed);
     expect((await keptTokens())?.refreshToken).toBe(authMock.secrets.refreshTokens.at(-1));
     expect(renewals()).toHaveLength(1);
+  });
+
+  /**
+   * Signed in with a token about to end, with secrets.json refusing writes
+   * while `refuse.on`, or the next `refuse.next` writes, and a clock the test
+   * moves.
+   */
+  async function heldSession(): Promise<{
+    session: ChatGptAuth;
+    refuse: { on: boolean; next: number };
+    clock: { at: number };
+  }> {
+    authMock.scenario = 'shortlived';
+    const refuse = { on: false, next: 0 };
+    const clock = { at: Date.now() };
+    const session = auth({
+      write: (work) => {
+        if (refuse.next > 0) refuse.next -= 1;
+        else if (!refuse.on) return work();
+        return Promise.reject(new Error('secrets.json is held'));
+      },
+      now: () => new Date(clock.at)
+    });
+    await session.signIn({ another: false });
+    await session.confirmDataSettings(true);
+    authMock.scenario = 'ok';
+    return { session, refuse, clock };
+  }
+
+  it('renews a held renewal that has ended by the next request from the sign-in it was written as, and keeps it (codex.3 review)', async () => {
+    const { session, refuse, clock } = await heldSession();
+    refuse.on = true;
+    await session.accessToken();
+    refuse.on = false;
+    // The next review comes two hours later: the held token has ended by then.
+    clock.at += 2 * 60 * 60 * 1000;
+    const token = await session.accessToken();
+    expect(token).toBe(authMock.secrets.accessTokens.at(-1));
+    expect(renewals()).toHaveLength(2);
+    expect(authMock.revoked).toEqual([]);
+    expect((await keptTokens())?.refreshToken).toBe(authMock.secrets.refreshTokens.at(-1));
+    expect((await session.status()).signedIn).toBe(true);
+    // And the request after that takes it as it is.
+    expect(await session.accessToken()).toBe(token);
+    expect(renewals()).toHaveLength(2);
+    expect(
+      logs.filter((l) => l.event === 'chatgpt.refresh').map((l) => [l.fields['outcome'], l.fields['kept']])
+    ).toEqual([
+      ['done', 'later'],
+      ['done', undefined]
+    ]);
+  });
+
+  it('renews a held renewal OpenAI refuses with a 401 from the sign-in it was written as, and keeps it (codex.3 review)', async () => {
+    const { session, refuse } = await heldSession();
+    refuse.on = true;
+    const held = await session.accessToken();
+    refuse.on = false;
+    const token = await session.accessToken({ rejected: held });
+    expect(token).not.toBe(held);
+    expect(token).toBe(authMock.secrets.accessTokens.at(-1));
+    expect(renewals()).toHaveLength(2);
+    expect(authMock.revoked).toEqual([]);
+    expect((await keptTokens())?.accessToken).toBe(token);
+    expect((await session.status()).signedIn).toBe(true);
+  });
+
+  it('renews a held renewal that secrets.json still refuses from the sign-in on disk, and holds the new one (codex.3 review)', async () => {
+    const { session, refuse, clock } = await heldSession();
+    const before = await keptTokens();
+    refuse.on = true;
+    await session.accessToken();
+    clock.at += 2 * 60 * 60 * 1000;
+    const token = await session.accessToken();
+    expect(renewals()).toHaveLength(2);
+    expect(authMock.revoked).toEqual([]);
+    expect((await keptTokens())?.refreshToken).toBe(before?.refreshToken);
+    refuse.on = false;
+    expect(await session.accessToken()).toBe(token);
+    expect((await keptTokens())?.refreshToken).toBe(authMock.secrets.refreshTokens.at(-1));
+    expect(renewals()).toHaveLength(2);
+  });
+
+  it('renews a held renewal from the sign-in it was written as when secrets.json takes it only as the renewal starts (codex.3 review)', async () => {
+    const { session, refuse, clock } = await heldSession();
+    refuse.on = true;
+    await session.accessToken();
+    refuse.on = false;
+    clock.at += 2 * 60 * 60 * 1000;
+    // The request's read cannot write the held renewal; the renewal's own read, a moment later, can.
+    refuse.next = 1;
+    const token = await session.accessToken();
+    expect(token).toBe(authMock.secrets.accessTokens.at(-1));
+    expect(renewals()).toHaveLength(2);
+    expect(authMock.revoked).toEqual([]);
+    expect((await keptTokens())?.refreshToken).toBe(authMock.secrets.refreshTokens.at(-1));
+    expect((await session.status()).signedIn).toBe(true);
+  });
+
+  it('ends the held refresh token at Sign out, the one OpenAI still takes (codex.3 review)', async () => {
+    const { session, refuse } = await heldSession();
+    refuse.on = true;
+    await session.accessToken();
+    refuse.on = false;
+    const out = await session.signOut();
+    expect(authMock.revoked).toContain(authMock.secrets.refreshTokens.at(-1));
+    expect(out.revoked).toBe(true);
+    expect(out.status.signedIn).toBe(false);
+    expect(await keptTokens()).toBeNull();
+    // Nothing held is written over a later sign-in.
+    await session.signIn({ another: false });
+    const kept = await keptTokens();
+    expect(await session.accessToken()).toBe(kept?.accessToken);
+  });
+
+  it('takes a renewal written after its own read rather than renewing with a spent refresh token (codex.3 review)', async () => {
+    authMock.scenario = 'shortlived';
+    const session = await signedIn();
+    authMock.scenario = 'ok';
+    let release: () => void = () => undefined;
+    // The first request's read of secrets.json comes back only after the second request's renewal is written.
+    readGate.next = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const late = session.accessToken();
+    const first = await session.accessToken();
+    release();
+    expect(await late).toBe(first);
+    expect(renewals()).toHaveLength(1);
+    expect((await session.status()).signedIn).toBe(true);
+    expect(logs.filter((l) => l.event === 'chatgpt.refresh' && l.fields['outcome'] !== 'done')).toEqual([]);
+  });
+
+  it('ends the sign-in on invalid_client, and registers the app anew at the next plain Sign in (codex.3 review)', async () => {
+    authMock.scenario = 'shortlived';
+    const session = await signedIn();
+    const refused = authMock.issued.at(-1);
+    const host = authMock.requests.filter((r) => r.path === '/api/accounts/authorize').at(-1)?.query[
+      'ext_agent_host_id'
+    ];
+    authMock.scenario = 'refreshinvalidclient';
+    const failed = await failure(session.accessToken());
+    expect(failed.code).toBe('chatgpt-not-signed-in');
+    expect(failed.message).toBe(notSignedInText('ended'));
+    expect(logs).toContainEqual({
+      level: 'warn',
+      event: 'chatgpt.refresh',
+      fields: expect.objectContaining({ outcome: 'ended', reason: 'invalid_client', status: 400 }) as unknown
+    });
+    const status = await session.status();
+    expect(status.signedIn).toBe(false);
+    // Use another account is not offered for a registration OpenAI refused.
+    expect(status.registered).toBe(false);
+    authMock.scenario = 'ok';
+    await session.signIn({ another: false });
+    const asked = authMock.requests.filter((r) => r.path === '/api/accounts/authorize').at(-1);
+    expect(asked?.query['client_id']).toBe('dynamic_agent_client');
+    expect(asked?.query['agent_name_hint']).toBe(APP_NAME);
+    expect(asked?.query['ext_agent_host_id']).toBe(host);
+    expect(authMock.issued.at(-1)).not.toBe(refused);
+    expect((await session.status()).signedIn).toBe(true);
   });
 
   it(`renews a token before it ends, within ${RENEW_BEFORE_MS / 1000} s of its end, and not long before`, async () => {

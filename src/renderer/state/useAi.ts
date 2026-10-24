@@ -34,6 +34,13 @@ export interface AiController {
   models: Partial<Record<Provider, ModelInfo[]>>;
   /** true while the model list for that provider is being fetched */
   modelsLoading: Partial<Record<Provider, boolean>>;
+  /**
+   * Main's words for why a provider's model list could not be fetched, until
+   * it is asked for again. Such a list is left unfetched rather than kept as
+   * empty, so Try again, and the next opening of Review with AI, ask again
+   * (codex.3 review).
+   */
+  modelsError: Partial<Record<Provider, string>>;
   /** the key status; never the key */
   keyStatus: OpenAiKeyStatus | null;
   checking: boolean;
@@ -82,14 +89,16 @@ export interface AiController {
    * started at least 3 s ago (setup.7, `focusRecheckDue`).
    */
   recheckOnFocus: (claudeInUse: boolean, view: SetupViewId) => void;
-  /** fetch a provider's model list if it is ready and has not been fetched yet */
+  /** fetch a provider's model list if it is ready and has not been fetched yet, nor failed */
   ensureModels: (provider: Provider) => void;
+  /** fetch a provider's model list again, after it failed: Try again, or Review with AI opening again */
+  retryModels: (provider: Provider) => void;
   /**
    * The ChatGPT sign-in changed, on the Setup screen's ChatGPT view or after
    * a review found it had ended (codex.3): check its runtime again, which only
-   * reads a file, forget its model list, which belongs to the account and is
-   * fetched again when the dialog next shows ChatGPT, and forget its last
-   * failure.
+   * reads a file, forget its model list, or why it could not be fetched,
+   * which belongs to the account and is fetched again when the dialog next
+   * shows ChatGPT, and forget its last failure.
    */
   chatGptAccountChanged: () => void;
   refreshKeyStatus: () => void;
@@ -110,10 +119,19 @@ function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** `record` without `provider`'s entry. */
+function without<T>(record: Partial<Record<Provider, T>>, provider: Provider): Partial<Record<Provider, T>> {
+  if (!(provider in record)) return record;
+  const rest = { ...record };
+  delete rest[provider];
+  return rest;
+}
+
 export function useAi(): AiController {
   const [runtimes, setRuntimes] = useState<Partial<Record<Provider, RuntimeStatus>>>({});
   const [models, setModels] = useState<Partial<Record<Provider, ModelInfo[]>>>({});
   const [modelsLoading, setModelsLoading] = useState<Partial<Record<Provider, boolean>>>({});
+  const [modelsError, setModelsError] = useState<Partial<Record<Provider, string>>>({});
   const [keyStatus, setKeyStatus] = useState<OpenAiKeyStatus | null>(null);
   const [checking, setChecking] = useState(false);
   const [running, setRunning] = useState(false);
@@ -144,13 +162,30 @@ export function useAi(): AiController {
      runtime checked again, which then says not signed in (codex.3). */
   const recheckSignedOut = useRef<() => void>(() => undefined);
 
+  /* A list that fails is left unfetched, with main's words for why, never
+     kept as an empty one: an empty list stood for the rest of the run, so one
+     failure, offline or a server error, left the provider with no model and
+     Start review disabled with nothing said (codex.3 review). The words stay
+     while it is asked for again, so what shows them, and its Try again, stay
+     in place until the answer. A ChatGPT sign-in that has gone is the
+     exception: its runtime check then says not signed in, which empties the
+     list as for any provider not ready. */
   const loadModels = useCallback((provider: Provider) => {
     setModelsLoading((prev) => ({ ...prev, [provider]: true }));
     void call('ai:models', { provider })
-      .then((list) => setModels((prev) => ({ ...prev, [provider]: list })))
+      .then((list) => {
+        setModels((prev) => ({ ...prev, [provider]: list }));
+        setModelsError((prev) => without(prev, provider));
+      })
       .catch((err: unknown) => {
-        setModels((prev) => ({ ...prev, [provider]: [] }));
-        if (err instanceof ApiError && err.code === 'chatgpt-not-signed-in') recheckSignedOut.current();
+        if (err instanceof ApiError && err.code === 'chatgpt-not-signed-in') {
+          setModels((prev) => ({ ...prev, [provider]: [] }));
+          setModelsError((prev) => without(prev, provider));
+          recheckSignedOut.current();
+          return;
+        }
+        setModels((prev) => without(prev, provider));
+        setModelsError((prev) => ({ ...prev, [provider]: messageOf(err) }));
       })
       .finally(() => setModelsLoading((prev) => ({ ...prev, [provider]: false })));
   }, []);
@@ -169,19 +204,33 @@ export function useAi(): AiController {
       if (status.provider === 'chatgpt') {
         setChatGptLastFailure((prev) => nextLastFailure(prev, { type: 'check', runtime: status }));
       }
-      if (status.state !== 'ready') setModels((prev) => ({ ...prev, [status.provider]: [] }));
-      else if (fetchModels) loadModels(status.provider);
+      if (status.state !== 'ready') {
+        setModels((prev) => ({ ...prev, [status.provider]: [] }));
+        setModelsError((prev) => without(prev, status.provider));
+      } else if (fetchModels) loadModels(status.provider);
     },
     [loadModels]
   );
 
+  /* Not after a failure, or every draw of the dialog would ask again:
+     retryModels does that, once as the dialog opens and on Try again. */
   const ensureModels = useCallback(
     (provider: Provider) => {
       if (models[provider] !== undefined || modelsLoading[provider]) return;
+      if (modelsError[provider] !== undefined) return;
       if (runtimes[provider]?.state !== 'ready') return;
       loadModels(provider);
     },
-    [models, modelsLoading, runtimes, loadModels]
+    [models, modelsLoading, modelsError, runtimes, loadModels]
+  );
+
+  const retryModels = useCallback(
+    (provider: Provider) => {
+      if (modelsLoading[provider]) return;
+      if (runtimes[provider]?.state === 'ready') loadModels(provider);
+      else setModelsError((prev) => without(prev, provider));
+    },
+    [modelsLoading, runtimes, loadModels]
   );
 
   const check = useCallback(
@@ -233,10 +282,8 @@ export function useAi(): AiController {
   );
 
   const chatGptAccountChanged = useCallback(() => {
-    setModels((prev) => {
-      const { chatgpt: _forgotten, ...rest } = prev;
-      return rest;
-    });
+    setModels((prev) => without(prev, 'chatgpt'));
+    setModelsError((prev) => without(prev, 'chatgpt'));
     setChatGptLastFailure(null);
     check('chatgpt', false);
   }, [check]);
@@ -428,6 +475,7 @@ export function useAi(): AiController {
     runtimes,
     models,
     modelsLoading,
+    modelsError,
     keyStatus,
     checking,
     running,
@@ -446,6 +494,7 @@ export function useAi(): AiController {
     check,
     recheckOnFocus,
     ensureModels,
+    retryModels,
     chatGptAccountChanged,
     refreshKeyStatus,
     keyChanged,
