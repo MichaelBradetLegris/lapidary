@@ -41,7 +41,8 @@ import {
   lastFailure,
   lastRuntime,
   noteTest,
-  providers
+  providers,
+  setChatGptAuth
 } from './providers';
 import { testConnection } from './providers/connectionTest';
 import { abortAll, registerController } from './providers/controllers';
@@ -487,6 +488,8 @@ function chatGpt(): ChatGptAuth {
 }
 
 function registerChatGptHandlers(): void {
+  // The ChatGPT provider asks the same sign-in for the bearer of a review (codex.3).
+  setChatGptAuth(chatGpt);
   handle('chatgpt:status', () => chatGpt().status());
   handle('chatgpt:sign-in', ({ another }) => chatGpt().signIn({ another: another === true }));
   handle('chatgpt:cancel-sign-in', () => {

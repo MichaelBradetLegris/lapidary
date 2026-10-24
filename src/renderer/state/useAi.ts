@@ -10,7 +10,7 @@ import type {
 import { PROMPT_PARAGRAPH_BASE, fromPromptNumbering } from '../../shared/prompt/chapter';
 import { guidelinesFingerprint } from '../../shared/prompt/system';
 import { createAiReview, toChangeCategory } from '../../shared/review';
-import { modelFor, type Provider, type Review, type Settings } from '../../shared/types';
+import { PROVIDERS, modelFor, type Provider, type Review, type Settings } from '../../shared/types';
 import {
   failureSetupEvent,
   focusRecheckDue,
@@ -43,15 +43,26 @@ export interface AiController {
   /** Date.now() when the running request was sent, for the elapsed counter */
   startedAt: number;
   progress: AiProgressEvent | null;
+  /** Claude Code's last usage notice (setup.9) */
   rateLimit: RateLimitInfo | null;
+  /** the ChatGPT plan's last usage notice, from its reviews' answers (codex.3) */
+  chatGptRateLimit: RateLimitInfo | null;
   /**
    * The latest usage notice, at once: a notice that arrived just before a
    * failed review may not be drawn yet when the failure is handled, and the
    * card for a usage limit reads which limit it was (setup.9, `usageLimitCard`).
    */
   latestRateLimit: () => RateLimitInfo | null;
+  /** the ChatGPT plan's latest notice, at once, for the card of a review that reached a limit (codex.3) */
+  latestChatGptRateLimit: () => RateLimitInfo | null;
   /** the last Claude failure that says something about setup (setup.5, nextLastFailure) */
   lastFailure: LastFailure | null;
+  /**
+   * ChatGPT's last failure, moved as Claude's is (`nextLastFailure`): the
+   * status bar says "ChatGPT: usage limit reached" while it is a usage limit,
+   * until a review goes through or the sign-in changes (codex.3)
+   */
+  chatGptLastFailure: LastFailure | null;
   /** providers whose connection test is running (setup.8) */
   testing: Partial<Record<Provider, boolean>>;
   /** each provider's last finished connection test, kept for the rest of the run */
@@ -63,7 +74,8 @@ export interface AiController {
    * went through does; one that did not is remembered (`testSetupEvent`).
    */
   testConnection: (provider: Provider) => Promise<ConnectionTestResult | null>;
-  check: (provider: Provider) => void;
+  /** check a provider's runtime; its model list is fetched again when ready, unless `fetchModels` is false */
+  check: (provider: Provider, fetchModels?: boolean) => void;
   /**
    * The window came back to the front: check Claude again when Setup has
    * something for the author to do, Claude is in use, and the last check
@@ -72,6 +84,14 @@ export interface AiController {
   recheckOnFocus: (claudeInUse: boolean, view: SetupViewId) => void;
   /** fetch a provider's model list if it is ready and has not been fetched yet */
   ensureModels: (provider: Provider) => void;
+  /**
+   * The ChatGPT sign-in changed, on the Setup screen's ChatGPT view or after
+   * a review found it had ended (codex.3): check its runtime again, which only
+   * reads a file, forget its model list, which belongs to the account and is
+   * fetched again when the dialog next shows ChatGPT, and forget its last
+   * failure.
+   */
+  chatGptAccountChanged: () => void;
   refreshKeyStatus: () => void;
   /** after the key changes: re-read its status, the OpenAI runtime and its models */
   keyChanged: (status: OpenAiKeyStatus) => void;
@@ -101,7 +121,9 @@ export function useAi(): AiController {
   const [startedAt, setStartedAt] = useState(() => Date.now());
   const [progress, setProgress] = useState<AiProgressEvent | null>(null);
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null);
+  const [chatGptRateLimit, setChatGptRateLimit] = useState<RateLimitInfo | null>(null);
   const [lastFailure, setLastFailure] = useState<LastFailure | null>(null);
+  const [chatGptLastFailure, setChatGptLastFailure] = useState<LastFailure | null>(null);
   const [testing, setTesting] = useState<Partial<Record<Provider, boolean>>>({});
   const [testOutcomes, setTestOutcomes] = useState<Partial<Record<Provider, ConnectionTestOutcome>>>({});
   const testsRunning = useRef(new Set<Provider>());
@@ -115,12 +137,21 @@ export function useAi(): AiController {
      card (setup.9): every notice is written to both. */
   const rateLimitNow = useRef<RateLimitInfo | null>(null);
   const latestRateLimit = useCallback(() => rateLimitNow.current, []);
+  const chatGptRateLimitNow = useRef<RateLimitInfo | null>(null);
+  const latestChatGptRateLimit = useCallback(() => chatGptRateLimitNow.current, []);
+
+  /* A ChatGPT model list that finds the sign-in gone, or ended, has its
+     runtime checked again, which then says not signed in (codex.3). */
+  const recheckSignedOut = useRef<() => void>(() => undefined);
 
   const loadModels = useCallback((provider: Provider) => {
     setModelsLoading((prev) => ({ ...prev, [provider]: true }));
     void call('ai:models', { provider })
       .then((list) => setModels((prev) => ({ ...prev, [provider]: list })))
-      .catch(() => setModels((prev) => ({ ...prev, [provider]: [] })))
+      .catch((err: unknown) => {
+        setModels((prev) => ({ ...prev, [provider]: [] }));
+        if (err instanceof ApiError && err.code === 'chatgpt-not-signed-in') recheckSignedOut.current();
+      })
       .finally(() => setModelsLoading((prev) => ({ ...prev, [provider]: false })));
   }, []);
 
@@ -134,6 +165,9 @@ export function useAi(): AiController {
       if (status.provider === 'claude') {
         claudeRuntime.current = status;
         setLastFailure((prev) => nextLastFailure(prev, { type: 'check', runtime: status }));
+      }
+      if (status.provider === 'chatgpt') {
+        setChatGptLastFailure((prev) => nextLastFailure(prev, { type: 'check', runtime: status }));
       }
       if (status.state !== 'ready') setModels((prev) => ({ ...prev, [status.provider]: [] }));
       else if (fetchModels) loadModels(status.provider);
@@ -151,14 +185,14 @@ export function useAi(): AiController {
   );
 
   const check = useCallback(
-    (provider: Provider) => {
+    (provider: Provider, fetchModels = true) => {
       setChecking(true);
       if (provider === 'claude') {
         claudeCheckAt.current = Date.now();
         claudeChecking.current += 1;
       }
       call('ai:runtime', { provider })
-        .then((status) => apply(status, true))
+        .then((status) => apply(status, fetchModels))
         .catch((err: unknown) => {
           apply({ provider, state: 'error', message: messageOf(err) }, false);
         })
@@ -198,12 +232,25 @@ export function useAi(): AiController {
     [check]
   );
 
+  const chatGptAccountChanged = useCallback(() => {
+    setModels((prev) => {
+      const { chatgpt: _forgotten, ...rest } = prev;
+      return rest;
+    });
+    setChatGptLastFailure(null);
+    check('chatgpt', false);
+  }, [check]);
+  useEffect(() => {
+    recheckSignedOut.current = () => check('chatgpt', false);
+  }, [check]);
+
   /* Startup: the Claude runtime check as before (plan 5.6), plus the OpenAI key
-     status and runtime, which cost nothing because they only read a local file.
-     OpenAI's model list is fetched only when a key exists. */
+     status and runtime and the ChatGPT sign-in's (codex.3), which cost nothing
+     because they only read a local file. OpenAI's and ChatGPT's model lists
+     are fetched only when the review dialog shows them. */
   useEffect(() => {
     let alive = true;
-    for (const provider of ['claude', 'openai'] as const) {
+    for (const provider of PROVIDERS) {
       if (provider === 'claude') {
         claudeCheckAt.current = Date.now();
         claudeChecking.current += 1;
@@ -235,6 +282,12 @@ export function useAi(): AiController {
       if (event.requestId === activeRequest.current) setProgress(event);
     });
     const offRate = window.api.on('ai:rate-limit', (info) => {
+      // A ChatGPT plan's notice is kept apart, so it never reads as Claude's (codex.3).
+      if (info.provider === 'chatgpt') {
+        chatGptRateLimitNow.current = info;
+        setChatGptRateLimit(info);
+        return;
+      }
       rateLimitNow.current = info;
       setRateLimit(info);
     });
@@ -309,11 +362,15 @@ export function useAi(): AiController {
         guidelines: guidelines.text
       });
 
-      if (response.rateLimit) {
+      if (response.rateLimit?.provider === 'chatgpt') {
+        chatGptRateLimitNow.current = response.rateLimit;
+        setChatGptRateLimit(response.rateLimit);
+      } else if (response.rateLimit) {
         rateLimitNow.current = response.rateLimit;
         setRateLimit(response.rateLimit);
       }
       if (provider === 'claude') setLastFailure((prev) => nextLastFailure(prev, { type: 'success' }));
+      if (provider === 'chatgpt') setChatGptLastFailure(null);
 
       // The model was shown paragraphs numbered from 1; the app counts from 0.
       const output = fromPromptNumbering({ changes: response.changes, comments: response.comments });
@@ -353,6 +410,11 @@ export function useAi(): AiController {
         const event = failureSetupEvent(err.code, err.message, rateLimitNow.current, claudeRuntime.current);
         setLastFailure((prev) => nextLastFailure(prev, event));
       }
+      if (provider === 'chatgpt' && err instanceof ApiError && err.code !== 'cancelled') {
+        // Kept for the status bar's "usage limit reached" (codex.3).
+        const failed = failureSetupEvent(err.code, err.message, null, null);
+        setChatGptLastFailure((prev) => nextLastFailure(prev, failed));
+      }
       throw err;
     } finally {
       activeRequest.current = null;
@@ -373,14 +435,18 @@ export function useAi(): AiController {
     startedAt,
     progress,
     rateLimit,
+    chatGptRateLimit,
     latestRateLimit,
+    latestChatGptRateLimit,
     lastFailure,
+    chatGptLastFailure,
     testing,
     testOutcomes,
     testConnection,
     check,
     recheckOnFocus,
     ensureModels,
+    chatGptAccountChanged,
     refreshKeyStatus,
     keyChanged,
     cancel,

@@ -488,8 +488,9 @@ describe('progress and key wording', () => {
 });
 
 describe('providers in settings', () => {
-  it('offers both providers, each with a label and a short name', () => {
-    expect(PROVIDERS).toEqual(['claude', 'openai']);
+  it('offers the three providers, each with a label and a short name', () => {
+    // codex.3: ChatGPT between them, as the review dialog and the Review menu list them.
+    expect(PROVIDERS).toEqual(['claude', 'chatgpt', 'openai']);
     for (const provider of PROVIDERS) {
       expect(PROVIDER_LABELS[provider]).toBeTruthy();
       expect(PROVIDER_NAMES[provider]).toBeTruthy();
@@ -500,16 +501,27 @@ describe('providers in settings', () => {
     expect(PROVIDER_LABELS.claude).toBe('Claude');
     // The short name never carries the label: the status bar and History say only who answered.
     expect(PROVIDER_NAMES.openai).toBe('OpenAI');
+    // ChatGPT runs on the plan: its label is its plain name too.
+    expect(PROVIDER_LABELS.chatgpt).toBe('ChatGPT');
+    expect(PROVIDER_NAMES.chatgpt).toBe('ChatGPT');
   });
 
-  it('keeps a model setting per provider so neither is sent the other one', () => {
-    const settings = { ...DEFAULT_SETTINGS, model: 'opus', openaiModel: 'gpt-5.5' };
+  it('keeps a model setting per provider so none is sent another one', () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      model: 'opus',
+      openaiModel: 'gpt-5.5',
+      chatgptModel: 'gpt-5-mini'
+    };
     expect(modelFor(settings, 'claude')).toBe('opus');
     expect(modelFor(settings, 'openai')).toBe('gpt-5.5');
+    expect(modelFor(settings, 'chatgpt')).toBe('gpt-5-mini');
     expect(modelPatch('openai', 'gpt-5-mini')).toEqual({ openaiModel: 'gpt-5-mini' });
     expect(modelPatch('claude', 'sonnet')).toEqual({ model: 'sonnet' });
+    expect(modelPatch('chatgpt', 'gpt-5.5')).toEqual({ chatgptModel: 'gpt-5.5' });
     expect(DEFAULT_SETTINGS.provider).toBe('claude');
     expect(DEFAULT_SETTINGS.openaiModel).toBe('');
+    expect(DEFAULT_SETTINGS.chatgptModel).toBe('');
   });
 });
 

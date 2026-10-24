@@ -221,10 +221,11 @@ describe('Every dialog takes the focus and hands it back (ui.4)', () => {
   });
 
   it('marks each opener for its selector', () => {
-    // polish.7: the Review menu's button, whose With AI and Manual open the two dialogs.
+    // polish.7: the Review menu's button, whose items open the two dialogs: since
+    // codex.3 one for each provider, which opens Review with AI, and Manual.
     const toolbar = read('components/Toolbar.tsx');
     expect(toolbar).toMatch(
-      /<ToolbarMenu\s+label=\{REVIEW_MENU\.label\}\s+opens="review"[\s\S]*?onSelect: onReviewWithAi,[\s\S]*?onSelect: onManualReview,/
+      /<ToolbarMenu\s+label=\{REVIEW_MENU\.label\}\s+opens="review"[\s\S]*?onSelect: \(\) => onReviewWith\(provider\),[\s\S]*?onSelect: onManualReview,/
     );
     expect(toolbar).not.toContain('data-opens="manual-review"');
     const menu = read('components/ToolbarMenu.tsx');

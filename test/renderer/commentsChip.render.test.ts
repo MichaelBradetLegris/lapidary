@@ -95,7 +95,7 @@ const toolbar = (): string =>
       saving: false,
       sideFolded: false,
       singleScreen: false,
-      onReviewWithAi: noop,
+      onReviewWith: noop,
       onCancelReview: noop,
       onManualReview: noop,
       onSaveChapter: noop,

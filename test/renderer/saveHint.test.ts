@@ -183,7 +183,7 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
     expect(APP).toContain('const singleScreen = setupOpen || welcomeOpen;');
     const toolbar = APP.slice(APP.indexOf('<Toolbar'), APP.indexOf('/>', APP.indexOf('<Toolbar')));
     expect(toolbar).toContain('singleScreen={singleScreen}');
-    expect(TOOLBAR).toMatch(/sideFolded,\s*singleScreen,\s*onReviewWithAi,/);
+    expect(TOOLBAR).toMatch(/sideFolded,\s*singleScreen,\s*onReviewWith,/);
   });
 
   it('stays under the cards on the Setup screen, where they sit in the flow above it (setup.7)', () => {

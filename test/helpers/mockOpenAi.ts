@@ -22,6 +22,32 @@
  * it has any other (`SKIPPED_ONLY_MODELS`, hardening.10), and anything else
  * the canned review of Chapter 01.
  *
+ * The ChatGPT route (codex.3, PLAN 5.8): a bearer that is a ChatGPT sign-in's
+ * access token, a JWT for `https://api.openai.com/v1` granting
+ * `chatgpt.tokens.use.direct`, as test/helpers/mockChatGptAuth.ts makes
+ * them, is answered as OpenAI's pages on models and inference, preview
+ * limitations and errors describe that route (Appendix A): the model list as
+ * a `models` array of `slug`, `display_name` and `visibility`
+ * (`CHATGPT_MODELS`); a review only with `store: false`, `stream: true`,
+ * `input` as a list and none of the parameters the route refuses, each
+ * refused as `subscription_sharing_unsupported_capability` naming it; a token
+ * whose `exp` has passed refused with a 401; and the plan's limits in the
+ * headers Codex reads (`x-codex-primary-used-percent` and the rest). The
+ * token's `mock_scenario` claim picks the scenario, keyed as a key's are
+ * (`chatGptScenarioFor`): `nearlimit` the 5-hour limit 85% used,
+ * `weeklylimit` the weekly limit reached, `usagelimit` a 429 for the plan's
+ * usage limit with the 5-hour limit reached in its headers, `usagelimitbare`
+ * the same 429 with no headers, `usagelimitstream` that limit reached during
+ * a streamed reply (`response.failed`), `noheaders` an answer with no limits,
+ * `noteligible` a 403 for an account that may not use its plan,
+ * `noschema` a 400 for `text.format`, the route refusing structured output,
+ * `unavailable` a 503 for usage that is not available, `invaliduser` a 401
+ * for every request, `nomodels` an empty model list, and `obsidian`, `slow`,
+ * `malformed`, `prose`, `wrongshape` and `outputlimit` as for a key; anything
+ * else the canned review with the limits low. `POST /mock/scenario` with a
+ * name sets the scenario of every ChatGPT request over the token's, and an
+ * empty body clears it.
+ *
  * Two ways to use it:
  *   vitest:  const mock = await startMockOpenAi(); ... mock.url ... await mock.close();
  *   by hand: node test/helpers/mockOpenAi.ts --port 4599
@@ -73,7 +99,135 @@ export interface MockOpenAi {
   /** base URL to hand the SDK, ending in /v1 */
   url: string;
   requests: RecordedRequest[];
+  /** the scenario of every ChatGPT request over its token's own, or null (codex.3) */
+  chatGptScenario: ChatGptScenario | null;
   close: () => Promise<void>;
+}
+
+/** What a ChatGPT sign-in's request may meet (codex.3); see the comment at the top. */
+export type ChatGptScenario =
+  | 'ok'
+  | 'nearlimit'
+  | 'weeklylimit'
+  | 'usagelimit'
+  | 'usagelimitbare'
+  | 'usagelimitstream'
+  | 'noheaders'
+  | 'noteligible'
+  | 'noschema'
+  | 'unavailable'
+  | 'invaliduser'
+  | 'nomodels'
+  | 'obsidian'
+  | 'slow'
+  | 'malformed'
+  | 'prose'
+  | 'wrongshape'
+  | 'outputlimit';
+
+/** Every ChatGPT scenario but `ok`, longest first, so `usagelimitbare` is not read as `usagelimit`. */
+export const CHATGPT_SCENARIOS: readonly ChatGptScenario[] = [
+  'usagelimitstream',
+  'usagelimitbare',
+  'weeklylimit',
+  'usagelimit',
+  'nearlimit',
+  'noheaders',
+  'noteligible',
+  'noschema',
+  'unavailable',
+  'invaliduser',
+  'nomodels',
+  'obsidian',
+  'slow',
+  'malformed',
+  'prose',
+  'wrongshape',
+  'outputlimit'
+];
+
+/** The scenario a token's `mock_scenario` claim names: the first of `CHATGPT_SCENARIOS` it holds, in any case. */
+export function chatGptScenarioFor(claim: unknown): ChatGptScenario {
+  const word = typeof claim === 'string' ? claim.toLowerCase() : '';
+  return CHATGPT_SCENARIOS.find((name) => word.includes(name)) ?? 'ok';
+}
+
+/**
+ * The models a ChatGPT sign-in may use, in the shape OpenAI's page gives
+ * (codex.3): a codex model first, which the default passes over, a model the
+ * list hides, and two it shows. The default is gpt-5.5.
+ */
+export const CHATGPT_MODELS = [
+  { slug: 'gpt-5.5-codex', display_name: 'GPT-5.5 Codex', visibility: 'list' },
+  { slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'list' },
+  { slug: 'gpt-5.5-internal', display_name: 'GPT-5.5 Internal', visibility: 'hide' },
+  { slug: 'gpt-5-mini', display_name: 'GPT-5 mini', visibility: 'list' }
+];
+
+/** The parameters OpenAI's page on preview limitations says the ChatGPT route refuses (Appendix A). */
+export const CHATGPT_REFUSED_PARAMETERS = [
+  'background',
+  'conversation',
+  'max_output_tokens',
+  'max_tool_calls',
+  'metadata',
+  'moderation',
+  'multi_agent',
+  'previous_response_id',
+  'prompt',
+  'prompt_cache_retention',
+  'safety_identifier',
+  'temperature',
+  'top_logprobs',
+  'top_p',
+  'truncation',
+  'user'
+];
+
+/** The claims of a ChatGPT sign-in's access token, or null for a bearer that is not one (an API key). */
+export function chatGptClaims(authorization: string): Record<string, unknown> | null {
+  const token = authorization.replace(/^Bearer\s+/i, '');
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const claims = JSON.parse(Buffer.from(parts[1] ?? '', 'base64url').toString('utf8')) as unknown;
+    if (typeof claims !== 'object' || claims === null || Array.isArray(claims)) return null;
+    const record = claims as Record<string, unknown>;
+    const aud = record['aud'];
+    const audiences = Array.isArray(aud) ? aud : [aud];
+    const scope = typeof record['scope'] === 'string' ? record['scope'].split(' ') : [];
+    return audiences.includes('https://api.openai.com/v1') && scope.includes('chatgpt.tokens.use.direct')
+      ? record
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The plan's limits for a scenario, in the headers Codex reads (codex.3): the
+ * 5-hour limit (300 minutes) and the weekly one (10,080), each with how much
+ * of it is used and when it resets, as Unix seconds.
+ */
+export function chatGptLimitHeaders(scenario: ChatGptScenario, now = Date.now()): Record<string, string> {
+  if (scenario === 'noheaders' || scenario === 'usagelimitbare') return {};
+  const at = (minutes: number): string => String(Math.floor(now / 1000) + minutes * 60);
+  const [primary, secondary] =
+    scenario === 'nearlimit'
+      ? [85, 40]
+      : scenario === 'weeklylimit'
+        ? [30, 100]
+        : scenario === 'usagelimit' || scenario === 'usagelimitstream'
+          ? [100, 70]
+          : [12, 5];
+  return {
+    'x-codex-primary-used-percent': String(primary),
+    'x-codex-primary-window-minutes': '300',
+    'x-codex-primary-reset-at': at(95),
+    'x-codex-secondary-used-percent': String(secondary),
+    'x-codex-secondary-window-minutes': '10080',
+    'x-codex-secondary-reset-at': at(3 * 24 * 60 + 30)
+  };
 }
 
 /**
@@ -410,8 +564,13 @@ export function scenarioForKey(authorization: string): Scenario {
   return 'ok';
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json' });
+function sendJson(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {}
+): void {
+  res.writeHead(status, { 'content-type': 'application/json', ...headers });
   res.end(JSON.stringify(body));
 }
 
@@ -494,12 +653,14 @@ async function streamResponse(
   model: string,
   text: string,
   delayMs: number,
-  cutOff = false
+  cutOff = false,
+  extra: { headers?: Record<string, string>; failWith?: { code: string; message: string } } = {}
 ): Promise<void> {
   res.writeHead(200, {
     'content-type': 'text/event-stream',
     'cache-control': 'no-cache',
-    connection: 'keep-alive'
+    connection: 'keep-alive',
+    ...(extra.headers ?? {})
   });
   let seq = 0;
   const send = (event: Record<string, unknown>): void => {
@@ -510,7 +671,7 @@ async function streamResponse(
 
   send({ type: 'response.created', response: responseObject(model, 'in_progress', null, 0) });
   send({ type: 'response.in_progress', response: responseObject(model, 'in_progress', null, 0) });
-  for (const delta of pieces(text, 12)) {
+  for (const [index, delta] of pieces(text, 12).entries()) {
     if (res.destroyed) return;
     await sleep(delayMs);
     send({
@@ -521,6 +682,16 @@ async function streamResponse(
       delta,
       logprobs: []
     });
+    if (extra.failWith && index === 3) {
+      /* A failure after the reply had begun, as OpenAI's page says a plan's
+         usage limit can arrive (codex.3): `response.failed`, with the code. */
+      send({
+        type: 'response.failed',
+        response: { ...responseObject(model, 'failed', null, 0), error: extra.failWith }
+      });
+      res.end();
+      return;
+    }
   }
   if (cutOff) {
     /* A reply cut off at the model's output limit (files.10): no text.done and
@@ -553,8 +724,137 @@ async function streamResponse(
   res.end();
 }
 
-export async function startMockOpenAi(options: { port?: number; log?: boolean } = {}): Promise<MockOpenAi> {
+/**
+ * The ChatGPT route (codex.3): what a request with a ChatGPT sign-in's token
+ * gets, in the scenario its claims, or the mock's own, name.
+ */
+async function answerChatGpt(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  body: unknown,
+  claims: Record<string, unknown>,
+  scenario: ChatGptScenario
+): Promise<void> {
+  const refuse = (status: number, code: string, message: string, param: string | null = null): void =>
+    sendJson(res, status, { error: { message, type: 'invalid_request_error', param, code } });
+  const exp = claims['exp'];
+  if (typeof exp !== 'number' || exp * 1000 <= Date.now()) {
+    // Admission refuses an ended token before any stream, as OpenAI's page describes (Appendix A).
+    sendJson(res, 401, { detail: 'The access token has expired.' });
+    return;
+  }
+  if (scenario === 'invaliduser') {
+    refuse(
+      401,
+      'subscription_sharing_invalid_user',
+      'The ChatGPT account could not be used for this request.'
+    );
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/v1/models') {
+    sendJson(res, 200, { models: scenario === 'nomodels' ? [] : CHATGPT_MODELS });
+    return;
+  }
+  if (req.method !== 'POST' || url.pathname !== '/v1/responses') {
+    refuse(
+      403,
+      'subscription_sharing_route_not_supported',
+      `No ChatGPT route for ${req.method ?? ''} ${url.pathname}`
+    );
+    return;
+  }
+  const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
+  if (request['store'] !== false) {
+    refuse(400, 'subscription_sharing_unsupported_capability', 'store must be false.', 'store');
+    return;
+  }
+  if (request['stream'] !== true) {
+    refuse(400, 'subscription_sharing_unsupported_capability', 'stream must be true.', 'stream');
+    return;
+  }
+  const refused = CHATGPT_REFUSED_PARAMETERS.find((name) => name in request);
+  if (refused) {
+    refuse(400, 'subscription_sharing_unsupported_capability', `${refused} is not supported.`, refused);
+    return;
+  }
+  const input = request['input'];
+  const system =
+    Array.isArray(input) &&
+    input.some(
+      (item) => typeof item === 'object' && item !== null && (item as { role?: unknown }).role === 'system'
+    );
+  if (!Array.isArray(input) || system) {
+    refuse(
+      400,
+      'subscription_sharing_unsupported_capability',
+      'input must be a list without system messages.',
+      'input'
+    );
+    return;
+  }
+  const format = (request['text'] as { format?: { type?: unknown } } | undefined)?.format;
+  if (scenario === 'noschema' && format?.type === 'json_schema') {
+    refuse(
+      400,
+      'subscription_sharing_unsupported_capability',
+      'Structured output is not supported.',
+      'text.format'
+    );
+    return;
+  }
+  const limits = chatGptLimitHeaders(scenario);
+  if (scenario === 'usagelimit' || scenario === 'usagelimitbare') {
+    sendJson(
+      res,
+      429,
+      {
+        error: {
+          message: 'Usage limit reached.',
+          type: 'usage_limit',
+          param: null,
+          code: 'subscription_sharing_usage_limit_exceeded'
+        }
+      },
+      limits
+    );
+    return;
+  }
+  if (scenario === 'noteligible') {
+    refuse(403, 'subscription_sharing_user_not_eligible', 'This account cannot use its plan here.');
+    return;
+  }
+  if (scenario === 'unavailable') {
+    refuse(503, 'subscription_sharing_usage_unavailable', 'Plan usage is not available right now.');
+    return;
+  }
+  const requested = typeof request['model'] === 'string' ? request['model'] : 'gpt-5.5';
+  const full = JSON.stringify(scenario === 'obsidian' ? OBSIDIAN_REVIEW : CANNED_REVIEW);
+  const text =
+    scenario === 'malformed'
+      ? '{"changes": [{"paragraph": 0, "before": "had began", "after": '
+      : scenario === 'prose'
+        ? PROSE_REPLY
+        : scenario === 'wrongshape'
+          ? JSON.stringify({ edits: [{ where: 0, what: 'had began' }] })
+          : scenario === 'outputlimit'
+            ? full.slice(0, Math.floor(full.length / 2))
+            : full;
+  await streamResponse(res, requested, text, scenario === 'slow' ? 600 : 15, scenario === 'outputlimit', {
+    headers: limits,
+    ...(scenario === 'usagelimitstream'
+      ? { failWith: { code: 'subscription_sharing_usage_limit_exceeded', message: 'Usage limit reached.' } }
+      : {})
+  });
+}
+
+export async function startMockOpenAi(
+  options: { port?: number; log?: boolean; chatGptScenario?: ChatGptScenario } = {}
+): Promise<MockOpenAi> {
   const requests: RecordedRequest[] = [];
+  const mock: { chatGptScenario: ChatGptScenario | null } = {
+    chatGptScenario: options.chatGptScenario ?? null
+  };
 
   const server = createServer((req, res) => {
     void (async () => {
@@ -562,6 +862,24 @@ export async function startMockOpenAi(options: { port?: number; log?: boolean } 
       const body = await readBody(req);
       const authorization = String(req.headers['authorization'] ?? '');
       requests.push({ method: req.method ?? 'GET', path: url.pathname, authorization, body });
+
+      if (req.method === 'POST' && url.pathname === '/mock/scenario') {
+        // The ChatGPT route's scenario over the token's; an empty body clears it (codex.3).
+        const name = (typeof body === 'string' ? body : '').trim();
+        mock.chatGptScenario = name === '' ? null : chatGptScenarioFor(name);
+        sendJson(res, 200, { chatGptScenario: mock.chatGptScenario });
+        return;
+      }
+
+      const claims = chatGptClaims(authorization);
+      if (claims) {
+        const chosen = mock.chatGptScenario ?? chatGptScenarioFor(claims['mock_scenario']);
+        if (options.log)
+          console.log(`[mock-openai] ${req.method ?? ''} ${url.pathname} -> chatgpt ${chosen}`);
+        await answerChatGpt(req, res, url, body, claims, chosen);
+        return;
+      }
+
       const scenario = scenarioForKey(authorization);
       if (options.log) console.log(`[mock-openai] ${req.method ?? ''} ${url.pathname} -> ${scenario}`);
 
@@ -660,6 +978,12 @@ export async function startMockOpenAi(options: { port?: number; log?: boolean } 
   return {
     url: `http://127.0.0.1:${port}/v1`,
     requests,
+    get chatGptScenario() {
+      return mock.chatGptScenario;
+    },
+    set chatGptScenario(value: ChatGptScenario | null) {
+      mock.chatGptScenario = value;
+    },
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections();

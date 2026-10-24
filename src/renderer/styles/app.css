@@ -2961,8 +2961,53 @@ button.help {
   margin-bottom: 18px;
 }
 
+/* The same warning in Review with AI, before the first ChatGPT review
+   (codex.3), its title a heading under the dialog's own. */
+.modal .data-warning {
+  gap: 6px;
+}
+
+.modal .data-warning p,
+.modal .data-warning .data-warning__title {
+  margin: 0;
+}
+
+.modal .data-warning .data-warning__title {
+  font-size: 1em;
+}
+
 .setup__section {
   margin-bottom: 18px;
+}
+
+/* OpenAI's welcome after the first ChatGPT sign-in (codex.3): a card like the
+   status card, its edge in the buttons' turquoise, with Manage usage and Got
+   it under its sentence. */
+.chatgpt-welcome {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-fill);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.chatgpt-welcome h2 {
+  margin: 0 0 6px;
+  font-size: 1em;
+}
+
+.chatgpt-welcome p {
+  margin: 0 0 10px;
+}
+
+.chatgpt-welcome__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chatgpt-welcome__actions button {
+  white-space: nowrap;
 }
 
 .setup__tabs {

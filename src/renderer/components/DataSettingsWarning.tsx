@@ -13,6 +13,8 @@ interface Props {
   status: ChatGptStatus | null;
   onOpenDataControls: () => void;
   onConfirm: (confirmed: boolean) => void;
+  /** its title's level: 2 on the Setup screen, 3 in Review with AI, under the dialog's own heading (codex.3) */
+  headingLevel?: 2 | 3;
 }
 
 /**
@@ -22,12 +24,19 @@ interface Props {
  * in the browser (`shell:open-external`), and the box "I have confirmed my
  * data settings", kept for the signed-in account, which the first ChatGPT
  * review needs. It stays after the box is ticked, as a reminder. The Setup
- * screen's ChatGPT view shows it whenever it is open; the words are in
- * `src/shared/ui/chatgpt.ts`.
+ * screen's ChatGPT view shows it whenever it is open, and Review with AI
+ * before the first ChatGPT review, while the box is not ticked (codex.3); the
+ * words are in `src/shared/ui/chatgpt.ts`.
  */
-export function DataSettingsWarning({ status, onOpenDataControls, onConfirm }: Props): React.JSX.Element {
+export function DataSettingsWarning({
+  status,
+  onOpenDataControls,
+  onConfirm,
+  headingLevel = 2
+}: Props): React.JSX.Element {
   const uid = useId();
   const signedIn = status?.signedIn === true;
+  const Heading = headingLevel === 3 ? 'h3' : 'h2';
   return (
     <section
       className="modal__warn modal__warn--stack data-warning"
@@ -35,9 +44,9 @@ export function DataSettingsWarning({ status, onOpenDataControls, onConfirm }: P
       aria-labelledby={`${uid}-title`}
       data-testid="chatgpt-training-warning"
     >
-      <h2 id={`${uid}-title`} className="data-warning__title">
+      <Heading id={`${uid}-title`} className="data-warning__title">
         {TRAINING_WARNING_TITLE}
-      </h2>
+      </Heading>
       <p>{TRAINING_WARNING_TEXT}</p>
       <p>{TRAINING_CHOICE_TEXT}</p>
       <div className="data-warning__actions">

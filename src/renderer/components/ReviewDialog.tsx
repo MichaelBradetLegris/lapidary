@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { openAiKeyLine, openAiMaturityNote, toOpenAiEffort } from '../../shared/ai/openai';
 import type {
+  ChatGptStatus,
   EffectivePaths,
   GuidelinesStatus,
   ModelInfo,
@@ -11,6 +12,13 @@ import type {
 import { defaultIsOpus, proPlanNote } from '../../shared/ai/claudeModels';
 import { AI_OUTPUT_NOTICE } from '../../shared/branding';
 import { claudeUpdateAdvice } from '../../shared/ai/claudeStatus';
+import {
+  CHATGPT_PLAN_NOTE,
+  MANAGE_USAGE_BUTTON,
+  USING_CHATGPT_PLAN,
+  chatGptAccountLine,
+  chatGptStartBlocker
+} from '../../shared/ui/chatgpt';
 import { reviewDialogWarning, type LastFailure } from '../../shared/ui/setup';
 import { chapterStats, reviewSizeAdvice } from '../../shared/text/stats';
 import { historyCounts, historyWhen } from '../../shared/ui/history';
@@ -30,6 +38,7 @@ import {
 import { call, errorMessage } from '../state/client';
 import { modelOptions, selectedModel } from '../state/models';
 import { useDialogEscape, useDialogFocus } from '../state/dialog';
+import { DataSettingsWarning } from './DataSettingsWarning';
 import { GuidelinesRow } from './Guidelines';
 import { UpdateNote } from './UpdateNote';
 
@@ -68,6 +77,18 @@ interface Props {
   claudeLastFailure: LastFailure | null;
   /** close this dialog and open the Setup screen (setup.7) */
   onOpenSetup: () => void;
+  /** the ChatGPT sign-in (codex.2), null until main has answered */
+  chatgpt?: ChatGptStatus | null;
+  /** a ChatGPT sign-in waits for the browser */
+  chatgptWaiting?: boolean;
+  /** close this dialog and open the Setup screen's ChatGPT view (codex.3) */
+  onOpenChatGptSetup?: () => void;
+  /** tick or clear the signed-in account's data settings box (5.7 item 7) */
+  onConfirmDataSettings?: (confirmed: boolean) => void;
+  /** ChatGPT's Data controls in the browser */
+  onOpenDataControls?: () => void;
+  /** ChatGPT's usage settings in the browser, OpenAI's Manage usage */
+  onManageUsage?: () => void;
   onStart: () => void;
   onClose: () => void;
 }
@@ -77,7 +98,11 @@ interface Props {
  *
  * Model and effort are settings, so they persist. The provider select swaps the
  * model list, and for OpenAI shows where the key comes from and keeps Start
- * disabled until there is one (Phase 5c).
+ * disabled until there is one (Phase 5c). For ChatGPT (codex.3) it shows the
+ * account with Open Setup, OpenAI's "Using ChatGPT plan" with Manage usage,
+ * and, while the account's data settings box is not ticked, the training
+ * warning with the box, which the first review needs: Start stays disabled
+ * until there is a sign-in and the box is ticked.
  */
 export function ReviewDialog({
   review,
@@ -99,6 +124,12 @@ export function ReviewDialog({
   checking,
   claudeLastFailure,
   onOpenSetup,
+  chatgpt = null,
+  chatgptWaiting = false,
+  onOpenChatGptSetup,
+  onConfirmDataSettings,
+  onOpenDataControls,
+  onManageUsage,
   onStart,
   onClose
 }: Props): React.JSX.Element {
@@ -115,13 +146,30 @@ export function ReviewDialog({
   const previousCounts = previous ? historyCounts(previous, reviewPath, review) : null;
   const provider = settings.provider;
   const isOpenAi = provider === 'openai';
+  const isChatGpt = provider === 'chatgpt';
+  /* The training warning and the box, before the first ChatGPT review (5.7
+     item 7): shown while the account's box is not ticked, and kept for the
+     rest of this opening once the box has been ticked in it, so a box ticked
+     from the keyboard keeps its place and its focus. */
+  const needsBox = isChatGpt && chatgpt?.dataSettingsConfirmed !== true;
+  const [tickedHere, setTickedHere] = useState(false);
+  const showTrainingWarning = isChatGpt && (needsBox || tickedHere);
+  const confirmDataSettings = (confirmed: boolean): void => {
+    setTickedHere(true);
+    onConfirmDataSettings?.(confirmed);
+  };
+  const chatGptBlocker = isChatGpt ? chatGptStartBlocker(chatgpt) : null;
   const list = models[provider] ?? [];
   const loading = modelsLoading[provider] === true;
   const stored = modelFor(settings, provider);
   const current = selectedModel(list, stored);
   const hasKey = keyStatus?.configured === true;
   const runtime = runtimes[provider];
-  const canStart = isOpenAi ? hasKey && current !== '' : true;
+  const canStart = isOpenAi
+    ? hasKey && current !== ''
+    : isChatGpt
+      ? chatGptBlocker === null && current !== ''
+      : true;
   const labels = reviewStartLabels(unsavedDecisions);
   const note = reviewStartNote(unsavedDecisions);
   const showNotSaved = notSaved.length > 0 && unsavedDecisions > 0;
@@ -130,9 +178,10 @@ export function ReviewDialog({
     onSaveThenStart(setNotSaved);
   };
   const maturityNote = isOpenAi ? openAiMaturityNote() : null;
-  const planNote = isOpenAi ? null : proPlanNote(runtime?.subscriptionType, current, defaultIsOpus(list));
-  const claudeWarning = isOpenAi ? null : reviewDialogWarning(runtime, claudeLastFailure);
-  const updateAdvice = isOpenAi
+  const isClaude = provider === 'claude';
+  const planNote = isClaude ? proPlanNote(runtime?.subscriptionType, current, defaultIsOpus(list)) : null;
+  const claudeWarning = isClaude ? reviewDialogWarning(runtime, claudeLastFailure) : null;
+  const updateAdvice = !isClaude
     ? null
     : claudeUpdateAdvice(
         runtime?.cliVersion,
@@ -197,7 +246,13 @@ export function ReviewDialog({
   };
 
   const modelPlaceholder =
-    isOpenAi && !hasKey ? 'add a key first' : loading ? 'loading models…' : 'no models';
+    isOpenAi && !hasKey
+      ? 'add a key first'
+      : isChatGpt && chatgpt?.signedIn !== true
+        ? 'sign in first'
+        : loading
+          ? 'loading models…'
+          : 'no models';
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Review with AI">
@@ -266,6 +321,45 @@ export function ReviewDialog({
           </>
         ) : null}
 
+        {/* ChatGPT, on the plan (codex.3): the account, with the way to its
+            Setup view, and OpenAI's "Using ChatGPT plan" with Manage usage. */}
+        {isChatGpt ? (
+          <>
+            <div className="modal__row">
+              <span>Account</span>
+              <span
+                className={`modal__path ${chatgpt?.signedIn ? '' : 'modal__path--warn'}`}
+                data-testid="chatgpt-account-line"
+              >
+                {chatGptAccountLine(chatgpt, chatgptWaiting)}
+              </span>
+              <span className="modal__buttons">
+                {onOpenChatGptSetup ? (
+                  <button type="button" onClick={onOpenChatGptSetup}>
+                    Open Setup
+                  </button>
+                ) : null}
+              </span>
+            </div>
+            <p className="modal__note" data-testid="chatgpt-plan-note">
+              <b>{USING_CHATGPT_PLAN}.</b> {CHATGPT_PLAN_NOTE}{' '}
+              {onManageUsage ? (
+                <button type="button" className="link" onClick={onManageUsage}>
+                  {MANAGE_USAGE_BUTTON}
+                </button>
+              ) : null}
+            </p>
+            {showTrainingWarning && onConfirmDataSettings && onOpenDataControls ? (
+              <DataSettingsWarning
+                status={chatgpt}
+                onOpenDataControls={onOpenDataControls}
+                onConfirm={confirmDataSettings}
+                headingLevel={3}
+              />
+            ) : null}
+          </>
+        ) : null}
+
         <div className="modal__row">
           <span>Model</span>
           <select
@@ -302,7 +396,7 @@ export function ReviewDialog({
         ) : updateAdvice ? (
           <UpdateNote advice={updateAdvice} checking={checking} onCheckAgain={onCheckClaude} />
         ) : null}
-        {runtime?.state === 'ready' && runtime.message && isOpenAi ? (
+        {runtime?.state === 'ready' && runtime.message && !isClaude ? (
           <p className="modal__note">{runtime.message}</p>
         ) : null}
 
@@ -321,7 +415,7 @@ export function ReviewDialog({
           </select>
           <span />
         </div>
-        {isOpenAi ? (
+        {!isClaude ? (
           <p className="modal__note" data-testid="openai-effort-note">
             Sent as OpenAI reasoning effort &quot;{toOpenAiEffort(settings.effort)}&quot;. The API accepts all
             five levels, so xhigh and max are passed through rather than lowered, but not every model supports
@@ -369,6 +463,10 @@ export function ReviewDialog({
           {isOpenAi && !hasKey ? (
             <span className="modal__hint" style={{ margin: 0 }}>
               The review cannot start until an OpenAI key is available.
+            </span>
+          ) : chatGptBlocker ? (
+            <span className="modal__hint" style={{ margin: 0 }} data-testid="chatgpt-start-blocker">
+              {chatGptBlocker}
             </span>
           ) : null}
           <span className="spacer" />

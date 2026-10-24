@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { PROVIDERS, PROVIDER_LABELS } from '../../src/shared/types';
 import {
   ACTIONS_MENU,
   contextMenuKey,
@@ -9,7 +10,9 @@ import {
   menuItemKey,
   nextEnabled,
   REVIEW_MENU,
-  WITH_AI_IN_MENU,
+  REVIEW_WITH_TITLES,
+  WITH_CLAUDE_IN_MENU,
+  reviewMenuLabel,
   type MenuKey
 } from '../../src/shared/ui/menu';
 
@@ -32,10 +35,18 @@ const ALL = [true, true, true, true, true];
 const EDITING = [false, false, false, true, true];
 
 describe('the menus and their names (polish.7)', () => {
-  it('names Review, its two items, and Actions', () => {
-    expect(REVIEW_MENU).toEqual({ label: 'Review', withAi: 'With AI', manual: 'Manual' });
+  it('names Review, an item for each provider and Manual, and Actions (codex.3)', () => {
+    expect(REVIEW_MENU).toEqual({ label: 'Review', manual: 'Manual' });
+    // Named as the review dialog's Provider list names them, in its order.
+    expect(PROVIDERS.map(reviewMenuLabel)).toEqual(['Claude', 'ChatGPT', 'OpenAI (API key, experimental)']);
+    expect(PROVIDERS.map(reviewMenuLabel)).toEqual(PROVIDERS.map((id) => PROVIDER_LABELS[id]));
+    expect(REVIEW_WITH_TITLES).toEqual({
+      claude: 'Review this chapter with Claude, through Claude Code',
+      chatgpt: 'Review this chapter with ChatGPT, on your ChatGPT plan',
+      openai: 'Review this chapter with OpenAI, billed per token to your API key'
+    });
     expect(ACTIONS_MENU).toBe('Actions');
-    expect(WITH_AI_IN_MENU).toBe('With AI, in the Review menu,');
+    expect(WITH_CLAUDE_IN_MENU).toBe('Claude, in the Review menu,');
   });
 });
 

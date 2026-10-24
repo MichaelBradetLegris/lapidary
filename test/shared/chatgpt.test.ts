@@ -7,6 +7,7 @@ import {
   CALLBACK_NOT_OURS,
   CALLBACK_SIGNED_IN,
   CHATGPT_DATA_CONTROLS_URL,
+  CHATGPT_USAGE_URL,
   CHATGPT_PRIVACY_FOOTER,
   DATA_CONTROLS_BUTTON,
   DATA_SETTINGS_CHECKBOX,
@@ -70,10 +71,16 @@ describe('the training warning (codex.2)', () => {
     expect(DATA_CONTROLS_BUTTON).toBe('Open Data controls');
   });
 
-  it("opens ChatGPT's Data controls, an https page of chatgpt.com, by name only", () => {
+  it("opens ChatGPT's Data controls and, since codex.3, its usage settings, https pages of chatgpt.com, by name only", () => {
     expect(CHATGPT_DATA_CONTROLS_URL).toBe('https://chatgpt.com/#settings/DataControls');
-    expect(EXTERNAL_PAGE_URLS).toEqual({ 'chatgpt-data-controls': CHATGPT_DATA_CONTROLS_URL });
+    // OpenAI's Manage usage (UI guidelines, Appendix A).
+    expect(CHATGPT_USAGE_URL).toBe('https://chatgpt.com/settings/usage');
+    expect(EXTERNAL_PAGE_URLS).toEqual({
+      'chatgpt-data-controls': CHATGPT_DATA_CONTROLS_URL,
+      'chatgpt-usage': CHATGPT_USAGE_URL
+    });
     expect(Object.isFrozen(EXTERNAL_PAGE_URLS)).toBe(true);
+    expect(externalPageUrl('chatgpt-usage')).toBe(CHATGPT_USAGE_URL);
   });
 
   it('opens a page for one of its own names only, never an address or a name every object has (codex.2 review)', () => {

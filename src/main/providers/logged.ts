@@ -81,6 +81,8 @@ export function runtimeFields(status: RuntimeStatus): Record<string, FieldValue>
     ...(status.executablePath ? { executable: status.executablePath } : {}),
     ...(status.authMethod ? { authMethod: status.authMethod } : {}),
     ...(status.subscriptionType ? { plan: status.subscriptionType } : {}),
+    // ChatGPT's plan, as the sign-in named it (codex.3); never the account.
+    ...(status.plan ? { plan: status.plan } : {}),
     ...(status.planWarning ? { planWarning: true } : {}),
     ...(status.apiKeySource ? { apiKeySource: status.apiKeySource } : {}),
     ...(status.keySource ? { keySource: status.keySource } : {})

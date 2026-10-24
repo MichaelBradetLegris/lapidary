@@ -161,9 +161,10 @@ describe('keeping the split (ui.6, 11.3 d)', () => {
 
   it('is waited for by a close, with the review, paragraph, hint and column width writes', () => {
     // The page's writes moved to state/pageIo.ts with hardening.4, for the crash page too;
-    // the columns' widths joined them with polish.5, and Show states with polish.12 until polish.17.
+    // the columns' widths joined them with polish.5, Show states with polish.12 until polish.17,
+    // and the provider a Review menu item chose with codex.3.
     expect(read('renderer/state/pageIo.ts')).toMatch(
-      /Promise\.all\(\[\s*flushReviewWrites\(\),\s*flushDraftWrites\(\),\s*flushHintWrites\(\),\s*flushSplitWrites\(\),\s*flushColumnWrites\(\)\s*\]\)/
+      /Promise\.all\(\[\s*flushReviewWrites\(\),\s*flushDraftWrites\(\),\s*flushHintWrites\(\),\s*flushSplitWrites\(\),\s*flushColumnWrites\(\),\s*flushProviderWrites\(\)\s*\]\)/
     );
     expect(APP).toContain('writes: PAGE_WRITES,');
   });

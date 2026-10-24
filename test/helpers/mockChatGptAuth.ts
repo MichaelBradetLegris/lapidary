@@ -12,15 +12,23 @@
  *                                     issued a client id of its own
  * - POST /api/accounts/oauth/token    exchanges a code, checking the client id,
  *                                     the PKCE verifier, the redirect and the
- *                                     resource, for tokens and an RS256 ID token
+ *                                     resource, for tokens and an RS256 ID token;
+ *                                     and renews them for a refresh token
+ *                                     (codex.3), which rotates: each is good
+ *                                     once, and one used again is refused as
+ *                                     `refresh_token_reused`
  * - POST /api/accounts/oauth/revoke   ends a refresh token
  * - GET  /.well-known/jwks.json       the key the ID tokens are signed with
  * - GET  /.well-known/openid-configuration
  *
- * The scenario changes one answer (`AuthScenario`). Two ways to use it:
+ * The scenario changes one answer (`AuthScenario`). The access tokens carry
+ * the API scenario (`apiScenario`, `--api-scenario <name>` or POST
+ * /mock/api-scenario) as their `mock_scenario` claim, which
+ * test/helpers/mockOpenAi.ts reads as the scenario of a ChatGPT review made
+ * with them, as it reads an API key's (codex.3). Two ways to use it:
  *   vitest:  const mock = await startMockChatGptAuth(); ... mock.url ...
  *            mock.approve(url) plays the browser for the URL the app opened.
- *   by hand: node test/helpers/mockChatGptAuth.ts --port 4600 [--scenario ok]
+ *   by hand: node test/helpers/mockChatGptAuth.ts --port 4600 [--scenario ok] [--api-scenario nearlimit]
  *            then start the app with MANUSCRIPT_REVIEW_CHATGPT_AUTH_URL=http://127.0.0.1:4600
  *            (a development switch that a packaged build ignores). Under
  *            `dev:clean --shell-stub` the app prints the address it would
@@ -73,7 +81,23 @@ export type AuthScenario =
   /** the key endpoint answers 200 with a body that is not JSON */
   | 'jwksjunk'
   /** the revocation endpoint answers 500 */
-  | 'revokefails';
+  | 'revokefails'
+  /** a renewal is refused: `invalid_grant` (codex.3) */
+  | 'refreshfails'
+  /** a renewal is refused: `refresh_token_expired` */
+  | 'refreshexpired'
+  /** a renewal answers 500 */
+  | 'refresherror'
+  /** a renewal grants no plan use */
+  | 'refreshnoplan'
+  /** a renewal's ID token names the Pro plan */
+  | 'refreshpro'
+  /** a renewal's ID token is another account's */
+  | 'refreshotheraccount'
+  /** the code's access token has ended already, though `expires_in` says an hour: the API refuses it */
+  | 'staleaccess'
+  /** the code's access token ends at once (`expires_in` 1), so the next request renews it */
+  | 'shortlived';
 
 export const AUTH_SCENARIOS: readonly AuthScenario[] = [
   'ok',
@@ -94,7 +118,15 @@ export const AUTH_SCENARIOS: readonly AuthScenario[] = [
   'notokens',
   'jwksfails',
   'jwksjunk',
-  'revokefails'
+  'revokefails',
+  'refreshfails',
+  'refreshexpired',
+  'refresherror',
+  'refreshnoplan',
+  'refreshpro',
+  'refreshotheraccount',
+  'staleaccess',
+  'shortlived'
 ];
 
 /** The account's email, which must never reach the log or the page. */
@@ -126,6 +158,13 @@ export interface MockChatGptAuth {
   url: string;
   requests: MockAuthRequest[];
   scenario: AuthScenario;
+  /**
+   * the `mock_scenario` claim of the access tokens made from now on, which
+   * mockOpenAi.ts reads as a ChatGPT review's scenario; empty for none
+   */
+  apiScenario: string;
+  /** the refresh tokens renewed, in order (codex.3) */
+  renewed: string[];
   /** the client ids issued to first sign-ins, in order */
   issued: string[];
   secrets: MockSecrets;
@@ -147,6 +186,14 @@ interface PendingCode {
   nonce: string;
   scope: string;
   subject: string;
+  used: boolean;
+}
+
+/** A refresh token this mock made: whose, for which client, and whether it has been used or revoked. */
+interface IssuedRefresh {
+  clientId: string;
+  subject: string;
+  scope: string;
   used: boolean;
 }
 
@@ -183,18 +230,21 @@ function signJwt(payload: Record<string, unknown>, key: KeyObject): string {
 }
 
 export async function startMockChatGptAuth(
-  options: { port?: number; scenario?: AuthScenario; log?: boolean } = {}
+  options: { port?: number; scenario?: AuthScenario; apiScenario?: string; log?: boolean } = {}
 ): Promise<MockChatGptAuth> {
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const stranger = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey;
   const jwk = { ...publicKey.export({ format: 'jwk' }), kid: MOCK_KEY_ID, alg: 'RS256', use: 'sig' };
   const codes = new Map<string, PendingCode>();
+  const refreshes = new Map<string, IssuedRefresh>();
   let base = '';
 
   const mock: MockChatGptAuth = {
     url: '',
     requests: [],
     scenario: options.scenario ?? 'ok',
+    apiScenario: options.apiScenario ?? '',
+    renewed: [],
     issued: [],
     secrets: { codes: [], accessTokens: [], refreshTokens: [], idTokens: [] },
     revoked: [],
@@ -280,7 +330,101 @@ export async function startMockChatGptAuth(
     res.end();
   }
 
+  /**
+   * The tokens of a sign-in or a renewal: an access token whose `exp` is
+   * `expiresIn` from now (or an hour ago for `stale`), a new refresh token
+   * and an ID token, all kept in `mock.secrets`.
+   */
+  function grant(
+    entry: { clientId: string; subject: string; scope: string },
+    extra: { nonce?: string; expiresIn?: number; stale?: boolean; plan?: string; idToken?: boolean }
+  ): Record<string, unknown> {
+    const now = Math.floor(Date.now() / 1000);
+    const expiresIn = extra.expiresIn ?? 3600;
+    const accessToken = signJwt(
+      {
+        sub: entry.subject,
+        aud: RESOURCE,
+        client_id: entry.clientId,
+        scope: entry.scope,
+        'https://api.openai.com/auth': { per_user_salt: random(), encrypted_auth_metadata: random() },
+        ...(mock.apiScenario ? { mock_scenario: mock.apiScenario } : {}),
+        iss: base,
+        iat: now,
+        exp: extra.stale ? now - 3600 : now + expiresIn,
+        jti: random(),
+        nbf: now
+      },
+      privateKey
+    );
+    const idToken = signJwt(
+      {
+        iss: mock.scenario === 'wrongissuer' ? 'https://issuer.example.com' : base,
+        aud: mock.scenario === 'wrongaudience' ? 'oaiapp_someone_else' : entry.clientId,
+        sub: entry.subject,
+        email: MOCK_EMAIL,
+        email_verified: true,
+        ...(extra.nonce === undefined ? {} : { nonce: extra.nonce }),
+        iat: now,
+        exp: mock.scenario === 'expired' ? now - 3600 : now + 3600,
+        'https://api.openai.com/auth':
+          mock.scenario === 'noplantype' ? {} : { chatgpt_plan_type: extra.plan ?? 'plus' }
+      },
+      mock.scenario === 'badsignature' ? stranger : privateKey
+    );
+    const refreshToken = `rt_mock_${random()}`;
+    refreshes.set(refreshToken, { ...entry, used: false });
+    mock.secrets.accessTokens.push(accessToken);
+    mock.secrets.refreshTokens.push(refreshToken);
+    mock.secrets.idTokens.push(idToken);
+    return {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      ...(extra.idToken === false ? {} : { id_token: idToken }),
+      token_type: 'Bearer',
+      expires_in: expiresIn,
+      scope: entry.scope
+    };
+  }
+
+  /** A renewal (codex.3): the refresh token must be one this mock made, unused, unrevoked, for this client. */
+  function refresh(form: Record<string, string>, res: ServerResponse): void {
+    if (mock.scenario === 'refresherror') return sendJson(res, 500, { error: 'server_error' });
+    if (mock.scenario === 'refreshfails') return sendJson(res, 400, { error: 'invalid_grant' });
+    if (mock.scenario === 'refreshexpired') return sendJson(res, 400, { error: 'refresh_token_expired' });
+    if (form['scope'] !== undefined) return sendJson(res, 400, { error: 'invalid_request' });
+    const old = form['refresh_token'] ?? '';
+    const entry = refreshes.get(old);
+    if (!entry || mock.revoked.includes(old) || form['client_id'] !== entry.clientId) {
+      return sendJson(res, 400, { error: 'invalid_grant' });
+    }
+    if (form['resource'] !== RESOURCE) return sendJson(res, 400, { error: 'invalid_target' });
+    if (entry.used) return sendJson(res, 400, { error: 'refresh_token_reused' });
+    entry.used = true;
+    mock.renewed.push(old);
+    const scope =
+      mock.scenario === 'refreshnoplan'
+        ? entry.scope
+            .split(' ')
+            .filter((s) => s !== PLAN_SCOPE)
+            .join(' ')
+        : entry.scope;
+    sendJson(
+      res,
+      200,
+      grant(
+        {
+          clientId: entry.clientId,
+          subject: mock.scenario === 'refreshotheraccount' ? MOCK_OTHER_SUBJECT : entry.subject,
+          scope
+        },
+        mock.scenario === 'refreshpro' ? { plan: 'pro' } : {}
+      )
+    );
+  }
+
   function token(form: Record<string, string>, res: ServerResponse): void {
+    if (form['grant_type'] === 'refresh_token') return refresh(form, res);
     if (form['grant_type'] !== 'authorization_code') {
       return sendJson(res, 400, { error: 'unsupported_grant_type' });
     }
@@ -300,48 +444,16 @@ export async function startMockChatGptAuth(
       return sendJson(res, 400, { error: 'invalid_grant' });
     }
     entry.used = true;
-    const now = Math.floor(Date.now() / 1000);
-    const accessToken = signJwt(
-      {
-        sub: entry.subject,
-        aud: RESOURCE,
-        client_id: entry.clientId,
-        scope: entry.scope,
-        'https://api.openai.com/auth': { per_user_salt: random(), encrypted_auth_metadata: random() },
-        iss: base,
-        iat: now,
-        exp: now + 3600,
-        jti: random(),
-        nbf: now
-      },
-      privateKey
-    );
-    const idToken = signJwt(
-      {
-        iss: mock.scenario === 'wrongissuer' ? 'https://issuer.example.com' : base,
-        aud: mock.scenario === 'wrongaudience' ? 'oaiapp_someone_else' : entry.clientId,
-        sub: entry.subject,
-        email: MOCK_EMAIL,
-        email_verified: true,
+    sendJson(
+      res,
+      200,
+      grant(entry, {
         nonce: mock.scenario === 'badnonce' ? 'not-this-attempt' : entry.nonce,
-        iat: now,
-        exp: mock.scenario === 'expired' ? now - 3600 : now + 3600,
-        'https://api.openai.com/auth': mock.scenario === 'noplantype' ? {} : { chatgpt_plan_type: 'plus' }
-      },
-      mock.scenario === 'badsignature' ? stranger : privateKey
+        ...(mock.scenario === 'shortlived' ? { expiresIn: 1 } : {}),
+        ...(mock.scenario === 'staleaccess' ? { stale: true } : {}),
+        ...(mock.scenario === 'notokens' ? { idToken: false } : {})
+      })
     );
-    const refreshToken = `rt_mock_${random()}`;
-    mock.secrets.accessTokens.push(accessToken);
-    mock.secrets.refreshTokens.push(refreshToken);
-    mock.secrets.idTokens.push(idToken);
-    sendJson(res, 200, {
-      access_token: accessToken,
-      refresh_token: refreshToken,
-      ...(mock.scenario === 'notokens' ? {} : { id_token: idToken }),
-      token_type: 'Bearer',
-      expires_in: 3600,
-      scope: entry.scope
-    });
   }
 
   function revoke(form: Record<string, string>, res: ServerResponse): void {
@@ -387,6 +499,11 @@ export async function startMockChatGptAuth(
         mock.scenario = name;
         return sendText(res, 200, name);
       }
+      if (req.method === 'POST' && url.pathname === '/mock/api-scenario') {
+        // The claim of the access tokens made from now on; an empty body for none (codex.3).
+        mock.apiScenario = body.trim();
+        return sendText(res, 200, mock.apiScenario || 'none');
+      }
       if (req.method === 'GET' && url.pathname === '/mock/requests') return sendJson(res, 200, mock.requests);
       sendText(res, 404, `No mock for ${req.method ?? ''} ${url.pathname}`);
     })();
@@ -412,7 +529,12 @@ if (invokedDirectly) {
     return at >= 0 ? process.argv[at + 1] : undefined;
   };
   const scenario = (flag('--scenario') ?? 'ok') as AuthScenario;
-  void startMockChatGptAuth({ port: Number(flag('--port') ?? 4600), scenario, log: true }).then((mock) => {
-    console.log(`[mock-chatgpt-auth] listening on ${mock.url} (${mock.scenario})`);
-  });
+  const apiScenario = flag('--api-scenario') ?? '';
+  void startMockChatGptAuth({ port: Number(flag('--port') ?? 4600), scenario, apiScenario, log: true }).then(
+    (mock) => {
+      console.log(
+        `[mock-chatgpt-auth] listening on ${mock.url} (${mock.scenario}${mock.apiScenario ? `, API ${mock.apiScenario}` : ''})`
+      );
+    }
+  );
 }

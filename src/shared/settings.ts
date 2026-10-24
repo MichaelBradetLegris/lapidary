@@ -100,6 +100,9 @@ export function normalizeSettings(input: unknown): Settings {
     model: typeof raw['model'] === 'string' && raw['model'] ? raw['model'] : DEFAULT_SETTINGS.model,
     // Empty is meaningful here ("the list's default"), so only a non-string falls back.
     openaiModel: typeof raw['openaiModel'] === 'string' ? raw['openaiModel'] : DEFAULT_SETTINGS.openaiModel,
+    // The same for ChatGPT's (codex.3): empty is the list's default.
+    chatgptModel:
+      typeof raw['chatgptModel'] === 'string' ? raw['chatgptModel'] : DEFAULT_SETTINGS.chatgptModel,
     effort: isEffort(raw['effort']) ? raw['effort'] : DEFAULT_SETTINGS.effort,
     zoom: normalizeZoom(raw['zoom']),
     theme: normalizeTheme(raw['theme']),

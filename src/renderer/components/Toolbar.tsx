@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import type { Review } from '../../shared/types';
+import { PROVIDERS, type Provider, type Review } from '../../shared/types';
 import { SHOW_BACKUPS, SHOW_BACKUPS_TITLE } from '../../shared/ui/backups';
 import {
   allChipsHidden,
@@ -11,7 +11,7 @@ import {
   suggestionChip
 } from '../../shared/ui/chips';
 import { COPY_HTML, COPY_HTML_TITLE } from '../../shared/ui/copy';
-import { ACTIONS_MENU, REVIEW_MENU } from '../../shared/ui/menu';
+import { ACTIONS_MENU, REVIEW_MENU, REVIEW_WITH_TITLES, reviewMenuLabel } from '../../shared/ui/menu';
 import { FINISH_FULL_EDIT_TITLE } from '../../shared/ui/modes';
 import { saveButtonInput, saveButtonState } from '../../shared/ui/save';
 import { SAVE_HINT_ID, saveHintText, saveHintVisible } from '../../shared/ui/saveHint';
@@ -35,7 +35,8 @@ interface Props {
    * the first-use hint waits (`setup.11` review)
    */
   singleScreen: boolean;
-  onReviewWithAi: () => void;
+  /** Review with AI, with this provider chosen (codex.3: an item for each) */
+  onReviewWith: (provider: Provider) => void;
   onCancelReview: () => void;
   onManualReview: () => void;
   onSaveChapter: () => void;
@@ -64,8 +65,10 @@ interface Props {
  * screen or the welcome guide stands in place of the chapter, there are no
  * chips, as there is no text for them to filter.
  *
- * Four controls since `polish.7`: Review, a menu holding With AI and Manual
- * (which open Review with AI and Submit manual review); Actions, a menu
+ * Four controls since `polish.7`: Review, a menu holding an item for each
+ * provider, Claude, ChatGPT and OpenAI (API key), each opening Review with AI
+ * with that provider chosen (codex.3; one With AI until then), and Manual,
+ * which opens Submit manual review; Actions, a menu
  * holding the three bulk actions, Copy result, Copy HTML under it since
  * `rr.1`, and Show backups, which left the side panel's footer, and since
  * `polish.10` Accept all and Dismiss all of the category whose chip the focus
@@ -73,8 +76,8 @@ interface Props {
  * `watchToolbarFocus`), and since `polish.11` Show all categories and Hide all
  * categories, as the eye before the chips does; Save to chapter; and Settings
  * (`ToolbarMenu`).
- * While a review runs, its progress and Cancel come before Review, whose With
- * AI waits until it ends.
+ * While a review runs, its progress and Cancel come before Review, whose
+ * providers' items wait until it ends.
  *
  * Save to chapter comes from `saveButtonState` (apply.4), fed by
  * `saveButtonInput` and counted by `unsavedDecisionCount`: the changes the
@@ -96,7 +99,7 @@ export function Toolbar({
   saving,
   sideFolded,
   singleScreen,
-  onReviewWithAi,
+  onReviewWith,
   onCancelReview,
   onManualReview,
   onSaveChapter,
@@ -237,17 +240,21 @@ export function Toolbar({
         opens="review"
         disabled={!review?.sourcePath || locked}
         items={[
-          {
-            label: REVIEW_MENU.withAi,
-            onSelect: onReviewWithAi,
+          ...PROVIDERS.map((provider): MenuItem => ({
+            label: reviewMenuLabel(provider),
+            onSelect: () => onReviewWith(provider),
             // One review at a time: one of another chapter is running.
             disabled: running,
-            title: running ? 'Wait until the review that is running ends, or cancel it' : undefined
-          },
+            title: running
+              ? 'Wait until the review that is running ends, or cancel it'
+              : REVIEW_WITH_TITLES[provider]
+          })),
           {
             label: REVIEW_MENU.manual,
             onSelect: onManualReview,
-            title: 'Paste a corrected version of this chapter and turn the differences into suggestions'
+            title: 'Paste a corrected version of this chapter and turn the differences into suggestions',
+            // A line between the providers and the corrected copy.
+            separated: true
           }
         ]}
       />

@@ -308,6 +308,73 @@ export function codeExchangeFields(
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Renewing the access token (codex.3)                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A renewal of the access token, as OpenAI's page on sessions gives it
+ * (Appendix A): a form POST to the token endpoint of the refresh token, the
+ * issued client id and the resource, without `scope`.
+ */
+export function refreshFields(clientId: string, refreshToken: string): Record<string, string> {
+  return {
+    grant_type: 'refresh_token',
+    client_id: clientId,
+    refresh_token: refreshToken,
+    resource: RESOURCE
+  };
+}
+
+/**
+ * The errors OpenAI's page on errors and recovery lists for a refresh token
+ * that can no longer be used (Appendix A, read 2026-10-24): the sign-in has
+ * ended, and only signing in again brings it back. `invalid_client`, the
+ * registration itself refused, ends it too.
+ */
+export const ENDED_REFRESH_ERRORS: ReadonlySet<string> = new Set([
+  'invalid_grant',
+  'invalid_refresh_token',
+  'token_expired',
+  'refresh_token_expired',
+  'refresh_token_invalidated',
+  'refresh_token_reused',
+  'invalid_client'
+]);
+
+/**
+ * The tokens a renewal gave, or null when the answer is not one: a new
+ * access token is needed and the type must be Bearer. Refresh tokens rotate,
+ * so the answer's replaces the old one; an answer without one, or without an
+ * ID token or the scopes, keeps the old ones.
+ */
+export function readRefreshAnswer(json: unknown, now: Date, previous: SessionTokens): SessionTokens | null {
+  if (!isRecord(json)) return null;
+  const accessToken = text(json['access_token']);
+  if (!accessToken) return null;
+  const type = text(json['token_type']) ?? 'Bearer';
+  if (type.toLowerCase() !== 'bearer') return null;
+  const expiresIn = json['expires_in'];
+  const seconds =
+    typeof expiresIn === 'number' && Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn : 3600;
+  return {
+    accessToken,
+    refreshToken: text(json['refresh_token']) ?? previous.refreshToken,
+    idToken: text(json['id_token']) ?? previous.idToken,
+    scope: text(json['scope']) ?? previous.scope,
+    expiresAt: new Date(now.getTime() + seconds * 1000).toISOString()
+  };
+}
+
+/** How long before its end an access token is renewed rather than sent, for a clock that is a little off. */
+export const RENEW_BEFORE_MS = 60_000;
+
+/** Whether a token ending at `expiresAt` (ISO time) is to be renewed before it is sent: it ends within `RENEW_BEFORE_MS`, or its end cannot be read. */
+export function needsRenewal(expiresAt: string, now: Date): boolean {
+  const end = Date.parse(expiresAt);
+  return Number.isNaN(end) || end - now.getTime() <= RENEW_BEFORE_MS;
+}
+
 /** How long to wait before each retry of a revocation that got no answer or a 5xx. */
 export const REVOKE_BACKOFF_MS: readonly number[] = [500, 1500];
 

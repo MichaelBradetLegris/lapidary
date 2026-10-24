@@ -4,6 +4,12 @@ import { rebaseReview } from '../shared/diff/rebase';
 import { proPreselection } from '../shared/ai/claudeModels';
 import { toRoyalRoadHtml } from '../shared/text/royalroad';
 import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
+import {
+  PLAN_WELCOME_HINT,
+  chatGptFailureRoute,
+  chatGptUsageLimitCard,
+  planWelcomeShown
+} from '../shared/ui/chatgpt';
 import { copiedHtmlNote } from '../shared/ui/copy';
 import { FINISH_FULL_EDIT_FIRST } from '../shared/ui/modes';
 import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
@@ -62,6 +68,8 @@ import { useColumnHandle } from './state/columnHandles';
 import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
 import { dismissHint, type HintIo } from './state/hints';
 import { CLOSE_GUARD_IO, PAGE_WRITES } from './state/pageIo';
+import { chooseProvider as chooseReviewProvider } from './state/providerChoice';
+import type { SettingIo } from './state/settingWrites';
 import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { noteMergeMarkers } from './state/mergeMarkers';
 import { useKeyboardBindings } from './state/keyboard';
@@ -98,6 +106,11 @@ const DRAFT_IO: DraftIo = {
 
 /** How a one-time hint is put away for good (apply.12, state/hints.ts). */
 const HINT_IO: HintIo = {
+  setSettings: (patch) => call('settings:set', patch)
+};
+
+/** How the provider a Review menu item chooses is written (codex.3, state/providerChoice.ts). */
+const SETTINGS_WRITE_IO: SettingIo = {
   setSettings: (patch) => call('settings:set', patch)
 };
 
@@ -227,6 +240,10 @@ export function App(): React.JSX.Element {
      Claude's says what the launch card says, and only it puts Claude in use. */
   const claudeSetupOpen = setupOpen && setupFor === 'claude';
   const claudeInUse = activeProvider === 'claude' || claudeSetupOpen;
+  /* ChatGPT's view, or ChatGPT as the provider with Claude's view not open
+     (codex.3): the status bar's usage notice is then the ChatGPT plan's. */
+  const chatGptSetupOpen = setupOpen && setupFor === 'chatgpt';
+  const chatGptInUse = chatGptSetupOpen || (activeProvider === 'chatgpt' && !claudeSetupOpen);
   const settingsLoaded = settings !== null;
 
   /* The launch card (section 7): once the settings and Claude's first check
@@ -277,6 +294,33 @@ export function App(): React.JSX.Element {
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, [recheckOnFocus, claudeInUse, claudeView]);
+
+  /* ---------------- ChatGPT's sign-in and its reviews (codex.3) ---------------- */
+
+  /* The sign-in as the ChatGPT view and Settings show it (useChatGpt) and its
+     runtime as the status bar and Review with AI read it (useAi) follow each
+     other. A sign-in, a sign-out or a plan that changes checks the runtime
+     again and forgets the model list, which is the account's; the first
+     status read at launch is what the launch check read already. A runtime
+     that finds no sign-in, as when a model list found it ended, has the
+     status read again. */
+  const chatGptSignedIn = chatgpt.status?.signedIn ?? null;
+  const chatGptPlan = chatgpt.status?.plan ?? null;
+  const { chatGptAccountChanged } = ai;
+  const chatGptSeen = useRef(false);
+  useEffect(() => {
+    if (chatGptSignedIn === null) return;
+    if (!chatGptSeen.current) {
+      chatGptSeen.current = true;
+      return;
+    }
+    chatGptAccountChanged();
+  }, [chatGptSignedIn, chatGptPlan, chatGptAccountChanged]);
+  const chatGptRuntimeState = ai.runtimes.chatgpt?.state ?? null;
+  const { refresh: refreshChatGpt } = chatgpt;
+  useEffect(() => {
+    if (chatGptRuntimeState === 'not-signed-in') refreshChatGpt();
+  }, [chatGptRuntimeState, refreshChatGpt]);
 
   /* ---------------- loading ---------------- */
 
@@ -858,32 +902,57 @@ export function App(): React.JSX.Element {
 
   /**
    * The dialog collects provider, model and effort before anything is sent
-   * (item 6). The Claude Setup screen stands in front of it only when Claude
-   * is the provider and Claude Code is missing or definitely signed out; a
-   * check that failed or an old Claude Code opens the dialog with a warning
-   * (`reviewGate`, setup.7, 11.3 f). OpenAI's only prerequisite is a key,
-   * which the dialog itself shows, and a card points at Settings when there is
-   * none (Phase 5c).
+   * (item 6). The Review menu has an item for each provider, which becomes
+   * the one the dialog starts with (codex.3). The Claude Setup screen stands
+   * in front of it only when Claude is the provider and Claude Code is
+   * missing or definitely signed out; a check that failed or an old Claude
+   * Code opens the dialog with a warning (`reviewGate`, setup.7, 11.3 f).
+   * ChatGPT's view stands in front of it when no ChatGPT sign-in is kept,
+   * and the dialog itself asks for the data settings box (5.7 item 7).
+   * OpenAI's only prerequisite is a key, which the dialog itself shows, and a
+   * card points at Settings when there is none (Phase 5c).
    */
-  const openReviewDialog = useCallback(() => {
-    const current = useApp.getState().review;
-    if (!current?.sourcePath) return;
-    if (refuseWhileEditing()) return;
-    const provider = settings?.provider ?? 'claude';
-    if (provider === 'claude' && reviewGate(claudeRuntime) === 'setup') {
-      openSetup();
-      return;
-    }
-    if (provider === 'openai' && ai.keyStatus && !ai.keyStatus.configured) {
-      notify(
-        'warn',
-        'OpenAI needs an API key before it can review. Paste one into Settings, or switch the provider back to Claude.',
-        'openai-key',
-        'open-settings'
-      );
-    }
-    setReviewDialogOpen(true);
-  }, [settings, claudeRuntime, ai.keyStatus, notify, setReviewDialogOpen, refuseWhileEditing, openSetup]);
+  const openReviewFor = useCallback(
+    (provider: Provider) => {
+      const current = useApp.getState().review;
+      if (!current?.sourcePath) return;
+      if (refuseWhileEditing()) return;
+      void chooseReviewProvider(provider, SETTINGS_WRITE_IO);
+      if (provider === 'claude' && reviewGate(claudeRuntime) === 'setup') {
+        openSetup();
+        return;
+      }
+      if (provider === 'chatgpt' && chatgpt.status !== null && !chatgpt.status.signedIn) {
+        openChatGptSetup();
+        return;
+      }
+      if (provider === 'openai' && ai.keyStatus && !ai.keyStatus.configured) {
+        notify(
+          'warn',
+          'OpenAI needs an API key before it can review. Paste one into Settings, or switch the provider back to Claude.',
+          'openai-key',
+          'open-settings'
+        );
+      }
+      setReviewDialogOpen(true);
+    },
+    [
+      claudeRuntime,
+      chatgpt.status,
+      ai.keyStatus,
+      notify,
+      setReviewDialogOpen,
+      refuseWhileEditing,
+      openSetup,
+      openChatGptSetup
+    ]
+  );
+
+  /** Review with AI with the provider already chosen, as Setup's Try the review anyway opens it. */
+  const openReviewDialog = useCallback(
+    () => openReviewFor(useApp.getState().settings?.provider ?? 'claude'),
+    [openReviewFor]
+  );
 
   /**
    * Run a review. The chapter's review is read-only until it returns (round 3,
@@ -944,6 +1013,28 @@ export function App(): React.JSX.Element {
         notify('info', `${name} suggested ${summary}.${note}`);
       })
       .catch((err: unknown) => {
+        /* ChatGPT (codex.3): a sign-in that is not there, or has ended, and
+           the box not ticked open its view, with the words under its
+           buttons, never a failed review's card; a usage limit puts up its
+           card with Manage usage. */
+        if (err instanceof ApiError && settings.provider === 'chatgpt') {
+          const route = chatGptFailureRoute(err.code);
+          if (route === 'setup') {
+            chatgpt.refresh();
+            chatgpt.say({ tone: 'warn', text: err.message });
+            openChatGptSetup();
+            return;
+          }
+          if (route === 'usage-card') {
+            notify(
+              'error',
+              chatGptUsageLimitCard(err.message, ai.latestChatGptRateLimit(), new Date()),
+              'chatgpt-usage',
+              'chatgpt-usage'
+            );
+            return;
+          }
+        }
         // Setup can fix these: re-check, then show what to do (setup.5).
         if (err instanceof ApiError && SETUP_FAILURES.has(err.code)) {
           ai.check('claude');
@@ -970,7 +1061,17 @@ export function App(): React.JSX.Element {
         fail(err);
       })
       .finally(() => useApp.getState().setAiBusy(null));
-  }, [ai, adoptReview, notify, setReviewDialogOpen, fail, refreshFiles, openSetup]);
+  }, [
+    ai,
+    chatgpt,
+    adoptReview,
+    notify,
+    setReviewDialogOpen,
+    fail,
+    refreshFiles,
+    openSetup,
+    openChatGptSetup
+  ]);
 
   /* No stranded decisions (apply.20, state/reviewStart.ts): with changes not
      saved to the chapter, the dialog's blue button saves them and starts the
@@ -996,8 +1097,13 @@ export function App(): React.JSX.Element {
   }, [setSetupOpen, openReviewDialog]);
 
   const activeRuntime = ai.runtimes[activeProvider];
-  const runtimeLabel =
-    labelForRuntime(activeRuntime, activeProvider === 'claude' ? ai.lastFailure : null) ?? undefined;
+  const activeLastFailure =
+    activeProvider === 'claude'
+      ? ai.lastFailure
+      : activeProvider === 'chatgpt'
+        ? ai.chatGptLastFailure
+        : null;
+  const runtimeLabel = labelForRuntime(activeRuntime, activeLastFailure) ?? undefined;
 
   // The first-use hint hangs over the prose when the side panel is folded
   // (ui.3); the Setup screen and the welcome guide have no side panel,
@@ -1014,7 +1120,7 @@ export function App(): React.JSX.Element {
       saving={chapterSaving}
       sideFolded={sideFolded}
       singleScreen={singleScreen}
-      onReviewWithAi={openReviewDialog}
+      onReviewWith={openReviewFor}
       onCancelReview={ai.cancel}
       onManualReview={openManualReview}
       onSaveChapter={saveChapter}
@@ -1058,22 +1164,32 @@ export function App(): React.JSX.Element {
         case 'update-open-page':
           onUpdateAction(action);
           break;
+        case 'chatgpt-usage':
+          // ChatGPT's usage settings, by name: the page never hands main an address (codex.3).
+          void call('shell:open-external', { page: 'chatgpt-usage' }).catch(fail);
+          break;
       }
     },
     [openSettings, openSetup, fail, revealBackups, setDiagnosticsOpen, onUpdateAction]
   );
 
-  /* The status bar's runtime label is a button: Setup for Claude, Settings
-     for OpenAI (setup.7). */
+  /* The status bar's runtime label is a button: Setup for Claude, its
+     ChatGPT view for ChatGPT (codex.3), Settings for OpenAI (setup.7). */
   const statusRuntime = {
     ...(runtimeLabel ? { runtimeLabel } : {}),
-    onRuntime: activeProvider === 'claude' ? openSetup : openSettings,
+    onRuntime:
+      activeProvider === 'claude'
+        ? openSetup
+        : activeProvider === 'chatgpt'
+          ? openChatGptSetup
+          : openSettings,
     runtimeTitle: runtimeButtonTitle(activeProvider)
   };
   /* Claude's usage, in the status bar while Claude is in use: the notice is
      about the Claude plan, and beside OpenAI's status it would read as
-     OpenAI's (setup.9). */
-  const usageNotice = claudeInUse ? ai.rateLimit : null;
+     OpenAI's (setup.9). The ChatGPT plan's in its place while ChatGPT is in
+     use (codex.3). */
+  const usageNotice = chatGptInUse ? ai.chatGptRateLimit : claudeInUse ? ai.rateLimit : null;
 
   /* The dialogs, each drawn only when it can be. They sit outside the
      page, which is inert while one of them is open, so Tab and Shift+Tab go
@@ -1130,6 +1246,12 @@ export function App(): React.JSX.Element {
         checking={ai.checking}
         claudeLastFailure={ai.lastFailure}
         onOpenSetup={openSetup}
+        chatgpt={chatgpt.status}
+        chatgptWaiting={chatgpt.waiting}
+        onOpenChatGptSetup={openChatGptSetup}
+        onConfirmDataSettings={chatgpt.setDataSettingsConfirmed}
+        onOpenDataControls={chatgpt.openDataControls}
+        onManageUsage={chatgpt.openUsage}
         onStart={startReview}
         onClose={() => setReviewDialogOpen(false)}
       />
@@ -1262,6 +1384,9 @@ export function App(): React.JSX.Element {
                 onSignOut={chatgpt.signOut}
                 onConfirmDataSettings={chatgpt.setDataSettingsConfirmed}
                 onOpenDataControls={chatgpt.openDataControls}
+                welcome={planWelcomeShown(chatgpt.status, settings?.dismissedHints)}
+                onManageUsage={chatgpt.openUsage}
+                onWelcomeDone={() => void dismissHint(PLAN_WELCOME_HINT, HINT_IO)}
                 onClose={() => setSetupOpen(false)}
                 version={updateStatus?.current ?? null}
               />
@@ -1288,7 +1413,9 @@ export function App(): React.JSX.Element {
                 claude={claudeRuntime}
                 claudeLastFailure={ai.lastFailure}
                 openai={ai.runtimes.openai ?? null}
+                chatgpt={chatgpt.status}
                 onSetUpClaude={openSetup}
+                onSetUpChatGpt={openChatGptSetup}
                 onUseProvider={chooseProvider}
                 onOpenSettings={openSettings}
                 onChooseFolder={chooseManuscriptFolder}
@@ -1395,8 +1522,8 @@ export function App(): React.JSX.Element {
                     <h1>Nothing open</h1>
                     <p>
                       Pick a chapter on the left, or start one with the + beside Chapters. In the Review menu,
-                      With AI asks for suggestions and Manual turns a corrected copy into the same kind of
-                      list. You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
+                      Claude, ChatGPT or OpenAI asks for suggestions, and Manual turns a corrected copy into
+                      the same kind of list. You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
                     </p>
                   </div>
                 )}

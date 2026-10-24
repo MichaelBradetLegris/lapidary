@@ -36,6 +36,15 @@ export interface ChatGptController {
   signOut: () => void;
   setDataSettingsConfirmed: (confirmed: boolean) => void;
   openDataControls: () => void;
+  /** ChatGPT's usage settings, OpenAI's Manage usage (codex.3) */
+  openUsage: () => void;
+  /** ask main for the status again, as after a review found the sign-in gone (codex.3) */
+  refresh: () => void;
+  /**
+   * Say `outcome` under the view's buttons, as a review that found no
+   * sign-in, or the box not ticked, does when it opens the view (codex.3)
+   */
+  say: (outcome: ChatGptOutcome) => void;
 }
 
 export function useChatGpt(): ChatGptController {
@@ -129,6 +138,13 @@ export function useChatGpt(): ChatGptController {
     );
   }, []);
 
+  const openUsage = useCallback(() => {
+    setOutcome(null);
+    void call('shell:open-external', { page: 'chatgpt-usage' }).catch((err: unknown) =>
+      setOutcome(failedOutcome(errorMessage(err)))
+    );
+  }, []);
+
   return {
     status,
     waiting: chatGptWaiting(signingIn, status),
@@ -138,6 +154,9 @@ export function useChatGpt(): ChatGptController {
     cancelSignIn,
     signOut,
     setDataSettingsConfirmed,
-    openDataControls
+    openDataControls,
+    openUsage,
+    refresh,
+    say: setOutcome
   };
 }

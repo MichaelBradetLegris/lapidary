@@ -182,6 +182,8 @@ export interface RuntimeStatus {
   keySource?: OpenAiKeySource;
   /** OpenAI: last four characters of the key, never the key itself */
   keyLast4?: string;
+  /** ChatGPT: the plan the sign-in named, such as `Plus` (codex.3); never the account or a token */
+  plan?: string;
 }
 
 export interface ModelInfo {
@@ -244,9 +246,10 @@ export interface ChatGptSignOut {
 /**
  * The only web pages the page may ask main to open (`shell:open-external`),
  * by name, so it never hands the shell an address: ChatGPT's Data controls
- * settings, where training is turned off (codex.2).
+ * settings, where training is turned off (codex.2), and its usage settings,
+ * OpenAI's Manage usage (codex.3).
  */
-export type ExternalPage = 'chatgpt-data-controls';
+export type ExternalPage = 'chatgpt-data-controls' | 'chatgpt-usage';
 
 export interface ReviewRequest {
   requestId: string;
@@ -297,10 +300,17 @@ export interface RawComment {
 
 /**
  * A Claude plan's usage, as Claude Code's `rate_limit_event` reports it
- * (`readRateLimit` in `src/main/providers/claudeResult.ts`, setup.9). The
- * status bar words it with `describeRateLimit` (`src/shared/ui/usage.ts`).
+ * (`readRateLimit` in `src/main/providers/claudeResult.ts`, setup.9), or a
+ * ChatGPT plan's, as the answers to a ChatGPT review give it
+ * (`readChatGptLimits` in `src/shared/ai/chatgpt.ts`, codex.3). The status
+ * bar words it with `describeRateLimit` (`src/shared/ui/usage.ts`).
  */
 export interface RateLimitInfo {
+  /**
+   * whose plan: `chatgpt` for a ChatGPT plan's (codex.3); absent for Claude
+   * Code's notices, which came first, so a notice never reads as the other's
+   */
+  provider?: Provider;
   /** `allowed`, `allowed_warning` or `rejected` */
   status?: string;
   /** when the limit resets, as an ISO time */
@@ -529,7 +539,9 @@ export type NotificationAction =
   | 'reveal-all-backups'
   | 'update-download'
   | 'update-restart'
-  | 'update-open-page';
+  | 'update-open-page'
+  /** OpenAI's Manage usage, on the card of a ChatGPT review that reached a usage limit (codex.3) */
+  | 'chatgpt-usage';
 
 /** A card that main asks the window to show, under the key `main-notice`. */
 export interface AppNotice {

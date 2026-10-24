@@ -24,8 +24,9 @@ import {
   type OpenAiMaturity
 } from '../ai/openai';
 import { APP_NAME } from '../branding';
-import type { EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../ipc';
+import type { ChatGptStatus, EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../ipc';
 import type { Provider, Settings } from '../types';
+import { chatGptSetupStatus } from './chatgpt';
 import {
   OPEN_FOLDER,
   OPEN_GUIDELINES,
@@ -94,12 +95,15 @@ export function openAiChoiceLabel(maturity: OpenAiMaturity = OPENAI_MATURITY): s
 
 export const USE_OPENAI = openAiChoiceLabel();
 export const USE_CLAUDE = 'Use Claude instead';
+/** The button that opens the Setup screen's ChatGPT view, while ChatGPT is the provider (codex.3). */
+export const SET_UP_CHATGPT = 'Set up ChatGPT';
 
 export type WelcomeStepId = 'claude' | 'folder' | 'style-sheet';
 
 /** What a step's button does; the screen maps each to its call. */
 export type WelcomeActionId =
   | 'set-up-claude'
+  | 'set-up-chatgpt'
   | 'use-openai'
   | 'use-claude'
   | 'open-settings'
@@ -137,6 +141,8 @@ export interface WelcomeInput {
   claudeLastFailure: LastFailure | null;
   /** OpenAI's runtime: ready once a key is stored or in the environment */
   openai: RuntimeStatus | null;
+  /** the ChatGPT sign-in, for a guide shown with ChatGPT as the provider (codex.3); null until read */
+  chatgpt?: ChatGptStatus | null;
   manuscriptFolder: string | null;
   /** `Settings.guidelinesPath`: null for the usual GUIDELINES.md in the manuscript folder */
   guidelinesSetting: string | null;
@@ -167,6 +173,9 @@ export function openAiStepText(maturity: OpenAiMaturity = OPENAI_MATURITY): stri
 
 export const OPENAI_STEP_TEXT = openAiStepText();
 
+/** The step's text with ChatGPT chosen (codex.3). */
+export const CHATGPT_STEP_TEXT = `Reviews go to ChatGPT instead, on your ChatGPT plan, with no API key. ${SET_UP_CHATGPT} signs you in with ChatGPT and says what to check in ChatGPT's data settings; this step is done once you are signed in.`;
+
 /**
  * Claude can review: signed in, on a plan that runs Claude Code. A usage limit
  * reached by the last review still counts, since it resets by itself.
@@ -178,6 +187,22 @@ function claudeConnected(input: WelcomeInput): boolean {
 }
 
 function claudeStep(input: WelcomeInput): WelcomeStep {
+  if (input.provider === 'chatgpt') {
+    const done = input.chatgpt?.signedIn === true;
+    return {
+      id: 'claude',
+      title: CLAUDE_STEP_TITLE,
+      done,
+      // The ChatGPT view's own title for where the sign-in stands.
+      status: chatGptSetupStatus(input.chatgpt ?? null, false).title,
+      lines: [CHATGPT_STEP_TEXT],
+      facts: [],
+      actions: [
+        { id: 'set-up-chatgpt', label: SET_UP_CHATGPT, primary: !done },
+        { id: 'use-claude', label: USE_CLAUDE }
+      ]
+    };
+  }
   if (input.provider === 'openai') {
     const done = input.openai?.state === 'ready';
     return {

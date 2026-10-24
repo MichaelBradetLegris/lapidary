@@ -1,10 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import type { ChatGptStatus } from '../../shared/ipc';
 import { setupFooterText } from '../../shared/ui/about';
 import {
   ANOTHER_ACCOUNT_BUTTON,
   CANCEL_SIGN_IN_BUTTON,
   CHATGPT_PRIVACY_FOOTER,
+  MANAGE_USAGE_BUTTON,
+  PLAN_WELCOME_DONE,
+  PLAN_WELCOME_TEXT,
+  PLAN_WELCOME_TITLE,
   SIGN_IN_BUTTON,
   SIGN_OUT_BUTTON,
   chatGptSetupStatus,
@@ -27,6 +31,15 @@ interface Props {
   onSignOut: () => void;
   onConfirmDataSettings: (confirmed: boolean) => void;
   onOpenDataControls: () => void;
+  /**
+   * OpenAI's first-sign-in welcome under the status card (codex.3): shown
+   * while signed in until Got it, once on this computer (`planWelcomeShown`)
+   */
+  welcome?: boolean;
+  /** Manage usage: ChatGPT's usage settings in the browser */
+  onManageUsage?: () => void;
+  /** Got it: the welcome goes for good */
+  onWelcomeDone?: () => void;
   onClose: () => void;
   /** the app's version, for the last line, as Claude's view has it (release.9) */
   version?: string | null;
@@ -54,9 +67,13 @@ export function ChatGptSetup({
   onSignOut,
   onConfirmDataSettings,
   onOpenDataControls,
+  welcome = false,
+  onManageUsage,
+  onWelcomeDone,
   onClose,
   version = null
 }: Props): React.JSX.Element {
+  const welcomeId = useId();
   const card = chatGptSetupStatus(status, waiting);
   const signedIn = status?.signedIn === true;
   const canSignIn = status?.encryptionAvailable !== false;
@@ -71,6 +88,16 @@ export function ChatGptSetup({
     }
     wasWaiting.current = waiting;
   }, [waiting]);
+
+  /* Got it takes the welcome away with the focus on it: the focus goes back
+     to the account button too (codex.3). */
+  const hadWelcome = useRef(welcome);
+  useEffect(() => {
+    if (hadWelcome.current && !welcome && document.activeElement === document.body) {
+      accountButton.current?.focus();
+    }
+    hadWelcome.current = welcome;
+  }, [welcome]);
 
   return (
     <div
@@ -138,6 +165,33 @@ export function ChatGptSetup({
             </div>
           ) : null}
         </section>
+
+        {/* OpenAI's welcome after the first sign-in with the plan's use
+            (its UI guidelines, Appendix A), inline rather than a modal: the
+            view is already where the sign-in was made. Got it puts it away
+            for good (`PLAN_WELCOME_HINT`). */}
+        {welcome ? (
+          <section
+            className="setup__section chatgpt-welcome"
+            aria-labelledby={`${welcomeId}-title`}
+            data-testid="chatgpt-plan-welcome"
+          >
+            <h2 id={`${welcomeId}-title`}>{PLAN_WELCOME_TITLE}</h2>
+            <p>{PLAN_WELCOME_TEXT}</p>
+            <div className="chatgpt-welcome__actions">
+              {onManageUsage ? (
+                <button type="button" onClick={onManageUsage}>
+                  {MANAGE_USAGE_BUTTON}
+                </button>
+              ) : null}
+              {onWelcomeDone ? (
+                <button type="button" className="primary" onClick={onWelcomeDone}>
+                  {PLAN_WELCOME_DONE}
+                </button>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
 
         <DataSettingsWarning
           status={status}

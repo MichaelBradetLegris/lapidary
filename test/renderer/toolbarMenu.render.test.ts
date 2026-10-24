@@ -59,7 +59,7 @@ function render(review: Review | null, running = false, saving = false, singleSc
       saving,
       sideFolded: false,
       singleScreen,
-      onReviewWithAi: noop,
+      onReviewWith: noop,
       onCancelReview: noop,
       onManualReview: noop,
       onSaveChapter: noop,

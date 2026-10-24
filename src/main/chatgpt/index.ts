@@ -3,31 +3,40 @@ import {
   CALLBACK_CANCELLED,
   CALLBACK_NOT_OURS,
   CALLBACK_SIGNED_IN,
+  CHATGPT_REVIEW_FAILURES,
   NO_ENCRYPTION_TEXT,
   SIGN_IN_WAIT_MINUTES,
   callbackFailedPage,
+  notSignedInText,
+  renewRefusedText,
+  renewServerText,
   signInFailureMessage,
+  type NotSignedInReason,
   type SignInFailure
 } from '../../shared/ui/chatgpt';
 import { fail, type AppFailure } from '../errors';
 import type { Logger } from '../log';
 import { safely, type KeyVault } from '../secrets';
 import type { ShellApi } from '../shellApi';
-import { checkIdToken } from './idToken';
+import { checkIdToken, readIdTokenIdentity } from './idToken';
 import { openLoopback, type Callback } from './loopback';
 import {
   DYNAMIC_CLIENT_ID,
+  ENDED_REFRESH_ERRORS,
   REQUEST_TIMEOUT_MS,
   authEndpoints,
   authorizationUrl,
   codeExchangeFields,
   getJson,
   grantsPlan,
+  needsRenewal,
   newAttempt,
   oauthError,
   postForm,
   readCallback,
+  readRefreshAnswer,
   readTokenAnswer,
+  refreshFields,
   revokeRefreshToken,
   sameSecret,
   type Fetch,
@@ -43,7 +52,10 @@ import {
   sessionRegistration,
   updateChatGpt,
   withRegistration,
-  type ChatGptSecrets
+  type ChatGptSecrets,
+  type Registration,
+  type Session,
+  type SessionTokens
 } from './store';
 
 /**
@@ -59,6 +71,10 @@ import {
  * secrets.json (store.ts). A new sign-in, Cancel, Sign out or quitting ends
  * the one waiting. Sign out asks OpenAI to end the sign-in, then removes it
  * here whatever OpenAI answered, keeping the registration and the host id.
+ * Since codex.3 a review asks for the access token (`accessToken`), which is
+ * renewed with the refresh token, one renewal at a time, when it has ended or
+ * OpenAI has refused it; a refresh token OpenAI no longer takes ends the
+ * sign-in here, so the page shows it as not signed in.
  *
  * The log (CLAUDE.md rule 9) gets what happened and why, as fixed words:
  * never a token, the code, the client id, the state, the nonce, the
@@ -92,6 +108,16 @@ export interface ChatGptAuthDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
+export interface AccessTokenOptions {
+  /** ends this caller's wait for a renewal, which goes on and is kept */
+  signal?: AbortSignal;
+  /**
+   * the token OpenAI's API just refused with a 401: it is renewed even when
+   * its end is not near, unless the kept token is already another one
+   */
+  rejected?: string;
+}
+
 export interface ChatGptAuth {
   status(): Promise<ChatGptStatus>;
   /** resolves once signed in; rejects with `cancelled`, or with the reason the sign-in did not finish */
@@ -100,6 +126,16 @@ export interface ChatGptAuth {
   cancelSignIn(): void;
   signOut(): Promise<ChatGptSignOut>;
   confirmDataSettings(confirmed: boolean): Promise<ChatGptStatus>;
+  /**
+   * The bearer for a request to OpenAI's API with the plan (codex.3, PLAN
+   * 5.8): the kept access token, or a renewed one when it has ended or is
+   * about to, or when OpenAI refused it (`rejected`). Rejects with
+   * `chatgpt-not-signed-in` when no sign-in is kept, or when OpenAI says the
+   * kept one has ended, which removes it; with `chatgpt-server` or
+   * `chatgpt-failed` when a renewal could not be made, which keeps it. Never
+   * logged, and never sent to the page.
+   */
+  accessToken(options?: AccessTokenOptions): Promise<string>;
 }
 
 /** A sign-in that did not finish, with the fixed word the log gets. */
@@ -487,5 +523,204 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
     return status();
   }
 
-  return { status, signIn, cancelSignIn, signOut, confirmDataSettings };
+  /* ---------------- the access token, for reviews (codex.3) ---------------- */
+
+  function notSignedIn(reason: NotSignedInReason): AppFailure {
+    return fail('chatgpt-not-signed-in', notSignedInText(reason));
+  }
+
+  /**
+   * The renewal under way, shared by every request that waits on one, so a
+   * sign-in's refreshes are made one at a time, as OpenAI's page on sessions
+   * asks: refresh tokens rotate, and a second refresh with the same one would
+   * be refused as reused.
+   */
+  let renewing: Promise<string> | null = null;
+
+  /**
+   * A renewal secrets.json would not take, as while a sync, backup or
+   * antivirus tool held it: OpenAI had rotated the refresh token by then, so
+   * it is kept for the run, under the sign-in it renewed, and written with
+   * the next request rather than lost.
+   */
+  let held: { from: string; ciphertext: string; plan: string | null } | null = null;
+
+  /** Write a renewal over the sign-in it renewed, only while that is still the one kept. */
+  function keepRenewal(from: string, ciphertext: string, plan: string | null): Promise<ChatGptSecrets> {
+    return keep(() =>
+      updateChatGpt(deps.userDataDir(), (c) =>
+        c.session && c.session.ciphertext === from
+          ? {
+              ...c,
+              session: {
+                ...c.session,
+                ciphertext,
+                plan: plan ?? c.session.plan,
+                savedAt: now().toISOString()
+              }
+            }
+          : c
+      )
+    );
+  }
+
+  async function accessToken(options: AccessTokenOptions = {}): Promise<string> {
+    const dir = deps.userDataDir();
+    // Checked: a sign-in that cannot be read is not one that is not there.
+    const secrets = remember(await readChatGptChecked(dir));
+    const session = secrets.session;
+    const registration = sessionRegistration(secrets);
+    if (!session || !registration) throw notSignedIn('signed-out');
+    let ciphertext = session.ciphertext;
+    if (held?.from === session.ciphertext) {
+      const pending = held;
+      try {
+        const written = await keepRenewal(pending.from, pending.ciphertext, pending.plan);
+        if (written.session?.ciphertext === pending.ciphertext) held = null;
+      } catch {
+        // Still held: written with the next request.
+      }
+      ciphertext = pending.ciphertext;
+    }
+    const tokens = openTokens(deps.vault, ciphertext);
+    if (!tokens) throw fail('chatgpt-failed', CHATGPT_REVIEW_FAILURES.unreadable);
+    const refused = options.rejected !== undefined && sameSecret(options.rejected, tokens.accessToken);
+    if (!refused && !needsRenewal(tokens.expiresAt, now())) return tokens.accessToken;
+    renewing ??= renew(session, registration, tokens).finally(() => {
+      renewing = null;
+    });
+    return options.signal ? untilAborted(renewing, options.signal) : renewing;
+  }
+
+  /**
+   * Renew the access token with the refresh token (OpenAI's page on
+   * sessions): kept, encrypted, in place of the old ones only while the kept
+   * sign-in is still the one renewed. An answer that says the refresh token
+   * can no longer be used ends the sign-in here; one that came for another
+   * account, or without the plan's scope, is ended at OpenAI and not kept.
+   * No answer or an error status keeps the sign-in: OpenAI's page says not
+   * to drop one for a failure of the network or of its servers. Logged as
+   * `chatgpt.refresh` with fixed words, never a token.
+   */
+  async function renew(session: Session, registration: Registration, tokens: SessionTokens): Promise<string> {
+    const started = now().getTime();
+    const dir = deps.userDataDir();
+    const logRenewal = (
+      outcome: 'done' | 'ended' | 'failed',
+      fields: Record<string, string | number> = {}
+    ): void =>
+      deps.log(outcome === 'done' ? 'info' : 'warn', 'chatgpt.refresh', {
+        outcome,
+        ...fields,
+        durationMs: now().getTime() - started
+      });
+    /** The kept sign-in is still the one being renewed: not signed out, nor signed in anew, meanwhile. */
+    const same = (c: ChatGptSecrets): boolean => c.session?.ciphertext === session.ciphertext;
+
+    if (!tokens.refreshToken) {
+      await keep(() => updateChatGpt(dir, (c) => (same(c) ? { ...c, session: null } : c)));
+      logRenewal('ended', { reason: 'no-refresh-token' });
+      throw notSignedIn('ended');
+    }
+
+    const endpoints = authEndpoints(deps.authBase());
+    // Not the caller's signal: a renewal cut short after OpenAI had rotated
+    // the refresh token would lose the sign-in. Quitting still ends it.
+    const controller = new AbortController();
+    const release = deps.track?.(controller) ?? ((): void => undefined);
+    let answer: FormAnswer;
+    try {
+      answer = await postForm(
+        deps.fetch,
+        endpoints.token,
+        refreshFields(session.clientId, tokens.refreshToken),
+        controller.signal
+      );
+    } catch {
+      logRenewal('failed', { reason: 'no-answer' });
+      throw fail('chatgpt-server', CHATGPT_REVIEW_FAILURES.renewNoAnswer);
+    } finally {
+      release();
+    }
+
+    if (answer.status !== 200) {
+      const error = oauthError(answer.json);
+      if (answer.status >= 400 && answer.status < 500 && error !== null && ENDED_REFRESH_ERRORS.has(error)) {
+        // Ended: the registration stays, but one OpenAI no longer knows is not offered again.
+        await keep(() =>
+          updateChatGpt(dir, (c) =>
+            same(c)
+              ? {
+                  ...c,
+                  session: null,
+                  lastClientId:
+                    error === 'invalid_client' && c.lastClientId === session.clientId ? null : c.lastClientId
+                }
+              : c
+          )
+        );
+        logRenewal('ended', { reason: error, status: answer.status });
+        throw notSignedIn('ended');
+      }
+      logRenewal('failed', { reason: answer.status >= 500 ? 'server' : 'refused', status: answer.status });
+      throw answer.status >= 500
+        ? fail('chatgpt-server', renewServerText(answer.status))
+        : fail('chatgpt-failed', renewRefusedText(answer.status));
+    }
+
+    const renewed = readRefreshAnswer(answer.json, now(), tokens);
+    if (!renewed) {
+      logRenewal('failed', { reason: 'malformed' });
+      throw fail('chatgpt-failed', CHATGPT_REVIEW_FAILURES.renewMalformed);
+    }
+    const identity = renewed.idToken === tokens.idToken ? null : readIdTokenIdentity(renewed.idToken);
+    const otherAccount =
+      identity !== null && registration.subject !== null && identity.subject !== registration.subject;
+    if (otherAccount || !grantsPlan(renewed.scope)) {
+      await letGo(session.clientId, renewed.refreshToken, new AbortController().signal);
+      await keep(() =>
+        updateChatGpt(dir, (c) => {
+          if (!same(c)) return c;
+          const kept = c.registrations.find((r) => r.clientId === session.clientId);
+          // Without the plan's use, the next sign-in asks OpenAI's page for consent again (5.7 item 5).
+          return otherAccount || !kept
+            ? { ...c, session: null }
+            : {
+                ...c,
+                session: null,
+                registrations: withRegistration(c.registrations, { ...kept, consentNeeded: true })
+              };
+        })
+      );
+      logRenewal('ended', { reason: otherAccount ? 'other-account' : 'no-plan-use' });
+      throw notSignedIn(otherAccount ? 'ended' : 'no-plan-use');
+    }
+
+    const ciphertext = sealTokens(deps.vault, renewed);
+    const plan = identity?.plan ?? null;
+    let written: ChatGptSecrets;
+    try {
+      written = await keepRenewal(session.ciphertext, ciphertext, plan);
+    } catch {
+      // OpenAI has rotated the refresh token: held for the run and written with the next request.
+      held = { from: session.ciphertext, ciphertext, plan };
+      logRenewal('done', { kept: 'later' });
+      return renewed.accessToken;
+    }
+    if (written.session?.ciphertext !== ciphertext) {
+      // Signed out, or signed in anew, while OpenAI answered: this renewal is not kept, so OpenAI ends it.
+      await letGo(session.clientId, renewed.refreshToken, new AbortController().signal);
+      logRenewal('ended', { reason: written.session ? 'replaced' : 'signed-out' });
+      // A sign-in made meanwhile has a token of its own, fresh, for the request.
+      const fresh = written.session ? openTokens(deps.vault, written.session.ciphertext) : null;
+      if (fresh && !needsRenewal(fresh.expiresAt, now())) return fresh.accessToken;
+      throw notSignedIn('signed-out');
+    }
+    // Written: any renewal held from before is behind this one.
+    held = null;
+    logRenewal('done');
+    return renewed.accessToken;
+  }
+
+  return { status, signIn, cancelSignIn, signOut, confirmDataSettings, accessToken };
 }

@@ -85,11 +85,26 @@ describe('every layout has the cards, the dialogs and the question (setup.7)', (
 
 describe('gating and entry points (setup.7)', () => {
   it('opens Setup from Review with AI only when reviewGate says so', () => {
-    const open = APP.slice(APP.indexOf('const openReviewDialog = '), APP.indexOf('const startReview = '));
+    const open = APP.slice(APP.indexOf('const openReviewFor = '), APP.indexOf('const startReview = '));
     expect(open).toMatch(
       /if \(provider === 'claude' && reviewGate\(claudeRuntime\) === 'setup'\) \{\s*openSetup\(\);\s*return;\s*\}/
     );
     expect(open).not.toContain("state !== 'ready'");
+    // codex.3: the Review menu's item makes its provider the dialog's, and Setup's
+    // Try the review anyway opens the dialog on the provider already chosen.
+    expect(open).toContain('void chooseReviewProvider(provider, SETTINGS_WRITE_IO);');
+    expect(open).toMatch(
+      /const openReviewDialog = useCallback\(\s*\(\) => openReviewFor\(useApp\.getState\(\)\.settings\?\.provider \?\? 'claude'\),\s*\[openReviewFor\]\s*\);/
+    );
+    expect(APP).toContain('onReviewWith={openReviewFor}');
+  });
+
+  it("opens ChatGPT's view in place of the dialog only when no ChatGPT sign-in is kept (codex.3)", () => {
+    const open = APP.slice(APP.indexOf('const openReviewFor = '), APP.indexOf('const startReview = '));
+    // Before main has answered, the dialog opens, its account line saying "not read yet".
+    expect(open).toMatch(
+      /if \(provider === 'chatgpt' && chatgpt\.status !== null && !chatgpt\.status\.signedIn\) \{\s*openChatGptSetup\(\);\s*return;\s*\}/
+    );
   });
 
   it('opens Setup from the card, the status bar, Settings and the dialog, and withdraws the launch card', () => {
@@ -100,7 +115,10 @@ describe('gating and entry points (setup.7)', () => {
     expect(openSetup).toContain('dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);');
     expect(openSetup).toContain('setSetupOpen(true);');
     expect(APP).toMatch(/case 'open-setup':\s*openSetup\(\);/);
-    expect(APP).toContain("onRuntime: activeProvider === 'claude' ? openSetup : openSettings,");
+    // codex.3: ChatGPT's label opens its own view.
+    expect(APP).toMatch(
+      /onRuntime:\s*activeProvider === 'claude'\s*\?\s*openSetup\s*:\s*activeProvider === 'chatgpt'\s*\?\s*openChatGptSetup\s*:\s*openSettings,/
+    );
     expect(APP).toContain('runtimeTitle: runtimeButtonTitle(activeProvider)');
     expect(APP.match(/onOpenSetup=\{openSetup\}/g)).toHaveLength(2);
   });
@@ -114,7 +132,9 @@ describe('gating and entry points (setup.7)', () => {
     );
     expect(openChatGpt).toMatch(/setSetupFor\('chatgpt'\);\s*setSetupOpen\(true\);/);
     expect(openChatGpt).not.toContain('CLAUDE_RUNTIME_CARD');
-    expect(APP.match(/onOpenChatGptSetup=\{openChatGptSetup\}/g)).toHaveLength(1);
+    // Settings' row and, since codex.3, Review with AI's account row; and the welcome guide's step.
+    expect(APP.match(/onOpenChatGptSetup=\{openChatGptSetup\}/g)).toHaveLength(2);
+    expect(APP.match(/onSetUpChatGpt=\{openChatGptSetup\}/g)).toHaveLength(1);
     expect(SETUP).toMatch(
       /<ChatGptSetup\s+status=\{chatgpt\.status\}\s+waiting=\{chatgpt\.waiting\}\s+busy=\{chatgpt\.busy\}\s+outcome=\{chatgpt\.outcome\}/
     );
@@ -167,8 +187,10 @@ describe('gating and entry points (setup.7)', () => {
   it('tells the review dialog the last failure, for its warning, and how to open Setup', () => {
     expect(APP).toMatch(/claudeLastFailure=\{ai\.lastFailure\}\s*onOpenSetup=\{openSetup\}/);
     const dialog = read('components/ReviewDialog.tsx');
+    // Claude's alone since codex.3: ChatGPT and OpenAI have none.
+    expect(dialog).toContain("const isClaude = provider === 'claude';");
     expect(dialog).toContain(
-      'const claudeWarning = isOpenAi ? null : reviewDialogWarning(runtime, claudeLastFailure);'
+      'const claudeWarning = isClaude ? reviewDialogWarning(runtime, claudeLastFailure) : null;'
     );
   });
 });
@@ -254,9 +276,16 @@ describe('Test the connection, from the button to main and back (setup.8)', () =
 
 describe("Claude's usage on the page (setup.9)", () => {
   it('words the notice in the status bar while Claude is in use, and gives Setup the notice too', () => {
-    expect(APP).toContain('const usageNotice = claudeInUse ? ai.rateLimit : null;');
+    // The ChatGPT plan's notice in its place while ChatGPT is in use (codex.3).
+    expect(APP).toContain(
+      'const usageNotice = chatGptInUse ? ai.chatGptRateLimit : claudeInUse ? ai.rateLimit : null;'
+    );
     expect(APP).toContain("const claudeSetupOpen = setupOpen && setupFor === 'claude';");
     expect(APP).toContain("const claudeInUse = activeProvider === 'claude' || claudeSetupOpen;");
+    expect(APP).toContain("const chatGptSetupOpen = setupOpen && setupFor === 'chatgpt';");
+    expect(APP).toContain(
+      "const chatGptInUse = chatGptSetupOpen || (activeProvider === 'chatgpt' && !claudeSetupOpen);"
+    );
     expect(SETUP).toMatch(
       /testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*rateLimit=\{ai\.rateLimit\}\s*(onCopyDiagnostics=\{\(\) => setDiagnosticsOpen\('copy'\)\}\s*)?(version=\{updateStatus\?\.current \?\? null\}\s*)?\/>/
     );
@@ -292,15 +321,17 @@ describe("Claude's usage on the page (setup.9)", () => {
       /const event = failureSetupEvent\(err\.code, err\.message, rateLimitNow\.current, claudeRuntime\.current\);\s*setLastFailure\(\(prev\) => nextLastFailure\(prev, event\)\);/
     );
     expect(ai.match(/type: 'failure'/g)).toBeNull();
+    // A ChatGPT plan's notice is kept apart, never as Claude's (codex.3).
     expect(ai).toMatch(
-      /window\.api\.on\('ai:rate-limit', \(info\) => \{\s*rateLimitNow\.current = info;\s*setRateLimit\(info\);\s*\}\);/
+      /window\.api\.on\('ai:rate-limit', \(info\) => \{\s*if \(info\.provider === 'chatgpt'\) \{\s*chatGptRateLimitNow\.current = info;\s*setChatGptRateLimit\(info\);\s*return;\s*\}\s*rateLimitNow\.current = info;\s*setRateLimit\(info\);\s*\}\);/
     );
     expect(ai).toMatch(
-      /if \(response\.rateLimit\) \{\s*rateLimitNow\.current = response\.rateLimit;\s*setRateLimit\(response\.rateLimit\);\s*\}/
+      /if \(response\.rateLimit\?\.provider === 'chatgpt'\) \{\s*chatGptRateLimitNow\.current = response\.rateLimit;\s*setChatGptRateLimit\(response\.rateLimit\);\s*\} else if \(response\.rateLimit\) \{\s*rateLimitNow\.current = response\.rateLimit;\s*setRateLimit\(response\.rateLimit\);\s*\}/
     );
     expect(ai).toContain('const latestRateLimit = useCallback(() => rateLimitNow.current, []);');
     expect(ai.match(/setRateLimit\(/g)).toHaveLength(3);
     expect(ai.match(/rateLimitNow\.current = /g)).toHaveLength(3);
+    expect(ai.match(/chatGptRateLimitNow\.current = /g)).toHaveLength(2);
   });
 });
 

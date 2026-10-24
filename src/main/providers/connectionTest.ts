@@ -28,6 +28,8 @@ export const CONNECTION_TEST_PROMPT = 'This is a connection test.';
 /** The code a test that failed in an unforeseen way, or ran out of time, reports for each provider. */
 const FAILED: Readonly<Record<ReviewProvider['id'], ErrorCode>> = {
   claude: 'claude-failed',
+  // ChatGPT has no connection test (codex.3); its code is here for a provider list that is whole.
+  chatgpt: 'chatgpt-failed',
   openai: 'openai-failed'
 };
 

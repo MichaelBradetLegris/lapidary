@@ -196,7 +196,7 @@ export function migrateReview(review: Review): Review {
 
 /** The provider a generator kind implies, for a model-written review. */
 function providerForKind(kind: GeneratorKind): Provider | undefined {
-  return kind === 'claude' || kind === 'openai' ? kind : undefined;
+  return kind === 'claude' || kind === 'chatgpt' || kind === 'openai' ? kind : undefined;
 }
 
 /**

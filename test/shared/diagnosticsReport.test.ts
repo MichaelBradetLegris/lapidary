@@ -33,6 +33,14 @@ const openAiRuntime: RuntimeStatus = {
   email: 'ann@example.com'
 };
 
+/** The ChatGPT sign-in as its last check found it (codex.3): a message that must never reach the report. */
+const chatGptRuntime: RuntimeStatus = {
+  provider: 'chatgpt',
+  state: 'ready',
+  plan: 'Plus',
+  message: 'Signed in as ann@example.com'
+};
+
 function data(patch: Partial<DiagnosticsData> = {}): DiagnosticsData {
   return {
     madeAt: '2026-10-20T08:30:00.000Z',
@@ -62,7 +70,7 @@ function data(patch: Partial<DiagnosticsData> = {}): DiagnosticsData {
       window: { width: 1440, height: 940, maximized: false },
       gpuCompositing: 'enabled'
     },
-    settings: { provider: 'claude', model: 'default', openaiModel: '', effort: 'high' },
+    settings: { provider: 'claude', model: 'default', chatgptModel: '', openaiModel: '', effort: 'high' },
     claude: [
       'Claude: ready (subscription)',
       `Claude Code: 2.1.302 at ${HOME}\\.local\\bin\\claude.exe`,
@@ -72,6 +80,7 @@ function data(patch: Partial<DiagnosticsData> = {}): DiagnosticsData {
       'Checked: 2026-10-20T08:00:00.000Z',
       'Last failure: none'
     ],
+    chatgpt: { runtime: chatGptRuntime, lastFailure: null },
     openai: { runtime: openAiRuntime, lastFailure: null },
     folders: {
       manuscript: `${HOME}\\OneDrive\\Vault\\Novel`,
@@ -160,7 +169,16 @@ describe('diagnosticsReport', () => {
   it('starts with the title, what it leaves out and when it was made, then the sections in order', () => {
     const lines = text.split('\n');
     expect(lines.slice(0, 3)).toEqual([REPORT_TITLE, REPORT_PROMISE, 'Made: 2026-10-20T08:30:00.000Z']);
-    const titles = ['App', 'Display', 'Reviews', 'Claude', 'OpenAI', 'Manuscript folder', 'Recent warnings'];
+    const titles = [
+      'App',
+      'Display',
+      'Reviews',
+      'Claude',
+      'ChatGPT',
+      'OpenAI',
+      'Manuscript folder',
+      'Recent warnings'
+    ];
     expect(reportSections(data()).map((s) => s.title)).toEqual(titles);
     let at = 0;
     for (const title of titles) {
@@ -256,7 +274,13 @@ describe('diagnosticsReport', () => {
     expect(text).toContain('  Log file: writing');
     const other = diagnosticsReport(
       data({
-        settings: { provider: 'openai', model: 'opus', openaiModel: 'gpt-5-mini', effort: 'low' },
+        settings: {
+          provider: 'openai',
+          model: 'opus',
+          chatgptModel: 'gpt-5.5',
+          openaiModel: 'gpt-5-mini',
+          effort: 'low'
+        },
         switches: ['isolated user data', 'quiet window'],
         logWriting: false,
         info: { ...data().info, packaged: true }

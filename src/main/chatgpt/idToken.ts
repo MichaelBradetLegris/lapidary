@@ -87,6 +87,24 @@ function forClient(payload: Record<string, unknown>, clientId: string): boolean 
   return Array.isArray(aud) && aud.includes(clientId);
 }
 
+/**
+ * The account and the plan an ID token names, read without its checks, or
+ * null when it names no account. For the ID token a renewal of the access
+ * token brings (codex.3): it comes straight from OpenAI's token endpoint, in
+ * answer to the app's own request over HTTPS, and carries no nonce of an
+ * attempt to check, so its account is compared with the kept sign-in's
+ * before the renewal is kept, and its plan replaces the kept one.
+ */
+export function readIdTokenIdentity(token: string): IdTokenIdentity | null {
+  const pieces = token.split('.');
+  if (pieces.length !== 3) return null;
+  const payload = part(pieces[1] ?? '');
+  const subject = payload?.['sub'];
+  if (!payload || typeof subject !== 'string' || subject.length === 0) return null;
+  const auth = payload[AUTH_CLAIM];
+  return { subject, plan: isRecord(auth) ? chatGptPlanLabel(auth['chatgpt_plan_type']) : null };
+}
+
 export function checkIdToken(token: string, jwks: unknown, expected: IdTokenExpectations): IdTokenCheck {
   const pieces = token.split('.');
   if (pieces.length !== 3) return { ok: false, problem: 'shape' };

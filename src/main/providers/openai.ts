@@ -1,5 +1,7 @@
 import { APIConnectionError, APIError, APIUserAbortError, OpenAI, type ClientOptions } from 'openai';
 import type { ModelInfo, ReviewRequest, RuntimeStatus } from '../../shared/ipc';
+import type { ReviewOutput } from '../../shared/prompt/schema';
+import type { ErrorCode } from '../../shared/types';
 import {
   defaultOpenAiModel,
   estimateTokens,
@@ -160,60 +162,9 @@ export function createOpenAiProvider(deps: OpenAiDeps): ReviewProvider {
     onTokens: (tokens: number) => void,
     facts: ChapterFacts
   ): Promise<StreamedReply> {
-    const reply: StreamedReply = { text: '', usage: undefined, model, completed: false, problem: null };
-
-    const stream = await api.responses.create(
-      {
-        model,
-        instructions: buildSystemPrompt(request.guidelines),
-        input: renderChapter(request.text, chapterName(request.sourcePath) || 'chapter'),
-        reasoning: { effort: toOpenAiEffort(request.effort) },
-        text: {
-          format: { type: 'json_schema', name: SCHEMA_NAME, schema: STRICT_SCHEMA, strict: true }
-        },
-        // Nothing about this chapter needs to live on OpenAI's side.
-        store: false,
-        stream: true
-      },
-      { signal: hooks.signal }
-    );
-
+    const stream = await api.responses.create(reviewRequestBody(request, model), { signal: hooks.signal });
     hooks.onProgress('thinking');
-
-    for await (const event of stream) {
-      switch (event.type) {
-        case 'response.output_text.delta': {
-          reply.text += event.delta;
-          // Exact counts arrive with the final response; until then the label
-          // needs something that moves (shared/ai/openai.ts).
-          onTokens(estimateTokens(reply.text.length));
-          break;
-        }
-        case 'response.completed': {
-          reply.completed = true;
-          reply.usage = event.response.usage;
-          reply.model = event.response.model || model;
-          if (reply.text.length === 0) reply.text = outputTextOf(event.response);
-          if (event.response.usage?.output_tokens) onTokens(event.response.usage.output_tokens);
-          break;
-        }
-        case 'response.incomplete': {
-          reply.problem = incompleteFailure(event.response, model, facts);
-          break;
-        }
-        case 'response.failed': {
-          reply.problem = fail(
-            'openai-failed',
-            `OpenAI could not finish the review: ${event.response.error?.message ?? 'the model failed to answer'}`,
-            event.response.error?.code ?? undefined
-          );
-          break;
-        }
-        default:
-          break;
-      }
-    }
-    return reply;
+    return readReplyStream(stream, model, onTokens, facts, OPENAI_STREAM_CODES);
   }
 
   async function review(request: ReviewRequest, hooks: ProviderHooks): Promise<ProviderResult> {
@@ -241,31 +192,11 @@ export function createOpenAiProvider(deps: OpenAiDeps): ReviewProvider {
         throw mapOpenAiError(err, 'review the chapter', { ...facts, who: model });
       }
 
-      // An abort can also end the stream quietly rather than by throwing.
-      if (hooks.signal.aborted) throw fail('cancelled', 'Review cancelled.');
-      if (reply.problem) throw reply.problem;
-      if (!reply.completed) {
-        throw fail(
-          'openai-server',
-          'The connection to OpenAI closed before the review was finished. Try again.'
-        );
-      }
-
-      hooks.onProgress('parsing', tokens);
-      const parsed = parseOpenAiText(reply.text);
-      if (!parsed.ok || !parsed.value) {
-        const problem = (parsed.problem ?? 'unknown problem').slice(0, 160);
-        throw fail(
-          'openai-invalid-output',
-          `${reply.model} answered but the response did not match the expected shape (${problem}). Try again, or pick another model.`,
-          parsed.problem
-        );
-      }
-
+      const parsed = checkedReply(reply, hooks, tokens, OPENAI_REPLY_CODES);
       const counts = tokenCounts(reply.usage);
       const cost = counts ? estimateCostUsd(reply.model, counts) : null;
       return {
-        output: parsed.value,
+        output: parsed.output,
         raw: parsed.raw,
         model: reply.model,
         ...(reply.usage === undefined ? {} : { usage: reply.usage }),
@@ -308,11 +239,148 @@ export function createOpenAiProvider(deps: OpenAiDeps): ReviewProvider {
 }
 
 /* ------------------------------------------------------------------ */
+/* The request and the stream, shared with ChatGPT's (codex.3)         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The review's request (5.0): the system prompt as `instructions`, the
+ * numbered chapter as `input`, the strict schema as `text.format`, the
+ * effort as `reasoning.effort`, `store: false` and `stream: true`. A ChatGPT
+ * review sends the same (codex.3), but for `input`, which OpenAI's page on
+ * this route asks for as a list of messages (`inputAsMessages`): the chapter
+ * as the one user message.
+ */
+export function reviewRequestBody(
+  request: ReviewRequest,
+  model: string,
+  inputAsMessages = false
+): OpenAI.Responses.ResponseCreateParamsStreaming {
+  const chapter = renderChapter(request.text, chapterName(request.sourcePath) || 'chapter');
+  return {
+    model,
+    instructions: buildSystemPrompt(request.guidelines),
+    input: inputAsMessages ? [{ role: 'user', content: chapter }] : chapter,
+    reasoning: { effort: toOpenAiEffort(request.effort) },
+    text: {
+      format: { type: 'json_schema', name: SCHEMA_NAME, schema: STRICT_SCHEMA, strict: true }
+    },
+    // Nothing about this chapter needs to live on OpenAI's side.
+    store: false,
+    stream: true
+  };
+}
+
+/** What a stream's own failures are called: the API key's, or ChatGPT's (codex.3). */
+export interface StreamCodes {
+  /** the failure a `response.failed` event stands for */
+  failed: (error: { code?: string | null; message?: string | null } | null | undefined) => AppFailure;
+  /** the code of a reply that ended `incomplete` */
+  incomplete: ErrorCode;
+}
+
+const OPENAI_STREAM_CODES: StreamCodes = {
+  failed: (error) =>
+    fail(
+      'openai-failed',
+      `OpenAI could not finish the review: ${error?.message ?? 'the model failed to answer'}`,
+      error?.code ?? undefined
+    ),
+  incomplete: 'openai-failed'
+};
+
+/**
+ * Read a review's stream to its end: the text as it comes, which drives the
+ * progress label with an estimated count, then the usage and the model once
+ * `response.completed` arrives; an `incomplete` or `failed` response is kept
+ * as the failure to throw once the stream has been drained.
+ */
+export async function readReplyStream(
+  stream: AsyncIterable<OpenAI.Responses.ResponseStreamEvent>,
+  model: string,
+  onTokens: (tokens: number) => void,
+  facts: ChapterFacts,
+  codes: StreamCodes
+): Promise<StreamedReply> {
+  const reply: StreamedReply = { text: '', usage: undefined, model, completed: false, problem: null };
+  for await (const event of stream) {
+    switch (event.type) {
+      case 'response.output_text.delta': {
+        reply.text += event.delta;
+        // Exact counts arrive with the final response; until then the label
+        // needs something that moves (shared/ai/openai.ts).
+        onTokens(estimateTokens(reply.text.length));
+        break;
+      }
+      case 'response.completed': {
+        reply.completed = true;
+        reply.usage = event.response.usage;
+        reply.model = event.response.model || model;
+        if (reply.text.length === 0) reply.text = outputTextOf(event.response);
+        if (event.response.usage?.output_tokens) onTokens(event.response.usage.output_tokens);
+        break;
+      }
+      case 'response.incomplete': {
+        reply.problem = incompleteFailure(event.response, model, facts, codes.incomplete);
+        break;
+      }
+      case 'response.failed': {
+        reply.problem = codes.failed(event.response.error);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return reply;
+}
+
+/** The codes of a finished stream's failures: the connection closed early, or a reply of the wrong shape. */
+export interface ReplyCodes {
+  /** the stream ended without `response.completed` */
+  closed: ErrorCode;
+  /** the reply did not match the schema; its message names the model, never the reply */
+  invalidOutput: ErrorCode;
+}
+
+const OPENAI_REPLY_CODES: ReplyCodes = { closed: 'openai-server', invalidOutput: 'openai-invalid-output' };
+
+/**
+ * A drained stream, checked and parsed: cancelled when the review was, the
+ * stream's own failure, a stream that closed before `response.completed`,
+ * or a reply that does not match the schema, else the parsed output. Says
+ * "parsing" to the progress label first.
+ */
+export function checkedReply(
+  reply: StreamedReply,
+  hooks: Pick<ProviderHooks, 'signal' | 'onProgress'>,
+  tokens: number,
+  codes: ReplyCodes
+): { output: ReviewOutput; raw: unknown } {
+  // An abort can also end the stream quietly rather than by throwing.
+  if (hooks.signal.aborted) throw fail('cancelled', 'Review cancelled.');
+  if (reply.problem) throw reply.problem;
+  if (!reply.completed) {
+    throw fail(codes.closed, 'The connection to OpenAI closed before the review was finished. Try again.');
+  }
+  hooks.onProgress('parsing', tokens);
+  const parsed = parseOpenAiText(reply.text);
+  if (!parsed.ok || !parsed.value) {
+    const problem = (parsed.problem ?? 'unknown problem').slice(0, 160);
+    throw fail(
+      codes.invalidOutput,
+      `${reply.model} answered but the response did not match the expected shape (${problem}). Try again, or pick another model.`,
+      parsed.problem
+    );
+  }
+  return { output: parsed.value, raw: parsed.raw };
+}
+
+/* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
 /** The chapter's words and the review's effort, which word a reply that ran out of room (files.10). */
-type ChapterFacts = Pick<ReplyLimitFacts, 'words' | 'effort'>;
+export type ChapterFacts = Pick<ReplyLimitFacts, 'words' | 'effort'>;
 
 /** The fields of an incomplete response read here. */
 interface IncompleteResponse {
@@ -328,38 +396,39 @@ interface IncompleteResponse {
  * the limit is the model's own and the tokens the reply had used when it
  * stopped are that limit; the words are `replyLimitMessage`'s. A content
  * filter, or any other reason, says what stopped it. OpenAI's reason stays in
- * `detail`.
+ * `detail`. `code` is ChatGPT's own for a review on the plan (codex.3).
  */
 export function incompleteFailure(
   response: IncompleteResponse,
   model: string,
-  facts: ChapterFacts
+  facts: ChapterFacts,
+  code: ErrorCode = 'openai-failed'
 ): AppFailure {
   const who = response.model || model;
   const reason = response.incomplete_details?.reason;
   if (reason === 'max_output_tokens') {
     const maxTokens = response.max_output_tokens ?? response.usage?.output_tokens;
     return fail(
-      'openai-failed',
+      code,
       replyLimitMessage('output', { ...facts, who, ...(maxTokens ? { maxTokens } : {}) }),
       reason
     );
   }
   if (reason === 'content_filter') {
     return fail(
-      'openai-failed',
+      code,
       `OpenAI's content filter stopped the reply from ${who} before it was finished, so no suggestions came back. Try again, or choose another model.`,
       reason
     );
   }
   return fail(
-    'openai-failed',
+    code,
     `OpenAI stopped the reply from ${who} before it was finished (${reason ?? 'no reason given'}), so no suggestions came back. Try again.`,
     reason
   );
 }
 
-interface StreamedReply {
+export interface StreamedReply {
   text: string;
   usage: unknown;
   /** the model that answered, which the API reports as a dated snapshot */
