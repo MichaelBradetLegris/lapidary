@@ -736,10 +736,10 @@ export function App(): React.JSX.Element {
       .catch((err: unknown) => notify('error', errorMessage(err)));
   }, [review, notify]);
 
-  /* Copy HTML (rr.1), under Copy result in Actions: the same text, as HTML for
+  /* Export HTML (rr.1), under Copy result in Actions: the same text, as HTML for
      Royal Road's chapter editor (`toRoyalRoadHtml`, PLAN C.111). Nothing is
      written anywhere but the clipboard. */
-  const copyHtml = useCallback(() => {
+  const exportHtml = useCallback(() => {
     if (!review) return;
     const html = toRoyalRoadHtml(composeReview(review));
     navigator.clipboard
@@ -1125,7 +1125,7 @@ export function App(): React.JSX.Element {
       onManualReview={openManualReview}
       onSaveChapter={saveChapter}
       onCopyResult={copyResult}
-      onCopyHtml={copyHtml}
+      onExportHtml={exportHtml}
       onShowBackups={() => revealBackups(review?.sourcePath)}
       onSettings={() => setSettingsOpen(true)}
       onSaveHintDone={() => void dismissHint(SAVE_HINT_ID, HINT_IO)}

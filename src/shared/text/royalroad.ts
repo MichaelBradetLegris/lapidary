@@ -2,7 +2,7 @@
  * Royal Road HTML (`rr.1`, PLAN C.111).
  *
  * `toRoyalRoadHtml` turns a chapter as it reads now into the HTML Royal Road's
- * chapter editor takes when it is pasted there: Copy HTML, in the Actions
+ * chapter editor takes when it is pasted there: Export HTML, in the Actions
  * menu, gives it the composed text (`composeReview`), so a pending suggestion
  * counts as its original, as it does for Copy result and Save to chapter.
  *

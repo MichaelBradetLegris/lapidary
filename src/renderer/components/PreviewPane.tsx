@@ -49,7 +49,7 @@ function draw(node: PreviewNode, key: number): ReactNode {
 
 /**
  * Preview (rr.2): the chapter as it reads now, every decision applied and no
- * suggestion marks, drawn from the HTML Copy HTML gives (`toRoyalRoadHtml`,
+ * suggestion marks, drawn from the HTML Export HTML gives (`toRoyalRoadHtml`,
  * rr.1) in a style near Royal Road's reader page, its paragraph spacing and a
  * serif of the app's own, in both themes, so the author sees the tight blocks,
  * the rules and the headings as readers will. Read-only, and nothing of Royal

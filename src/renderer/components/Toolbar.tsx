@@ -10,7 +10,7 @@ import {
   SHOW_ALL_CATEGORIES,
   suggestionChip
 } from '../../shared/ui/chips';
-import { COPY_HTML, COPY_HTML_TITLE } from '../../shared/ui/copy';
+import { EXPORT_HTML, EXPORT_HTML_TITLE } from '../../shared/ui/copy';
 import { ACTIONS_MENU, REVIEW_MENU, REVIEW_WITH_TITLES, reviewMenuLabel } from '../../shared/ui/menu';
 import { FINISH_FULL_EDIT_TITLE } from '../../shared/ui/modes';
 import { saveButtonInput, saveButtonState } from '../../shared/ui/save';
@@ -42,7 +42,7 @@ interface Props {
   onSaveChapter: () => void;
   onCopyResult: () => void;
   /** copy the text as it reads now as Royal Road HTML (`rr.1`), under Copy result */
-  onCopyHtml: () => void;
+  onExportHtml: () => void;
   /** open the chapter's backup folder (apply.11), from Actions since `polish.7` */
   onShowBackups: () => void;
   onSettings: () => void;
@@ -69,7 +69,7 @@ interface Props {
  * provider, Claude, ChatGPT and OpenAI (API key), each opening Review with AI
  * with that provider chosen (codex.3; one With AI until then), and Manual,
  * which opens Submit manual review; Actions, a menu
- * holding the three bulk actions, Copy result, Copy HTML under it since
+ * holding the three bulk actions, Copy result, Export HTML under it since
  * `rr.1`, and Show backups, which left the side panel's footer, and since
  * `polish.10` Accept all and Dismiss all of the category whose chip the focus
  * was last on, while it has not left the toolbar (`useChipFocus`,
@@ -104,7 +104,7 @@ export function Toolbar({
   onManualReview,
   onSaveChapter,
   onCopyResult,
-  onCopyHtml,
+  onExportHtml,
   onShowBackups,
   onSettings,
   onSaveHintDone
@@ -269,7 +269,7 @@ export function Toolbar({
           ...chipItems,
           ...categoryItems,
           { label: 'Copy result', onSelect: onCopyResult, separated: true },
-          { label: COPY_HTML, onSelect: onCopyHtml, title: COPY_HTML_TITLE },
+          { label: EXPORT_HTML, onSelect: onExportHtml, title: EXPORT_HTML_TITLE },
           { label: SHOW_BACKUPS, onSelect: onShowBackups, title: SHOW_BACKUPS_TITLE }
         ]}
       />

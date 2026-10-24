@@ -42,16 +42,16 @@ function declsFor(selector: string, css = CSS): Map<string, string> {
 
 /* polish.7: Show backups left the side panel's footer for the toolbar's
    Actions menu, where it is the last item, after Copy result, and since rr.1
-   after Copy HTML. */
+   after Export HTML. */
 describe('Show backups in the Actions menu (apply.11, polish.7)', () => {
-  it('is the last item of Actions, with its tooltip, after the bulk items, Copy result and Copy HTML', () => {
+  it('is the last item of Actions, with its tooltip, after the bulk items, Copy result and Export HTML', () => {
     const actions = TOOLBAR.slice(TOOLBAR.indexOf('label={ACTIONS_MENU}'), TOOLBAR.indexOf('ref={saveRef}'));
     const order = [
       "label: 'Accept all'",
       "label: 'Dismiss all'",
       "label: 'Reset'",
       "label: 'Copy result', onSelect: onCopyResult, separated: true",
-      'label: COPY_HTML, onSelect: onCopyHtml, title: COPY_HTML_TITLE',
+      'label: EXPORT_HTML, onSelect: onExportHtml, title: EXPORT_HTML_TITLE',
       'label: SHOW_BACKUPS, onSelect: onShowBackups, title: SHOW_BACKUPS_TITLE'
     ].map((needle) => {
       const i = actions.indexOf(needle);

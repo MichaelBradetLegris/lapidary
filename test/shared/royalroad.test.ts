@@ -5,7 +5,7 @@ import { composeReview } from '../../src/shared/diff/compose';
 import { createDiffReview } from '../../src/shared/review';
 import { TIGHT_P, toRoyalRoadHtml } from '../../src/shared/text/royalroad';
 
-/* rr.1: Royal Road HTML for Copy HTML. One group per rule of the task
+/* rr.1: Royal Road HTML for Export HTML. One group per rule of the task
    (PLAN M11, rr.1), the Obsidian sample chapter whole, the composed text, and
    two properties: the words a reader sees survive the conversion, and no
    chapter can put markup it did not mean into the page. What the converter
@@ -471,7 +471,7 @@ describe('the Obsidian sample chapter (files.9)', () => {
   });
 });
 
-describe('from the composed text (Copy HTML)', () => {
+describe('from the composed text (Export HTML)', () => {
   it('reads a pending suggestion as its original and an accepted one as its replacement, as Copy result does', () => {
     const review = createDiffReview({
       originalRaw: 'The river had began to climb.\n\nShe should of known.',

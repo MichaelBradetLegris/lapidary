@@ -1,5 +1,5 @@
 /**
- * Preview's page (rr.2): the HTML Copy HTML gives (`toRoyalRoadHtml`, rr.1)
+ * Preview's page (rr.2): the HTML Export HTML gives (`toRoyalRoadHtml`, rr.1)
  * read back into a tree the page draws with its own elements, so the author
  * sees the tight blocks, the rules, the headings and the rest as Royal Road's
  * readers will, and nothing of the chapter's can reach the page as markup.

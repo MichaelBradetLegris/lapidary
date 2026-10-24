@@ -100,7 +100,7 @@ const toolbar = (): string =>
       onManualReview: noop,
       onSaveChapter: noop,
       onCopyResult: noop,
-      onCopyHtml: noop,
+      onExportHtml: noop,
       onShowBackups: noop,
       onSettings: noop,
       onSaveHintDone: noop

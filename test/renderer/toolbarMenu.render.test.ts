@@ -64,7 +64,7 @@ function render(review: Review | null, running = false, saving = false, singleSc
       onManualReview: noop,
       onSaveChapter: noop,
       onCopyResult: noop,
-      onCopyHtml: noop,
+      onExportHtml: noop,
       onShowBackups: noop,
       onSettings: noop,
       onSaveHintDone: noop
@@ -96,7 +96,7 @@ describe('the toolbar holds Review, Actions, Save to chapter and Settings (polis
       'Submit manual review',
       'Bulk',
       'Copy result',
-      'Copy HTML',
+      'Export HTML',
       'Show backups'
     ]) {
       expect(html, gone).not.toContain(`>${gone}<`);
@@ -153,7 +153,7 @@ describe('the toolbar holds Review, Actions, Save to chapter and Settings (polis
     storeWith({ review: REVIEW, aiBusyPath: REVIEW.sourcePath });
     html = render(REVIEW, true);
     expect(byText(html, 'Review')).toContain('disabled');
-    // Copy result, Copy HTML and Show backups still work while the chapter is read-only.
+    // Copy result, Export HTML and Show backups still work while the chapter is read-only.
     expect(byText(html, 'Actions')).not.toContain('disabled');
   });
 });

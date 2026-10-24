@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { TIGHT_P, toRoyalRoadHtml } from '../../src/shared/text/royalroad';
 import { decodeEntities, previewText, previewTree, type PreviewNode } from '../../src/shared/ui/preview';
 
-/* rr.2: Preview reads the HTML Copy HTML gives back into a tree the page
+/* rr.2: Preview reads the HTML Export HTML gives back into a tree the page
    draws with its own elements: only what the converter writes is kept, each
    attribute it writes turned into a class or a plain value, and the words
    are the HTML's words. */

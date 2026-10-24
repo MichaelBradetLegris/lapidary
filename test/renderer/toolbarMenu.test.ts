@@ -35,7 +35,7 @@ describe("the menus' items (polish.7)", () => {
     expect(review).not.toContain('withAi');
   });
 
-  it('gives Actions the three bulk items, off while the chapter is read-only or a paragraph is open, then Copy result, Copy HTML and Show backups', () => {
+  it('gives Actions the three bulk items, off while the chapter is read-only or a paragraph is open, then Copy result, Export HTML and Show backups', () => {
     expect(TOOLBAR).toContain('const bulkOff = locked || editing > 0;');
     // Full edit's box is one of the drafts, and the tooltip names it (rr.2).
     expect(TOOLBAR).toMatch(
@@ -52,7 +52,7 @@ describe("the menus' items (polish.7)", () => {
     }
     expect(TOOLBAR).toContain("{ label: 'Copy result', onSelect: onCopyResult, separated: true }");
     // rr.1: never disabled, as Copy result is not.
-    expect(TOOLBAR).toContain('{ label: COPY_HTML, onSelect: onCopyHtml, title: COPY_HTML_TITLE }');
+    expect(TOOLBAR).toContain('{ label: EXPORT_HTML, onSelect: onExportHtml, title: EXPORT_HTML_TITLE }');
     expect(TOOLBAR).toContain('{ label: SHOW_BACKUPS, onSelect: onShowBackups, title: SHOW_BACKUPS_TITLE }');
   });
 });
