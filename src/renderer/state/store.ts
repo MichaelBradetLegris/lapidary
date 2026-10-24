@@ -263,13 +263,17 @@ export function isModalOpen(
 
 /**
  * Whether the review pane's keys (j and k, the arrows, a, u, d, e and n) act:
- * only with a review on screen and nothing in front of the page. Behind a
- * dialog, a question, Settings, the Setup screen or the welcome guide
+ * only with a review on screen, in Main, and nothing in front of the page.
+ * Behind a dialog, a question, Settings, the Setup screen or the welcome guide
  * (`isModalOpen`) they changed what the author could not see: behind Review
  * with AI, a accepted the focused suggestion, which changed the dialog's
  * count and so its blue button, and e opened the suggestion editor over it
  * (apply.20 review). The suggestion editor keeps the keys for its own box,
  * and the pane is read-only while a review of the chapter runs (`isLocked`).
+ * They are Main's alone (rr.2 review): Full edit and Preview show no
+ * suggestion, so there they acted out of sight, a accepting a suggestion and
+ * e opening the suggestion editor over Preview's page, and the arrows, taken
+ * to step through the suggestions, could not scroll it.
  */
 export function reviewKeysActive(
   state: Pick<
@@ -283,10 +287,18 @@ export function reviewKeysActive(
     | 'newChapterOpen'
     | 'manualReviewOpen'
     | 'reviewDialogOpen'
+    | 'drafts'
+    | 'viewMode'
   > &
     Partial<Pick<AppState, 'settings' | 'welcomeClosed' | 'diagnosticsOpen' | 'aboutOpen' | 'updateOverlay'>>
 ): boolean {
-  return state.review !== null && state.editor === null && !isModalOpen(state) && !isLocked(state);
+  return (
+    state.review !== null &&
+    state.editor === null &&
+    !isModalOpen(state) &&
+    !isLocked(state) &&
+    currentMode(state) === 'main'
+  );
 }
 
 /** What Ctrl+S needs to know about the page (`saveShortcutAction`, apply.3). */

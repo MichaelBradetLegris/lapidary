@@ -54,6 +54,7 @@ beforeEach(() => {
   state().answerChoice('cancel');
   useApp.setState({
     drafts: {},
+    viewMode: 'main',
     aiBusyPath: null,
     chapterSaving: false,
     editor: null,
@@ -114,6 +115,20 @@ describe('reviewKeysActive (apply.20 review)', () => {
   it('stops them while the suggestion editor is open, which keeps them for its box', () => {
     state().openEditor({ kind: 'suggestion', hunkId: 'h1', initial: 'As he tilted', anchor: null });
     expect(isModalOpen(state())).toBe(false);
+    expect(reviewKeysActive(state())).toBe(false);
+  });
+
+  /* rr.2 review: in Preview, j moved the focus to a suggestion the page did
+     not mark, a accepted it, e opened the suggestion editor over the page,
+     and the down arrow, taken to step, did not scroll it. The handler returns
+     before preventDefault when this says no, so the browser scrolls. */
+  it('stops them in Preview and in Full edit, which show no suggestion, and not in Main', () => {
+    state().setViewMode('preview');
+    expect(isModalOpen(state())).toBe(false);
+    expect(reviewKeysActive(state())).toBe(false);
+    state().setViewMode('main');
+    expect(reviewKeysActive(state())).toBe(true);
+    expect(state().openFullEdit()).toBeNull();
     expect(reviewKeysActive(state())).toBe(false);
   });
 

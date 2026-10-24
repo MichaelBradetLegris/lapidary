@@ -7,6 +7,7 @@ import { createReview } from '../../src/shared/review';
 import type { Hunk, Review } from '../../src/shared/types';
 import { WHOLE_DRAFT_KEY } from '../../src/shared/ui/drafts';
 import {
+  FINISH_FULL_EDIT_FIRST,
   FULL_EDIT_CHANGED,
   FULL_EDIT_HOLDS_PARAGRAPHS,
   FULL_EDIT_WAIT_FOR_REVIEW,
@@ -18,7 +19,7 @@ import {
   type Mode
 } from '../../src/shared/ui/modes';
 import { closeGuardStateOf } from '../../src/renderer/state/closeGuard';
-import { leaveStateOf } from '../../src/renderer/state/leave';
+import { beforeLeaving, leaveStateOf } from '../../src/renderer/state/leave';
 import { cancelFullEdit, chooseMode, finishFullEdit } from '../../src/renderer/state/modes';
 import {
   changedParagraphCount,
@@ -26,6 +27,7 @@ import {
   fullEditChanged,
   fullEditDraft,
   inDraft,
+  reviewKeysActive,
   saveShortcutContext,
   useApp,
   type ConfirmChoice
@@ -228,6 +230,86 @@ describe('Full edit', () => {
     expect(state().notifications.map((n) => n.text)).toEqual([FULL_EDIT_HOLDS_PARAGRAPHS]);
     expect(Object.keys(state().drafts)).toEqual([String(WHOLE_DRAFT_KEY)]);
   });
+
+  /* rr.2 review: the store's parts of opening and reopening Full edit, which
+     no test held: each could be undone and the suite still passed. */
+  it('closes an open suggestion editor as it opens, as its box takes the keys', () => {
+    state().openEditor({ kind: 'suggestion', hunkId: 'h-of', initial: 'have', anchor: null });
+    expect(state().editor).not.toBeNull();
+    expect(state().openFullEdit()).toBeNull();
+    expect(state().editor).toBeNull();
+    expect(mode()).toBe('edit');
+  });
+
+  it('comes back from the drafts file into Full edit from Preview too, and closes into Main', async () => {
+    await chooseMode('preview');
+    const initial = fullEditText(TEXT, state().review!.hunks);
+    expect(
+      state().reopenDrafts([
+        { key: WHOLE_DRAFT_KEY, paragraphs: [], initial, text: `${initial} More.`, whole: true }
+      ])
+    ).toBe(1);
+    expect(mode()).toBe('edit');
+    expect(state().viewMode).toBe('main');
+    const run = cancelFullEdit();
+    await tick();
+    state().answerChoice('confirm');
+    expect(await run).toBe(true);
+    expect(mode()).toBe('main');
+  });
+});
+
+/* rr.2 review: in Preview the review keys acted on suggestions the page did
+   not show, a accepting one and e opening the suggestion editor over the
+   page, and the arrows, taken to step through them, could not scroll it.
+   The key handler asks `reviewKeysActive` before any of them, and returns
+   before preventDefault when it says no (keyboard.test.ts), so the browser
+   scrolls the page. */
+describe('the review keys are Main s', () => {
+  it('act in Main, and not in Preview or Full edit', async () => {
+    expect(reviewKeysActive(state())).toBe(true);
+    await chooseMode('preview');
+    expect(reviewKeysActive(state())).toBe(false);
+    await chooseMode('edit');
+    expect(reviewKeysActive(state())).toBe(false);
+    await cancelFullEdit();
+    expect(mode()).toBe('main');
+    expect(reviewKeysActive(state())).toBe(true);
+  });
+});
+
+/* rr.2 review: another review of the chapter from the review selector or
+   History, with Full edit open, closed Full edit with no question; its box,
+   opened on this review's text, could not go back over another review that
+   composes differently, so what was typed was set aside with a card saying
+   the chapter no longer read as it did, which was untrue. It is refused now,
+   as Review with AI and Submit manual review are. */
+describe('another review of the chapter while Full edit is open', () => {
+  const deps = { save: () => Promise.resolve('saved' as const) };
+
+  it('is refused, with Full edit and what was typed kept, and asks nothing', async () => {
+    await chooseMode('edit');
+    typeInFullEdit((t) => t.replace('third', 'fourth'));
+    const typed = fullEditDraft(state().drafts)?.text;
+    expect(await beforeLeaving({ kind: 'review', id: 'review-2' }, deps)).toBe('stay');
+    expect(state().confirmSpec).toBeNull();
+    expect(state().notifications.map((n) => n.text)).toEqual([FINISH_FULL_EDIT_FIRST]);
+    expect(mode()).toBe('edit');
+    expect(fullEditDraft(state().drafts)?.text).toBe(typed);
+    expect(state().review!.id).toBe('review-1');
+  });
+
+  it('is refused with nothing typed too, and the review on screen still only flushes', async () => {
+    await chooseMode('edit');
+    expect(await beforeLeaving({ kind: 'review', id: 'review-2' }, deps)).toBe('stay');
+    expect(await beforeLeaving({ kind: 'review', id: 'review-1' }, deps)).toBe('here');
+  });
+
+  it('opens as before, with no question, once Full edit is closed', async () => {
+    expect(await beforeLeaving({ kind: 'review', id: 'review-2' }, deps)).toBe('go');
+    expect(state().confirmSpec).toBeNull();
+    expect(state().notifications).toEqual([]);
+  });
 });
 
 describe('switching with something typed (as leaving the chapter asks)', () => {
@@ -346,15 +428,21 @@ describe('the pieces in the page (source checks)', () => {
     expect(bar).toContain('value={mode}');
   });
 
-  it("keeps each mode's place in the one scroller, put back before the frame is painted", () => {
+  it("keeps each mode's place in the one scroller, put back before the frame is painted and held as it grows", () => {
     const hook = read('renderer/state/modePlaces.ts');
     expect(hook).toMatch(
       /useLayoutEffect\(\(\) => \{\s*const next = modePlace\(places\.current, chapter, mode\);/
     );
-    expect(hook).toContain(
-      'if (next.top !== null && scroller.current) scroller.current.scrollTop = next.top;'
+    expect(hook).toContain('if (next.top === null || !element) return;');
+    expect(hook).toContain('const stop = holdPlace(element, next.top, browserWatch(element), () => {');
+    expect(hook).toContain('return stop ?? undefined;');
+    // The scroller's own moves while a place is held are not the author's.
+    expect(hook).toMatch(
+      /if \(holding\.current\) return;\s*places\.current\.tops\[places\.current\.mode\] = event\.currentTarget\.scrollTop;/
     );
-    expect(hook).toContain('places.current.tops[places.current.mode] = event.currentTarget.scrollTop;');
+    // The content's size, and the author's wheel, keys, presses and touches.
+    expect(hook).toContain('for (const child of Array.from(scroller.children)) observer.observe(child);');
+    expect(hook).toContain("const kinds = ['wheel', 'keydown', 'pointerdown', 'touchstart'] as const;");
   });
 
   it('hands the focus back to the page after a choice that lands in Main or Preview, as the review selector does', () => {
@@ -394,6 +482,23 @@ describe('the CSS of the three modes', () => {
     expect(rule('.fulledit__area')).toContain('resize: none;');
     // The browser's own focus ring: no outline rule of its own.
     expect(CSS).not.toMatch(/\.fulledit__area:focus/);
+  });
+
+  /* rr.2 review: the notification cards, pinned to the column's top right,
+     covered the first lines of Full edit's box and of Preview's page, which
+     ran under them where Main's prose stops short of its margin notes. From
+     Main's 820 px (GUTTER_MIN_WIDTH) both keep Main's 344 px free on the right. */
+  it('keeps the right of a wide column free for the cards in Full edit and Preview, as Main s margin is', () => {
+    const reserve = 'clamp(40px, (100% - 819px) * 1000, 344px)';
+    expect(rule('.fulledit')).toContain(`padding: 12px ${reserve} 16px 40px;`);
+    expect(rule('.fulledit')).toContain(`max-width: calc(66ch + 66px + ${reserve});`);
+    expect(rule('.preview')).toContain(`padding: 16px ${reserve} 120px 40px;`);
+    // Main's margin: 22 px of padding, a 22 px gap and a column of at most 300 px, from 820 px.
+    expect(rule('.pane--gutter')).toContain('padding-right: 22px;');
+    expect(CSS).toContain('grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);');
+    expect(CSS).toMatch(/\.pane--gutter \.pane__body \{[^}]*gap: 22px;/);
+    const pane = readFileSync(path.join(__dirname, '../../src/renderer/components/ReviewPane.tsx'), 'utf8');
+    expect(pane).toContain('const GUTTER_MIN_WIDTH = 820;');
   });
 
   it("draws Preview's paragraphs apart, a tight block's lines together, in the prose's serif", () => {

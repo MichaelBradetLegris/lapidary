@@ -88,6 +88,14 @@ describe("each mode's place in the chapter", () => {
     });
   });
 
+  /* rr.2 review: Full edit's box opens afresh each time, its caret and its
+     own scroll at the top, so the column under it starts at the top too. */
+  it('starts Full edit at its top every time, whatever offset it was left at', () => {
+    const places: ModePlaces = { chapter: ONE, mode: 'main', tops: { main: 2400, edit: 700 } };
+    expect(modePlace(places, ONE, 'edit').top).toBe(0);
+    expect(modePlace({ ...places, mode: 'preview' }, ONE, 'edit').top).toBe(0);
+  });
+
   it('forgets every place in another chapter, so a mode opens there at its top', () => {
     const places: ModePlaces = { chapter: ONE, mode: 'preview', tops: { main: 2400, preview: 900 } };
     expect(modePlace(places, TWO, 'main')).toEqual({

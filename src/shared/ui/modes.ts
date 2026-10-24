@@ -44,7 +44,8 @@ export function modeOf(value: string): Mode | null {
 
 /**
  * Where each mode was scrolled to in the open chapter (`modePlace`): the
- * three modes draw in the one scroller, so each keeps its own place.
+ * three modes draw in the one scroller, so Main and Preview each keep their
+ * own place; Full edit, whose box opens afresh each time, starts at the top.
  */
 export interface ModePlaces {
   /** the chapter the places are of, by its path */
@@ -57,10 +58,11 @@ export interface ModePlaces {
 
 /**
  * The places once `mode` of `chapter` is on screen, and where the scroller
- * goes: back to where the author left that mode, or the top of a mode not
- * shown yet in this chapter; null, to leave it where it is, when the mode did
- * not change. Another chapter forgets them all, so a mode never opens at a
- * place in another chapter.
+ * goes: back to where the author left Main or Preview, or the top of a mode
+ * not shown yet in this chapter; the top of Full edit always, as its box
+ * opens afresh, its caret at the start (rr.2 review); null, to leave it where
+ * it is, when the mode did not change. Another chapter forgets them all, so a
+ * mode never opens at a place in another chapter.
  */
 export function modePlace(
   places: ModePlaces,
@@ -68,7 +70,8 @@ export function modePlace(
   mode: Mode
 ): { places: ModePlaces; top: number | null } {
   const tops = places.chapter === chapter ? places.tops : {};
-  return { places: { chapter, mode, tops }, top: places.mode === mode ? null : (tops[mode] ?? 0) };
+  const top = places.mode === mode ? null : mode === 'edit' ? 0 : (tops[mode] ?? 0);
+  return { places: { chapter, mode, tops }, top };
 }
 
 /* ------------------------------------------------------------------ */

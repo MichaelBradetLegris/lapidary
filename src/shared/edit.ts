@@ -202,9 +202,25 @@ export interface BlockEditPlan {
 
 export type BlockEditResult = { kind: 'noop' } | BlockEditPlan;
 
+/**
+ * How one edge of a changed region meets a suggestion that only meets it there
+ * (rr.2 review). `touch`, the paragraph box's way and the default, takes it, as
+ * a change of words takes every suggestion it touches. Full edit's paragraphs
+ * taken out and blank lines changed take nothing of the paragraphs beside
+ * them, as emptying a paragraph's box takes nothing of its neighbours: `own`,
+ * the edge of a paragraph taken out, takes only an insertion right at it,
+ * which belongs to that paragraph; `free`, the outer edge of the blank line
+ * that goes with it, or of blank lines changed alone, takes nothing.
+ */
+type Edge = 'touch' | 'own' | 'free';
+
 interface Region {
   ls: number;
   le: number;
+  /** how the start meets a suggestion that ends at it; `touch` when absent */
+  start?: Edge;
+  /** how the end meets a suggestion that starts at it; `touch` when absent */
+  end?: Edge;
 }
 
 interface EqualRun {
@@ -213,9 +229,40 @@ interface EqualRun {
   es: number;
 }
 
-/** Closed-interval contact: overlapping, adjacent, or a zero-width run at an edge. */
-function touches(region: Region, run: LiveRun): boolean {
-  return run.ls <= region.le && run.le >= region.ls;
+/** Whether an edge takes a suggestion that only meets it (`Edge`). */
+function meets(edge: Edge | undefined, run: LiveRun): boolean {
+  return edge === undefined || edge === 'touch' || (edge === 'own' && run.ls === run.le);
+}
+
+/**
+ * Whether a region takes a suggestion: one it overlaps, or a zero-width one
+ * inside it, always; one that only meets an edge, as that edge says. With
+ * both edges `touch` this is closed-interval contact: overlapping, adjacent,
+ * or a zero-width run at an edge.
+ */
+function takes(region: Region, run: LiveRun): boolean {
+  if (run.ls < region.le && run.le > region.ls) return true;
+  return (
+    (run.le === region.ls && meets(region.start, run)) || (run.ls === region.le && meets(region.end, run))
+  );
+}
+
+/** Whether a settled region holds a suggestion, which it then takes: inside it, and not left out at an edge. */
+function holds(region: Region, run: LiveRun): boolean {
+  if (run.ls < region.ls || run.le > region.le) return false;
+  if (run.ls !== run.le) return true;
+  return !(
+    (run.ls === region.ls && region.start === 'free') ||
+    (run.le === region.le && region.end === 'free')
+  );
+}
+
+/** The more taking of two edges where two regions meet at one place. */
+function wider(a: Edge | undefined, b: Edge | undefined): Edge {
+  const rank: Record<Edge, number> = { free: 0, own: 1, touch: 2 };
+  const x = a ?? 'touch';
+  const y = b ?? 'touch';
+  return rank[x] >= rank[y] ? x : y;
 }
 
 /**
@@ -270,9 +317,11 @@ function joinAcrossWhitespace(regions: readonly Region[], live: string): Region[
 }
 
 /**
- * Grow every region until it takes each suggestion it touches whole, then merge
- * regions that now meet. Growing can bring a further suggestion into reach, so
- * this repeats until nothing moves.
+ * Grow every region until it takes each suggestion it touches whole (`takes`),
+ * then merge regions that now meet. Growing can bring a further suggestion
+ * into reach, so this repeats until nothing moves. An edge that does not
+ * `touch` and grows over a suggestion becomes `free`: what meets it there
+ * belongs to the paragraph beyond.
  */
 function settleRegions(regions: Region[], runs: readonly LiveRun[]): Region[] {
   const hunkRuns = runs.filter((r) => r.hunk !== null);
@@ -282,13 +331,15 @@ function settleRegions(regions: Region[], runs: readonly LiveRun[]): Region[] {
     let moved = false;
     for (const region of current) {
       for (const run of hunkRuns) {
-        if (!touches(region, run)) continue;
+        if (!takes(region, run)) continue;
         if (run.ls < region.ls) {
           region.ls = run.ls;
+          if (region.start !== undefined && region.start !== 'touch') region.start = 'free';
           moved = true;
         }
         if (run.le > region.le) {
           region.le = run.le;
+          if (region.end !== undefined && region.end !== 'touch') region.end = 'free';
           moved = true;
         }
       }
@@ -299,6 +350,9 @@ function settleRegions(regions: Region[], runs: readonly LiveRun[]): Region[] {
     for (const region of current) {
       const last = merged[merged.length - 1];
       if (last && region.ls <= last.le) {
+        if (region.ls === last.ls) last.start = wider(last.start, region.start);
+        if (region.le > last.le) last.end = region.end;
+        else if (region.le === last.le) last.end = wider(last.end, region.end);
         last.le = Math.max(last.le, region.le);
         moved = true;
       } else {
@@ -329,9 +383,12 @@ function toEdited(
 }
 
 /**
- * Page offset to base offset, for a region boundary. Only plain runs and the
- * suggestions the region swallowed can sit at a boundary: any other suggestion
- * touching it would have been swallowed too.
+ * Page offset to base offset, for a region boundary. Plain runs and the
+ * suggestions the region swallowed map it; any other suggestion that meets
+ * it was left out at an edge that does not `touch` (Full edit's paragraphs
+ * taken out, rr.2 review), and bounds it, so the region never reaches into
+ * that suggestion's words in the base: an accepted deletion reads as nothing
+ * on the page, so the plain text on either side of it meets at one offset.
  */
 function toBase(
   p: number,
@@ -349,7 +406,13 @@ function toBase(
     }
   }
   if (hits.length === 0) throw new Error(`page offset ${p} does not map to the base text`);
-  return side === 'start' ? Math.min(...hits) : Math.max(...hits);
+  let at = side === 'start' ? Math.min(...hits) : Math.max(...hits);
+  for (const run of runs) {
+    if (run.hunk === null || taken.has(run)) continue;
+    if (side === 'end' && run.ls === p) at = Math.min(at, run.bs);
+    if (side === 'start' && run.le === p) at = Math.max(at, run.be);
+  }
+  return at;
 }
 
 function manualHunk(
@@ -409,7 +472,15 @@ function trimRegion(
   const maxPrefix = first ? first.ls - region.ls : region.le - region.ls;
   const maxSuffix = last ? region.le - last.le : region.le - region.ls;
   const trimmed = trimCommonAffixes(live.slice(region.ls, region.le), replacement);
-  return { prefix: Math.min(trimmed.prefix, maxPrefix), suffix: Math.min(trimmed.suffix, maxSuffix) };
+  const prefix = Math.min(trimmed.prefix, maxPrefix);
+  const suffix = Math.min(trimmed.suffix, maxSuffix);
+  /* A region that keeps apart from a paragraph beside it (`Edge`) is never
+     trimmed down to a bare insertion at its edge, where that paragraph's own
+     insertion may sit and the two could compose in either order: blank lines
+     changed alone stay a change of those lines (rr.2 review). */
+  const apart = (region.start ?? 'touch') !== 'touch' || (region.end ?? 'touch') !== 'touch';
+  if (apart && prefix + suffix >= region.le - region.ls) return { prefix: 0, suffix: 0 };
+  return { prefix, suffix };
 }
 
 /**
@@ -510,9 +581,7 @@ function planRegions(args: RegionArgs): BlockEditResult {
   const { base, paragraphs, layout, edited, regions, equal, takeId } = args;
   const plan = emptyPlan();
   for (const region of settleRegions(regions, layout.runs)) {
-    const takenRuns = layout.runs.filter(
-      (run) => run.hunk !== null && run.ls >= region.ls && run.le <= region.le
-    );
+    const takenRuns = layout.runs.filter((run) => run.hunk !== null && holds(region, run));
     const taken = new Set(takenRuns);
     const fullReplacement = edited.slice(
       toEdited(region.ls, 'start', equal, layout.text, edited),
@@ -682,21 +751,25 @@ export interface ChapterEditArgs {
  *     among them, or, where they differ by more than `GAP_EDIT_LIMIT` edits,
  *     their paragraphs are paired by position (4.4 step 2);
  *   - paragraphs taken out are deleted with one blank line beside them, the
- *     one after where a paragraph follows and otherwise the one before (4.4);
+ *     one after where a paragraph follows and otherwise the one before (4.4),
+ *     exactly as emptying their box deletes them: the suggestions inside them
+ *     and in that blank line go with them, and none of the paragraph beside
+ *     them, whose first or last words the change only meets;
  *   - paragraphs put in go after the paragraph before them, behind a blank
  *     line, or at the top of the body before the first one, followed by one;
- *   - a change to the blank lines alone replaces them.
+ *   - a change to the blank lines alone replaces them, and takes nothing of
+ *     the paragraphs on either side.
  *
- * Of the two places 4.4 allows for a paragraph taken out or put in, the one
- * that touches no suggestion is taken when the other does, so that a
- * suggestion on the neighbouring paragraph's first or last words is not taken
- * with it; only where both touch one is it taken whole, as the paragraph box
- * takes every suggestion its change touches. Each change then becomes the
- * author's own accepted hunk, supersedes a model suggestion it takes, replaces
- * an earlier edit of the author's, accepts a suggestion typed exactly, or
- * settles one whose file words were typed back, all as the paragraph box does.
- * The frontmatter is never in a change. The plan composes to exactly
- * `fullEditResult`.
+ * Of the two places 4.4 allows for a paragraph put in, the one that touches
+ * no suggestion is taken when the other does, so that a suggestion on the
+ * neighbouring paragraph's first or last words is not taken with it; only
+ * where both touch one is it taken whole, as a box takes a suggestion at the
+ * end of its paragraph when a paragraph is added after it. Each change then
+ * becomes the author's own accepted hunk, supersedes a model suggestion it
+ * takes, replaces an earlier edit of the author's, accepts a suggestion typed
+ * exactly, or settles one whose file words were typed back, all as the
+ * paragraph box does. The frontmatter is never in a change. The plan composes
+ * to exactly `fullEditResult`.
  */
 export function planChapterEdit(args: ChapterEditArgs): BlockEditResult {
   const { base, hunks } = args;
@@ -805,15 +878,19 @@ function chapterRegions(
   const ep = bodyPieces(edited, typedStart, typedEnd);
   const pairs = keptPairs(lp, ep);
 
-  /** Hunk runs touching page offset `p` from outside a region on `side` of it. */
-  const touchedAt = (p: number, side: 'before' | 'after' | 'both'): boolean =>
-    runs.some(
-      (run) =>
-        run.hunk !== null &&
-        run.ls <= p &&
-        run.le >= p &&
-        (side === 'both' || (side === 'before' ? run.le <= p : run.ls >= p))
-    );
+  /** Whether a suggestion touches page offset `p`, where paragraphs put in would go. */
+  const touchedAt = (p: number): boolean =>
+    runs.some((run) => run.hunk !== null && run.ls <= p && run.le >= p);
+
+  /**
+   * A change of the blank lines between two paragraphs, which takes only what
+   * lies in them, and none of the paragraphs' own first or last words (rr.2
+   * review): one blank line typed too many is no change to either. Where there
+   * are no lines, at the top or the foot of the body, it is a place, which
+   * takes what touches it, as an insertion in a box does.
+   */
+  const betweenParagraphs = (la: number, lb: number): Region =>
+    lb > la ? { ls: la, le: lb, start: 'free', end: 'free' } : { ls: la, le: lb };
 
   /**
    * The word diff of a stretch, as in a box over those paragraphs; false,
@@ -907,28 +984,24 @@ function chapterRegions(
     }
 
     if (liveWords) {
-      // Paragraphs taken out, with one blank line beside them (4.4).
+      /* Paragraphs taken out, with one blank line beside them, the one after
+         where a paragraph follows and otherwise the one before (4.4), as
+         emptying a box takes its paragraph out (`deletionSpan`). Like the
+         box, the change takes the suggestions inside the paragraphs and in
+         that blank line, and none of the paragraph beside it, whose first or
+         last words may meet it (rr.2 review). */
       const inside = lp.filter((p) => p.start >= la && p.end <= lb);
       const first = inside[0]?.start ?? la;
       const last = inside[inside.length - 1]?.end ?? lb;
-      const options: { region: Region; kept: Region; outer: number; side: 'before' | 'after' }[] = [];
+      const edge = (at: number, own: number): Edge => (at === own ? 'own' : 'free');
       if (after && live.slice(la, first) === et) {
-        options.push({
-          region: { ls: first, le: lb },
-          kept: { ls: la, le: first },
-          outer: lb,
-          side: 'after'
-        });
-      }
-      if (before && live.slice(last, lb) === et) {
-        options.push({ region: { ls: la, le: last }, kept: { ls: last, le: lb }, outer: la, side: 'before' });
-      }
-      const pick = options.find((o) => !touchedAt(o.outer, o.side)) ?? options[0];
-      if (pick) {
-        keep(pick.kept.ls, pick.kept.le, ea);
-        regions.push(pick.region);
+        keep(la, first, ea);
+        regions.push({ ls: first, le: lb, start: 'own', end: edge(lb, last) });
+      } else if (before && live.slice(last, lb) === et) {
+        keep(last, lb, ea);
+        regions.push({ ls: la, le: last, start: edge(la, first), end: 'own' });
       } else {
-        regions.push({ ls: la, le: lb });
+        regions.push({ ls: la, le: lb, start: edge(la, first), end: edge(lb, last) });
       }
       return;
     }
@@ -941,18 +1014,19 @@ function chapterRegions(
       const options: { at: number; es: number }[] = [];
       if (before && lt === edited.slice(last, eb)) options.push({ at: la, es: last });
       if (after && lt === edited.slice(ea, first)) options.push({ at: lb, es: ea });
-      const pick = options.find((o) => !touchedAt(o.at, 'both')) ?? options[0];
+      const pick = options.find((o) => !touchedAt(o.at)) ?? options[0];
       if (pick) {
         keep(la, lb, pick.es);
         regions.push({ ls: pick.at, le: pick.at });
       } else {
-        regions.push({ ls: la, le: lb });
+        // Neither place fits the blank lines round them: those lines change too.
+        regions.push(betweenParagraphs(la, lb));
       }
       return;
     }
 
     // Only the blank lines between two paragraphs changed.
-    regions.push({ ls: la, le: lb });
+    regions.push(betweenParagraphs(la, lb));
   };
 
   let la = start;

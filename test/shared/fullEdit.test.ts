@@ -5,11 +5,14 @@ import {
   MANUAL_REASON,
   SUPERSEDE_PREFIX,
   applyBlockEdit,
+  blockSpanFor,
   chapterBodyOf,
   chapterForEdit,
   fullEditResult,
   fullEditText,
+  liveLayout,
   normalizeChapterDraft,
+  planBlockEdit,
   planChapterEdit,
   type BlockEditPlan
 } from '../../src/shared/edit';
@@ -327,14 +330,6 @@ describe('Full edit and the suggestions on the page, as a paragraph box treats t
     expect(hunks.find((h) => h.id === nobody.id)).toEqual(nobody);
   });
 
-  it('deletes a paragraph with the blank line before it when the next one starts with a suggestion', () => {
-    // P4 starts with a suggestion: the blank line after P3 would take it with P3.
-    const nobody = hunkAt(CHAPTER, 'Nobody', 'No one');
-    const { plan, hunks } = fullEdit(CHAPTER, [nobody], [P1, P2, P4].join('\n\n'));
-    expect(changes(plan)).toEqual([[`\n\n${P3}`, '']]);
-    expect(hunks.find((h) => h.id === nobody.id)).toEqual(nobody);
-  });
-
   it('puts a paragraph in before the next one when the one before ends in a suggestion', () => {
     const stop = hunkAt(CHAPTER, 'stones.', 'stones!');
     const typed = [P1, P2, 'A heron lifted.', P3, P4].join('\n\n');
@@ -359,6 +354,106 @@ describe('Full edit and the suggestions on the page, as a paragraph box treats t
     const typed = fullEditText(saved.text, saved.hunks).replace('old', 'worn');
     const { hunks } = fullEdit(saved.text, saved.hunks, typed);
     expect(hunks.find((h) => h.id === watched.id)).toEqual(saved.hunks[0]);
+  });
+});
+
+/* rr.2 review: a paragraph taken out in Full edit took a pending suggestion of
+   the paragraph beside it, which emptying that paragraph's box never does:
+   the first and the last paragraph always, since each has one place to go
+   with its blank line, and a middle one when both neighbours had a suggestion
+   at the edge it touched. One blank line too many between two paragraphs took
+   both their edge suggestions. Each case is held to the emptied box's plan. */
+describe('a paragraph taken out, as emptying its box takes it out (7.4)', () => {
+  /** The plan of emptying the box of the paragraph that reads `text`. */
+  function emptiedBox(base: string, hunks: Hunk[], text: string): BlockEditPlan {
+    const paragraphs = splitParagraphs(base);
+    const index = paragraphs.find((p) => p.text === text)?.index ?? -1;
+    const span = blockSpanFor(base, paragraphs, hunks, index);
+    if (!span) throw new Error(`no box for "${text}"`);
+    const plan = planBlockEdit({ base, paragraphs, hunks, span, text: '', ids: ['m1'] });
+    if (plan.kind !== 'edit') throw new Error('expected an edit');
+    return plan;
+  }
+
+  /** Take out one paragraph, which reads as in the file, in Full edit and in its box, and check the two agree. */
+  function takenOut(hunks: Hunk[], gone: string): { plan: BlockEditPlan; hunks: Hunk[] } {
+    const live = fullEditText(CHAPTER, hunks).split('\n\n');
+    expect(live).toContain(gone);
+    const typed = live.filter((p) => p !== gone).join('\n\n');
+    const full = fullEdit(CHAPTER, hunks, typed, ['m1']);
+    const box = emptiedBox(CHAPTER, hunks, gone);
+    expect(full.plan).toEqual(box);
+    expect(full.hunks).toEqual(applyBlockEdit(hunks, box));
+    return full;
+  }
+
+  it('takes the first paragraph out with the blank line after it, leaving the next one s first words', () => {
+    const river = hunkAt(CHAPTER, 'The river', 'A river');
+    const { plan, hunks } = takenOut([river], P1);
+    expect(changes(plan)).toEqual([[`${P1}\n\n`, '']]);
+    expect(plan.superseded).toEqual([]);
+    expect(hunks.find((h) => h.id === river.id)).toEqual(river);
+  });
+
+  it('takes the last paragraph out with the blank line before it, leaving the one before s last words', () => {
+    const door = hunkAt(CHAPTER, 'mill door.', 'mill door!');
+    const { plan, hunks } = takenOut([door], P4);
+    expect(changes(plan)).toEqual([[`\n\n${P4}`, '']]);
+    expect(plan.superseded).toEqual([]);
+    expect(hunks.find((h) => h.id === door.id)).toEqual(door);
+  });
+
+  it('takes a middle paragraph out with the blank line after it, whatever its neighbours hold at its edges', () => {
+    const stones = hunkAt(CHAPTER, 'old stones.', 'worn stones.');
+    const nobody = hunkAt(CHAPTER, 'Nobody', 'No one');
+    for (const neighbours of [[stones, nobody], [nobody], [stones]]) {
+      const { plan, hunks } = takenOut(neighbours, P3);
+      expect(changes(plan)).toEqual([[`${P3}\n\n`, '']]);
+      expect(plan.superseded).toEqual([]);
+      for (const h of neighbours) expect(hunks.find((x) => x.id === h.id)).toEqual(h);
+    }
+  });
+
+  it('still takes what lies inside the paragraph, as the box does, an insertion at its edge included', () => {
+    const mara = hunkAt(CHAPTER, 'Mara', 'Mira');
+    const at = CHAPTER.indexOf(P3) + P3.length;
+    const after = hunkAt(CHAPTER, '', ' Then', { id: 'h-then' }, at);
+    const nobody = hunkAt(CHAPTER, 'Nobody', 'No one');
+    const { plan, hunks } = takenOut([mara, after, nobody], P3);
+    expect(plan.superseded.map((h) => h.id).sort()).toEqual([after.id, mara.id].sort());
+    expect(hunks.find((h) => h.id === nobody.id)).toEqual(nobody);
+  });
+
+  it('leaves an accepted deletion at the next paragraph s start out of the change, with no overlap', () => {
+    // Accepted, "Nobody " reads as nothing: P3's blank line now meets "came".
+    const gone = hunkAt(CHAPTER, 'Nobody ', '', { status: 'accepted' });
+    const { plan, hunks } = takenOut([gone], P3);
+    expect(changes(plan)).toEqual([[`${P3}\n\n`, '']]);
+    expect(hunks.find((h) => h.id === gone.id)).toEqual(gone);
+  });
+
+  it('leaves an accepted deletion at the end of the paragraph before out too, with no overlap', () => {
+    // Accepted, P3 reads "Mara watched it", which the blank line before P4 now meets.
+    const gone = hunkAt(CHAPTER, ' from the mill door.', '', { status: 'accepted' });
+    const { plan, hunks } = takenOut([gone], P4);
+    expect(changes(plan)).toEqual([[`\n\n${P4}`, '']]);
+    expect(hunks.find((h) => h.id === gone.id)).toEqual(gone);
+    // One blank line too many after it changes those lines alone.
+    const typed = fullEditText(CHAPTER, [gone]).replace('it\n\nNobody', 'it\n\n\nNobody');
+    const lines = fullEdit(CHAPTER, [gone], typed);
+    expect(changes(lines.plan)).toEqual([['\n\n', '\n\n\n']]);
+    expect(lines.hunks.find((h) => h.id === gone.id)).toEqual(gone);
+  });
+
+  it('changes the blank lines alone without taking the suggestions on either side of them', () => {
+    const door = hunkAt(CHAPTER, 'mill door.', 'mill door!');
+    const nobody = hunkAt(CHAPTER, 'Nobody', 'No one');
+    const typed = BODY.replace(`${P3}\n\n${P4}`, `${P3}\n\n\n${P4}`);
+    const { plan, hunks } = fullEdit(CHAPTER, [door, nobody], typed);
+    expect(changes(plan)).toEqual([['\n\n', '\n\n\n']]);
+    expect(plan.superseded).toEqual([]);
+    expect(hunks.find((h) => h.id === door.id)).toEqual(door);
+    expect(hunks.find((h) => h.id === nobody.id)).toEqual(nobody);
   });
 });
 
@@ -561,6 +656,55 @@ describe('Full edits, generated', () => {
         for (const gone of plan.superseded) {
           expect(gone).toMatchObject({ status: 'dismissed', anchor: 'stale' });
           expect(plan.added.map((h) => h.id)).toContain(gone.supersededBy);
+        }
+      }),
+      { numRuns: 500 }
+    );
+  });
+
+  /* rr.2 review: paragraphs taken out take only what lies in them, as
+     emptying their boxes does, whatever sits at the edges of the paragraphs
+     beside them: insertions at a paragraph's start, saved suggestions, and
+     accepted deletions that read as nothing there. */
+  it('take paragraphs out leaving every suggestion outside them as it was', () => {
+    const dropArb = fc.record({
+      specs: fc.array(specArb, { minLength: 1, maxLength: 10 }),
+      front: fc.constantFrom('', `${FRONT}\n`),
+      saved: fc.boolean(),
+      flips: fc.array(fc.constantFrom<HunkStatus>('pending', 'accepted', 'dismissed'), { maxLength: 10 }),
+      drop: fc.array(fc.nat({ max: 20 }), { minLength: 1, maxLength: 3 })
+    });
+    fc.assert(
+      fc.property(dropArb, ({ specs, front, saved, flips, drop }) => {
+        resetIdCounter(0);
+        const built = buildCase(specs, front);
+        const committed = saved
+          ? commitDecisions(built.base, built.hunks)
+          : { text: built.base, hunks: built.hunks };
+        const base = committed.text;
+        const hunks = committed.hunks.map((h, i) => (flips[i] ? { ...h, status: flips[i] } : h));
+
+        const chapter = chapterForEdit(base, hunks);
+        const pieces = bodyPieces(chapter.text, chapter.start, chapter.end);
+        if (pieces.length < 2) return;
+        const gone = new Set(drop.map((d) => d % pieces.length));
+        const typed = pieces
+          .filter((_, i) => !gone.has(i))
+          .map((p) => p.text)
+          .join('\n\n');
+        const plan = planChapterEdit({ base, hunks, text: typed });
+        if (plan.kind !== 'edit') throw new Error('expected an edit');
+        const next = applyBlockEdit(hunks, plan);
+        expect(composeText(base, next)).toBe(fullEditResult(base, hunks, typed));
+        expect(findOverlaps(next)).toEqual([]);
+
+        const inGone = (ls: number, le: number): boolean =>
+          pieces.some((p, i) => gone.has(i) && ls >= p.start && le <= p.end);
+        const { runs } = liveLayout(base, hunks, { start: 0, end: base.length });
+        for (const run of runs) {
+          if (!run.hunk || inGone(run.ls, run.le)) continue;
+          const id = run.hunk.id;
+          expect(next.find((h) => h.id === id)).toEqual(run.hunk);
         }
       }),
       { numRuns: 500 }
