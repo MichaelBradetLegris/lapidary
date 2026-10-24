@@ -173,6 +173,13 @@ describe('rule 7: Obsidian syntax', () => {
     expect(html('<!--\nhidden\n-->\nShown')).toBe(p('Shown'));
   });
 
+  it('keeps a %% or <!-- that nothing closes as typed, as an unclosed $$ is, alone on its line too', () => {
+    expect(html('a %% b')).toBe(p('a %% b'));
+    expect(html('a <!-- b')).toBe(p('a &lt;!-- b'));
+    expect(html('A\n%%\nB')).toBe(lines(tight('A'), tight('%%'), p('B')));
+    expect(html('<!--\nB')).toBe(lines(tight('&lt;!--'), p('B')));
+  });
+
   it('gives an internal link its alias, or its target', () => {
     expect(html('[[Chapter 01 - The Flood|the night of the flood]] and [[Millers Lane]]')).toBe(
       p('the night of the flood and Millers Lane')
@@ -253,6 +260,16 @@ describe('rule 7: Obsidian syntax', () => {
     expect(html('> [!note]\n> ![[Chapter 02]]')).toBe(
       lines('<blockquote>', p('<strong>Note</strong>'), '</blockquote>')
     );
+    // The type's name in title case, as Obsidian shows it, however it was typed.
+    for (const [type, name] of [
+      ['NOTE', 'Note'],
+      ['Tip', 'Tip'],
+      ['my-TYPE', 'My-type']
+    ]) {
+      expect(html(`> [!${type}]\n> body`), type).toBe(
+        lines('<blockquote>', tight(`<strong>${name}</strong>`), p('body'), '</blockquote>')
+      );
+    }
   });
 
   it('makes - and 1. lists <ul> and <ol>, nested by their indent, with the lines an item runs on into', () => {
@@ -334,6 +351,22 @@ describe('rule 7: Obsidian syntax', () => {
     expect(html('~~~\n*em*')).toBe(lines(tight('~~~'), p('<em>em</em>')));
   });
 
+  it("gives a code block or maths in a quote or a callout without the quote's >s", () => {
+    expect(html('> ```\n> Name: Mara\n> ```')).toBe(lines('<blockquote>', p('Name: Mara'), '</blockquote>'));
+    // A status screen in a callout: the title, then the block's lines as a tight block.
+    expect(html('> [!info] Status\n> ```\n> Name: Mara\n> Level: 5\n> ```')).toBe(
+      lines('<blockquote>', p('<strong>Status</strong>'), tight('Name: Mara'), p('Level: 5'), '</blockquote>')
+    );
+    // Nested, with an info string, Markdown and a > of its own kept as typed, and a line after it.
+    expect(html('> > ```js\n> >   a *b* > c\n> > ```\n> > after')).toBe(
+      lines('<blockquote>', '<blockquote>', p('a *b* &gt; c'), p('after'), '</blockquote>', '</blockquote>')
+    );
+    expect(html('> $$\n> x = 1\n> $$')).toBe(lines('<blockquote>', p('x = 1'), '</blockquote>'));
+    // Inline code that runs onto the next line of a quote, and a closing fence with words after it.
+    expect(html('> a `b\n> c` d')).toBe(lines('<blockquote>', tight('a b'), p('c d'), '</blockquote>'));
+    expect(html('> ```\n> a\n> ``` b')).toBe(lines('<blockquote>', tight('a'), p('b'), '</blockquote>'));
+  });
+
   it('makes an image at a web address <img>, and leaves out embeds and other images', () => {
     expect(html('![the stone](https://example.org/stone.png) ![[Chapter 02]] ![sketch](stone.svg)')).toBe(
       p('<img src="https://example.org/stone.png" alt="the stone" />')
@@ -353,6 +386,13 @@ describe('rule 8: HTML', () => {
       p(
         '&lt;I know.&gt; &lt;span class="aside"&gt;x&lt;/span&gt; &lt;i&gt;y&lt;/i&gt; AT&amp;T 3 &lt; 4 &amp;amp;'
       )
+    );
+  });
+
+  it('escapes a " in an address or an image\'s words, so it cannot end the attribute', () => {
+    expect(html('[x](https://e.com/a"b)')).toBe(p('<a href="https://e.com/a&quot;b">x</a>'));
+    expect(html('![x "y"](https://e.com/a"b.png)')).toBe(
+      p('<img src="https://e.com/a&quot;b.png" alt="x &quot;y&quot;" />')
     );
   });
 
@@ -547,6 +587,10 @@ const block: fc.Arbitrary<Bit> = fc.oneof(
   fc
     .array(plainLine, { minLength: 1, maxLength: 3 })
     .map((ls) => bit(['```', ...ls, '```'].join('\n'), ls.join(' '))),
+  // A code block in a quote, whose lines' >s are not words.
+  fc
+    .array(plainLine, { minLength: 1, maxLength: 3 })
+    .map((ls) => bit(['```', ...ls, '```'].map((l) => `> ${l}`).join('\n'), ls.join(' '))),
   plainLine.map((l) => bit(`%%\n${l}\n%%`, ''))
 );
 
@@ -696,6 +740,8 @@ const BITS = [
   ']]',
   '](',
   'https://e.com/',
+  '[w](https://e.com/"w)',
+  '![w "x"](https://e.com/"w)',
   '<!--',
   '-->',
   '> ',

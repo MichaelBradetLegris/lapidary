@@ -30,7 +30,9 @@
  *    are links; a web image is `<img>`; an inline footnote's words go to the
  *    end, and a footnote's definition keeps its words where it stands; quotes
  *    and callouts are `<blockquote>`, a callout's title in bold; lists are
- *    `<ul>` and `<ol>`, tables `<table>`; code and maths are their text.
+ *    `<ul>` and `<ol>`, tables `<table>`; code and maths are their text, a
+ *    code block in a quote without the quote's `>`s; a `%%`, `<!--`, `$$` or
+ *    code fence that nothing closes is as typed.
  * 8. `<u>`, `<sub>` and `<sup>` with their closing tags on the same line, and
  *    `<br>`, pass through; every other `<`, `>` and `&` is written as `&lt;`,
  *    `&gt;` and `&amp;`, so the chapter can never put markup it did not mean
@@ -108,6 +110,8 @@ const LIST_ITEM = /^([ \t]*)([-+*]|(\d{1,9})[.)])(?:[ \t]+|$)/;
 const LONE_STAR = /^[ \t]*\*[ \t]*$/;
 /** A code fence's first line, as `syntaxSpans` reads one. */
 const FENCE_LINE = /^ {0,3}(?:`{3,}|~{3,})/;
+/** One block quote marker, and the space after it. */
+const QUOTE_MARKER = /^ {0,3}>[ \t]?/;
 
 /** Every line of the text, each read for what kind of line it is, then for continuations and tables. */
 function classify(doc: Doc): Line[] {
@@ -131,15 +135,13 @@ function classifyLine(doc: Doc, start: number, end: number, previous: Line | und
   const { src } = doc;
   if (doc.hidden(start, end)) return null;
 
-  // The lines of a closed code block are its text, without the fences. Its
-  // span is whole lines; inline code that runs onto a second line is not one.
-  const code = doc.heldAt(start);
-  const fenced =
-    code?.kind === 'code' &&
-    (code.start === 0 || src.charAt(code.start - 1) === '\n') &&
-    doc.text(code).includes('\n') &&
-    FENCE_LINE.test(doc.text(code));
-  if (code && fenced) return line(start === code.start || end === code.end ? 'break' : 'code', 0, start, end);
+  // The lines of a closed code block are its text, without the fences, at the
+  // depth of the quote it is in, if any.
+  const held = doc.heldAt(start);
+  const fence = held ? fenceDepth(doc, held) : null;
+  if (held && fence !== null) {
+    return line(start === held.start || held.end <= end ? 'break' : 'code', fence, start, end);
+  }
 
   // A line a footnote's words began on an earlier line runs on after them.
   const after = doc.pastMoved(start);
@@ -149,13 +151,21 @@ function classifyLine(doc: Doc, start: number, end: number, previous: Line | und
   let depth = 0;
   const quote = doc.spanAt(skipBlanks(src, start, end));
   if (quote?.kind === 'quote') {
-    depth = doc.text(quote).split('>').length - 1;
+    depth = quoteDepth(doc, quote);
     at = quote.end;
+  } else if (held && held.start < start && (held.kind === 'code' || held.kind === 'math')) {
+    // A line of inline code or maths begun on an earlier line of a quote: this
+    // line's `>`s are inside the span, so they are passed over here.
+    depth = quoteDepthAt(doc, held.start);
+    const text = src.slice(start, end);
+    at = start + text.length - unquoted(text, depth).length;
   }
   const first = skipBlanks(src, at, end);
   if (first === end) return line('blank', depth, at, end);
 
   const marker = doc.spanAt(first);
+  // A code block's opening fence after the quote's markers, as in `> ````.
+  if (marker && fenceDepth(doc, marker) !== null) return line('break', depth, at, end);
   if (marker?.kind === 'thematic-break') return line('hr', depth, at, end);
   if (marker?.kind === 'heading') {
     const level = doc.text(marker).trim().length;
@@ -187,6 +197,51 @@ function classifyLine(doc: Doc, start: number, end: number, previous: Line | und
     }
   }
   return line('para', depth, at, end);
+}
+
+/**
+ * How many quotes deep the closed fenced code block `span` stands: 0 when its
+ * fence opens its line, and the number of `>`s when its fence follows a
+ * quote's markers, as `> ```` does, and its closing fence is the last thing on
+ * its line. Null when `span` is no such block, as inline code that runs onto
+ * a second line is not. `syntaxSpans` reads a fence in a quote as inline code
+ * from the opening backticks to the closing ones, the `>`s of the lines
+ * between inside it (C.111).
+ */
+function fenceDepth(doc: Doc, span: SyntaxSpan): number | null {
+  const { src } = doc;
+  const text = doc.text(span);
+  if (span.kind !== 'code' || !text.includes('\n') || !FENCE_LINE.test(text)) return null;
+  const lineStart = src.lastIndexOf('\n', span.start - 1) + 1;
+  if (lineStart === span.start) return 0;
+  const quote = doc.spanAt(skipBlanks(src, lineStart, span.start));
+  if (quote?.kind !== 'quote' || skipBlanks(src, quote.end, span.start) !== span.start) return null;
+  const lineEnd = endOfLine(src, span.end);
+  if (skipBlanks(src, span.end, lineEnd) !== lineEnd) return null;
+  return quoteDepth(doc, quote);
+}
+
+/** How many quotes deep a quote span's markers go: `> > ` is 2. */
+function quoteDepth(doc: Doc, quote: SyntaxSpan): number {
+  return doc.text(quote).split('>').length - 1;
+}
+
+/** The quote depth of the line that holds `at`, by the quote span that opens it, if any, before `at`. */
+function quoteDepthAt(doc: Doc, at: number): number {
+  const lineStart = doc.src.lastIndexOf('\n', at - 1) + 1;
+  const quote = doc.spanAt(skipBlanks(doc.src, lineStart, at));
+  return quote?.kind === 'quote' && quote.end <= at ? quoteDepth(doc, quote) : 0;
+}
+
+/** A line without the first `depth` of its quote's markers, each with one space after it. */
+function unquoted(text: string, depth: number): string {
+  let out = text;
+  for (let n = 0; n < depth; n += 1) {
+    const marker = QUOTE_MARKER.exec(out);
+    if (!marker) break;
+    out = out.slice(marker[0].length);
+  }
+  return out;
 }
 
 /**
@@ -302,7 +357,7 @@ function readItems(doc: Doc, lines: Line[]): Item[] {
     if (kind === 'blank' || kind === 'break' || kind === 'hr') {
       items.push({ kind, depth });
     } else if (kind === 'code') {
-      const html = tidy(escapeHtml(doc.src.slice(current.from, current.to)));
+      const html = tidy(escapeHtml(unquoted(doc.src.slice(current.from, current.to), depth)));
       items.push(html ? { kind: 'para', depth, html } : { kind: 'blank', depth });
     } else if (kind === 'callout') {
       const title = doc.line(current.from, current.to) || escapeHtml(calloutName(current.type));
@@ -340,9 +395,9 @@ function readItems(doc: Doc, lines: Line[]): Item[] {
   return items;
 }
 
-/** A callout's type as Obsidian titles a callout that has no title of its own: `[!note]` is "Note". */
+/** A callout's type as Obsidian titles a callout that has no title of its own: `[!note]` and `[!NOTE]` are "Note". */
 function calloutName(type: string): string {
-  return type.charAt(0).toUpperCase() + type.slice(1);
+  return type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
 }
 
 // --- Blocks -------------------------------------------------------------------------
@@ -567,7 +622,9 @@ class Doc {
    */
   hidden(start: number, end: number): boolean {
     const span = this.heldAt(start);
-    if (span && (span.kind === 'frontmatter' || span.kind === 'comment') && span.end >= end) return true;
+    const hides =
+      span?.kind === 'frontmatter' || (span?.kind === 'comment' && !isUnclosedComment(this.text(span)));
+    if (span && hides && span.end >= end) return true;
     return this.moved.some(([from, to]) => from < start && end <= to);
   }
 
@@ -668,6 +725,10 @@ class Doc {
         html(escapeHtml(words.replace(/\n/g, ' ')));
         return end;
       }
+      case 'comment':
+        // A `%%` or `<!--` that nothing closes, as typed (C.72), as an unclosed `$$` is.
+        if (isUnclosedComment(text)) html(escapeHtml(this.src.slice(at, end)));
+        return end;
       case 'math': {
         if (text === '$$') {
           html('$$');
@@ -726,8 +787,8 @@ class Doc {
         return end;
       }
       default:
-        // The frontmatter, comments, embeds, tags, block IDs, footnote marks,
-        // and the line markers the blocks have read already.
+        // The frontmatter, embeds, tags, block IDs, footnote marks, and the
+        // line markers the blocks have read already.
         return end;
     }
   }
@@ -887,6 +948,14 @@ function tokenHtml(token: Token): string {
 }
 
 // --- Small helpers ---------------------------------------------------------------------
+
+/**
+ * Whether a comment span is an opener that nothing closes, which `syntaxSpans`
+ * gives as the marker alone (C.72); a closed comment is always longer.
+ */
+function isUnclosedComment(text: string): boolean {
+  return text === '%%' || text === '<!--';
+}
 
 /** The text without a byte order mark at its start. */
 function withoutBom(text: string): string {
