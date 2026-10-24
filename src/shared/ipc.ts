@@ -441,6 +441,13 @@ export interface StoredDraft {
   initial: string;
   /** what the box holds */
   text: string;
+  /**
+   * Full edit's box (rr.2), which holds the whole chapter's body rather than
+   * one block: its key is `WHOLE_DRAFT_KEY`, it names no paragraph, and
+   * `initial` is the body as the page read it when Full edit opened
+   * (`fullEditText`).
+   */
+  whole?: true;
 }
 
 /**
@@ -510,6 +517,11 @@ export interface CloseGuardState {
   unsavedDecisions: number;
   /** paragraph boxes whose text differs from what they opened with */
   changedParagraphs: number;
+  /**
+   * one of them is Full edit's box, which holds the whole chapter (rr.2), so
+   * the questions name it rather than a paragraph; absent is false
+   */
+  fullEdit?: boolean;
   /** a review of the open chapter is running, so its page is read-only */
   locked: boolean;
   /** a review is running, for the open chapter or another */

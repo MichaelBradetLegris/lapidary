@@ -160,9 +160,12 @@ describe('the key handler asks it (apply.20 review)', () => {
     );
   });
 
-  it('opens the find bar on Ctrl+F only when nothing covers the page', () => {
+  it('opens the find bar on Ctrl+F only when nothing covers the page, and only in Main (rr.2)', () => {
     const find = code.indexOf("event.key.toLowerCase() === 'f'");
-    const guard = code.indexOf('if (!state.review || isModalOpen(state)) return;', find);
+    const guard = code.indexOf(
+      "if (!state.review || isModalOpen(state) || currentMode(state) !== 'main') return;",
+      find
+    );
     expect(guard).toBeGreaterThan(find);
     expect(guard).toBeLessThan(code.indexOf('state.openFind();'));
   });

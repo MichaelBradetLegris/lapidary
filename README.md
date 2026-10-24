@@ -156,6 +156,8 @@ What you type in a paragraph box is kept in the app's data folder within a secon
 
 Paragraphs are numbered from 1 beside the text, and the AI is shown the same numbers, so "paragraph 12" in a comment means the one labelled 12.
 
+**Full edit and Preview.** The **Mode** list at the top right of the chapter switches between **Main**, the page described above, **Full edit** and **Preview**; a chapter opens in Main, or in Full edit when you left something typed there, and each view keeps its place in the chapter. Full edit puts the whole chapter in one plain box, as it reads now, without the suggestions or comments, so you can go through it at once, with ProWritingAid for example; the frontmatter stands above the box and is left as it is. **Done** (or Ctrl+Enter) turns what you changed into your own edits, already accepted, as a paragraph box does, and goes back to Main; **Cancel** (or Escape) goes back without them, asking first if you typed anything. While Full edit is open the suggestions wait, and what you type is kept as a paragraph box's text is. **Preview** shows the chapter as it reads now, the way a Royal Road reader will see it, from the same HTML as **Copy HTML**: the lines of a status screen close together, scene breaks, headings, quotes, lists and tables. Links in it do not open, and web images show their description instead of being loaded. Switching with something typed and not applied asks first what to do with it.
+
 ## Saving to the chapter
 
 **Save to chapter** is the only thing that writes to your manuscript. It writes the text as it currently reads, with every accepted change applied, in one atomic step that keeps the file's line endings and encoding. **Copy result**, in the **Actions** menu, puts the same text on the clipboard instead. **Copy HTML**, under it, puts the same text on the clipboard as HTML to paste into a Royal Road chapter: lines with no blank line between them stay close together, and Obsidian's frontmatter, comments, tags and footnote marks are left out. Selecting part of the page and copying it gives just those words, as they currently read, in plain text: none of the floating suggestions or labels come with them.
@@ -276,7 +278,7 @@ They apply to Claude Code everywhere, not only in this app. Setting them in `~/.
 - `secrets.json`: the encrypted OpenAI key. It exists only once you have saved a key.
 - `reviews\`: your reviews, unless you chose another reviews folder in Settings. Each review holds the full text of its chapter.
 - `backups\`: the versions of your chapters that Save to chapter replaced, a folder for each chapter, with a `chapter.json` naming the chapter file.
-- `drafts\`: what you have typed in open paragraph boxes, and in `drafts\set-aside\` the text of boxes that could not be put back.
+- `drafts\`: what you have typed in open paragraph boxes and in Full edit, and in `drafts\set-aside\` the text of boxes that could not be put back.
 - `logs\main.log`, and `main.1.log` once it fills: the log ([When something goes wrong](#when-something-goes-wrong)).
 - `.updaterId`, once Lapidary has checked for updates: a random id the update library keeps. Lapidary never sends it.
 - Folders that Electron keeps for itself, such as caches.

@@ -285,7 +285,13 @@ describe('the handles in app.css', () => {
     expect(chips.get('scrollbar-width')).toBe('none');
     expect(declsFor('.chips + .center-wrap').size).toBe(0);
     expect(APP).not.toContain('<FilterChips');
-    expect(APP).toMatch(/<div className="center-col">\s*(\{\}\s*)?<div className=\{`center-wrap /);
+    /* Since rr.2 the Mode select's strip is at the top of the column, its
+       select at the right end, so the band over its left edge covers only
+       the strip's empty left, where nothing can be pressed. */
+    expect(APP).toMatch(
+      /<div className="center-col">\s*(\{\}\s*)?\{review \? <ModeBar \/> : null\}\s*(\{\}\s*)?<div className=\{`center-wrap /
+    );
+    expect(declsFor('.modebar').get('justify-content')).toBe('flex-end');
   });
 
   it('draws the line and a grip in the faint grey, both darker under the pointer, and the browser its focus ring', () => {

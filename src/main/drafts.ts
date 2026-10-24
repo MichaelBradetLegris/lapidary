@@ -170,7 +170,9 @@ export async function saveDrafts(
       key: d.key,
       paragraphs: [...d.paragraphs],
       initial: d.initial,
-      text: d.text
+      text: d.text,
+      // Full edit's box (rr.2), which holds the whole chapter's body.
+      ...(d.whole ? { whole: true as const } : {})
     }))
   };
   try {

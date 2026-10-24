@@ -3,7 +3,14 @@ import type { CloseGuardState, CloseStatus, FlushReason } from '../../shared/ipc
 import type { ConfirmChoice, ConfirmSpec } from '../../shared/ui/confirm';
 import { closePrompt, stillWritingPrompt, WRITES_WAIT_MS } from '../../shared/ui/save';
 import { pendingSave, type SaveOptions, type SaveOutcome } from './saveChapter';
-import { changedParagraphCount, hasDialogText, isLocked, useApp, type AppState } from './store';
+import {
+  changedParagraphCount,
+  fullEditChanged,
+  hasDialogText,
+  isLocked,
+  useApp,
+  type AppState
+} from './store';
 
 /*
  * The close guard, page side (apply.9; PLAN 7.7, 11.3 i, C.54). Main decides
@@ -103,6 +110,7 @@ export function closeGuardStateOf(state: GuardSlices): CloseGuardState {
     chapter: review?.sourcePath ? review.sourcePath : null,
     unsavedDecisions: review ? unsavedDecisionCount(review.hunks) : 0,
     changedParagraphs: changedParagraphCount(state.drafts),
+    ...(fullEditChanged(state.drafts) ? { fullEdit: true } : {}),
     locked: isLocked(state),
     reviewRunning: state.aiBusyPath !== null,
     writesPending: state.persistPending || state.draftWritesPending || state.chapterSaving,
@@ -136,6 +144,7 @@ function sameGuardState(a: CloseGuardState, b: CloseGuardState): boolean {
     a.chapter === b.chapter &&
     a.unsavedDecisions === b.unsavedDecisions &&
     a.changedParagraphs === b.changedParagraphs &&
+    (a.fullEdit === true) === (b.fullEdit === true) &&
     a.locked === b.locked &&
     a.reviewRunning === b.reviewRunning &&
     a.writesPending === b.writesPending &&

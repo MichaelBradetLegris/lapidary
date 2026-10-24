@@ -44,11 +44,13 @@ describe('the Save button and the dot (apply.4)', () => {
   it('takes the label, tooltip and disabled state from saveButtonState', () => {
     // Every input, by name: saveButtonInput's own tests hold what it does with them.
     expect(TOOLBAR).toMatch(
-      /const input = saveButtonInput\(\{\s*review,\s*changedParagraphs,\s*saving,\s*locked\s*\}\);/
+      /const input = saveButtonInput\(\{\s*review,\s*changedParagraphs,\s*fullEdit,\s*saving,\s*locked\s*\}\);/
     );
     expect(TOOLBAR).toContain('const save = saveButtonState(input);');
     expect(TOOLBAR).toContain('const locked = useApp(isLocked);');
     expect(TOOLBAR).toContain('changedParagraphCount(s.drafts)');
+    // Full edit's box counts among the boxes, and the tooltip names it (rr.2).
+    expect(TOOLBAR).toContain('const fullEdit = useApp((s) => fullEditDraft(s.drafts) !== null);');
     expect(TOOLBAR).toMatch(/\{\s*review,\s*running,\s*progressLabel,\s*saving,/);
     expect(TOOLBAR).toContain('{save.label}');
     expect(TOOLBAR).toContain('title={save.title}');

@@ -13,7 +13,9 @@ import {
   type DraftIo,
   type DraftPersistence
 } from '../../src/renderer/state/drafts';
-import { hasDialogText, useApp } from '../../src/renderer/state/store';
+import { currentMode, hasDialogText, useApp } from '../../src/renderer/state/store';
+import { fullEditText } from '../../src/shared/edit';
+import { WHOLE_DRAFT_KEY } from '../../src/shared/ui/drafts';
 
 /* apply.16: paragraph boxes are written as they are typed in, come back when
    their chapter is on screen again, and are set aside when they cannot. */
@@ -699,5 +701,82 @@ describe('the wiring', () => {
     expect(app.indexOf('await flushDraftWrites();')).toBeLessThan(app.indexOf("call('files:read'"));
     expect(app).toMatch(/\{ target: 'drafts', \.\.\.\(arg \? \{ name: arg \} : \{\}\) \}/);
     expect(source('components/NotificationCards.tsx')).toContain('onAction(action, note.actionArg)');
+  });
+});
+
+/* rr.2: Full edit's box is kept as a paragraph box is: written once
+   something is typed in it, under WHOLE_DRAFT_KEY with its flag; back in Full
+   edit, with the card, when the chapter comes on screen again reading as it
+   did; set aside when it does not. */
+describe("Full edit's box, kept on disk (rr.2)", () => {
+  const wholeBox = (text: string): StoredDraft => ({
+    key: WHOLE_DRAFT_KEY,
+    paragraphs: [],
+    initial: fullEditText(TEXT, []),
+    text,
+    whole: true
+  });
+
+  it('is written once something is typed in it, and the file goes when it closes', async () => {
+    await show(chapter(ONE));
+    expect(state().openFullEdit()).toBeNull();
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS);
+    // Opened and nothing typed: nothing to keep.
+    expect(f.files.has(ONE)).toBe(false);
+    state().setDraftText(WHOLE_DRAFT_KEY, `${TEXT} And then the rain stopped.`);
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS);
+    expect(f.files.get(ONE)?.drafts).toEqual([wholeBox(`${TEXT} And then the rain stopped.`)]);
+    state().cancelDraft(WHOLE_DRAFT_KEY);
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS);
+    expect(f.files.has(ONE)).toBe(false);
+  });
+
+  it('comes back in Full edit, with its card, when the chapter reads as it did', async () => {
+    f.files.set(ONE, kept(ONE, [wholeBox(`${TEXT} More.`)]));
+    await show(chapter(ONE));
+    expect(currentMode(state())).toBe('edit');
+    expect(state().drafts[WHOLE_DRAFT_KEY]?.text).toBe(`${TEXT} More.`);
+    expect(cards()).toEqual([
+      {
+        tone: 'info',
+        text: 'Full edit is open again, as you left it.',
+        key: DRAFTS_RESTORED_CARD,
+        action: undefined,
+        arg: undefined
+      }
+    ]);
+    // Done or Cancel closes it, and the card with it.
+    state().cancelDraft(WHOLE_DRAFT_KEY);
+    expect(cards()).toEqual([]);
+  });
+
+  it('says that what was typed in Full edit could not be kept, when its write fails', async () => {
+    f.failSave = 'the disk is full';
+    await show(chapter(ONE));
+    expect(state().openFullEdit()).toBeNull();
+    state().setDraftText(WHOLE_DRAFT_KEY, `${TEXT} And then the rain stopped.`);
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS);
+    expect(cards().at(-1)).toMatchObject({
+      tone: 'error',
+      text: 'What you typed in Full edit could not be kept: the disk is full',
+      key: DRAFTS_SAVE_CARD
+    });
+    expect(persistence.failures()).toEqual([
+      'What you typed in Full edit could not be kept: the disk is full'
+    ]);
+  });
+
+  it('is set aside, with Show the text, when the chapter changed, and the chapter opens in Main', async () => {
+    f.files.set(ONE, kept(ONE, [wholeBox(`${TEXT} More.`)]));
+    await show(chapter(ONE, TEXT.replace('She went inside.', 'She went in.')));
+    expect(currentMode(state())).toBe('main');
+    expect(f.setAsides).toEqual([{ sourcePath: ONE, drafts: [wholeBox(`${TEXT} More.`)] }]);
+    expect(cards().at(-1)).toMatchObject({
+      tone: 'warn',
+      text: 'The chapter no longer reads as it did when you left Full edit open, so Full edit was not opened again. What you typed is kept in Chapter 01 2026-10-17 10.00.01.txt.',
+      action: 'reveal-drafts'
+    });
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS);
+    expect(f.files.has(ONE)).toBe(false);
   });
 });

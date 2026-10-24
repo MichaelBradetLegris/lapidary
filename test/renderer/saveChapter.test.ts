@@ -265,6 +265,25 @@ describe('Save to chapter (apply.3)', () => {
     expect(state().drafts[1]?.text).toBe('She said nothing.');
   });
 
+  it('writes nothing when a changed Full edit cannot be applied, and says to resolve Full edit (rr.2)', async () => {
+    expect(state().openFullEdit()).toBeNull();
+    state().setDraftText(-1, CHAPTER.replace('nothing at all', 'nothing'));
+    // The chapter changed on disk under Full edit: the watcher reloaded the same review.
+    const r = state().review!;
+    state().setReview(
+      { ...r, base: { ...r.base, text: CHAPTER.replace('nothing at all', 'little'), hash: 'h9' } },
+      REVIEW_PATH
+    );
+    const h = harness();
+    expect(await saveChapter({ applyDrafts: 'apply' }, h.deps)).toBe('blocked');
+    expect(h.requests).toEqual([]);
+    expect(cards().some((t) => t.startsWith('The chapter changed on disk while Full edit was open'))).toBe(
+      true
+    );
+    expect(lastCard()).toBe('Nothing was saved. Resolve Full edit as the card above says, then save again.');
+    expect(state().drafts[-1]?.text).toBe(CHAPTER.replace('nothing at all', 'nothing'));
+  });
+
   it('is blocked while a review of the chapter runs, and with no chapter open', async () => {
     state().toggleAccepted('h1');
     state().setAiBusy(SOURCE);

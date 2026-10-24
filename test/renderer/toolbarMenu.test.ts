@@ -34,8 +34,9 @@ describe("the menus' items (polish.7)", () => {
 
   it('gives Actions the three bulk items, off while the chapter is read-only or a paragraph is open, then Copy result, Copy HTML and Show backups', () => {
     expect(TOOLBAR).toContain('const bulkOff = locked || editing > 0;');
-    expect(TOOLBAR).toContain(
-      "const bulkTitle = editing > 0 ? 'Finish or cancel the paragraphs you are editing first' : undefined;"
+    // Full edit's box is one of the drafts, and the tooltip names it (rr.2).
+    expect(TOOLBAR).toMatch(
+      /const bulkTitle =\s*editing > 0\s*\?\s*fullEdit\s*\?\s*FINISH_FULL_EDIT_TITLE\s*:\s*'Finish or cancel the paragraphs you are editing first'\s*:\s*undefined;/
     );
     for (const [label, action] of [
       ['Accept all', 'accept'],

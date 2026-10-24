@@ -1,7 +1,7 @@
 import { unsavedDecisionCount } from '../../shared/diff/compose';
 import { isOpenTarget, leavePrompt, type LeaveState, type LeaveTarget } from '../../shared/ui/save';
 import { pendingSave, type SaveOptions, type SaveOutcome } from './saveChapter';
-import { changedParagraphCount, isLocked, useApp, type AppState } from './store';
+import { changedParagraphCount, fullEditChanged, isLocked, useApp, type AppState } from './store';
 
 /*
  * Leaving the chapter or review on screen (apply.7, PLAN 11.3 i and 7.7): a
@@ -34,6 +34,7 @@ export function leaveStateOf(state: Pick<AppState, 'review' | 'drafts' | 'aiBusy
     chapter: review?.sourcePath ? review.sourcePath : null,
     unsavedDecisions: review ? unsavedDecisionCount(review.hunks) : 0,
     changedParagraphs: changedParagraphCount(state.drafts),
+    ...(fullEditChanged(state.drafts) ? { fullEdit: true } : {}),
     locked: isLocked(state),
     reviewId: review?.id ?? null
   };

@@ -5,6 +5,7 @@ import { proPreselection } from '../shared/ai/claudeModels';
 import { toRoyalRoadHtml } from '../shared/text/royalroad';
 import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
 import { copiedHtmlNote } from '../shared/ui/copy';
+import { FINISH_FULL_EDIT_FIRST } from '../shared/ui/modes';
 import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
 import { mergeReloadRun, rebaseCardText, rebaseCardTone, type ReloadRun } from '../shared/ui/rebase';
 import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
@@ -34,11 +35,14 @@ import { DiagnosticsDialog } from './components/DiagnosticsDialog';
 import { EditPopover } from './components/EditPopover';
 import { FileList } from './components/FileList';
 import { FindBar } from './components/FindBar';
+import { FullEdit } from './components/FullEdit';
 import { HunkTooltip } from './components/HunkTooltip';
 import { LockCard } from './components/LockCard';
 import { ManualReviewDialog } from './components/ManualReviewDialog';
+import { ModeBar } from './components/ModeBar';
 import { NewChapterDialog } from './components/NewChapterDialog';
 import { NotificationCards } from './components/NotificationCards';
+import { PreviewPane } from './components/PreviewPane';
 import { ReviewDialog } from './components/ReviewDialog';
 import { ReviewPane } from './components/ReviewPane';
 import { SettingsDialog } from './components/SettingsDialog';
@@ -59,10 +63,11 @@ import { CLOSE_GUARD_IO, PAGE_WRITES } from './state/pageIo';
 import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { noteMergeMarkers } from './state/mergeMarkers';
 import { useKeyboardBindings } from './state/keyboard';
+import { useModePlaces } from './state/modePlaces';
 import { useProgressLabel } from './state/progress';
 import { reviewWithoutSaving, saveThenReview } from './state/reviewStart';
 import { readSettings, useSettingsRead, type SettingsReadIo } from './state/settingsRead';
-import { useApp, type NotificationAction } from './state/store';
+import { currentMode, fullEditDraft, useApp, type NotificationAction } from './state/store';
 import { closeWelcome, reopenWelcome, type WelcomeIo } from './state/welcome';
 import {
   flushReviewWrites,
@@ -163,6 +168,10 @@ export function App(): React.JSX.Element {
   const settingsFailedAgain = useSettingsRead((s) => s.failedAgain);
   const chapterSaving = useApp((s) => s.chapterSaving);
   const questionOpen = useApp((s) => s.confirmSpec !== null);
+  /* Main, Full edit or Preview (rr.2): the window's own, never a setting.
+     Each keeps its own place in the chapter's one scroller. */
+  const mode = useApp(currentMode);
+  const modePlaces = useModePlaces(mode, review?.sourcePath ?? null);
 
   const [files, setFiles] = useState<ChapterFile[]>([]);
   const [filesProblem, setFilesProblem] = useState<string | null>(null);
@@ -807,13 +816,16 @@ export function App(): React.JSX.Element {
     void reopenWelcome(WELCOME_IO).catch(fail);
   }, [setSettingsOpen, setSetupOpen, fail]);
 
-  /** A new review replaces the working set, so open paragraph editors must be dealt with first. */
+  /** A new review replaces the working set, so open paragraph editors, and Full edit (rr.2), must be dealt with first. */
   const refuseWhileEditing = useCallback((): boolean => {
-    const open = Object.keys(useApp.getState().drafts).length;
+    const drafts = useApp.getState().drafts;
+    const open = Object.keys(drafts).length;
     if (open === 0) return false;
     notify(
       'info',
-      `Finish or cancel the ${open === 1 ? 'paragraph' : `${open} paragraphs`} you are editing first.`,
+      fullEditDraft(drafts)
+        ? FINISH_FULL_EDIT_FIRST
+        : `Finish or cancel the ${open === 1 ? 'paragraph' : `${open} paragraphs`} you are editing first.`,
       'review-drafts'
     );
     return true;
@@ -1313,24 +1325,34 @@ export function App(): React.JSX.Element {
           {/* The centre column: the manuscript pane, from the toolbar's foot,
               as the chapter list and the side panel are. The category chips
               were at its top from polish.6 and are in the toolbar's row since
-              polish.10. */}
+              polish.10. The Mode select is at its top right, above the prose,
+              with a chapter open (rr.2). */}
           <div className="center-col">
+            {review ? <ModeBar /> : null}
             {/* The find bar is a strip above the scroller, not a sticky bar inside
               it: inside, it scrolled out of view once the author was more than
               a screen down, and Ctrl+F then seemed to do nothing (round 4). The
-              notification cards and the lock card are pinned to this wrapper. */}
-            <div className={`center-wrap ${findOpen ? 'center-wrap--find' : ''}`}>
-              {review ? <FindBar /> : null}
+              notification cards and the lock card are pinned to this wrapper.
+              The find bar is Main's: Full edit and Preview have none (rr.2). */}
+            <div className={`center-wrap ${findOpen && mode === 'main' ? 'center-wrap--find' : ''}`}>
+              {review && mode === 'main' ? <FindBar /> : null}
               {/* A press in the prose closes an open drawer, as a click
                   outside a menu closes it (ui.3), and does what it would anyway. */}
               <main
-                className="center"
+                {...modePlaces}
+                className={`center center--${mode}`}
                 onPointerDown={() => {
                   if (useDrawer.getState().open !== null) useDrawer.getState().setOpen(null);
                 }}
               >
                 {review ? (
-                  <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
+                  mode === 'edit' ? (
+                    <FullEdit review={review} />
+                  ) : mode === 'preview' ? (
+                    <PreviewPane review={review} />
+                  ) : (
+                    <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
+                  )
                 ) : (
                   <div className="empty">
                     <h1>Nothing open</h1>

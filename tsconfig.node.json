@@ -16,6 +16,7 @@
     "src/renderer/state/saveChapter.ts",
     "src/renderer/state/drafts.ts",
     "src/renderer/state/leave.ts",
+    "src/renderer/state/modes.ts",
     "src/renderer/state/reviewStart.ts",
     "src/renderer/state/closeGuard.ts",
     "src/renderer/state/hints.ts",

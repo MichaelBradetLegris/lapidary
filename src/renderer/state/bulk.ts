@@ -1,7 +1,8 @@
 import { useCallback } from 'react';
 import { bulkPlan, type BulkAction } from '../../shared/ui/bulk';
 import type { ChipKey } from '../../shared/ui/chips';
-import { isLocked, useApp } from './store';
+import { FINISH_FULL_EDIT_FIRST } from '../../shared/ui/modes';
+import { fullEditDraft, isLocked, useApp } from './store';
 
 /**
  * Run one bulk action behind a confirmation (item 8). Every caller, the toolbar
@@ -21,7 +22,13 @@ export function useBulkAction(): (action: BulkAction, category?: ChipKey) => voi
       // An open paragraph editor froze its suggestions; a bulk action would
       // either skip them silently or change the page under the editor.
       if (Object.keys(state.drafts).length > 0) {
-        notify('info', 'Finish or cancel the paragraphs you are editing first.', 'bulk-drafts');
+        notify(
+          'info',
+          fullEditDraft(state.drafts)
+            ? FINISH_FULL_EDIT_FIRST
+            : 'Finish or cancel the paragraphs you are editing first.',
+          'bulk-drafts'
+        );
         return;
       }
       const plan = bulkPlan(review.hunks, action, category);

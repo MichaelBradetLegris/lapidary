@@ -12,12 +12,13 @@ import {
 } from '../../shared/ui/chips';
 import { COPY_HTML, COPY_HTML_TITLE } from '../../shared/ui/copy';
 import { ACTIONS_MENU, REVIEW_MENU } from '../../shared/ui/menu';
+import { FINISH_FULL_EDIT_TITLE } from '../../shared/ui/modes';
 import { saveButtonInput, saveButtonState } from '../../shared/ui/save';
 import { SAVE_HINT_ID, saveHintText, saveHintVisible } from '../../shared/ui/saveHint';
 import { useBulkAction } from '../state/bulk';
 import { toolbarFocusLeft, useChipFocus, watchToolbarFocus } from '../state/chipFocus';
 import { hintDismissedThisSession, useSaveHintAside } from '../state/hints';
-import { changedParagraphCount, isLocked, useApp } from '../state/store';
+import { changedParagraphCount, fullEditDraft, isLocked, useApp } from '../state/store';
 import { FilterChips } from './FilterChips';
 import { SaveHint } from './SaveHint';
 import { ToolbarMenu, type MenuItem } from './ToolbarMenu';
@@ -109,9 +110,10 @@ export function Toolbar({
   const locked = useApp(isLocked);
   const editing = useApp((s) => Object.keys(s.drafts).length);
   const changedParagraphs = useApp((s) => changedParagraphCount(s.drafts));
+  const fullEdit = useApp((s) => fullEditDraft(s.drafts) !== null);
   const runBulk = useBulkAction();
 
-  const input = saveButtonInput({ review, changedParagraphs, saving, locked });
+  const input = saveButtonInput({ review, changedParagraphs, fullEdit, saving, locked });
   const save = saveButtonState(input);
 
   const dismissedHints = useApp((s) => s.settings?.dismissedHints ?? null);
@@ -134,7 +136,12 @@ export function Toolbar({
      paragraph is open for editing, whose suggestions they would skip or change
      under it (`useBulkAction`). */
   const bulkOff = locked || editing > 0;
-  const bulkTitle = editing > 0 ? 'Finish or cancel the paragraphs you are editing first' : undefined;
+  const bulkTitle =
+    editing > 0
+      ? fullEdit
+        ? FINISH_FULL_EDIT_TITLE
+        : 'Finish or cancel the paragraphs you are editing first'
+      : undefined;
 
   /* Accept all and Dismiss all of the chip the focus was last on, in Actions
      too, under the bulk items (polish.10); the chip's own menu holds the same

@@ -12,6 +12,7 @@ import {
   pickerHoldsKey,
   reviewPicker
 } from '../../shared/ui/history';
+import { FULL_EDIT_OPEN } from '../../shared/ui/modes';
 import { changeInContext, isSmallChange, sideText, type ChangeInContext } from '../../shared/ui/small';
 import {
   DISMISSED_TITLE,
@@ -27,7 +28,7 @@ import { PROVIDER_NAMES, type Hunk, type Review, type ReviewComment } from '../.
 import { editFromComment, editHunk } from '../state/edit';
 import { followFocus, scrollToElement } from '../state/scroll';
 import { SPLIT_LIST_ID, useSplit } from '../state/splitHandle';
-import { inDraft, isLocked, useApp } from '../state/store';
+import { fullEditDraft, inDraft, isLocked, useApp } from '../state/store';
 import { IconArrow, IconCheck, IconPencil, IconWarning, IconX } from './icons';
 
 interface Props {
@@ -88,6 +89,7 @@ export function SidePanel({
   const activeCommentId = useApp((s) => s.activeCommentId);
   const setActiveComment = useApp((s) => s.setActiveComment);
   const drafts = useApp((s) => s.drafts);
+  const fullEditOpen = fullEditDraft(drafts) !== null;
   const locked = useApp(isLocked);
   const listRef = useRef<HTMLUListElement>(null);
   const focusBodyRef = useRef<HTMLDivElement>(null);
@@ -293,7 +295,9 @@ export function SidePanel({
                         } ${editing ? 'row--editing' : ''}`}
                         title={
                           editing
-                            ? `Paragraph ${paragraphNumber(hunk.paragraph)} is open for editing`
+                            ? fullEditOpen
+                              ? FULL_EDIT_OPEN
+                              : `Paragraph ${paragraphNumber(hunk.paragraph)} is open for editing`
                             : undefined
                         }
                       >

@@ -1,11 +1,35 @@
 import { create } from 'zustand';
-import { commitDecisions, composeReview, unsavedDecisionCount } from '../../shared/diff/compose';
-import { applyBlockEdit, blockSpanFor, editSuggestion, liveTextIn, planBlockEdit } from '../../shared/edit';
+import {
+  commitDecisions,
+  composeReview,
+  composeText,
+  findOverlaps,
+  unsavedDecisionCount
+} from '../../shared/diff/compose';
+import {
+  applyBlockEdit,
+  blockSpanFor,
+  editSuggestion,
+  fullEditResult,
+  fullEditText,
+  liveTextIn,
+  planBlockEdit,
+  planChapterEdit,
+  type BlockEditResult
+} from '../../shared/edit';
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import { remapAfterCommit } from '../../shared/review';
 import { splitParagraphs } from '../../shared/text/paragraphs';
 import { chipHidden, chipKeyOf, type RowChip } from '../../shared/ui/chips';
+import { WHOLE_DRAFT_KEY } from '../../shared/ui/drafts';
 import { stepIndex } from '../../shared/ui/find';
+import {
+  FULL_EDIT_CHANGED,
+  FULL_EDIT_HOLDS_PARAGRAPHS,
+  FULL_EDIT_NOT_EXACT,
+  type Mode,
+  type ViewMode
+} from '../../shared/ui/modes';
 import { stepFocus, type StepOptions } from '../../shared/ui/navigate';
 import type { SaveShortcutContext } from '../../shared/ui/save';
 import type { UpdateStatus } from '../../shared/updates';
@@ -109,6 +133,12 @@ export interface ParagraphDraft {
   text: string;
   /** a range of `text` to select when the box first opens, e.g. a comment's quote */
   select?: { start: number; end: number };
+  /**
+   * Full edit's box (rr.2): the whole chapter's body, under `WHOLE_DRAFT_KEY`
+   * with no paragraphs. It is never open beside a paragraph box, and while it
+   * is open the window is in Full edit (`currentMode`).
+   */
+  whole?: true;
 }
 
 export type DraftOutcome =
@@ -167,15 +197,38 @@ export function hasDialogText(state: Pick<AppState, 'dialogText' | 'editor'>): b
   );
 }
 
-/** True when a paragraph editor is open on this paragraph index. */
+/** True when a paragraph editor is open on this paragraph index, or Full edit, which holds them all (rr.2). */
 export function inDraft(drafts: Record<number, ParagraphDraft>, paragraph: number): boolean {
-  return Object.values(drafts).some((d) => d.paragraphs.includes(paragraph));
+  return Object.values(drafts).some((d) => d.whole === true || d.paragraphs.includes(paragraph));
 }
 
-/** Paragraph boxes whose text differs from what they opened with. */
+/** Paragraph boxes whose text differs from what they opened with, Full edit's box among them (rr.2). */
 export function changedParagraphCount(drafts: Record<number, ParagraphDraft>): number {
   return Object.values(drafts).filter((d) => d.text !== d.initial).length;
 }
+
+/** Full edit's box (rr.2), or null while Full edit is not open. */
+export function fullEditDraft(drafts: Record<number, ParagraphDraft>): ParagraphDraft | null {
+  const draft = drafts[WHOLE_DRAFT_KEY];
+  return draft?.whole ? draft : null;
+}
+
+/** True while Full edit's box holds text it did not open with (rr.2). */
+export function fullEditChanged(drafts: Record<number, ParagraphDraft>): boolean {
+  const draft = fullEditDraft(drafts);
+  return draft !== null && draft.text !== draft.initial;
+}
+
+/**
+ * The mode the window shows (rr.2): Full edit while its box is open, and
+ * otherwise Main or Preview, as the Mode select last left it.
+ */
+export function currentMode(state: Pick<AppState, 'drafts' | 'viewMode'>): Mode {
+  return fullEditDraft(state.drafts) ? 'edit' : state.viewMode;
+}
+
+/** Why Full edit did not open (`openFullEdit`). */
+export type FullEditRefusal = 'no-chapter' | 'locked' | 'saving' | 'boxes';
 
 /**
  * True while a dialog, a question, Settings, the Setup screen or the welcome
@@ -237,11 +290,16 @@ export function reviewKeysActive(
 }
 
 /** What Ctrl+S needs to know about the page (`saveShortcutAction`, apply.3). */
-export function saveShortcutContext(state: AppState, inParagraphBox: boolean): SaveShortcutContext {
+export function saveShortcutContext(
+  state: AppState,
+  inParagraphBox: boolean,
+  inFullEdit = false
+): SaveShortcutContext {
   return {
     hasChapter: Boolean(state.review?.sourcePath),
     modalOpen: isModalOpen(state),
     inParagraphBox,
+    ...(inFullEdit ? { inFullEdit: true } : {}),
     suggestionEditorOpen: state.editor !== null,
     locked: isLocked(state),
     saving: state.chapterSaving,
@@ -381,8 +439,17 @@ export interface AppState {
   welcomeClosed: boolean;
   /** Save to chapter is writing the file (`state/saveChapter.ts`); decisions wait meanwhile */
   chapterSaving: boolean;
-  /** paragraphs open for editing in place, keyed by their first paragraph index */
+  /**
+   * paragraphs open for editing in place, keyed by their first paragraph
+   * index, or Full edit's box under `WHOLE_DRAFT_KEY` (rr.2)
+   */
   drafts: Record<number, ParagraphDraft>;
+  /**
+   * Main or Preview, the view the window shows while Full edit is not open
+   * (rr.2, `currentMode`). The window's own, never kept in the settings: a
+   * chapter opens in Main.
+   */
+  viewMode: ViewMode;
   /** the chapter an AI review is running for; its review is read-only until it returns */
   aiBusyPath: string | null;
 
@@ -491,10 +558,20 @@ export interface AppState {
    * opened.
    */
   reopenDrafts: (drafts: readonly ParagraphDraft[]) => number;
-  /** turn one open paragraph into hunks and close it */
+  /** turn one open paragraph, or Full edit's box, into hunks and close it */
   commitDraft: (key: number) => DraftOutcome;
   /** commit every open paragraph, first to last; the messages of any that could not be */
   commitAllDrafts: () => { applied: number; blocked: string[] };
+
+  /* ---- modes (rr.2) ---- */
+  /** Main or Preview; Full edit opens and closes with its box */
+  setViewMode: (mode: ViewMode) => void;
+  /**
+   * Open Full edit on the chapter as the page reads it, in Main once it
+   * closes, or say why not: no chapter, a review of it running, a save under
+   * way, or paragraph boxes open, which the caller deals with first.
+   */
+  openFullEdit: () => FullEditRefusal | null;
 
   setAiBusy: (sourcePath: string | null) => void;
 }
@@ -544,13 +621,17 @@ export const useApp = create<AppState>()((set, get) => ({
   welcomeClosed: false,
   chapterSaving: false,
   drafts: {},
+  viewMode: 'main',
   aiBusyPath: null,
 
   setSettings: (settings) => set({ settings }),
 
   /* Open paragraph editors survive a reload of the same review (the watcher
      rebasing it after an outside change): the commit checks whether their
-     paragraph still reads the same. Anything else starts with none open. */
+     paragraph still reads the same. Anything else starts with none open, and
+     Full edit's box goes with them; what was typed in either comes back from
+     the chapter's drafts file (state/drafts.ts). Another chapter opens in
+     Main; another review of the same one stays in Main or Preview (rr.2). */
   setReview: (review, path = null) =>
     set((state) => ({
       review,
@@ -561,7 +642,11 @@ export const useApp = create<AppState>()((set, get) => ({
       hiddenCategories: [],
       find: { ...NO_FIND, seek: state.find.seek },
       editor: null,
-      drafts: review && state.review && review.id === state.review.id ? state.drafts : {}
+      drafts: review && state.review && review.id === state.review.id ? state.drafts : {},
+      viewMode:
+        review && state.review && review.sourcePath.toLowerCase() === state.review.sourcePath.toLowerCase()
+          ? state.viewMode
+          : 'main'
     })),
 
   patchReview: (patch) => {
@@ -812,6 +897,11 @@ export const useApp = create<AppState>()((set, get) => ({
     const state = get();
     const review = state.review;
     if (!review || held(state)) return false;
+    // Full edit holds every paragraph (rr.2): a box beside it would edit the same words twice.
+    if (fullEditDraft(state.drafts)) {
+      state.notify('info', FULL_EDIT_HOLDS_PARAGRAPHS, 'full-edit-open');
+      return false;
+    }
 
     const open = Object.values(state.drafts).find((d) => d.paragraphs.includes(paragraph));
     if (open) return true;
@@ -855,9 +945,26 @@ export const useApp = create<AppState>()((set, get) => ({
     if (!state.review || incoming.length === 0) return 0;
     const drafts = { ...state.drafts };
     const taken = new Set(Object.values(drafts).flatMap((d) => d.paragraphs));
+    /* Full edit's box (rr.2) goes back only onto a page with no box open, and
+       none goes back beside it; back, the window is in Full edit, which
+       closes into Main. */
+    let whole = fullEditDraft(drafts) !== null;
     let opened = 0;
     for (const draft of incoming) {
-      if (draft.paragraphs.some((p) => taken.has(p))) continue;
+      if (draft.whole) {
+        if (whole || Object.keys(drafts).length > 0) continue;
+        whole = true;
+        drafts[WHOLE_DRAFT_KEY] = {
+          key: WHOLE_DRAFT_KEY,
+          paragraphs: [],
+          initial: draft.initial,
+          text: draft.text,
+          whole: true
+        };
+        opened += 1;
+        continue;
+      }
+      if (whole || draft.paragraphs.some((p) => taken.has(p))) continue;
       for (const p of draft.paragraphs) taken.add(p);
       drafts[draft.key] = {
         key: draft.key,
@@ -867,7 +974,18 @@ export const useApp = create<AppState>()((set, get) => ({
       };
       opened += 1;
     }
-    if (opened > 0) set({ drafts });
+    if (opened === 0) return 0;
+    set(
+      whole
+        ? {
+            drafts,
+            viewMode: 'main',
+            editor: null,
+            hoveredHunkId: null,
+            find: { ...NO_FIND, seek: state.find.seek }
+          }
+        : { drafts }
+    );
     return opened;
   },
 
@@ -879,6 +997,11 @@ export const useApp = create<AppState>()((set, get) => ({
    * If the paragraph no longer reads what the box started from, the chapter
    * changed on disk while the author typed. Committing then would silently undo
    * that outside change, so the box stays open with the author's words in it.
+   *
+   * Full edit's box (rr.2) is the whole chapter, planned in one pass
+   * (`planChapterEdit`) under the same rules, and applied only when the plan
+   * composes to exactly the chapter typed (`fullEditResult`), with no hunks
+   * overlapping; otherwise the box stays open, as it is.
    */
   commitDraft: (key) => {
     const state = get();
@@ -889,16 +1012,33 @@ export const useApp = create<AppState>()((set, get) => ({
     if (state.chapterSaving) return { status: 'blocked', message: 'Wait for the save to finish first.' };
 
     const base = review.base.text;
-    const paragraphs = splitParagraphs(base);
-    const span = blockSpanFor(base, paragraphs, review.hunks, key);
-    if (!span || span.paragraphs[0] !== key || liveTextIn(base, review.hunks, span) !== draft.initial) {
-      return {
-        status: 'blocked',
-        message: `Paragraph ${paragraphNumber(key)} changed while you were editing it, because the chapter file changed on disk. Your text is still in the box: copy it, press Cancel, then edit the paragraph again.`
-      };
+    let plan: BlockEditResult;
+    if (draft.whole) {
+      if (fullEditText(base, review.hunks) !== draft.initial) {
+        return { status: 'blocked', message: FULL_EDIT_CHANGED };
+      }
+      try {
+        plan = planChapterEdit({ base, hunks: review.hunks, text: draft.text });
+      } catch {
+        return { status: 'blocked', message: FULL_EDIT_NOT_EXACT };
+      }
+      if (plan.kind === 'edit') {
+        const next = applyBlockEdit(review.hunks, plan);
+        const exact = composeText(base, next) === fullEditResult(base, review.hunks, draft.text);
+        if (!exact || findOverlaps(next).length > 0)
+          return { status: 'blocked', message: FULL_EDIT_NOT_EXACT };
+      }
+    } else {
+      const paragraphs = splitParagraphs(base);
+      const span = blockSpanFor(base, paragraphs, review.hunks, key);
+      if (!span || span.paragraphs[0] !== key || liveTextIn(base, review.hunks, span) !== draft.initial) {
+        return {
+          status: 'blocked',
+          message: `Paragraph ${paragraphNumber(key)} changed while you were editing it, because the chapter file changed on disk. Your text is still in the box: copy it, press Cancel, then edit the paragraph again.`
+        };
+      }
+      plan = planBlockEdit({ base, paragraphs, hunks: review.hunks, span, text: draft.text });
     }
-
-    const plan = planBlockEdit({ base, paragraphs, hunks: review.hunks, span, text: draft.text });
     const drafts = { ...state.drafts };
     delete drafts[key];
 
@@ -945,6 +1085,41 @@ export const useApp = create<AppState>()((set, get) => ({
       else if (outcome.status === 'blocked') blocked.push(outcome.message);
     }
     return { applied, blocked };
+  },
+
+  /* ---------------- modes (rr.2) ---------------- */
+
+  /* The find bar and the hover card are Main's: neither has anything to show
+     in Preview, which draws the chapter afresh. */
+  setViewMode: (viewMode) =>
+    set((state) =>
+      viewMode === state.viewMode
+        ? {}
+        : viewMode === 'main'
+          ? { viewMode }
+          : { viewMode, hoveredHunkId: null, find: { ...NO_FIND, seek: state.find.seek } }
+    ),
+
+  openFullEdit: () => {
+    const state = get();
+    const review = state.review;
+    if (!review) return 'no-chapter';
+    if (isLocked(state)) return 'locked';
+    if (state.chapterSaving) return 'saving';
+    if (fullEditDraft(state.drafts)) return null;
+    if (Object.keys(state.drafts).length > 0) return 'boxes';
+    const initial = fullEditText(review.base.text, review.hunks);
+    set({
+      drafts: {
+        [WHOLE_DRAFT_KEY]: { key: WHOLE_DRAFT_KEY, paragraphs: [], initial, text: initial, whole: true }
+      },
+      // Done and Cancel close into Main, whichever mode Full edit was opened from.
+      viewMode: 'main',
+      editor: null,
+      hoveredHunkId: null,
+      find: { ...NO_FIND, seek: state.find.seek }
+    });
+    return null;
   },
 
   setAiBusy: (aiBusyPath) => set({ aiBusyPath }),

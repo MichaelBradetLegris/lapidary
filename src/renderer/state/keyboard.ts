@@ -10,7 +10,7 @@ import { editHunk } from './edit';
 import { saveHintGivesWay } from './hints';
 import { SAVE_CARD, type SaveOptions, type SaveOutcome } from './saveChapter';
 import { readingRange, scrollToElement } from './scroll';
-import { isModalOpen, reviewKeysActive, saveShortcutContext, useApp } from './store';
+import { currentMode, isModalOpen, reviewKeysActive, saveShortcutContext, useApp } from './store';
 
 /** A text field, a select or editable text, but not a checkbox (`isTypingField`, polish.12 review). */
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -39,7 +39,11 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
         const target = event.target instanceof Element ? event.target : null;
         const shortcut = saveShortcutAction(
           event,
-          saveShortcutContext(state, target?.closest('.para-editor') != null)
+          saveShortcutContext(
+            state,
+            target?.closest('.para-editor') != null,
+            target?.closest('.fulledit') != null
+          )
         );
         if (shortcut.kind !== 'pass') {
           event.preventDefault();
@@ -50,8 +54,9 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
       }
 
       if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'f') {
-        // Not behind a dialog: the focus would go to the bar behind it.
-        if (!state.review || isModalOpen(state)) return;
+        // Not behind a dialog: the focus would go to the bar behind it. The
+        // find bar is Main's: Full edit's box and Preview's page have none (rr.2).
+        if (!state.review || isModalOpen(state) || currentMode(state) !== 'main') return;
         state.openFind();
         event.preventDefault();
         // Pressing it again while the bar is open goes back to the box with the

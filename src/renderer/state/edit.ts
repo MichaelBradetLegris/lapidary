@@ -15,9 +15,10 @@
 import { paragraphNumber } from '../../shared/prompt/chapter';
 import type { ReviewComment } from '../../shared/types';
 import { commentEditBlocked } from '../../shared/ui/comments';
+import { FULL_EDIT_FREEZES } from '../../shared/ui/modes';
 import { hoverCancel } from './hover';
 import { scrollToElement } from './scroll';
-import { inDraft, isLocked, useApp, type AnchorRect } from './store';
+import { fullEditDraft, inDraft, isLocked, useApp, type AnchorRect } from './store';
 
 function anchorFrom(rect: DOMRect | null): AnchorRect | null {
   if (!rect) return null;
@@ -32,7 +33,9 @@ export function editHunk(id: string, rect?: DOMRect | null): void {
   if (inDraft(state.drafts, hunk.paragraph)) {
     state.notify(
       'info',
-      `Paragraph ${paragraphNumber(hunk.paragraph)} is open for editing. Finish it, or cancel it, to change this suggestion.`
+      fullEditDraft(state.drafts)
+        ? FULL_EDIT_FREEZES
+        : `Paragraph ${paragraphNumber(hunk.paragraph)} is open for editing. Finish it, or cancel it, to change this suggestion.`
     );
     return;
   }
@@ -74,6 +77,8 @@ export function editFromComment(comment: ReviewComment): void {
   if (!state.review || paragraph === null) return;
   state.setActiveComment(comment.id);
   if (!state.openDraft(paragraph)) return;
+  // The box is Main's: from Preview, the window goes back to Main to show it (rr.2).
+  if (useApp.getState().viewMode === 'preview') useApp.getState().setViewMode('main');
 
   const quote = comment.quote;
   const opened = Object.values(useApp.getState().drafts).find((d) => d.paragraphs.includes(paragraph));
