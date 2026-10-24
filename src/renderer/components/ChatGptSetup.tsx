@@ -7,9 +7,9 @@ import {
   CHATGPT_PRIVACY_FOOTER,
   SIGN_IN_BUTTON,
   SIGN_OUT_BUTTON,
-  chatGptSetupStatus
+  chatGptSetupStatus,
+  type ChatGptOutcome
 } from '../../shared/ui/chatgpt';
-import type { ChatGptOutcome } from '../state/chatgpt';
 import { heldButton } from '../state/heldButton';
 import { DataSettingsWarning } from './DataSettingsWarning';
 
@@ -98,15 +98,16 @@ export function ChatGptSetup({
             ))}
           </div>
           <div className="setup__status-actions">
-            {/* One button, Sign in or Sign out, so the focus stays on it as
-                the sign-in comes and goes; held, not disabled, while it
-                waits or signs out (heldButton). */}
+            {/* One button, Sign in or Sign out, under one key, so the focus
+                stays on it as the sign-in comes and goes; held, not
+                disabled, while it waits or signs out (heldButton). */}
             {signedIn ? (
-              <button type="button" ref={accountButton} {...heldButton(busy, onSignOut)}>
+              <button key="account" type="button" ref={accountButton} {...heldButton(busy, onSignOut)}>
                 {SIGN_OUT_BUTTON}
               </button>
             ) : (
               <button
+                key="account"
                 type="button"
                 ref={accountButton}
                 className="primary"
@@ -116,12 +117,17 @@ export function ChatGptSetup({
                 {SIGN_IN_BUTTON}
               </button>
             )}
+            {/* Cancel and Use another account are two buttons, each under its
+                own key: Cancel goes when the wait ends, and the focus with it,
+                which the effect above hands to the account button. Under one
+                element a second Enter on Cancel would land on Use another
+                account and register the app again (codex.2 review). */}
             {waiting ? (
-              <button type="button" onClick={onCancelSignIn}>
+              <button key="cancel" type="button" onClick={onCancelSignIn}>
                 {CANCEL_SIGN_IN_BUTTON}
               </button>
             ) : !signedIn && status?.registered && canSignIn ? (
-              <button type="button" onClick={() => onSignIn(true)}>
+              <button key="another" type="button" onClick={() => onSignIn(true)}>
                 {ANOTHER_ACCOUNT_BUTTON}
               </button>
             ) : null}

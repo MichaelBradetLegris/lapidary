@@ -26,6 +26,19 @@ export const EXTERNAL_PAGE_URLS: Readonly<Record<ExternalPage, string>> = Object
   'chatgpt-data-controls': CHATGPT_DATA_CONTROLS_URL
 });
 
+/**
+ * The address `shell:open-external` opens for what the page sent: one of
+ * `EXTERNAL_PAGE_URLS`' own names, or null for anything else, an address, a
+ * name an object inherits (`constructor`, `toString`, `__proto__`) or a
+ * value that is not a string among them. The page never hands the shell an
+ * address.
+ */
+export function externalPageUrl(page: unknown): string | null {
+  return typeof page === 'string' && Object.hasOwn(EXTERNAL_PAGE_URLS, page)
+    ? EXTERNAL_PAGE_URLS[page as ExternalPage]
+    : null;
+}
+
 /* ------------------------------------------------------------------ */
 /* Buttons                                                             */
 /* ------------------------------------------------------------------ */
@@ -82,8 +95,13 @@ export const SIGNED_IN_TEXT = `${APP_NAME} keeps the sign-in encrypted on this c
 
 export const NO_ENCRYPTION_TEXT = `Windows cannot encrypt secrets for ${APP_NAME} right now, so a ChatGPT sign-in cannot be kept, and ${APP_NAME} keeps none unencrypted.`;
 
-/** The view's privacy footer, as Claude's Setup has one (`PRIVACY_FOOTER`). */
-export const CHATGPT_PRIVACY_FOOTER = `${APP_NAME} never sees your ChatGPT password: you sign in on OpenAI's own page. It keeps only the sign-in's tokens, encrypted with your Windows login in its data folder, never shown and used only by its background process.`;
+/**
+ * The view's privacy footer, as Claude's Setup has one (`PRIVACY_FOOTER`):
+ * what is kept and how, exactly. The tokens are encrypted; the plan, the box
+ * and three ids are not (the account's `sub`, the client id OpenAI issued
+ * the app for it, and the host id the app made; PLAN 5.7 item 2).
+ */
+export const CHATGPT_PRIVACY_FOOTER = `${APP_NAME} never sees your ChatGPT password: you sign in on OpenAI's own page. It keeps the sign-in's tokens in its data folder, encrypted with your Windows login, never shown and used only by its background process. Beside them, unencrypted, it keeps your plan, whether you ticked the data settings box, an id for your ChatGPT account, the id OpenAI issued ${APP_NAME} for that account, and an id ${APP_NAME} made for this computer.`;
 
 /** The status card: where the sign-in stands, in a few words. */
 export function chatGptSetupStatus(status: ChatGptStatus | null, waiting: boolean): ChatGptSetupStatus {
@@ -104,6 +122,26 @@ export function chatGptSetupStatus(status: ChatGptStatus | null, waiting: boolea
     };
   }
   return { tone: 'pending', title: 'Not signed in to ChatGPT', lines: [SIGNED_OUT_TEXT, ...dev] };
+}
+
+/**
+ * Whether the view shows the wait: a sign-in this page started, or one main
+ * says is waiting, as after a reload while one waited.
+ */
+export function chatGptWaiting(signingIn: boolean, status: ChatGptStatus | null): boolean {
+  return signingIn || status?.signingIn === true;
+}
+
+/** How often the page asks main again while main waits on a sign-in the page did not start. */
+export const SIGN_IN_POLL_MS = 2000;
+
+/**
+ * Whether the page asks main again every `SIGN_IN_POLL_MS`: main is waiting
+ * on a sign-in this page did not start, as after a reload, and only asking
+ * tells the page when it ends. A sign-in the page started answers by itself.
+ */
+export function pollsForSignIn(signingIn: boolean, status: ChatGptStatus | null): boolean {
+  return status?.signingIn === true && !signingIn;
 }
 
 /** Settings' ChatGPT account row: signed in or not, and the plan when the sign-in named it. */
@@ -134,8 +172,12 @@ export type SignInFailure =
   | 'client-mismatch'
   /** OpenAI refused the code */
   | 'invalid-grant'
-  /** the code could not be exchanged: no answer, or an answer that was not tokens */
-  | 'exchange'
+  /** no answer came from OpenAI's token or key endpoint: the connection failed or timed out */
+  | 'no-answer'
+  /** OpenAI's token or key endpoint answered with an error status */
+  | 'server'
+  /** an answer that is not what OpenAI documents: no tokens, or keys that are not JSON */
+  | 'malformed'
   /** the ID token did not pass its checks */
   | 'id-token'
   /** a kept registration came back signed in as another account */
@@ -145,8 +187,9 @@ export type SignInFailure =
 
 /**
  * What the page says for a sign-in that did not finish. `extra` is OpenAI's
- * error word for `refused`, or the HTTP status for `exchange`, already reduced
- * to a short word or number by main; never anything OpenAI wrote at length.
+ * error word for `refused`, or the HTTP status for `server` (`503`), already
+ * reduced to a short word or number by main; never anything OpenAI wrote at
+ * length. The other reasons take none.
  */
 export function signInFailureMessage(reason: SignInFailure, extra?: string): string {
   switch (reason) {
@@ -164,8 +207,12 @@ export function signInFailureMessage(reason: SignInFailure, extra?: string): str
       return `The answer from OpenAI's sign-in page was for another registration of ${APP_NAME}, so it was not used. Try again.`;
     case 'invalid-grant':
       return `OpenAI did not accept the sign-in, which may have taken too long. Choose ${SIGN_IN_BUTTON} to try again.`;
-    case 'exchange':
-      return `${APP_NAME} could not finish the sign-in with OpenAI${extra ? ` (${extra})` : ''}. Check your connection and try again.`;
+    case 'no-answer':
+      return `${APP_NAME} could not reach OpenAI to finish the sign-in. Check your connection and try again.`;
+    case 'server':
+      return `OpenAI could not finish the sign-in: it answered with an error${extra ? ` (status ${extra})` : ''}. Try again in a few minutes.`;
+    case 'malformed':
+      return `OpenAI's answer to the sign-in was not in the form ${APP_NAME} expects, so you are not signed in. Try again; if it happens again, ${APP_NAME} may need an update.`;
     case 'id-token':
       return `OpenAI's answer to the sign-in did not pass ${APP_NAME}'s checks, so it was not kept. Try again.`;
     case 'other-account':
@@ -179,6 +226,35 @@ export const SIGNED_OUT_REVOKED =
   'Signed out. The sign-in was removed from this computer, and OpenAI ended it.';
 
 export const SIGNED_OUT_NOT_REVOKED = `Signed out on this computer, but OpenAI did not confirm that it ended the sign-in. To be sure, disconnect ${APP_NAME} in your ChatGPT settings.`;
+
+/** A line under the status card's buttons: how the last sign-in, sign-out or change went. */
+export interface ChatGptOutcome {
+  tone: 'ok' | 'warn' | 'failed';
+  text: string;
+}
+
+/**
+ * What Sign out says: that OpenAI ended the sign-in, or, when it did not
+ * confirm it, a warning that the tokens were removed here only, with the way
+ * to end it by hand (PLAN 5.7 item 4).
+ */
+export function signOutOutcome(revoked: boolean): ChatGptOutcome {
+  return revoked ? { tone: 'ok', text: SIGNED_OUT_REVOKED } : { tone: 'warn', text: SIGNED_OUT_NOT_REVOKED };
+}
+
+/** A request that failed, in red, in the words main or the page gave it. */
+export function failedOutcome(message: string): ChatGptOutcome {
+  return { tone: 'failed', text: message };
+}
+
+/**
+ * What a sign-in that did not finish says under the buttons, from the
+ * failure's code and message: nothing for one cancelled, by Cancel or by a
+ * new sign-in that replaced it; otherwise the message, in red.
+ */
+export function signInFailureOutcome(code: string | null, message: string): ChatGptOutcome | null {
+  return code === 'cancelled' ? null : failedOutcome(message);
+}
 
 /* ------------------------------------------------------------------ */
 /* The browser tab the sign-in ends in                                 */

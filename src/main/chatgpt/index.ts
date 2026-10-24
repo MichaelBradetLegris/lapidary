@@ -21,6 +21,7 @@ import {
   authEndpoints,
   authorizationUrl,
   codeExchangeFields,
+  getJson,
   grantsPlan,
   newAttempt,
   oauthError,
@@ -37,6 +38,7 @@ import {
   lastRegistration,
   openTokens,
   readChatGpt,
+  readChatGptChecked,
   sealTokens,
   sessionRegistration,
   updateChatGpt,
@@ -145,24 +147,34 @@ function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-async function getJson(fetch: Fetch, url: string, signal: AbortSignal): Promise<unknown> {
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: { accept: 'application/json' },
-    signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
-  });
-  if (!response.ok) throw new Error(`status ${response.status}`);
-  const json: unknown = await response.json();
-  return json;
-}
-
 export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
   const now = deps.now ?? ((): Date => new Date());
   const write = deps.write ?? (<T>(work: () => Promise<T>): Promise<T> => work());
   let waiting: AbortController | null = null;
+  /**
+   * The sign-in's part as last read or written here, for a status asked while
+   * secrets.json is there but cannot be read (a sync, backup or antivirus
+   * tool holding it): the page is told what is still on disk, not "not
+   * signed in" (codex.2 review). Nothing is ever decided on it: the sign-in,
+   * Sign out and the box read the file again, and refuse while they cannot.
+   */
+  let known: ChatGptSecrets | null = null;
+  const remember = (secrets: ChatGptSecrets): ChatGptSecrets => {
+    known = secrets;
+    return secrets;
+  };
+  /** A write of the sign-in's part, remembered as `known`. */
+  const keep = (work: () => Promise<ChatGptSecrets>): Promise<ChatGptSecrets> => write(work).then(remember);
 
   async function status(): Promise<ChatGptStatus> {
-    const secrets = await readChatGpt(deps.userDataDir());
+    const dir = deps.userDataDir();
+    let secrets: ChatGptSecrets;
+    try {
+      secrets = remember(await readChatGptChecked(dir));
+    } catch {
+      // What was last read or written in this run; with nothing yet, nothing kept, as before.
+      secrets = known ?? (await readChatGpt(dir));
+    }
     const registration = sessionRegistration(secrets);
     const base = deps.authBase();
     return {
@@ -195,7 +207,10 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
       throw new SignInStop(fail('not-configured', NO_ENCRYPTION_TEXT), 'encryption');
     }
     const dir = deps.userDataDir();
-    const before = await readChatGpt(dir);
+    // Checked reads here and below: a secrets.json that cannot be read stops
+    // the sign-in, rather than registering the app again or taking another
+    // account's sign-in on a kept registration (codex.2 review).
+    const before = await readChatGptChecked(dir);
     if (sessionRegistration(before)) {
       throw new SignInStop(
         fail('invalid-input', 'You are signed in to ChatGPT already. Sign out first to sign in again.'),
@@ -269,7 +284,7 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
       // A first sign-in's client id is kept at once: should the exchange fail,
       // the next sign-in reuses it rather than registering the app again.
       if (clientId === DYNAMIC_CLIENT_ID) {
-        await write(() =>
+        await keep(() =>
           updateChatGpt(dir, (c) => ({
             ...c,
             lastClientId: reading.clientId,
@@ -284,6 +299,10 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
         );
       }
 
+      // Each request to OpenAI that fails says how: no answer, an error
+      // status, or an answer not in the form OpenAI documents, and which
+      // endpoint (`endpoint` in the log), so the page never blames the
+      // connection for an answer that came (codex.2 review).
       let answer: FormAnswer;
       try {
         answer = await postForm(
@@ -294,26 +313,31 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
         );
       } catch {
         if (signal.aborted) throw refuse(cancelled());
-        throw refuse(stopFor('exchange', 'no answer'));
+        throw refuse(stopFor('no-answer', undefined, { endpoint: 'token' }));
       }
       if (answer.status !== 200) {
         const error = oauthError(answer.json);
         throw refuse(
           error === 'invalid_grant'
             ? stopFor('invalid-grant', undefined, { status: answer.status })
-            : stopFor('exchange', `status ${answer.status}`, { status: answer.status })
+            : stopFor('server', String(answer.status), { endpoint: 'token', status: answer.status })
         );
       }
       const tokens = readTokenAnswer(answer.json, now(), reading.scope);
-      if (!tokens) throw refuse(stopFor('exchange', 'no tokens in the answer'));
+      if (!tokens) throw refuse(stopFor('malformed', undefined, { endpoint: 'token' }));
 
-      let jwks: unknown;
+      let keys: FormAnswer;
       try {
-        jwks = await getJson(deps.fetch, endpoints.jwks, signal);
+        keys = await getJson(deps.fetch, endpoints.jwks, signal);
       } catch {
         if (signal.aborted) throw refuse(cancelled());
-        throw refuse(stopFor('exchange', 'no answer'));
+        throw refuse(stopFor('no-answer', undefined, { endpoint: 'keys' }));
       }
+      if (keys.status !== 200) {
+        throw refuse(stopFor('server', String(keys.status), { endpoint: 'keys', status: keys.status }));
+      }
+      if (keys.json === null) throw refuse(stopFor('malformed', undefined, { endpoint: 'keys' }));
+      const jwks = keys.json;
       const check = checkIdToken(tokens.idToken, jwks, {
         issuer: endpoints.issuer,
         clientId: reading.clientId,
@@ -322,7 +346,7 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
       });
       if (!check.ok) throw refuse(stopFor('id-token', undefined, { problem: check.problem }));
 
-      const current = await readChatGpt(dir);
+      const current = await readChatGptChecked(dir);
       const registration = current.registrations.find((r) => r.clientId === reading.clientId) ?? null;
       if (registration?.subject && registration.subject !== check.identity.subject) {
         await letGo(reading.clientId, tokens.refreshToken, signal);
@@ -330,7 +354,7 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
       }
       if (!grantsPlan(tokens.scope)) {
         await letGo(reading.clientId, tokens.refreshToken, signal);
-        await write(() =>
+        await keep(() =>
           updateChatGpt(dir, (c) => ({
             ...c,
             lastClientId: reading.clientId,
@@ -348,7 +372,7 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
 
       const ciphertext = sealTokens(deps.vault, tokens);
       const savedAt = now().toISOString();
-      const written = await write(() =>
+      const written = await keep(() =>
         updateChatGpt(dir, (c) => {
           const kept = c.registrations.find((r) => r.clientId === reading.clientId);
           return {
@@ -411,7 +435,8 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
   async function signOut(): Promise<ChatGptSignOut> {
     cancelSignIn();
     const dir = deps.userDataDir();
-    const secrets = await readChatGpt(dir);
+    // Checked: a sign-in that cannot be read is not one that is not there.
+    const secrets = await readChatGptChecked(dir);
     const session = secrets.session;
     if (!session) return { status: await status(), revoked: true };
     const tokens = openTokens(deps.vault, session.ciphertext);
@@ -432,14 +457,14 @@ export function createChatGptAuth(deps: ChatGptAuthDeps): ChatGptAuth {
       release();
     }
     // Removed whatever OpenAI said: the registration and the host id stay, for a later sign-in.
-    await write(() => updateChatGpt(dir, (c) => ({ ...c, session: null })));
+    await keep(() => updateChatGpt(dir, (c) => ({ ...c, session: null })));
     deps.log('info', 'chatgpt.sign-out', { revoked });
     return { status: await status(), revoked };
   }
 
   async function confirmDataSettings(confirmed: boolean): Promise<ChatGptStatus> {
     const dir = deps.userDataDir();
-    const written = await write(() =>
+    const written = await keep(() =>
       updateChatGpt(dir, (c) => {
         const registration = sessionRegistration(c);
         if (!registration) return c;

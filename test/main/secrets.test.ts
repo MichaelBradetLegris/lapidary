@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearOpenAiKey,
   openAiKey,
@@ -168,5 +168,85 @@ describe('the two credentials side by side', () => {
     ).rejects.toThrow('refused');
     await storeOpenAiKey(fakeVault(), dir, KEY, noEnv);
     expect((await readSecrets(dir)).openai?.last4).toBe('abcd');
+  });
+});
+
+/* codex.2 review: a write reads the file first, and the file now holds both
+   credentials, so a read that fails must never be taken for an empty file. */
+describe('a secrets.json that cannot be read', () => {
+  /** What Windows gives while a sync, backup or antivirus tool holds the file. */
+  function busy(): NodeJS.ErrnoException {
+    return Object.assign(new Error(`EBUSY: resource busy or locked, open '${secretsPath(dir)}'`), {
+      code: 'EBUSY',
+      errno: -4082,
+      syscall: 'open',
+      path: secretsPath(dir)
+    });
+  }
+
+  /** The file holding a key and a sign-in's part, as two credentials side by side. */
+  async function both(): Promise<Buffer> {
+    await storeOpenAiKey(fakeVault(), dir, KEY, noEnv);
+    await updateSecrets(dir, (file) => ({ ...file, chatgpt: { hostId: 'kept', registrations: ['r'] } }));
+    return fs.readFile(secretsPath(dir));
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('writes nothing while the file is there but cannot be read, so neither credential is lost', async () => {
+    const bytes = await both();
+    for (const write of [
+      () => storeOpenAiKey(fakeVault(), dir, 'sk-proj-ANOTHERTESTKEY5678wxyz', noEnv), // check-public: allow
+      () => clearOpenAiKey(fakeVault(), dir, noEnv),
+      () => updateSecrets(dir, (file) => ({ ...file, chatgpt: { hostId: 'other' } }))
+    ]) {
+      vi.spyOn(fs, 'readFile').mockRejectedValueOnce(busy());
+      const refused = await write().then(
+        () => null,
+        (err: unknown) => err as { code?: string; message?: string }
+      );
+      expect(refused?.code).toBe('io');
+      expect(refused?.message).toContain('secrets.json');
+      vi.restoreAllMocks();
+      expect(await fs.readFile(secretsPath(dir))).toEqual(bytes);
+    }
+    expect(await fs.readdir(dir)).toEqual(['secrets.json']);
+  });
+
+  it('still reads as no key for a status, and is read again for the next write', async () => {
+    await both();
+    vi.spyOn(fs, 'readFile').mockRejectedValueOnce(busy());
+    expect((await openAiKeyStatus(fakeVault(), dir, noEnv)).configured).toBe(false);
+    await updateSecrets(dir, (file) => ({ ...file, chatgpt: { hostId: 'changed' } }));
+    const file = await readSecrets(dir);
+    expect(file.openai?.last4).toBe('abcd');
+    expect(file.chatgpt).toEqual({ hostId: 'changed' });
+  });
+
+  it('copies a damaged file aside before writing a new one: not JSON, not an object or another version', async () => {
+    for (const [n, junk] of ['{ not json', '', '[1, 2]', '{"version": 2, "openai": {}}'].entries()) {
+      await fs.writeFile(secretsPath(dir), junk);
+      await storeOpenAiKey(fakeVault(), dir, KEY, noEnv);
+      expect((await readSecrets(dir)).openai?.last4).toBe('abcd');
+      const copies = (await fs.readdir(dir))
+        .filter((name) => name.startsWith('secrets.json.corrupt-'))
+        .sort();
+      expect(copies).toHaveLength(n + 1);
+      expect(copies.every((name) => /^secrets\.json\.corrupt-\d{14}(-\d+)?$/.test(name))).toBe(true);
+      const contents = await Promise.all(copies.map((name) => fs.readFile(path.join(dir, name), 'utf8')));
+      expect(contents).toContain(junk);
+    }
+  });
+
+  it('writes nothing over a damaged file it cannot copy aside', async () => {
+    await fs.writeFile(secretsPath(dir), '{ not json');
+    vi.spyOn(fs, 'copyFile').mockRejectedValueOnce(
+      Object.assign(new Error('EPERM: operation not permitted, copyfile'), { code: 'EPERM' })
+    );
+    await expect(storeOpenAiKey(fakeVault(), dir, KEY, noEnv)).rejects.toMatchObject({ code: 'io' });
+    expect(await fs.readFile(secretsPath(dir), 'utf8')).toBe('{ not json');
+    expect(await fs.readdir(dir)).toEqual(['secrets.json']);
   });
 });

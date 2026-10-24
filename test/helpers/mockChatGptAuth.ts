@@ -66,6 +66,12 @@ export type AuthScenario =
   | 'invalidgrant'
   /** the token endpoint answers 500 */
   | 'tokenerror'
+  /** the token endpoint answers 200 with no ID token */
+  | 'notokens'
+  /** the key endpoint answers 500 */
+  | 'jwksfails'
+  /** the key endpoint answers 200 with a body that is not JSON */
+  | 'jwksjunk'
   /** the revocation endpoint answers 500 */
   | 'revokefails';
 
@@ -85,6 +91,9 @@ export const AUTH_SCENARIOS: readonly AuthScenario[] = [
   'wrongaudience',
   'invalidgrant',
   'tokenerror',
+  'notokens',
+  'jwksfails',
+  'jwksjunk',
   'revokefails'
 ];
 
@@ -328,7 +337,7 @@ export async function startMockChatGptAuth(
     sendJson(res, 200, {
       access_token: accessToken,
       refresh_token: refreshToken,
-      id_token: idToken,
+      ...(mock.scenario === 'notokens' ? {} : { id_token: idToken }),
       token_type: 'Bearer',
       expires_in: 3600,
       scope: entry.scope
@@ -359,6 +368,8 @@ export async function startMockChatGptAuth(
       if (req.method === 'POST' && url.pathname === '/api/accounts/oauth/token') return token(form, res);
       if (req.method === 'POST' && url.pathname === '/api/accounts/oauth/revoke') return revoke(form, res);
       if (req.method === 'GET' && url.pathname === '/.well-known/jwks.json') {
+        if (mock.scenario === 'jwksfails') return sendJson(res, 500, { error: 'server_error' });
+        if (mock.scenario === 'jwksjunk') return sendText(res, 200, '<html>not the keys</html>');
         return sendJson(res, 200, { keys: [jwk] });
       }
       if (req.method === 'GET' && url.pathname === '/.well-known/openid-configuration') {

@@ -3,7 +3,6 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ChatGptSetup } from '../../src/renderer/components/ChatGptSetup';
 import { SettingsDialog } from '../../src/renderer/components/SettingsDialog';
-import type { ChatGptOutcome } from '../../src/renderer/state/chatgpt';
 import type { ChatGptStatus } from '../../src/shared/ipc';
 import {
   CHATGPT_PRIVACY_FOOTER,
@@ -12,7 +11,8 @@ import {
   TRAINING_CHOICE_TEXT,
   TRAINING_WARNING_TEXT,
   TRAINING_WARNING_TITLE,
-  dataSettingsNote
+  dataSettingsNote,
+  type ChatGptOutcome
 } from '../../src/shared/ui/chatgpt';
 import { CHATGPT_ACCOUNT_TIP, helpButtonLabel } from '../../src/shared/ui/settingsDialog';
 import { DEFAULT_SETTINGS } from '../../src/shared/types';

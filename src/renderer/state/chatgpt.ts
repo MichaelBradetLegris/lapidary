@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatGptStatus } from '../../shared/ipc';
-import { SIGNED_OUT_NOT_REVOKED, SIGNED_OUT_REVOKED } from '../../shared/ui/chatgpt';
+import {
+  SIGN_IN_POLL_MS,
+  chatGptWaiting,
+  failedOutcome,
+  pollsForSignIn,
+  signInFailureOutcome,
+  signOutOutcome,
+  type ChatGptOutcome
+} from '../../shared/ui/chatgpt';
 import { ApiError, call, errorMessage } from './client';
 
 /**
@@ -8,14 +16,11 @@ import { ApiError, call, errorMessage } from './client';
  * status, the sign-in the page started and is waiting on, and what the last
  * sign-in, sign-out or change said. Main does the work and keeps the tokens;
  * the page only asks, through the `chatgpt:` channels, and is told the status
- * (`ChatGptStatus`), never a token or an id.
+ * (`ChatGptStatus`), never a token or an id. What it shows is decided in
+ * `src/shared/ui/chatgpt.ts` (`chatGptWaiting`, `pollsForSignIn`,
+ * `signInFailureOutcome`, `signOutOutcome`), where it is tested;
+ * test/renderer/chatgptState.test.ts pins how this hook uses them.
  */
-
-/** A line under the status card's buttons: how the last sign-in or sign-out went. */
-export interface ChatGptOutcome {
-  tone: 'ok' | 'warn' | 'failed';
-  text: string;
-}
 
 export interface ChatGptController {
   /** null until main has answered */
@@ -52,13 +57,16 @@ export function useChatGpt(): ChatGptController {
 
   /* A sign-in this page did not start, as after a reload while one waited:
      main says it is waiting, and only asking again tells when it ends. */
-  const waitingElsewhere = status?.signingIn === true && !signingIn;
+  const polling = pollsForSignIn(signingIn, status);
   useEffect(() => {
-    if (!waitingElsewhere) return;
-    const timer = window.setInterval(refresh, 2000);
+    if (!polling) return;
+    const timer = window.setInterval(refresh, SIGN_IN_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [waitingElsewhere, refresh]);
+  }, [polling, refresh]);
 
+  /* Sign in, Sign out, the box and Open Data controls each start by clearing
+     the line under the buttons, so it says how the last of them went, never
+     an earlier failure (codex.2 review). */
   const signIn = useCallback(
     (another = false) => {
       const mine = ++ticket.current;
@@ -71,9 +79,7 @@ export function useChatGpt(): ChatGptController {
         .catch((err: unknown) => {
           if (mine !== ticket.current) return;
           // A cancelled sign-in, by Cancel or a new one, says nothing.
-          if (!(err instanceof ApiError && err.code === 'cancelled')) {
-            setOutcome({ tone: 'failed', text: errorMessage(err) });
-          }
+          setOutcome(signInFailureOutcome(err instanceof ApiError ? err.code : null, errorMessage(err)));
           refresh();
         })
         .finally(() => {
@@ -95,21 +101,20 @@ export function useChatGpt(): ChatGptController {
     call('chatgpt:sign-out', undefined)
       .then(({ status: next, revoked }) => {
         setStatus(next);
-        setOutcome(
-          revoked ? { tone: 'ok', text: SIGNED_OUT_REVOKED } : { tone: 'warn', text: SIGNED_OUT_NOT_REVOKED }
-        );
+        setOutcome(signOutOutcome(revoked));
       })
-      .catch((err: unknown) => setOutcome({ tone: 'failed', text: errorMessage(err) }))
+      .catch((err: unknown) => setOutcome(failedOutcome(errorMessage(err))))
       .finally(() => setBusy(false));
   }, []);
 
   const setDataSettingsConfirmed = useCallback(
     (confirmed: boolean) => {
+      setOutcome(null);
       setBusy(true);
       call('chatgpt:confirm-data-settings', { confirmed })
         .then(setStatus)
         .catch((err: unknown) => {
-          setOutcome({ tone: 'failed', text: errorMessage(err) });
+          setOutcome(failedOutcome(errorMessage(err)));
           refresh();
         })
         .finally(() => setBusy(false));
@@ -118,14 +123,15 @@ export function useChatGpt(): ChatGptController {
   );
 
   const openDataControls = useCallback(() => {
+    setOutcome(null);
     void call('shell:open-external', { page: 'chatgpt-data-controls' }).catch((err: unknown) =>
-      setOutcome({ tone: 'failed', text: errorMessage(err) })
+      setOutcome(failedOutcome(errorMessage(err)))
     );
   }, []);
 
   return {
     status,
-    waiting: signingIn || status?.signingIn === true,
+    waiting: chatGptWaiting(signingIn, status),
     busy,
     outcome,
     signIn,

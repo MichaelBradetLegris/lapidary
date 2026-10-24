@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readSecrets, updateSecrets, type KeyVault } from '../secrets';
+import { readSecrets, readSecretsChecked, updateSecrets, type KeyVault } from '../secrets';
 
 /**
  * The ChatGPT sign-in's part of secrets.json (codex.2, CLAUDE.md rule 2 b,
@@ -21,7 +21,9 @@ import { readSecrets, updateSecrets, type KeyVault } from '../secrets';
  *   the sign-in named, and the tokens, encrypted. Signing out removes it.
  *
  * A part that is missing, damaged or of the wrong shape reads as nothing, as
- * secrets.json's own junk does.
+ * secrets.json's own junk does. A secrets.json that is there but cannot be
+ * read is another matter: `readChatGptChecked` and every change throw then,
+ * and the status falls back on what was last read or written (index.ts).
  */
 
 export interface Registration {
@@ -132,8 +134,18 @@ export function normalizeChatGpt(value: unknown): ChatGptSecrets {
   };
 }
 
+/** The part, leniently: a file that cannot be read reads as nothing kept. For a status only. */
 export async function readChatGpt(userDataDir: string): Promise<ChatGptSecrets> {
   return normalizeChatGpt((await readSecrets(userDataDir)).chatgpt);
+}
+
+/**
+ * The part, for a decision a change follows (which registration a sign-in
+ * uses, whose account it is, whether there is a sign-in to end): throws while
+ * secrets.json is there but cannot be read, rather than deciding on nothing.
+ */
+export async function readChatGptChecked(userDataDir: string): Promise<ChatGptSecrets> {
+  return normalizeChatGpt((await readSecretsChecked(userDataDir)).chatgpt);
 }
 
 /** Change the part, after any other change to secrets.json under way, and answer with what was written. */

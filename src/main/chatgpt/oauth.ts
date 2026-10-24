@@ -197,6 +197,18 @@ export interface FormAnswer {
   json: unknown;
 }
 
+/** The answer's status and its body as JSON, or null when there was none or it was not JSON. */
+async function readAnswer(response: Response): Promise<FormAnswer> {
+  const body = await response.text();
+  let json: unknown;
+  try {
+    json = body.length > 0 ? JSON.parse(body) : null;
+  } catch {
+    json = null;
+  }
+  return { status: response.status, json };
+}
+
 /** POST a form and read the JSON answer. Throws only when no answer came. */
 export async function postForm(
   fetch: Fetch,
@@ -211,14 +223,25 @@ export async function postForm(
     body: new URLSearchParams(fields).toString(),
     signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
   });
-  const body = await response.text();
-  let json: unknown;
-  try {
-    json = body.length > 0 ? JSON.parse(body) : null;
-  } catch {
-    json = null;
-  }
-  return { status: response.status, json };
+  return readAnswer(response);
+}
+
+/**
+ * GET a JSON document, such as OpenAI's signing keys, and read the answer,
+ * whatever its status. Throws only when no answer came.
+ */
+export async function getJson(
+  fetch: Fetch,
+  url: string,
+  signal: AbortSignal,
+  timeoutMs = REQUEST_TIMEOUT_MS
+): Promise<FormAnswer> {
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { accept: 'application/json' },
+    signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+  });
+  return readAnswer(response);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

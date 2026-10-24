@@ -17,6 +17,7 @@ import {
   SIGNED_OUT_REVOKED,
   SIGNED_OUT_TEXT,
   SIGN_IN_BUTTON,
+  SIGN_IN_POLL_MS,
   SIGN_IN_WAIT_MINUTES,
   TRAINING_CHOICE_TEXT,
   TRAINING_WARNING_TEXT,
@@ -26,8 +27,14 @@ import {
   chatGptAccountLine,
   chatGptPlanLabel,
   chatGptSetupStatus,
+  chatGptWaiting,
   dataSettingsNote,
+  externalPageUrl,
+  failedOutcome,
+  pollsForSignIn,
   signInFailureMessage,
+  signInFailureOutcome,
+  signOutOutcome,
   type SignInFailure
 } from '../../src/shared/ui/chatgpt';
 
@@ -67,6 +74,29 @@ describe('the training warning (codex.2)', () => {
     expect(CHATGPT_DATA_CONTROLS_URL).toBe('https://chatgpt.com/#settings/DataControls');
     expect(EXTERNAL_PAGE_URLS).toEqual({ 'chatgpt-data-controls': CHATGPT_DATA_CONTROLS_URL });
     expect(Object.isFrozen(EXTERNAL_PAGE_URLS)).toBe(true);
+  });
+
+  it('opens a page for one of its own names only, never an address or a name every object has (codex.2 review)', () => {
+    expect(externalPageUrl('chatgpt-data-controls')).toBe(CHATGPT_DATA_CONTROLS_URL);
+    for (const page of [
+      '__proto__',
+      'constructor',
+      'toString',
+      'hasOwnProperty',
+      'valueOf',
+      'https://evil.example.com',
+      CHATGPT_DATA_CONTROLS_URL,
+      'Chatgpt-Data-Controls',
+      ' chatgpt-data-controls',
+      '',
+      5,
+      null,
+      undefined,
+      ['chatgpt-data-controls'],
+      { toString: () => 'chatgpt-data-controls' }
+    ]) {
+      expect(externalPageUrl(page)).toBeNull();
+    }
   });
 
   it('says under the box whose it is and what it is for', () => {
@@ -133,7 +163,53 @@ describe("the ChatGPT view's status card (codex.2)", () => {
 
   it('has a privacy footer that says where the sign-in is kept and that the password is never seen', () => {
     expect(CHATGPT_PRIVACY_FOOTER).toContain(`${APP_NAME} never sees your ChatGPT password`);
-    expect(CHATGPT_PRIVACY_FOOTER).toContain('encrypted with your Windows login');
+    expect(CHATGPT_PRIVACY_FOOTER).toContain(
+      "It keeps the sign-in's tokens in its data folder, encrypted with your Windows login, never shown and used only by its background process."
+    );
+  });
+
+  it('says exactly what else is kept, unencrypted, and never that the tokens are all it keeps (codex.2 review)', () => {
+    expect(CHATGPT_PRIVACY_FOOTER).not.toMatch(/\bonly the\b/);
+    expect(CHATGPT_PRIVACY_FOOTER).toContain(
+      `Beside them, unencrypted, it keeps your plan, whether you ticked the data settings box, an id for your ChatGPT account, the id OpenAI issued ${APP_NAME} for that account, and an id ${APP_NAME} made for this computer.`
+    );
+  });
+});
+
+describe("the page's sign-in state (codex.2 review)", () => {
+  it('shows the wait for a sign-in this page started, and for one main says is waiting', () => {
+    expect(chatGptWaiting(false, null)).toBe(false);
+    expect(chatGptWaiting(false, SIGNED_OUT)).toBe(false);
+    expect(chatGptWaiting(true, null)).toBe(true);
+    expect(chatGptWaiting(true, SIGNED_OUT)).toBe(true);
+    // A page reloaded while main waits: main says so, and the page shows it.
+    expect(chatGptWaiting(false, { ...SIGNED_OUT, signingIn: true })).toBe(true);
+  });
+
+  it('asks main again every 2 s only while main waits on a sign-in this page did not start', () => {
+    expect(SIGN_IN_POLL_MS).toBe(2000);
+    expect(pollsForSignIn(false, { ...SIGNED_OUT, signingIn: true })).toBe(true);
+    expect(pollsForSignIn(true, { ...SIGNED_OUT, signingIn: true })).toBe(false);
+    expect(pollsForSignIn(false, SIGNED_OUT)).toBe(false);
+    expect(pollsForSignIn(true, SIGNED_OUT)).toBe(false);
+    expect(pollsForSignIn(false, null)).toBe(false);
+  });
+
+  it('says OpenAI ended the sign-in only when it confirmed it, and warns otherwise', () => {
+    expect(signOutOutcome(true)).toEqual({ tone: 'ok', text: SIGNED_OUT_REVOKED });
+    expect(signOutOutcome(false)).toEqual({ tone: 'warn', text: SIGNED_OUT_NOT_REVOKED });
+  });
+
+  it('says nothing for a sign-in cancelled, by Cancel or by a new one, and the reason in red for any other', () => {
+    expect(signInFailureOutcome('cancelled', 'Sign-in cancelled.')).toBeNull();
+    const denied = signInFailureMessage('denied');
+    expect(signInFailureOutcome('chatgpt-sign-in-failed', denied)).toEqual({ tone: 'failed', text: denied });
+    expect(signInFailureOutcome('io', 'Windows would not let it read secrets.json.')).toEqual({
+      tone: 'failed',
+      text: 'Windows would not let it read secrets.json.'
+    });
+    expect(signInFailureOutcome(null, 'no answer')).toEqual({ tone: 'failed', text: 'no answer' });
+    expect(failedOutcome('x')).toEqual({ tone: 'failed', text: 'x' });
   });
 });
 
@@ -156,7 +232,9 @@ describe('what a sign-in that did not finish says (codex.2)', () => {
     'registration',
     'client-mismatch',
     'invalid-grant',
-    'exchange',
+    'no-answer',
+    'server',
+    'malformed',
     'id-token',
     'other-account',
     'no-plan-use'
@@ -172,8 +250,20 @@ describe('what a sign-in that did not finish says (codex.2)', () => {
     expect(signInFailureMessage('refused', 'server_error')).toBe(
       'OpenAI\'s sign-in page did not sign you in (it answered "server_error"). Try again.'
     );
-    expect(signInFailureMessage('exchange', 'status 500')).toBe(
-      `${APP_NAME} could not finish the sign-in with OpenAI (status 500). Check your connection and try again.`
+    expect(signInFailureMessage('server', '503')).toBe(
+      'OpenAI could not finish the sign-in: it answered with an error (status 503). Try again in a few minutes.'
+    );
+  });
+
+  it('blames the connection only when no answer came (codex.2 review)', () => {
+    expect(signInFailureMessage('no-answer')).toBe(
+      `${APP_NAME} could not reach OpenAI to finish the sign-in. Check your connection and try again.`
+    );
+    for (const reason of REASONS.filter((r) => r !== 'no-answer')) {
+      expect(signInFailureMessage(reason, '500')).not.toContain('connection');
+    }
+    expect(signInFailureMessage('malformed')).toBe(
+      `OpenAI's answer to the sign-in was not in the form ${APP_NAME} expects, so you are not signed in. Try again; if it happens again, ${APP_NAME} may need an update.`
     );
   });
 

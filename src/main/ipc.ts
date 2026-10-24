@@ -16,7 +16,7 @@ import type {
 } from '../shared/ipc';
 import { chapterName } from '../shared/review';
 import { noBackupsYet } from '../shared/ui/backups';
-import { EXTERNAL_PAGE_URLS } from '../shared/ui/chatgpt';
+import { externalPageUrl } from '../shared/ui/chatgpt';
 import { backupsRootFor, chapterBackupHooks, chapterBackups } from './backups';
 import { createChatGptAuth, type ChatGptAuth } from './chatgpt';
 import { boxAnswer, createCloseGuard, messageBoxOptions } from './closeGuard';
@@ -500,8 +500,8 @@ function registerChatGptHandlers(): void {
   /* A page by its name, never an address from the page: ChatGPT's Data
      controls (codex.2). The shell stub writes it to the terminal instead. */
   handle('shell:open-external', async ({ page }) => {
-    const url = Object.hasOwn(EXTERNAL_PAGE_URLS, page) ? EXTERNAL_PAGE_URLS[page] : undefined;
-    if (!url) throw fail('invalid-input', `That is not a page ${APP_NAME} opens.`);
+    const url = externalPageUrl(page);
+    if (url === null) throw fail('invalid-input', `That is not a page ${APP_NAME} opens.`);
     await systemShell().openExternal(url);
   });
 }

@@ -2,9 +2,9 @@ import { promises as fs } from 'node:fs';
 import { request } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createChatGptAuth, type ChatGptAuth, type ChatGptAuthDeps } from '../../src/main/chatgpt';
-import { readChatGpt } from '../../src/main/chatgpt/store';
+import { ensureHostId, readChatGpt, updateChatGpt } from '../../src/main/chatgpt/store';
 import { AppFailure } from '../../src/main/errors';
 import { abortAll, registerController } from '../../src/main/providers/controllers';
 import {
@@ -18,7 +18,7 @@ import {
 import type { ShellApi } from '../../src/main/shellApi';
 import { APP_NAME } from '../../src/shared/branding';
 import type { ChatGptStatus } from '../../src/shared/ipc';
-import { signInFailureMessage } from '../../src/shared/ui/chatgpt';
+import { signInFailureMessage, type SignInFailure } from '../../src/shared/ui/chatgpt';
 import {
   MOCK_EMAIL,
   MOCK_SUBJECT,
@@ -151,6 +151,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await mock.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -327,12 +328,62 @@ describe('a sign-in that does not finish (codex.2)', () => {
     expect(mock.issued).toEqual(['oaiapp_mock_1']);
   });
 
-  it("says the token endpoint's status when it fails", async () => {
-    mock.scenario = 'tokenerror';
-    expect((await failure(auth().signIn({ another: false }))).message).toBe(
-      signInFailureMessage('exchange', 'status 500')
-    );
-  });
+  /* codex.2 review: each request to OpenAI that fails says how, and which
+     endpoint, and blames the connection only when no answer came. */
+  it.each([
+    ['tokenerror', 'server', { endpoint: 'token', status: 500 }, 'it answered with an error (status 500)'],
+    ['notokens', 'malformed', { endpoint: 'token' }, 'was not in the form'],
+    ['jwksfails', 'server', { endpoint: 'keys', status: 500 }, 'it answered with an error (status 500)'],
+    ['jwksjunk', 'malformed', { endpoint: 'keys' }, 'was not in the form']
+  ] as const)(
+    '%s: says %s, in the app and the browser, logs which endpoint, and keeps no sign-in',
+    async (scenario, reason, fields, words) => {
+      mock.scenario = scenario;
+      const stop = await failure(auth().signIn({ another: false }));
+      expect(stop.code).toBe('chatgpt-sign-in-failed');
+      expect(stop.message).toBe(signInFailureMessage(reason, 'status' in fields ? '500' : undefined));
+      expect(stop.message).toContain(words);
+      expect(stop.message).not.toContain('connection');
+      const tab = await lastPage();
+      expect(tab.page).toContain('<h1>Not signed in</h1>');
+      expect(tab.page).toContain(words);
+      expect((await readChatGpt(dir)).session).toBeNull();
+      expect((await auth().status()).signedIn).toBe(false);
+      // The client id came with the answer, so it is kept for the next sign-in.
+      expect((await readChatGpt(dir)).registrations).toEqual([
+        expect.objectContaining({ clientId: 'oaiapp_mock_1', subject: null })
+      ]);
+      expect(logs.find((l) => l.event === 'chatgpt.sign-in.failed')?.fields).toMatchObject({
+        reason,
+        ...fields
+      });
+    }
+  );
+
+  it.each([
+    ['token', '/api/accounts/oauth/token'],
+    ['keys', '/.well-known/jwks.json']
+  ] as const)(
+    'says no answer came, and to check the connection, when the %s request fails',
+    async (endpoint, at) => {
+      const stop = await failure(
+        auth({
+          fetch: (input, init) =>
+            new URL(input).pathname === at
+              ? Promise.reject(new TypeError('fetch failed'))
+              : fetch(input, init)
+        }).signIn({ another: false })
+      );
+      const reason: SignInFailure = 'no-answer';
+      expect(stop.message).toBe(signInFailureMessage(reason));
+      expect(stop.message).toContain('Check your connection');
+      expect((await lastPage()).page).toContain('<h1>Not signed in</h1>');
+      expect((await readChatGpt(dir)).session).toBeNull();
+      const failed = logs.find((l) => l.event === 'chatgpt.sign-in.failed');
+      expect(failed?.fields).toMatchObject({ reason, endpoint });
+      expect(failed?.fields).not.toHaveProperty('status');
+    }
+  );
 
   it("ends a sign-in that did not grant the plan's use, and asks for consent next time", async () => {
     mock.scenario = 'noplanscope';
@@ -557,6 +608,95 @@ describe('secrets.json holds the key and the sign-in side by side (codex.2)', ()
     await one.signOut();
     expect(await openAiKey(vault, dir, {})).toBe('sk-proj-ANOTHERTESTKEY5678wxyz'); // check-public: allow
     expect((await readSecrets(dir)).version).toBe(1);
+  });
+});
+
+/* codex.2 review: a read of secrets.json that fails is never taken for an
+   empty file, here as in secrets.test.ts: nothing is written and nothing is
+   decided on it. */
+describe('a secrets.json that cannot be read for a moment (codex.2 review)', () => {
+  function busy(): NodeJS.ErrnoException {
+    return Object.assign(new Error(`EBUSY: resource busy or locked, open '${secretsPath(dir)}'`), {
+      code: 'EBUSY',
+      errno: -4082,
+      syscall: 'open',
+      path: secretsPath(dir)
+    });
+  }
+
+  it('writes none of the sign-in over it, so the key, the registrations and the host id stay', async () => {
+    const vault = fakeVault();
+    await storeOpenAiKey(vault, dir, 'sk-proj-THISISATESTKEY1234abcd', {}); // check-public: allow
+    const one = auth();
+    await one.signIn({ another: false });
+    const kept = await readChatGpt(dir);
+    const bytes = await fs.readFile(secretsPath(dir));
+
+    vi.spyOn(fs, 'readFile').mockRejectedValueOnce(busy());
+    await expect(updateChatGpt(dir, (c) => c)).rejects.toMatchObject({ code: 'io' });
+    vi.restoreAllMocks();
+    vi.spyOn(fs, 'readFile').mockRejectedValueOnce(busy());
+    await expect(one.confirmDataSettings(true)).rejects.toMatchObject({ code: 'io' });
+    vi.restoreAllMocks();
+    // ensureHostId's own first read is a status read: the next read finds
+    // the file again, and the same host id is kept.
+    vi.spyOn(fs, 'readFile').mockRejectedValueOnce(busy());
+    expect(await ensureHostId(dir)).toBe(kept.hostId);
+    vi.restoreAllMocks();
+    vi.spyOn(fs, 'readFile').mockRejectedValue(busy());
+    await expect(
+      ensureHostId(dir, () => 'urn:uuid:00000000-0000-4000-8000-000000000000')
+    ).rejects.toMatchObject({ code: 'io' });
+    vi.restoreAllMocks();
+
+    expect(await fs.readFile(secretsPath(dir))).toEqual(bytes);
+    expect(await openAiKey(vault, dir, {})).toBe('sk-proj-THISISATESTKEY1234abcd'); // check-public: allow
+    expect(await readChatGpt(dir)).toEqual(kept);
+  });
+
+  it('tells the page what it last read or wrote while the file cannot be read, not "not signed in"', async () => {
+    const one = auth();
+    await one.signIn({ another: false });
+    vi.spyOn(fs, 'readFile').mockRejectedValue(busy());
+    expect(await one.status()).toEqual({ ...SIGNED_IN, devServer: mock.url });
+    // A failed tick of the box changes nothing, and the page, asking again, still sees the sign-in.
+    await expect(one.confirmDataSettings(true)).rejects.toMatchObject({ code: 'io' });
+    expect(await one.status()).toEqual({ ...SIGNED_IN, devServer: mock.url });
+    // With nothing read yet in this run, it reads as nothing kept, as before.
+    expect((await auth().status()).signedIn).toBe(false);
+    vi.restoreAllMocks();
+    // The write reads the file and goes through; the reads after it fail, and
+    // the page is told what was written, the box ticked.
+    const real = fs.readFile.bind(fs);
+    vi.spyOn(fs, 'readFile').mockImplementationOnce(real).mockRejectedValue(busy());
+    expect((await one.confirmDataSettings(true)).dataSettingsConfirmed).toBe(true);
+    expect((await one.status()).dataSettingsConfirmed).toBe(true);
+    vi.restoreAllMocks();
+    expect((await readChatGpt(dir)).registrations[0]?.dataSettingsConfirmed).toBe(true);
+  });
+
+  it('neither signs out nor starts a sign-in on a read that failed', async () => {
+    const one = auth();
+    await one.signIn({ another: false });
+    const bytes = await fs.readFile(secretsPath(dir));
+    vi.spyOn(fs, 'readFile').mockRejectedValue(busy());
+    // Sign out: no "OpenAI ended it" for a sign-in it could not read, and no revocation.
+    expect((await failure(one.signOut())).code).toBe('io');
+    vi.restoreAllMocks();
+    expect(mock.revoked).toEqual([]);
+    expect((await one.status()).signedIn).toBe(true);
+    expect(await fs.readFile(secretsPath(dir))).toEqual(bytes);
+
+    await one.signOut();
+    const before = authorizations().length;
+    // A sign-in whose first read fails, once: no browser, rather than
+    // registering the app again for want of the kept registration.
+    vi.spyOn(fs, 'readFile').mockRejectedValueOnce(busy());
+    expect((await failure(one.signIn({ another: false }))).code).toBe('io');
+    vi.restoreAllMocks();
+    expect(authorizations()).toHaveLength(before);
+    expect(opened).toHaveLength(1);
+    expect(mock.issued).toEqual(['oaiapp_mock_1']);
   });
 });
 
