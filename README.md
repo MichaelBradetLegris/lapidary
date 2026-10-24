@@ -318,7 +318,7 @@ A copy you build this way checks the published releases for updates, as a downlo
 
 MIT licence; see [LICENSE](LICENSE). The installed app's `resources` folder holds `LICENSE.txt` and `THIRD_PARTY_NOTICES.txt`, the licences of the software it includes, which About's **Licences and notices** opens.
 
-Lapidary is an independent open-source project. It runs Claude Code, made by Anthropic, which each user installs and signs in to themselves. It can also use OpenAI's API. Lapidary is not made, endorsed or sponsored by Anthropic or OpenAI, and it includes no Anthropic software.
+Lapidary is an independent open-source project. It runs Claude Code, made by Anthropic, which each user installs and signs in to themselves. It can also review with ChatGPT, on each user's own ChatGPT plan, through OpenAI's Sign in with ChatGPT. Lapidary is not made, endorsed or sponsored by Anthropic or OpenAI, and it includes no Anthropic software.
 
 Nor is it made, endorsed or sponsored by the makers of Obsidian. It works on the Markdown files a vault holds and needs nothing installed in Obsidian.
 

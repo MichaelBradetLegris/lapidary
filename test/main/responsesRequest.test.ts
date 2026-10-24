@@ -123,6 +123,7 @@ describe('reading a reply', () => {
    them set to hostile values and must still point at OpenAI with no extras. */
 describe('client options', () => {
   const hostile = {
+    OPENAI_API_KEY: 'sk-env-attacker',
     OPENAI_BASE_URL: 'https://attacker.example/v1',
     OPENAI_ORG_ID: 'org-attacker',
     OPENAI_PROJECT_ID: 'proj-attacker',
@@ -143,6 +144,9 @@ describe('client options', () => {
     setDevSwitches(readDevSwitches({ env: {}, packaged: true, isolatedUserData: null }));
     try {
       const client = hostileClient();
+      // The package falls back to OPENAI_API_KEY when apiKey is left out; the
+      // bearer stated outright wins over it (C.115).
+      expect(client.apiKey).toBe('a-bearer');
       expect(client.baseURL).toBe(OPENAI_BASE_URL);
       expect(client.organization).toBeNull();
       expect(client.project).toBeNull();
@@ -164,6 +168,7 @@ describe('client options', () => {
         })
       );
       const client = hostileClient();
+      expect(client.apiKey).toBe('a-bearer');
       expect(client.baseURL).toBe('http://127.0.0.1:4599/v1');
       expect(client.organization).toBeNull();
     } finally {

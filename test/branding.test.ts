@@ -182,6 +182,9 @@ describe('compliance wording (opensource.6)', () => {
   it('says what the app is, and is not, built from APP_NAME', () => {
     expect(DISCLAIMER.startsWith(`${APP_NAME} is an independent open-source project.`)).toBe(true);
     expect(DISCLAIMER).toContain('It runs Claude Code, made by Anthropic,');
+    // ChatGPT by its sign-in, OpenAI's one route since the API key went (codex.6).
+    expect(DISCLAIMER).toContain("through OpenAI's Sign in with ChatGPT.");
+    expect(DISCLAIMER).not.toMatch(/API key|OpenAI's API/);
     expect(DISCLAIMER).toContain('not made, endorsed or sponsored by Anthropic or OpenAI');
     expect(DISCLAIMER).toContain('includes no Anthropic software');
   });
