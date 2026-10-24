@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { composeReview, unsavedDecisionCount } from '../shared/diff/compose';
 import { rebaseReview } from '../shared/diff/rebase';
 import { proPreselection } from '../shared/ai/claudeModels';
+import { toRoyalRoadHtml } from '../shared/text/royalroad';
 import { SHOW_BACKUPS_CARD } from '../shared/ui/backups';
+import { copiedHtmlNote } from '../shared/ui/copy';
 import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
 import { mergeReloadRun, rebaseCardText, rebaseCardTone, type ReloadRun } from '../shared/ui/rebase';
 import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
@@ -672,6 +674,18 @@ export function App(): React.JSX.Element {
       .catch((err: unknown) => notify('error', errorMessage(err)));
   }, [review, notify]);
 
+  /* Copy HTML (rr.1), under Copy result in Actions: the same text, as HTML for
+     Royal Road's chapter editor (`toRoyalRoadHtml`, PLAN C.111). Nothing is
+     written anywhere but the clipboard. */
+  const copyHtml = useCallback(() => {
+    if (!review) return;
+    const html = toRoyalRoadHtml(composeReview(review));
+    navigator.clipboard
+      .writeText(html)
+      .then(() => notify('info', copiedHtmlNote(html.length)))
+      .catch((err: unknown) => notify('error', errorMessage(err)));
+  }, [review, notify]);
+
   /* Show backups (apply.11, PLAN 6.5), in the toolbar's Actions menu since
      `polish.7` and on the save card: a chapter's own backup folder, with its
      newest backup selected, which main works out from the chapter's path; with
@@ -973,6 +987,7 @@ export function App(): React.JSX.Element {
       onManualReview={openManualReview}
       onSaveChapter={saveChapter}
       onCopyResult={copyResult}
+      onCopyHtml={copyHtml}
       onShowBackups={() => revealBackups(review?.sourcePath)}
       onSettings={() => setSettingsOpen(true)}
       onSaveHintDone={() => void dismissHint(SAVE_HINT_ID, HINT_IO)}

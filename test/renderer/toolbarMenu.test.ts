@@ -32,7 +32,7 @@ describe("the menus' items (polish.7)", () => {
     expect(review).toContain('disabled={!review?.sourcePath || locked}');
   });
 
-  it('gives Actions the three bulk items, off while the chapter is read-only or a paragraph is open, then Copy result and Show backups', () => {
+  it('gives Actions the three bulk items, off while the chapter is read-only or a paragraph is open, then Copy result, Copy HTML and Show backups', () => {
     expect(TOOLBAR).toContain('const bulkOff = locked || editing > 0;');
     expect(TOOLBAR).toContain(
       "const bulkTitle = editing > 0 ? 'Finish or cancel the paragraphs you are editing first' : undefined;"
@@ -47,6 +47,8 @@ describe("the menus' items (polish.7)", () => {
       );
     }
     expect(TOOLBAR).toContain("{ label: 'Copy result', onSelect: onCopyResult, separated: true }");
+    // rr.1: never disabled, as Copy result is not.
+    expect(TOOLBAR).toContain('{ label: COPY_HTML, onSelect: onCopyHtml, title: COPY_HTML_TITLE }');
     expect(TOOLBAR).toContain('{ label: SHOW_BACKUPS, onSelect: onShowBackups, title: SHOW_BACKUPS_TITLE }');
   });
 });

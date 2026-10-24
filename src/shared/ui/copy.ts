@@ -1,5 +1,6 @@
 /**
- * What a copy from the manuscript pane puts on the clipboard.
+ * What a copy from the manuscript pane puts on the clipboard, and the words of
+ * Copy HTML in the Actions menu (`rr.1`).
  *
  * The browser's own copy took the page as it is built, not as it reads: every
  * suggestion's ghost row is a box of its own, so a blank line appeared in front
@@ -7,6 +8,17 @@
  * The pane now hands over the chapter's text and nothing else. The renderer
  * collects the runs of chapter text the selection covers; this joins them.
  */
+
+/** The Actions menu's item under Copy result, which copies the text as Royal Road HTML (`rr.1`). */
+export const COPY_HTML = 'Copy HTML';
+
+/** Its tooltip. */
+export const COPY_HTML_TITLE = "Copy the text as it reads now, as HTML for Royal Road's chapter editor.";
+
+/** The card once Copy HTML has put `length` characters on the clipboard, in `rr.1`'s words. */
+export function copiedHtmlNote(length: number): string {
+  return `Copied ${length} characters of HTML.`;
+}
 
 /** One run of chapter text the selection covers, and the paragraph block it sits in. */
 export interface ProsePiece {

@@ -158,7 +158,7 @@ Paragraphs are numbered from 1 beside the text, and the AI is shown the same num
 
 ## Saving to the chapter
 
-**Save to chapter** is the only thing that writes to your manuscript. It writes the text as it currently reads, with every accepted change applied, in one atomic step that keeps the file's line endings and encoding. **Copy result**, in the **Actions** menu, puts the same text on the clipboard instead. Selecting part of the page and copying it gives just those words, as they currently read, in plain text: none of the floating suggestions or labels come with them.
+**Save to chapter** is the only thing that writes to your manuscript. It writes the text as it currently reads, with every accepted change applied, in one atomic step that keeps the file's line endings and encoding. **Copy result**, in the **Actions** menu, puts the same text on the clipboard instead. **Copy HTML**, under it, puts the same text on the clipboard as HTML to paste into a Royal Road chapter: lines with no blank line between them stay close together, and Obsidian's frontmatter, comments, tags and footnote marks are left out. Selecting part of the page and copying it gives just those words, as they currently read, in plain text: none of the floating suggestions or labels come with them.
 
 If the chapter changes on disk while it is open (for example, you edit it in Obsidian), the app notices, re-anchors the suggestions onto the new text and tells you how many it could not place. Avoid editing the same chapter in Obsidian while you are accepting changes here ([Working in an Obsidian vault](#working-in-an-obsidian-vault) says why).
 

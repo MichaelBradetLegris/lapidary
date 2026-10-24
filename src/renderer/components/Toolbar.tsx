@@ -10,6 +10,7 @@ import {
   SHOW_ALL_CATEGORIES,
   suggestionChip
 } from '../../shared/ui/chips';
+import { COPY_HTML, COPY_HTML_TITLE } from '../../shared/ui/copy';
 import { ACTIONS_MENU, REVIEW_MENU } from '../../shared/ui/menu';
 import { saveButtonInput, saveButtonState } from '../../shared/ui/save';
 import { SAVE_HINT_ID, saveHintText, saveHintVisible } from '../../shared/ui/saveHint';
@@ -38,6 +39,8 @@ interface Props {
   onManualReview: () => void;
   onSaveChapter: () => void;
   onCopyResult: () => void;
+  /** copy the text as it reads now as Royal Road HTML (`rr.1`), under Copy result */
+  onCopyHtml: () => void;
   /** open the chapter's backup folder (apply.11), from Actions since `polish.7` */
   onShowBackups: () => void;
   onSettings: () => void;
@@ -62,12 +65,13 @@ interface Props {
  *
  * Four controls since `polish.7`: Review, a menu holding With AI and Manual
  * (which open Review with AI and Submit manual review); Actions, a menu
- * holding the three bulk actions, Copy result and Show backups, which left the
- * side panel's footer, since `polish.10` Accept all and Dismiss all of the
- * category whose chip the focus was last on, while it has not left the
- * toolbar (`useChipFocus`, `watchToolbarFocus`), and since `polish.11` Show
- * all categories and Hide all categories, as the eye before the chips does;
- * Save to chapter; and Settings (`ToolbarMenu`).
+ * holding the three bulk actions, Copy result, Copy HTML under it since
+ * `rr.1`, and Show backups, which left the side panel's footer, and since
+ * `polish.10` Accept all and Dismiss all of the category whose chip the focus
+ * was last on, while it has not left the toolbar (`useChipFocus`,
+ * `watchToolbarFocus`), and since `polish.11` Show all categories and Hide all
+ * categories, as the eye before the chips does; Save to chapter; and Settings
+ * (`ToolbarMenu`).
  * While a review runs, its progress and Cancel come before Review, whose With
  * AI waits until it ends.
  *
@@ -96,6 +100,7 @@ export function Toolbar({
   onManualReview,
   onSaveChapter,
   onCopyResult,
+  onCopyHtml,
   onShowBackups,
   onSettings,
   onSaveHintDone
@@ -250,6 +255,7 @@ export function Toolbar({
           ...chipItems,
           ...categoryItems,
           { label: 'Copy result', onSelect: onCopyResult, separated: true },
+          { label: COPY_HTML, onSelect: onCopyHtml, title: COPY_HTML_TITLE },
           { label: SHOW_BACKUPS, onSelect: onShowBackups, title: SHOW_BACKUPS_TITLE }
         ]}
       />
