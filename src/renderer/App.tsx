@@ -75,6 +75,11 @@ import type { SettingIo } from './state/settingWrites';
 import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { noteMergeMarkers } from './state/mergeMarkers';
 import { useKeyboardBindings } from './state/keyboard';
+import {
+  chooseManuscriptFolder as pickManuscriptFolder,
+  noteSavedSettings,
+  type ManuscriptFolderIo
+} from './state/manuscriptFolder';
 import { useModePlaces } from './state/modePlaces';
 import { useProgressLabel } from './state/progress';
 import { reviewWithoutSaving, saveThenReview } from './state/reviewStart';
@@ -123,6 +128,12 @@ const SETTINGS_READ_IO: SettingsReadIo = {
 
 /** How Start, Skip and Show the welcome guide again write the settings (setup.11, state/welcome.ts). */
 const WELCOME_IO: WelcomeIo = {
+  setSettings: (patch) => call('settings:set', patch)
+};
+
+/** How Choose folder picks and saves the manuscript folder (setup.18 review, state/manuscriptFolder.ts). */
+const MANUSCRIPT_FOLDER_IO: ManuscriptFolderIo = {
+  pickFolder: () => call('dialog:pick-folder', { title: 'Choose the manuscript folder' }),
   setSettings: (patch) => call('settings:set', patch)
 };
 
@@ -776,27 +787,25 @@ export function App(): React.JSX.Element {
     [notify, dismissNotificationsByKey]
   );
 
+  /* Choose folder, in the chapter list and the welcome guide: a refusal, such
+     as a folder that holds the backups folder, is a card under its own key,
+     which a later choice that main takes withdraws (setup.18 review). */
   const chooseManuscriptFolder = useCallback(() => {
-    void call('dialog:pick-folder', { title: 'Choose the manuscript folder' })
-      .then((folder) => (folder ? call('settings:set', { manuscriptFolder: folder }) : null))
-      .then((next) => {
-        if (next) {
-          setSettings(next);
-          refreshFiles();
-        }
-      })
-      .catch(fail);
-  }, [setSettings, refreshFiles, fail]);
+    void pickManuscriptFolder(MANUSCRIPT_FOLDER_IO).then((next) => {
+      if (next) refreshFiles();
+    });
+  }, [refreshFiles]);
 
   /* The settings as main saved them after a change in Settings, or in the
      welcome guide's folder rows (setup.18): the chapter list is read again,
-     as it leaves out a reviews folder that lies inside the manuscript folder. */
+     as it leaves out a reviews folder that lies inside the manuscript folder,
+     and a save that changes either folder withdraws Choose folder's card. */
   const applySavedSettings = useCallback(
     (next: Settings) => {
-      setSettings(next);
+      noteSavedSettings(next);
       refreshFiles();
     },
-    [setSettings, refreshFiles]
+    [refreshFiles]
   );
 
   const loadCorrectedFromFile = useCallback(async (): Promise<string | null> => {

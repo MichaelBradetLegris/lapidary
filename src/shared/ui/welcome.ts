@@ -316,8 +316,12 @@ export const CHATGPT_SECTION_TITLE = 'ChatGPT';
 
 export const CLAUDE_SECTION_TEXT = `Claude reviews through Claude Code, Anthropic's command-line tool, which you install and sign in to yourself, with your Claude plan or an API key. ${SET_UP_CLAUDE} shows how.`;
 
-/** ChatGPT's line while its button is Sign in with ChatGPT. */
-export const CHATGPT_SECTION_TEXT = `ChatGPT reviews on your ChatGPT plan, with no API key. ${SIGN_IN_BUTTON} opens OpenAI's sign-in page in your browser, and ${SET_UP_CHATGPT}, which says what to check in ChatGPT's data settings.`;
+/**
+ * ChatGPT's line while its button is Sign in with ChatGPT. It names that
+ * button alone: until the setup.18 review it named the view by its heading,
+ * Set up ChatGPT, which is also the label the button takes once signed in.
+ */
+export const CHATGPT_SECTION_TEXT = `ChatGPT reviews on your ChatGPT plan, with no API key. ${SIGN_IN_BUTTON} opens Setup's ChatGPT view, which says what to check in ChatGPT's data settings, and OpenAI's sign-in page in your browser.`;
 
 /** ChatGPT's line while its button is Set up ChatGPT: signed in, waiting, or no sign-in can be kept. */
 export const CHATGPT_SECTION_SET_UP_TEXT = `ChatGPT reviews on your ChatGPT plan, with no API key. ${SET_UP_CHATGPT} says where the sign-in stands and what to check in ChatGPT's data settings.`;

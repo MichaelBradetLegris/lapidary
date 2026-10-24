@@ -431,8 +431,10 @@ describe('2. Connect AI agents (setup.18)', () => {
     });
 
     it('says what ChatGPT needs, and what its button opens, naming the button it shows', () => {
+      // setup.18 review: it named Set up ChatGPT too, the view's heading, while
+      // no button of that name showed.
       expect(CHATGPT_SECTION_TEXT).toBe(
-        "ChatGPT reviews on your ChatGPT plan, with no API key. Sign in with ChatGPT opens OpenAI's sign-in page in your browser, and Set up ChatGPT, which says what to check in ChatGPT's data settings."
+        "ChatGPT reviews on your ChatGPT plan, with no API key. Sign in with ChatGPT opens Setup's ChatGPT view, which says what to check in ChatGPT's data settings, and OpenAI's sign-in page in your browser."
       );
       expect(CHATGPT_SECTION_SET_UP_TEXT).toBe(
         "ChatGPT reviews on your ChatGPT plan, with no API key. Set up ChatGPT says where the sign-in stands and what to check in ChatGPT's data settings."
@@ -447,6 +449,12 @@ describe('2. Connect AI agents (setup.18)', () => {
         const s = at(status, waiting);
         const signIn = s.actions[0]?.id === 'sign-in-chatgpt';
         expect(s.lines).toEqual([signIn ? CHATGPT_SECTION_TEXT : CHATGPT_SECTION_SET_UP_TEXT]);
+        // The line names the one button the section shows, and not the other.
+        const shown = s.actions.map((a) => a.label);
+        expect(shown).toHaveLength(1);
+        for (const label of [SIGN_IN_BUTTON, SET_UP_CHATGPT]) {
+          expect(s.lines[0]?.includes(label), `${label} in "${s.lines[0]}"`).toBe(shown.includes(label));
+        }
       }
     });
   });

@@ -180,10 +180,23 @@ describe('the new steps (setup.18)', () => {
   });
 
   it('hands main the settings it saved, and reads the chapter list again, as Settings does', () => {
+    // noteSavedSettings puts them in the store, and withdraws Choose folder's
+    // card when either folder changed (setup.18 review, manuscriptFolder.test.ts).
     expect(APP).toMatch(
-      /const applySavedSettings = useCallback\(\s*\(next: Settings\) => \{\s*setSettings\(next\);\s*refreshFiles\(\);\s*\},\s*\[setSettings, refreshFiles\]\s*\);/
+      /const applySavedSettings = useCallback\(\s*\(next: Settings\) => \{\s*noteSavedSettings\(next\);\s*refreshFiles\(\);\s*\},\s*\[refreshFiles\]\s*\);/
     );
     expect(APP).toContain('onApply={applySavedSettings}\n        onClose={() => setSettingsOpen(false)}');
+  });
+
+  it('Choose folder saves the folder through the module that keys its card, and reads the chapter list again (setup.18 review)', () => {
+    expect(APP).toMatch(
+      /const MANUSCRIPT_FOLDER_IO: ManuscriptFolderIo = \{\s*pickFolder: \(\) => call\('dialog:pick-folder', \{ title: 'Choose the manuscript folder' \}\),\s*setSettings: \(patch\) => call\('settings:set', patch\)\s*\};/
+    );
+    expect(APP).toMatch(
+      /const chooseManuscriptFolder = useCallback\(\(\) => \{\s*void pickManuscriptFolder\(MANUSCRIPT_FOLDER_IO\)\.then\(\(next\) => \{\s*if \(next\) refreshFiles\(\);\s*\}\);\s*\}, \[refreshFiles\]\);/
+    );
+    // The chapter list's button and the guide's both use it.
+    expect(APP.match(/onChooseFolder=\{chooseManuscriptFolder\}/g)).toHaveLength(2);
   });
 });
 
