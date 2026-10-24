@@ -17,7 +17,13 @@ import type {
 import { chapterName } from '../shared/review';
 import { noBackupsYet } from '../shared/ui/backups';
 import { externalPageUrl } from '../shared/ui/chatgpt';
-import { backupsRootFor, chapterBackupHooks, chapterBackups } from './backups';
+import {
+  backupsFolderName,
+  chapterBackupHooks,
+  chapterBackups,
+  isDefaultBackupsFolder,
+  resolveBackupsFolder
+} from './backups';
 import { createChatGptAuth, type ChatGptAuth } from './chatgpt';
 import { boxAnswer, createCloseGuard, messageBoxOptions } from './closeGuard';
 import { getDevSwitches } from './devSwitches';
@@ -32,7 +38,7 @@ import {
 import { collectAppInfo, openAiPackageVersion } from './appInfo';
 import { createRendererLog } from './crash';
 import { collectDiagnostics } from './diagnostics';
-import { fail } from './errors';
+import { fail, writeFailure } from './errors';
 import {
   beginRequest,
   cancelRequest,
@@ -191,7 +197,8 @@ export function registerCoreHandlers(): void {
       reviewsFolder: await reviewsFolder(),
       reviewsFolderIsDefault: isDefaultReviewsFolder(settings.reviewsFolder),
       guidelinesPath: guidelinesPathFor(settings),
-      backupsFolder: backupsRootFor(app.getPath('userData'))
+      backupsFolder: backupsFolder(settings),
+      backupsFolderIsDefault: isDefaultBackupsFolder(settings.backupsFolder)
     };
   });
 
@@ -507,6 +514,15 @@ async function reviewsFolder(): Promise<string> {
   return folder;
 }
 
+/**
+ * The backups folder in use (setup.18, PLAN 6.5): the one Settings names, or
+ * `<userData>/backups`. Unlike the reviews folder it is not made here: a save
+ * makes it as it copies, and a save whose copy cannot be made writes nothing.
+ */
+function backupsFolder(settings: Settings): string {
+  return resolveBackupsFolder(settings.backupsFolder, app.getPath('userData'));
+}
+
 /** Where the shipped guidelines template lives, in development and once packaged. */
 function guidelinesTemplate(): string {
   return app.isPackaged
@@ -562,12 +578,14 @@ function registerFileHandlers(): void {
       opened: openedChapters,
       ci: caseInsensitiveFs()
     });
-    // Before the chapter is replaced, the bytes it holds are copied to
-    // <userData>/backups; no backup, no save (apply.10, PLAN 6.5).
+    // Before the chapter is replaced, the bytes it holds are copied to the
+    // backups folder, <userData>/backups unless Settings names another
+    // (setup.18); no backup, no save (apply.10, PLAN 6.5).
     const response = await writeChapter(request, {
       onWritten: rememberHash,
       ...chapterBackupHooks({
-        backupsRoot: backupsRootFor(app.getPath('userData')),
+        backupsRoot: backupsFolder(settings),
+        chosen: !isDefaultBackupsFolder(settings.backupsFolder),
         manuscriptFolder: settings.manuscriptFolder,
         ci: caseInsensitiveFs()
       })
@@ -613,11 +631,10 @@ function registerFileHandlers(): void {
        whether it is new or was renamed or moved (its earlier backups stay in
        the old path's folder), and the card says so. */
     if (target === 'backups' && sourcePath !== undefined) {
-      const shown = await chapterBackups(
-        backupsRootFor(app.getPath('userData')),
-        sourcePath,
-        caseInsensitiveFs()
-      );
+      const settings = await loadSettings();
+      const shown = await chapterBackups(backupsFolder(settings), sourcePath, caseInsensitiveFs(), {
+        chosen: !isDefaultBackupsFolder(settings.backupsFolder)
+      });
       if (!shown) throw fail('not-found', noBackupsYet(chapterName(sourcePath)));
       if (shown.newest) {
         system.showItemInFolder(shown.newest);
@@ -649,8 +666,10 @@ function registerFileHandlers(): void {
        name, made from the template first when it is missing, then shown. */
     if (target === 'guidelines') return revealGuidelines(await loadSettings(), guidelinesTemplate(), system);
     let file: string | null;
-    if (target === 'settings' || target === 'logs' || target === 'backups' || target === 'drafts') {
+    if (target === 'settings' || target === 'logs' || target === 'drafts') {
       file = await userDataTarget(target);
+    } else if (target === 'backups') {
+      file = await backupsTarget();
     } else if (target === 'reviews') {
       file = await reviewsFolder();
     } else {
@@ -663,26 +682,38 @@ function registerFileHandlers(): void {
 }
 
 /**
- * The userData places "show in folder" can open, created on demand so the
- * author never lands on a missing folder (setup.7a). `backups` here is the
- * root, for Settings; a chapter's own backup folder is shown from its path
- * (`chapterBackups`, apply.11). `settings` is settings.json itself, for the
- * card shown while it cannot be read, or the data folder once the author has
- * moved the file away (hardening.15).
+ * The backups folder for Settings' Show in folder and the no-backups card's
+ * Show all backups: the one in use, which may lie outside userData since
+ * setup.18, made first so the author never lands on a missing folder
+ * (setup.7a); a chapter's own backup folder is shown from its path
+ * (`chapterBackups`, apply.11). One that cannot be made, as on a drive that
+ * is not connected, says so, offering another in Settings (`writeFailure`).
  */
-async function userDataTarget(target: 'data' | 'settings' | 'logs' | 'backups' | 'drafts'): Promise<string> {
+async function backupsTarget(): Promise<string> {
+  const folder = backupsFolder(await loadSettings());
+  try {
+    await fs.mkdir(folder, { recursive: true });
+  } catch (err) {
+    throw writeFailure(err, 'folder', backupsFolderName(folder), { setting: 'backups folder' });
+  }
+  return folder;
+}
+
+/**
+ * The userData places "show in folder" can open, created on demand so the
+ * author never lands on a missing folder (setup.7a). `settings` is
+ * settings.json itself, for the card shown while it cannot be read, or the
+ * data folder once the author has moved the file away (hardening.15). The
+ * backups folder is `backupsTarget`'s.
+ */
+async function userDataTarget(target: 'data' | 'settings' | 'logs' | 'drafts'): Promise<string> {
   const root = app.getPath('userData');
   if (target === 'data') return root;
   if (target === 'settings') {
     const file = path.join(root, SETTINGS_FILE);
     return existsSync(file) ? file : root;
   }
-  const folder =
-    target === 'logs'
-      ? path.join(root, 'logs')
-      : target === 'backups'
-        ? backupsRootFor(root)
-        : setAsideFolderFor(draftsRootFor(root));
+  const folder = target === 'logs' ? path.join(root, 'logs') : setAsideFolderFor(draftsRootFor(root));
   await fs.mkdir(folder, { recursive: true });
   if (target === 'logs') {
     const log = path.join(folder, 'main.log');

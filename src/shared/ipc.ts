@@ -435,16 +435,20 @@ export interface EffectivePaths {
   reviewsFolderIsDefault: boolean;
   guidelinesPath: string | null;
   /**
-   * `<userData>/backups`, where every chapter has a backup folder of its own
-   * (PLAN 6.5), for the Backups row in Settings (apply.11)
+   * The backups folder in use, where every chapter has a backup folder of its
+   * own (PLAN 6.5): the one Settings names, or `<userData>/backups`, for the
+   * Backups row in Settings (apply.11) and the welcome guide (setup.18)
    */
   backupsFolder: string;
+  /** true when backupsFolder is the fallback inside the app's data directory (setup.18) */
+  backupsFolderIsDefault: boolean;
 }
 
 /**
  * The only places the renderer may ask the shell to open or reveal: what "show
  * in folder" can point at. The last five live under userData, the folders
- * created on demand: `data` is the folder itself, `settings` selects
+ * created on demand, save a backups folder chosen in Settings, which may lie
+ * elsewhere since setup.18: `data` is the folder itself, `settings` selects
  * settings.json, or the data folder once the file is gone (the card shown
  * while it cannot be read, hardening.15), `logs` selects main.log, `backups`
  * the backups root, and `drafts` the folder of set-aside paragraph text

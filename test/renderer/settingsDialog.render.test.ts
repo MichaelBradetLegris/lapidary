@@ -6,7 +6,6 @@ import type { ChatGptStatus, RuntimeStatus } from '../../src/shared/ipc';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
 import {
   APPEARANCE_NOTE,
-  BACKUPS_ROW_NOTE,
   BACKUPS_TIP,
   CHATGPT_ACCOUNT_TIP,
   CLAUDE_ACCOUNT_TIP,
@@ -16,6 +15,7 @@ import {
   MODEL_TIP,
   REVIEWS_FOLDER_TIP,
   SETTINGS_NOTE_MAX,
+  backupsFolderNote,
   helpButtonLabel,
   reviewsFolderNote
 } from '../../src/shared/ui/settingsDialog';
@@ -280,6 +280,29 @@ describe('the (?) of a row (polish.4)', () => {
   });
 });
 
+describe('the Backups row (apply.11, setup.18)', () => {
+  const row = (html: string): string => {
+    const found = [...html.matchAll(/<div class="modal__row">([\s\S]*?)<\/div>/g)]
+      .map(([, inner = '']) => inner)
+      .find((inner) => inner.startsWith('<span>Backups</span>'));
+    expect(found).toBeDefined();
+    return found ?? '';
+  };
+
+  it('has Change, then Show in folder, as the reviews folder has', () => {
+    const buttons = [...decode(row(render())).matchAll(/<button[^>]*>([^<]*)<\/button>/g)].map(
+      ([, label]) => label
+    );
+    expect(buttons).toEqual(['Change', 'Show in folder', '?']);
+  });
+
+  it('shows the folder chosen in Settings until main has said which is in use, and … for none', () => {
+    const chosen = 'E:\\Backups'; // check-public: allow
+    expect(decode(row(render({ settings: { backupsFolder: chosen } })))).toContain(`>${chosen}</span>`);
+    expect(decode(row(render()))).toContain('>…</span>');
+  });
+});
+
 describe('the notes under the rows (polish.4)', () => {
   const notes = (html: string): string[] =>
     [...html.matchAll(/<p class="modal__note[^"]*"[^>]*>([\s\S]*?)<\/p>/g)].map(([, inner = '']) =>
@@ -288,7 +311,7 @@ describe('the notes under the rows (polish.4)', () => {
 
   it('are the short ones, one line each, under Appearance, the reviews folder and the backups', () => {
     const shown = notes(render());
-    expect(shown).toEqual([APPEARANCE_NOTE, reviewsFolderNote(false), BACKUPS_ROW_NOTE]);
+    expect(shown).toEqual([APPEARANCE_NOTE, reviewsFolderNote(false), backupsFolderNote(false)]);
     for (const note of shown) expect(note.length, note).toBeLessThanOrEqual(SETTINGS_NOTE_MAX);
   });
 
@@ -306,7 +329,7 @@ describe('the notes under the rows (polish.4)', () => {
     const html = decode(render());
     expect(html).not.toContain('Welcome guide</span>');
     expect(html).toContain(
-      `title="The first-start steps: Claude, the manuscript folder and the style sheet.">${SHOW_WELCOME_AGAIN}</button>`
+      `title="The first-start steps: the manuscript folder, the AI agents and the style sheet.">${SHOW_WELCOME_AGAIN}</button>`
     );
   });
 });
@@ -367,8 +390,10 @@ describe('every control has a name and a description (polish.4)', () => {
     expect(find('Appearance').description).toBe(APPEARANCE_NOTE);
     expect(find('Change', 0).description).toBe('C:\\Novel'); // check-public: allow
     expect(find('Change', 1).description).toBe(`… ${reviewsFolderNote(false)}`);
-    expect(find('Show in folder', 1).description).toBe(`… ${BACKUPS_ROW_NOTE}`);
-    expect(find('Change', 2).description).toBe('choose a manuscript folder first');
+    // The backups folder's Change (setup.18), then its Show in folder.
+    expect(find('Change', 2).description).toBe(`… ${backupsFolderNote(false)}`);
+    expect(find('Show in folder', 1).description).toBe(`… ${backupsFolderNote(false)}`);
+    expect(find('Change', 3).description).toBe('choose a manuscript folder first');
     expect(find('Open').description).toBe('choose a manuscript folder first');
     expect(find('Open folder').description).toBe('choose a manuscript folder first');
     expect(find('Setup').description).toBe('ann@example.com (Claude Max)');

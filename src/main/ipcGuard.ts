@@ -82,7 +82,7 @@ export type PathFieldTable = { readonly [C in RequestChannel]?: readonly StringF
  * cannot contain ...").
  */
 export const PATH_FIELDS: PathFieldTable = {
-  'settings:set': ['manuscriptFolder', 'reviewsFolder', 'guidelinesPath'],
+  'settings:set': ['manuscriptFolder', 'reviewsFolder', 'backupsFolder', 'guidelinesPath'],
   'dialog:pick-folder': ['defaultPath'],
   'dialog:pick-file': ['defaultPath'],
   'files:read': ['path'],

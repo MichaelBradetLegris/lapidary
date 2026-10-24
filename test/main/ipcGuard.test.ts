@@ -68,7 +68,7 @@ const TAKE_SOMETHING = REQUEST_CHANNELS.filter((channel) => !TAKE_NOTHING.includ
 
 /** Every field that holds a path or a file name main makes into one, written out apart from the module. */
 const EXPECTED_PATH_FIELDS: Record<string, readonly string[]> = {
-  'settings:set': ['manuscriptFolder', 'reviewsFolder', 'guidelinesPath'],
+  'settings:set': ['manuscriptFolder', 'reviewsFolder', 'backupsFolder', 'guidelinesPath'],
   'dialog:pick-folder': ['defaultPath'],
   'dialog:pick-file': ['defaultPath'],
   'files:read': ['path'],

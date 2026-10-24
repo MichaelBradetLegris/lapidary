@@ -35,7 +35,7 @@ import { bodyClassName, columnClassName } from '../shared/ui/columns';
 import { focusReturnTarget, shellInert } from '../shared/ui/dialog';
 import type { UpdateAction } from '../shared/ui/update';
 import type { ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
-import { PROVIDER_NAMES, type Provider, type Review } from '../shared/types';
+import { PROVIDER_NAMES, type Provider, type Review, type Settings } from '../shared/types';
 import { AboutDialog } from './components/AboutDialog';
 import { ChatGptSetup } from './components/ChatGptSetup';
 import { ColumnStrip } from './components/ColumnStrip';
@@ -788,6 +788,17 @@ export function App(): React.JSX.Element {
       .catch(fail);
   }, [setSettings, refreshFiles, fail]);
 
+  /* The settings as main saved them after a change in Settings, or in the
+     welcome guide's folder rows (setup.18): the chapter list is read again,
+     as it leaves out a reviews folder that lies inside the manuscript folder. */
+  const applySavedSettings = useCallback(
+    (next: Settings) => {
+      setSettings(next);
+      refreshFiles();
+    },
+    [setSettings, refreshFiles]
+  );
+
   const loadCorrectedFromFile = useCallback(async (): Promise<string | null> => {
     const file = await call('dialog:pick-file', {
       title: 'Choose the corrected file',
@@ -859,6 +870,16 @@ export function App(): React.JSX.Element {
      shows the guide again, under it all along (setup.11, setup.19). */
   const openSetupFromWelcome = useCallback(() => showSetup('claude', 'welcome'), [showSetup]);
   const openChatGptSetupFromWelcome = useCallback(() => showSetup('chatgpt', 'welcome'), [showSetup]);
+
+  /* The guide's Sign in with ChatGPT (setup.18): the ChatGPT view over the
+     guide, as Set up ChatGPT opens it, with its sign-in started, as the
+     view's own button starts it, so the wait, the training warning and,
+     once signed in, OpenAI's welcome and Done are on screen. */
+  const { signIn: signInChatGpt } = chatgpt;
+  const signInChatGptFromWelcome = useCallback(() => {
+    showSetup('chatgpt', 'welcome');
+    signInChatGpt(false);
+  }, [showSetup, signInChatGpt]);
 
   /* Where leaving Setup landed (setup.19). Review with AI and the welcome
      guide have taken what they need of it as they were drawn again, the
@@ -1278,10 +1299,7 @@ export function App(): React.JSX.Element {
         runtime={claudeRuntime}
         chatgpt={chatgpt.status}
         chatgptWaiting={chatgpt.waiting}
-        onApply={(next) => {
-          setSettings(next);
-          refreshFiles();
-        }}
+        onApply={applySavedSettings}
         onClose={() => setSettingsOpen(false)}
         onOpenSetup={openSetup}
         onOpenChatGptSetup={openChatGptSetup}
@@ -1425,10 +1443,13 @@ export function App(): React.JSX.Element {
                 claude={claudeRuntime}
                 claudeLastFailure={ai.lastFailure}
                 chatgpt={chatgpt.status}
+                chatgptWaiting={chatgpt.waiting}
                 onSetUpClaude={openSetupFromWelcome}
                 onSetUpChatGpt={openChatGptSetupFromWelcome}
+                onSignInChatGpt={signInChatGptFromWelcome}
                 onUseProvider={chooseProvider}
                 onChooseFolder={chooseManuscriptFolder}
+                onApply={applySavedSettings}
                 onStart={finishWelcome}
                 onSkip={finishWelcome}
                 landOn={setupLanding?.to === 'welcome' ? setupLanding.view : null}

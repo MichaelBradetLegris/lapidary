@@ -7,6 +7,7 @@ import { assertGuidelinesFile } from '../../src/main/guidelines';
 import { SETTINGS_FILE, createSettingsStore, settingsAnswer } from '../../src/main/settingsStore';
 import { APP_NAME } from '../../src/shared/branding';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
+import { backupsFolderInManuscript, manuscriptHoldsBackups } from '../../src/shared/ui/backups';
 
 /* hardening.3a: the store never overwrites a settings.json it could not read. */
 
@@ -330,6 +331,124 @@ describe('a save naming a folder or guidelines file the app cannot use', () => {
     const raw = readFileSync(path.join(dir, SETTINGS_FILE), 'utf8');
     expect(raw).not.toMatch(/openai/i);
     expect(JSON.parse(raw)).toEqual({ ...DEFAULT_SETTINGS, manuscriptFolder: 'C:\\Novel', zoom: 1.1 });
+  });
+});
+
+/* setup.18: the backups folder is a setting, never the manuscript folder or a
+   folder inside it (CLAUDE.md rule 1). A save that would make it so, by
+   naming either folder, is refused before anything is written, and what was
+   chosen before stays. */
+describe('a save that would put the backups folder in the manuscript folder (setup.18)', () => {
+  /** A store over a settings.json naming a manuscript folder in a scratch folder, counting its writes. */
+  function withNovel(extra: Partial<Settings> = {}): {
+    dir: string;
+    novel: string;
+    store: ReturnType<typeof createSettingsStore>;
+    stored: string;
+    writes: () => number;
+  } {
+    const dir = scratch();
+    const novel = path.join(dir, 'Novel');
+    const stored = `${JSON.stringify({ manuscriptFolder: novel, onboardingDone: true, ...extra }, null, 2)}\n`;
+    writeFileSync(path.join(dir, SETTINGS_FILE), stored);
+    let writes = 0;
+    const store = createSettingsStore({
+      dir,
+      ci: true,
+      sleep: noWait,
+      writeFile: (file, bytes) => {
+        writes += 1;
+        writeFileSync(file, bytes);
+        return Promise.resolve();
+      }
+    });
+    return { dir, novel, store, stored, writes: () => writes };
+  }
+
+  it('refuses a backups folder that is the manuscript folder or inside it, keeping the one chosen before', async () => {
+    for (const inside of ['', 'Backups', path.join('Part 1', 'Backups')]) {
+      const { dir, novel, store, stored, writes } = withNovel();
+      const backups = inside ? path.join(novel, inside) : novel;
+      await expect(store.save({ backupsFolder: backups }), backups).rejects.toMatchObject({
+        code: 'invalid-input',
+        message: backupsFolderInManuscript(path.resolve(novel))
+      });
+      expect(writes()).toBe(0);
+      expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(stored);
+      expect((await store.load()).backupsFolder).toBeNull();
+    }
+  });
+
+  it('refuses one that differs from a folder inside it only in case, where the file system ignores case', async () => {
+    const { novel, store } = withNovel();
+    await expect(
+      store.save({ backupsFolder: path.join(novel.toUpperCase(), 'Backups') })
+    ).rejects.toMatchObject({ code: 'invalid-input' });
+  });
+
+  it('refuses a manuscript folder that holds the backups folder chosen before, in words for that change', async () => {
+    const { dir, store } = withNovel();
+    const backups = path.join(dir, 'Writing', 'Backups');
+    await store.save({ backupsFolder: backups });
+    const writing = path.join(dir, 'Writing');
+    await expect(store.save({ manuscriptFolder: writing })).rejects.toMatchObject({
+      code: 'invalid-input',
+      message: manuscriptHoldsBackups(path.resolve(writing), path.resolve(backups), false)
+    });
+    await expect(store.save({ manuscriptFolder: backups })).rejects.toMatchObject({
+      code: 'invalid-input',
+      message: manuscriptHoldsBackups(path.resolve(backups), path.resolve(backups), true)
+    });
+    expect((await store.load()).manuscriptFolder).toBe(path.join(dir, 'Novel'));
+  });
+
+  it('takes a backups folder outside the manuscript folder, and null, the data folder, at any time', async () => {
+    const { dir, novel, store } = withNovel();
+    const beside = path.join(dir, 'Backups');
+    expect((await store.save({ backupsFolder: beside })).backupsFolder).toBe(beside);
+    expect((await store.save({ backupsFolder: `${novel} copies` })).backupsFolder).toBe(`${novel} copies`);
+    // The data folder's, then a manuscript folder that would have held the one chosen before.
+    expect((await store.save({ backupsFolder: null })).backupsFolder).toBeNull();
+    expect((await store.save({ manuscriptFolder: dir })).manuscriptFolder).toBe(dir);
+    // Both at once: the backups folder to null and a manuscript folder.
+    const reset = await store.save({ backupsFolder: null, manuscriptFolder: novel });
+    expect(reset).toMatchObject({ manuscriptFolder: novel, backupsFolder: null });
+  });
+
+  it('takes any backups folder while no manuscript folder is chosen, and refuses the manuscript folder after', async () => {
+    const dir = scratch();
+    const store = createSettingsStore({ dir, ci: true, sleep: noWait });
+    const backups = path.join(dir, 'Novel', 'Backups');
+    expect((await store.save({ backupsFolder: backups })).backupsFolder).toBe(backups);
+    await expect(store.save({ manuscriptFolder: path.join(dir, 'Novel') })).rejects.toMatchObject({
+      code: 'invalid-input'
+    });
+    expect((await store.load()).manuscriptFolder).toBeNull();
+  });
+
+  it('never refuses a save that names neither folder, whatever settings.json says', async () => {
+    const dir = scratch();
+    const novel = path.join(dir, 'Novel');
+    // Edited by hand: main refuses it at Save to chapter instead (assertOutside).
+    writeFileSync(
+      path.join(dir, SETTINGS_FILE),
+      JSON.stringify({ manuscriptFolder: novel, backupsFolder: path.join(novel, 'Backups') })
+    );
+    const store = createSettingsStore({ dir, ci: true, sleep: noWait });
+    expect((await store.save({ zoom: 1.25 })).zoom).toBe(1.25);
+    expect((await store.save({ reviewsFolder: path.join(novel, 'Reviews') })).reviewsFolder).toBe(
+      path.join(novel, 'Reviews')
+    );
+  });
+
+  it('refuses a backups folder not named by its full path, as it does the other folders', async () => {
+    const { store, writes } = withNovel();
+    await expect(store.save({ backupsFolder: 'Backups' })).rejects.toMatchObject({
+      code: 'invalid-input',
+      message:
+        'The backups folder has to be named by its full path, from a drive or a network share. Nothing was changed; choose it again in Settings.'
+    });
+    expect(writes()).toBe(0);
   });
 });
 

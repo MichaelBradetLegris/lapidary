@@ -8,7 +8,6 @@ import { openedGuidelinesNote } from '../../shared/ui/guidelines';
 import {
   ABOUT_BUTTON_NOTE,
   APPEARANCE_NOTE,
-  BACKUPS_ROW_NOTE,
   BACKUPS_TIP,
   CHATGPT_ACCOUNT_TIP,
   CLAUDE_ACCOUNT_TIP,
@@ -18,6 +17,7 @@ import {
   MANUSCRIPT_TIP,
   MODEL_TIP,
   REVIEWS_FOLDER_TIP,
+  backupsFolderNote,
   reviewsFolderNote
 } from '../../shared/ui/settingsDialog';
 import { claudeAccountLine } from '../../shared/ui/setup';
@@ -142,7 +142,10 @@ export function SettingsDialog({
       .catch((err: unknown) => setError(errorMessage(err)));
   };
 
-  const pickFolder = (key: 'manuscriptFolder' | 'reviewsFolder', title: string): void => {
+  /* A backups folder in the manuscript folder, or a manuscript folder that
+     holds the backups folder, is refused by main in words this dialog shows,
+     keeping what was chosen before (setup.18). */
+  const pickFolder = (key: 'manuscriptFolder' | 'reviewsFolder' | 'backupsFolder', title: string): void => {
     call('dialog:pick-folder', { title, ...(settings[key] ? { defaultPath: settings[key] } : {}) })
       .then((folder) => {
         if (folder) update({ [key]: folder });
@@ -298,15 +301,23 @@ export function SettingsDialog({
             {reviewsFolderNote(paths?.reviewsFolderIsDefault ?? false)}
           </p>
 
-          {/* Where Save to chapter copies what it replaces (apply.11, PLAN 6.5).
+          {/* Where Save to chapter copies what it replaces (apply.11, PLAN 6.5),
+              the data folder's unless another is chosen with Change (setup.18).
               Each chapter has a folder of its own inside; Show backups, in the
               toolbar's Actions menu, opens the open chapter's. */}
           <div className="modal__row">
             <span>Backups</span>
             <span className="modal__path" id={id('backups-path')} title={paths?.backupsFolder}>
-              {paths?.backupsFolder ?? '…'}
+              {paths?.backupsFolder ?? settings.backupsFolder ?? '…'}
             </span>
             <span className="modal__buttons">
+              <button
+                type="button"
+                aria-describedby={`${id('backups-path')} ${id('backups-note')}`}
+                onClick={() => pickFolder('backupsFolder', 'Choose the backups folder')}
+              >
+                Change
+              </button>
               <button
                 type="button"
                 aria-describedby={`${id('backups-path')} ${id('backups-note')}`}
@@ -318,7 +329,7 @@ export function SettingsDialog({
             <HelpTip id={id('backups-tip')} topic="backups" text={BACKUPS_TIP} />
           </div>
           <p className="modal__note" id={id('backups-note')}>
-            {BACKUPS_ROW_NOTE}
+            {backupsFolderNote(paths?.backupsFolderIsDefault ?? false)}
           </p>
 
           {/* Change, then Open, the system's app for the file, and Open

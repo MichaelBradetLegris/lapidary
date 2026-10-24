@@ -14,7 +14,7 @@ import {
   type SetupViewId
 } from '../../src/shared/ui/setup';
 import {
-  SET_UP_ACTIONS,
+  stepActions,
   welcomeLandingAction,
   welcomeSteps,
   type WelcomeInput,
@@ -163,32 +163,35 @@ describe('welcomeLandingAction', () => {
     registered: false,
     encryptionAvailable: true
   };
+  const SIGNED_IN: ChatGptStatus = { ...SIGNED_OUT, signedIn: true, plan: 'Plus', registered: true };
   const actions = (steps: readonly WelcomeStep[]): string[] =>
-    steps.flatMap((step) => step.actions.map((action) => action.id));
+    steps.flatMap((step) => stepActions(step).map((action) => action.id));
 
-  it("names the step's button for each view", () => {
-    expect(SET_UP_ACTIONS).toEqual({ claude: 'set-up-claude', chatgpt: 'set-up-chatgpt' });
+  it("lands on Set up Claude, the button of Claude's section, whichever provider is chosen", () => {
+    for (const provider of ['claude', 'chatgpt'] as const) {
+      const steps = welcomeSteps({ ...INPUT, provider, chatgpt: SIGNED_OUT });
+      expect(actions(steps)).toContain('set-up-claude');
+      expect(welcomeLandingAction('claude', steps)).toBe('set-up-claude');
+    }
   });
 
-  it('lands on the button that opened the view', () => {
-    const claudeSteps = welcomeSteps(INPUT);
-    expect(actions(claudeSteps)).toContain('set-up-claude');
-    expect(welcomeLandingAction('claude', claudeSteps)).toBe('set-up-claude');
-    const chatgptSteps = welcomeSteps({ ...INPUT, provider: 'chatgpt', chatgpt: SIGNED_OUT });
-    expect(actions(chatgptSteps)).toContain('set-up-chatgpt');
-    expect(welcomeLandingAction('chatgpt', chatgptSteps)).toBe('set-up-chatgpt');
+  /* setup.18: ChatGPT's section shows Sign in with ChatGPT while signed out,
+     and Set up ChatGPT once signed in or while a sign-in waits, so the focus
+     goes to whichever it shows as the guide comes back. */
+  it("lands on the button ChatGPT's section shows now: Sign in with ChatGPT, or Set up ChatGPT", () => {
+    const signedOut = welcomeSteps({ ...INPUT, chatgpt: SIGNED_OUT });
+    expect(welcomeLandingAction('chatgpt', signedOut)).toBe('sign-in-chatgpt');
+    expect(actions(signedOut)).not.toContain('set-up-chatgpt');
+    const signedIn = welcomeSteps({ ...INPUT, chatgpt: SIGNED_IN });
+    expect(welcomeLandingAction('chatgpt', signedIn)).toBe('set-up-chatgpt');
+    expect(actions(signedIn)).not.toContain('sign-in-chatgpt');
+    const waiting = welcomeSteps({ ...INPUT, chatgpt: SIGNED_OUT, chatgptWaiting: true });
+    expect(welcomeLandingAction('chatgpt', waiting)).toBe('set-up-chatgpt');
   });
 
-  it("lands on the other view's button when the step shows that one instead", () => {
-    // The provider changed in Settings over Setup: the step shows the other button.
-    const chatgptSteps = welcomeSteps({ ...INPUT, provider: 'chatgpt', chatgpt: SIGNED_OUT });
-    expect(actions(chatgptSteps)).not.toContain('set-up-claude');
-    expect(welcomeLandingAction('claude', chatgptSteps)).toBe('set-up-chatgpt');
-    const claudeSteps = welcomeSteps(INPUT);
-    expect(welcomeLandingAction('chatgpt', claudeSteps)).toBe('set-up-claude');
-  });
-
-  it('lands nowhere when no step has either', () => {
+  it('lands nowhere on a button that cannot take the focus, nor when no step has the section', () => {
+    // Sign in with ChatGPT is held until the sign-in has been read.
+    expect(welcomeLandingAction('chatgpt', welcomeSteps({ ...INPUT, chatgpt: null }))).toBeNull();
     expect(welcomeLandingAction('claude', [])).toBeNull();
   });
 });

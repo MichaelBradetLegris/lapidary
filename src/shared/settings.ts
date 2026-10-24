@@ -58,9 +58,14 @@ function guidelinesSetting(value: unknown): string | null {
 }
 
 /** The settings that name a folder or a file, which the normaliser drops when it cannot use them. */
-export type PathSettingKey = 'manuscriptFolder' | 'reviewsFolder' | 'guidelinesPath';
+export type PathSettingKey = 'manuscriptFolder' | 'reviewsFolder' | 'backupsFolder' | 'guidelinesPath';
 
-const PATH_SETTING_KEYS: readonly PathSettingKey[] = ['manuscriptFolder', 'reviewsFolder', 'guidelinesPath'];
+const PATH_SETTING_KEYS: readonly PathSettingKey[] = [
+  'manuscriptFolder',
+  'reviewsFolder',
+  'backupsFolder',
+  'guidelinesPath'
+];
 
 /**
  * The first folder or file in `patch` that `normalizeSettings` would drop to
@@ -96,6 +101,9 @@ export function normalizeSettings(input: unknown): Settings {
   return {
     manuscriptFolder,
     reviewsFolder: folderSetting(raw['reviewsFolder']),
+    // Kept on the same terms as the reviews folder; whether it lies in the
+    // manuscript folder is main's to refuse, as it saves (setup.18).
+    backupsFolder: folderSetting(raw['backupsFolder']),
     guidelinesPath: guidelinesSetting(raw['guidelinesPath']),
     provider: isProvider(raw['provider']) ? raw['provider'] : DEFAULT_SETTINGS.provider,
     // Any model a file names is kept, even one the list no longer shows; empty means the default.

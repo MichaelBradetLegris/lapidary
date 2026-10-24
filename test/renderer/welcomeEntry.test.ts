@@ -40,10 +40,14 @@ describe('when the guide shows (setup.11)', () => {
       'claude={claudeRuntime}',
       'claudeLastFailure={ai.lastFailure}',
       'chatgpt={chatgpt.status}',
+      'chatgptWaiting={chatgpt.waiting}',
       'onSetUpClaude={openSetupFromWelcome}',
       'onSetUpChatGpt={openChatGptSetupFromWelcome}',
+      // The ChatGPT section's sign-in, and the folder rows' settings (setup.18).
+      'onSignInChatGpt={signInChatGptFromWelcome}',
       'onUseProvider={chooseProvider}',
       'onChooseFolder={chooseManuscriptFolder}',
+      'onApply={applySavedSettings}',
       'onStart={finishWelcome}',
       'onSkip={finishWelcome}',
       // Back from Setup, the step's button takes the focus (setup.19).
@@ -80,7 +84,7 @@ describe('Start, Skip and Show the welcome guide again', () => {
     expect(APP.indexOf('const welcomeOpen = ')).toBeLessThan(APP.indexOf('proPreselection(settings'));
   });
 
-  it('Use ChatGPT instead and Use Claude instead write the provider', () => {
+  it("a section's button writes the provider when welcomeProviderFor says so (setup.18)", () => {
     const choose = APP.slice(
       APP.indexOf('const chooseProvider = '),
       APP.indexOf('const showWelcomeAgain = ')
@@ -107,9 +111,9 @@ describe('Start, Skip and Show the welcome guide again', () => {
 });
 
 describe('what the guide reads, and when', () => {
-  it('reads where things are kept and the guidelines file as it opens and whenever the folder or the file changes', () => {
+  it('reads where things are kept and the guidelines file as it opens and whenever a folder or the file changes', () => {
     expect(SCREEN).toMatch(
-      /call\('settings:effective', undefined\)[\s\S]*?readGuidelines\(\);\s*\}, \[manuscriptFolder, guidelinesPath, reviewsFolder, readGuidelines\]\);/
+      /call\('settings:effective', undefined\)[\s\S]*?readGuidelines\(\);\s*\}, \[manuscriptFolder, guidelinesPath, reviewsFolder, backupsFolder, readGuidelines\]\);/
     );
   });
 
@@ -132,19 +136,54 @@ describe('what the guide reads, and when', () => {
     expect(SCREEN).toMatch(
       /call\('shell:reveal', \{ target: 'guidelines' \}\)\.then\(\s*\(\) => readGuidelines\(\),/
     );
-    for (const [id, call] of [
-      ['open-guidelines', 'openGuidelines()'],
-      ['open-guidelines-folder', 'showGuidelines()'],
-      ['set-up-claude', 'onSetUpClaude()'],
-      ['set-up-chatgpt', 'onSetUpChatGpt?.()'],
-      ['use-chatgpt', "onUseProvider('chatgpt')"],
-      ['use-claude', "onUseProvider('claude')"],
-      ['choose-folder', 'onChooseFolder()']
+    for (const [id, calls] of [
+      ['open-guidelines', ['openGuidelines()']],
+      ['open-guidelines-folder', ['showGuidelines()']],
+      ['choose-folder', ['onChooseFolder()']],
+      ['change-reviews-folder', ["changeFolder('reviews')"]],
+      ['change-backups-folder', ["changeFolder('backups')"]],
+      // Each section's button may make its agent the provider first (setup.18).
+      ['set-up-claude', ["chooseFor('claude')", 'onSetUpClaude()']],
+      ['sign-in-chatgpt', ["chooseFor('chatgpt')", 'onSignInChatGpt?.()']],
+      ['set-up-chatgpt', ["chooseFor('chatgpt')", 'onSetUpChatGpt?.()']]
     ] as const) {
-      expect(SCREEN).toMatch(
-        new RegExp(`case '${id}':\\s*${call.replace(/[().?]/g, (c) => `\\${c}`)};\\s*break;`)
-      );
+      const body = calls.map((call) => `${call.replace(/[().?]/g, (c) => `\\${c}`)};\\s*`).join('');
+      expect(SCREEN).toMatch(new RegExp(`case '${id}':\\s*${body}break;`));
     }
+    // Nothing of Use ChatGPT instead or Use Claude instead, which the two sections replaced.
+    expect(SCREEN).not.toMatch(/use-chatgpt|use-claude/);
+  });
+});
+
+describe('the new steps (setup.18)', () => {
+  it('make the provider the one welcomeProviderFor names, before opening the Setup view', () => {
+    expect(SCREEN).toMatch(
+      /const chooseFor = \(section: SetupFor\): void => \{\s*const provider = welcomeProviderFor\(section, input\);\s*if \(provider\) onUseProvider\(provider\);\s*\};/
+    );
+  });
+
+  it("Sign in with ChatGPT opens the ChatGPT view over the guide, then starts the view's own sign-in", () => {
+    expect(APP).toContain('const { signIn: signInChatGpt } = chatgpt;');
+    expect(APP).toMatch(
+      /const signInChatGptFromWelcome = useCallback\(\(\) => \{\s*showSetup\('chatgpt', 'welcome'\);\s*signInChatGpt\(false\);\s*\}, \[showSetup, signInChatGpt\]\);/
+    );
+  });
+
+  it("a folder row's Change picks a folder and saves it as Settings does, main's refusal staying under the row", () => {
+    expect(SCREEN).toMatch(
+      /const key = FOLDER_SETTINGS\[row\];\s*setRowNotes\(\(notes\) => \(\{ \.\.\.notes, \[row\]: undefined \}\)\);/
+    );
+    expect(SCREEN).toMatch(
+      /call\('dialog:pick-folder', \{\s*title: FOLDER_PICKER_TITLES\[row\],\s*\.\.\.\(current \? \{ defaultPath: current \} : \{\}\)\s*\}\)\s*\.then\(\(folder\) => \(folder \? call\('settings:set', \{ \[key\]: folder \}\) : null\)\)\s*\.then\(\(next\) => \{\s*if \(next\) onApply\?\.\(next\);\s*\}\)\s*\.catch\(\(err: unknown\) => setRowNotes\(\(notes\) => \(\{ \.\.\.notes, \[row\]: errorMessage\(err\) \}\)\)\);/
+    );
+    expect(SCREEN).toContain('rowNotes={rowNotes}');
+  });
+
+  it('hands main the settings it saved, and reads the chapter list again, as Settings does', () => {
+    expect(APP).toMatch(
+      /const applySavedSettings = useCallback\(\s*\(next: Settings\) => \{\s*setSettings\(next\);\s*refreshFiles\(\);\s*\},\s*\[setSettings, refreshFiles\]\s*\);/
+    );
+    expect(APP).toContain('onApply={applySavedSettings}\n        onClose={() => setSettingsOpen(false)}');
   });
 });
 

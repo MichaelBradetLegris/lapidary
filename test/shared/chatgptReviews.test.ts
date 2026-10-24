@@ -38,7 +38,7 @@ import {
 } from '../../src/shared/ui/chatgpt';
 import { RUNTIME_BUTTON_TITLE, runtimeLabel } from '../../src/shared/ui/setup';
 import { describeRateLimit, limitName, rateLimitTitle } from '../../src/shared/ui/usage';
-import { CHATGPT_STEP_TEXT, SET_UP_CHATGPT, USE_CLAUDE, welcomeSteps } from '../../src/shared/ui/welcome';
+import { CHATGPT_SECTION_TEXT, SET_UP_CHATGPT, welcomeSteps } from '../../src/shared/ui/welcome';
 
 /* codex.3: the pure half of a review on the ChatGPT plan (PLAN 5.8): the
    model list the sign-in allows, the plan's limits from an answer's headers,
@@ -392,10 +392,10 @@ describe('ChatGPT in the settings, the reviews and the welcome guide', () => {
     expect(withGeneratorProvider(review).generator.provider).toBe('chatgpt');
   });
 
-  it("puts ChatGPT's sign-in in the guide's first step while it is the provider", () => {
-    const steps = (chatgpt: ChatGptStatus | null): ReturnType<typeof welcomeSteps> =>
+  it("puts ChatGPT's sign-in in the guide's AI agents step, whichever provider is chosen (setup.18)", () => {
+    const section = (chatgpt: ChatGptStatus | null, provider: 'claude' | 'chatgpt' = 'chatgpt') =>
       welcomeSteps({
-        provider: 'chatgpt',
+        provider,
         claude: null,
         claudeLastFailure: null,
         chatgpt,
@@ -403,20 +403,23 @@ describe('ChatGPT in the settings, the reviews and the welcome guide', () => {
         guidelinesSetting: null,
         paths: null,
         guidelines: null
+      })
+        .find((step) => step.id === 'agents')
+        ?.sections.find((s) => s.id === 'chatgpt');
+    for (const provider of ['claude', 'chatgpt'] as const) {
+      const out = section({ ...SIGNED_IN, signedIn: false }, provider);
+      expect(out).toMatchObject({
+        done: false,
+        status: 'Not signed in to ChatGPT',
+        lines: [CHATGPT_SECTION_TEXT]
       });
-    const [out] = steps({ ...SIGNED_IN, signedIn: false });
-    expect(out).toMatchObject({
-      done: false,
-      status: 'Not signed in to ChatGPT',
-      lines: [CHATGPT_STEP_TEXT]
-    });
-    expect(out?.actions).toEqual([
-      { id: 'set-up-chatgpt', label: SET_UP_CHATGPT, primary: true },
-      { id: 'use-claude', label: USE_CLAUDE }
-    ]);
-    const [done] = steps(SIGNED_IN);
+      expect(out?.actions).toEqual([
+        { id: 'sign-in-chatgpt', label: SIGN_IN_BUTTON, primary: true, disabled: false }
+      ]);
+    }
+    const done = section(SIGNED_IN);
     expect(done).toMatchObject({ done: true, status: 'Signed in to ChatGPT' });
-    expect(done?.actions[0]).toMatchObject({ id: 'set-up-chatgpt', primary: false });
-    expect(steps(null)[0]?.status).toBe('Reading the ChatGPT sign-in…');
+    expect(done?.actions).toEqual([{ id: 'set-up-chatgpt', label: SET_UP_CHATGPT, primary: false }]);
+    expect(section(null)?.status).toBe('Reading the ChatGPT sign-in…');
   });
 });

@@ -52,9 +52,18 @@ export function reviewsFolderNote(isDefault: boolean): string {
 
 export const REVIEWS_FOLDER_TIP = `A review is saved as soon as the model answers, and again after every decision. With no folder chosen, reviews go to ${APP_NAME}'s own data folder. Each review holds the full text of its chapter.`;
 
-export const BACKUPS_ROW_NOTE = 'Copies of your chapters as they were before each Save to chapter.';
+/**
+ * The note under the backups folder; since the folder can be chosen
+ * (setup.18), it says when it is the default one, as the reviews folder's
+ * does. Until then it read "Copies of your chapters as they were before each
+ * Save to chapter.", which with that sentence is longer than a note may be.
+ */
+export function backupsFolderNote(isDefault: boolean): string {
+  const note = 'Copies of your chapters before each Save to chapter.';
+  return isDefault ? `${note} This is the default folder.` : note;
+}
 
-/** The backups' tooltip: apply.11's note, word for word, with the 20-and-30-days rule. */
+/** The backups' tooltip: apply.11's note with the 20-and-30-days rule, and where the folder may be (setup.18). */
 export const BACKUPS_TIP = BACKUPS_NOTE;
 
 export const GUIDELINES_TIP = `Sent with every review: your style sheet, such as your spelling variant, character names and invented words. With none chosen, it is GUIDELINES.md in the manuscript folder. A missing file is made from a template; ${APP_NAME} never writes over one that is there.`;

@@ -5,7 +5,6 @@ import { BACKUPS_NOTE } from '../../src/shared/ui/backups';
 import {
   ABOUT_BUTTON_NOTE,
   APPEARANCE_NOTE,
-  BACKUPS_ROW_NOTE,
   BACKUPS_TIP,
   CHATGPT_ACCOUNT_TIP,
   CLAUDE_ACCOUNT_TIP,
@@ -17,6 +16,7 @@ import {
   REVIEWS_FOLDER_TIP,
   SETTINGS_NOTE_MAX,
   SETTINGS_SECTIONS,
+  backupsFolderNote,
   helpButtonLabel,
   reviewsFolderNote
 } from '../../src/shared/ui/settingsDialog';
@@ -29,7 +29,13 @@ import { WELCOME_GUIDE_NOTE } from '../../src/shared/ui/welcome';
    test/renderer/settingsDialog.render.test.ts. The OpenAI API key's row, its
    note and its tooltip went with that provider (codex.6). */
 
-const NOTES = [APPEARANCE_NOTE, reviewsFolderNote(false), reviewsFolderNote(true), BACKUPS_ROW_NOTE];
+const NOTES = [
+  APPEARANCE_NOTE,
+  reviewsFolderNote(false),
+  reviewsFolderNote(true),
+  backupsFolderNote(false),
+  backupsFolderNote(true)
+];
 
 const TIPS = [
   MODEL_TIP,
@@ -73,6 +79,15 @@ describe('the notes under the rows', () => {
     );
   });
 
+  /* setup.18: the backups folder can be chosen, so its note says when it is
+     the default one, as the reviews folder's does. */
+  it('say when the backups folder is the default one, as the reviews folder does', () => {
+    expect(backupsFolderNote(false)).toBe('Copies of your chapters before each Save to chapter.');
+    expect(backupsFolderNote(true)).toBe(
+      'Copies of your chapters before each Save to chapter. This is the default folder.'
+    );
+  });
+
   it('give the foot buttons short tooltips too', () => {
     for (const note of [WELCOME_GUIDE_NOTE, ABOUT_BUTTON_NOTE, DONE_NOTE]) {
       expect(note.length, note).toBeLessThanOrEqual(SETTINGS_NOTE_MAX);
@@ -91,10 +106,14 @@ describe('the tooltips keep what the long notes said', () => {
     expect(CHATGPT_ACCOUNT_TIP).toMatch(/with no API key/);
   });
 
-  it("keeps apply.11's backups note word for word, with the 20-and-30-days rule", () => {
+  it("keeps apply.11's backups note, with the 20-and-30-days rule, and where the folder may be (setup.18)", () => {
     expect(BACKUPS_TIP).toBe(BACKUPS_NOTE);
-    expect(BACKUPS_TIP).toMatch(/The last 20 saves and the first save of each day for 30 days are kept/);
-    expect(BACKUPS_TIP).toMatch(/Backups stay on this computer/);
+    expect(BACKUPS_TIP).toBe(
+      `Before every Save to chapter, the version it replaces is copied here. The last 20 saves and the first save of each day for 30 days are kept. With no folder chosen, backups stay in ${APP_NAME}'s data folder, on this computer. The folder cannot be the manuscript folder or inside it, and choosing another leaves the backups made so far where they are.`
+    );
+    // A folder the author chooses may be a synced one, so "Backups stay on
+    // this computer" holds only for the data folder's.
+    expect(BACKUPS_TIP).not.toMatch(/^Backups stay on this computer|\. Backups stay on this computer/);
   });
 
   it('keeps when reviews are saved, where they go with no folder chosen, and that they hold the chapter', () => {

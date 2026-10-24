@@ -3319,6 +3319,66 @@ button.help {
   color: var(--danger);
 }
 
+/* "(optional)" after the title of a step Start does not wait for, and of a
+   folder row (setup.18): part of the title, in the soft ink and plain. */
+.welcome__optional {
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+/* Step 1's two folder rows and step 2's two sections (setup.18), under the
+   step's own lines and buttons, each parted from what is above by a line. */
+.welcome__row,
+.welcome__section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.welcome__row h3,
+.welcome__section h3 {
+  margin: 0 0 2px;
+  font-size: 13px;
+}
+
+/* A row: its name, where it is and what it holds, with Change on its right,
+   and a refusal under both. A chosen folder's path wraps anywhere. */
+.welcome__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: start;
+}
+
+.welcome__row > .welcome__note {
+  grid-column: 1 / -1;
+}
+
+.welcome__row .welcome__actions {
+  margin-top: 0;
+}
+
+.setup .welcome__row-value {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.setup .welcome__row-note {
+  margin: 2px 0 0;
+  color: var(--ink-soft);
+}
+
+/* Where an agent stands, in its Setup view's own words, green once it can
+   review, whatever the step's tick says of the other one. */
+.welcome__section-status {
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.welcome__section--done .welcome__section-status {
+  color: var(--accept);
+}
+
 .welcome__foot {
   display: flex;
   flex-wrap: wrap;

@@ -6,19 +6,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BACKUPS_DIRNAME,
   CHAPTER_INFO_FILE,
+  assertBackupsFolderSetting,
   assertChapterBackupFolder,
   assertOutside,
   backupFolderFor,
   backupsRootFor,
   chapterBackupHooks,
   chapterBackups,
+  isDefaultBackupsFolder,
   listBackups,
   pruneBackups,
+  resolveBackupsFolder,
   writeBackup
 } from '../../src/main/backups';
 import { AppFailure, explainReadError, toAppError } from '../../src/main/errors';
 import { backupFileName } from '../../src/shared/backups';
 import { pathKey } from '../../src/shared/paths';
+import {
+  backupsFolderInManuscript,
+  backupsFolderMissing,
+  manuscriptHoldsBackups
+} from '../../src/shared/ui/backups';
 
 /* apply.10: the backup folder, exact copies, duplicates, retention on disk and
    the refusal to back up into the manuscript folder (PLAN 6.5, 11.3 h). */
@@ -576,5 +584,197 @@ describe('assertChapterBackupFolder', () => {
     const folder = path.join(backupsRoot.toUpperCase(), 'chapter-01-12345678');
     expect(() => assertChapterBackupFolder(backupsRoot, folder, true)).not.toThrow();
     expect(() => assertChapterBackupFolder(backupsRoot, folder, false)).toThrow(AppFailure);
+  });
+});
+
+/* setup.18: the backups folder is a setting, the data folder's by default,
+   never the manuscript folder or inside it; saves, Show backups and the
+   refusals read it. */
+describe('the backups folder chosen in Settings (setup.18)', () => {
+  const sep = path.sep;
+
+  it('is <userData>/backups while the setting is null or blank, else the folder chosen', () => {
+    const userData = path.join(root, 'userData');
+    const chosen = path.join(root, 'Elsewhere', 'Backups');
+    for (const none of [null, undefined, '', '   ']) {
+      expect(resolveBackupsFolder(none, userData)).toBe(backupsRootFor(userData));
+      expect(isDefaultBackupsFolder(none)).toBe(true);
+    }
+    expect(resolveBackupsFolder(chosen, userData)).toBe(chosen);
+    expect(isDefaultBackupsFolder(chosen)).toBe(false);
+  });
+
+  describe('assertBackupsFolderSetting', () => {
+    const refusal = (next: { manuscriptFolder: string | null; backupsFolder: string | null }, ci = true) => {
+      try {
+        assertBackupsFolderSetting(next, 'backupsFolder', ci);
+        return null;
+      } catch (err) {
+        return err as AppFailure;
+      }
+    };
+
+    it('refuses the manuscript folder itself and any folder inside it, in words naming the manuscript folder', () => {
+      for (const backups of [vault, path.join(vault, 'Backups'), path.join(vault, 'Part 1', '.backups')]) {
+        const err = refusal({ manuscriptFolder: vault, backupsFolder: backups });
+        expect(err, backups).toBeInstanceOf(AppFailure);
+        expect(err?.code).toBe('invalid-input');
+        expect(err?.message).toBe(backupsFolderInManuscript(path.resolve(vault)));
+      }
+    });
+
+    it('takes a folder beside the manuscript folder, even one whose name starts the same, and one above it', () => {
+      for (const backups of [backupsRoot, `${vault}let${sep}Backups`, path.join(root, 'Backups'), root]) {
+        expect(refusal({ manuscriptFolder: vault, backupsFolder: backups }), backups).toBeNull();
+      }
+    });
+
+    it('takes null, the data folder, and any folder while no manuscript folder is chosen', () => {
+      expect(refusal({ manuscriptFolder: vault, backupsFolder: null })).toBeNull();
+      expect(refusal({ manuscriptFolder: null, backupsFolder: path.join(vault, 'Backups') })).toBeNull();
+    });
+
+    it('resolves both first, so a .. cannot hide one inside the other, nor put one in that is out', () => {
+      const hidden = `${root}${sep}Other${sep}..${sep}vault${sep}Backups`;
+      expect(refusal({ manuscriptFolder: vault, backupsFolder: hidden })).toBeInstanceOf(AppFailure);
+      const out = `${vault}${sep}..${sep}Backups`;
+      expect(refusal({ manuscriptFolder: vault, backupsFolder: out })).toBeNull();
+    });
+
+    it('compares as the file system does', () => {
+      const upper = path.join(vault.toUpperCase(), 'Backups');
+      expect(refusal({ manuscriptFolder: vault, backupsFolder: upper }, true)).toBeInstanceOf(AppFailure);
+      expect(refusal({ manuscriptFolder: vault, backupsFolder: upper }, false)).toBeNull();
+    });
+
+    it('words a manuscript folder that holds, or is, the backups folder as that change refused', () => {
+      const inside = path.join(vault, 'Backups');
+      expect(() =>
+        assertBackupsFolderSetting(
+          { manuscriptFolder: vault, backupsFolder: inside },
+          'manuscriptFolder',
+          true
+        )
+      ).toThrow(manuscriptHoldsBackups(path.resolve(vault), path.resolve(inside), false));
+      expect(() =>
+        assertBackupsFolderSetting(
+          { manuscriptFolder: vault, backupsFolder: vault },
+          'manuscriptFolder',
+          true
+        )
+      ).toThrow(manuscriptHoldsBackups(path.resolve(vault), path.resolve(vault), true));
+    });
+  });
+
+  it('refuses at the save a chosen root in the vault, saying to choose another backups folder', async () => {
+    const file = await chapter('Chapter 01.md', Buffer.from('old\n'));
+    const inside = path.join(vault, 'Backups');
+    const hooks = chapterBackupHooks({
+      backupsRoot: inside,
+      chosen: true,
+      manuscriptFolder: vault,
+      ci: true,
+      log: () => undefined
+    });
+    await expect(hooks.beforeReplace(file, Buffer.from('old\n'))).rejects.toThrow(
+      /lies inside .*, which holds your chapters, .* Choose another backups folder in Settings\.$/
+    );
+    await expect(fs.access(inside)).rejects.toThrow();
+    expect(() => assertOutside(inside, [vault], true)).toThrow(
+      /Choose a manuscript folder in Settings that does not contain .*'s data folder\.$/
+    );
+  });
+
+  it('copies into a chosen root outside the vault, and adds nothing to the vault', async () => {
+    const file = await chapter('Chapter 01.md', Buffer.from('old\n'));
+    const before = (await fs.readdir(vault, { recursive: true })).sort();
+    const chosen = path.join(root, 'Elsewhere', 'Backups');
+    const hooks = chapterBackupHooks({
+      backupsRoot: chosen,
+      chosen: true,
+      manuscriptFolder: vault,
+      ci: true,
+      now: () => at(2026, 10, 24, 9),
+      log: () => undefined
+    });
+    expect(await hooks.beforeReplace(file, Buffer.from('old\n'))).toEqual({
+      name: '2026-10-24 09.00.00 Chapter 01.md',
+      created: true
+    });
+    const folder = backupFolderFor(chosen, file, true);
+    expect(await fs.readFile(path.join(folder, '2026-10-24 09.00.00 Chapter 01.md'), 'utf8')).toBe('old\n');
+    expect((await fs.readdir(vault, { recursive: true })).sort()).toEqual(before);
+    await expect(fs.access(backupsRoot)).rejects.toThrow();
+  });
+
+  it('stops the save when a chosen root cannot be made because its drive is not there, in plain words', async () => {
+    const file = await chapter('Chapter 01.md', Buffer.from('old\n'));
+    const chosen = path.join(root, 'Unplugged', 'Backups');
+    const gone = Object.assign(new Error('ENOENT: no such file or directory, mkdir'), {
+      code: 'ENOENT',
+      path: chosen
+    });
+    const spy = vi.spyOn(fs, 'mkdir').mockRejectedValueOnce(gone);
+    try {
+      const hooks = chapterBackupHooks({
+        backupsRoot: chosen,
+        chosen: true,
+        manuscriptFolder: vault,
+        ci: true,
+        log: () => undefined
+      });
+      const err = await hooks.beforeReplace(file, Buffer.from('old\n')).then(
+        () => null,
+        (e: unknown) => e as AppFailure
+      );
+      expect(err).toBeInstanceOf(AppFailure);
+      expect(err?.code).toBe('io');
+      expect(err?.message).toBe(
+        `${backupFolderFor(chosen, file, true)} cannot be made, because its drive, or the folder it goes in, is not there. If the backups folder is on a network, USB or cloud drive, check that the drive is connected, or choose another backups folder in Settings, then save again.`
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    await expect(fs.access(chosen)).rejects.toThrow();
+  });
+
+  it('stops the save when a file stands where the chosen root should be', async () => {
+    const file = await chapter('Chapter 01.md', Buffer.from('old\n'));
+    const chosen = path.join(root, 'Backups');
+    await fs.writeFile(chosen, 'a file, not a folder');
+    const hooks = chapterBackupHooks({
+      backupsRoot: chosen,
+      chosen: true,
+      manuscriptFolder: vault,
+      ci: true,
+      log: () => undefined
+    });
+    await expect(hooks.beforeReplace(file, Buffer.from('old\n'))).rejects.toThrow(
+      /cannot be made, because a file stands where a folder should be\.$/
+    );
+  });
+
+  it("shows a chapter's backups in a chosen root, and says when that root is not there at all", async () => {
+    const file = await chapter('Chapter 01.md', Buffer.from('old\n'));
+    const chosen = path.join(root, 'Elsewhere', 'Backups');
+    const { folder, file: copy } = await writeBackup({
+      backupsRoot: chosen,
+      sourcePath: file,
+      bytes: Buffer.from('old\n'),
+      now: at(2026, 10, 24, 9),
+      ci: true
+    });
+    expect(await chapterBackups(chosen, file, true, { chosen: true })).toEqual({ folder, newest: copy });
+    // A chosen root with nothing for this chapter yet: none, as for the data folder's.
+    const other = await chapter('Chapter 02.md', Buffer.from('two\n'));
+    expect(await chapterBackups(chosen, other, true, { chosen: true })).toBeNull();
+    // A chosen root that is not there: its drive is not connected, or it was deleted.
+    const missing = path.join(root, 'Unplugged', 'Backups');
+    await expect(chapterBackups(missing, file, true, { chosen: true })).rejects.toMatchObject({
+      code: 'io',
+      message: backupsFolderMissing(path.resolve(missing))
+    });
+    // The data folder's root is made by the first save, so before it there are simply none.
+    expect(await chapterBackups(missing, file, true)).toBeNull();
   });
 });

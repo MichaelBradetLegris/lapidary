@@ -253,6 +253,12 @@ export interface ColumnShares {
 export interface Settings {
   manuscriptFolder: string | null;
   reviewsFolder: string | null;
+  /**
+   * Where Save to chapter copies what it replaces (setup.18, PLAN 6.5): null
+   * for `<userData>/backups`. Never the manuscript folder or a folder inside
+   * it: main refuses a save of the settings that would make it so.
+   */
+  backupsFolder: string | null;
   /** defaults to <manuscriptFolder>/GUIDELINES.md when null */
   guidelinesPath: string | null;
   provider: Provider;
@@ -301,6 +307,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   manuscriptFolder: null,
   reviewsFolder: null,
+  backupsFolder: null,
   guidelinesPath: null,
   provider: 'claude',
   model: 'default',
