@@ -24,13 +24,15 @@ import {
   runtimeCard,
   runtimeCardAction,
   runtimeLabel as labelForRuntime,
-  setupView
+  setupView,
+  type SetupFor,
+  type SetupFrom
 } from '../shared/ui/setup';
 import { usageLimitCard } from '../shared/ui/usage';
 import { welcomeNotKept, welcomeShown } from '../shared/ui/welcome';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
 import { bodyClassName, columnClassName } from '../shared/ui/columns';
-import { shellInert } from '../shared/ui/dialog';
+import { focusReturnTarget, shellInert } from '../shared/ui/dialog';
 import type { UpdateAction } from '../shared/ui/update';
 import type { ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
 import { PROVIDER_NAMES, type Provider, type Review } from '../shared/types';
@@ -172,7 +174,11 @@ export function App(): React.JSX.Element {
   const setupOpen = useApp((s) => s.setupOpen);
   const setSetupOpen = useApp((s) => s.setSetupOpen);
   const setupFor = useApp((s) => s.setupFor);
-  const setSetupFor = useApp((s) => s.setSetupFor);
+  const openSetupScreen = useApp((s) => s.openSetupScreen);
+  const leaveSetup = useApp((s) => s.leaveSetup);
+  const setupLanding = useApp((s) => s.setupLanding);
+  const setSetupLanding = useApp((s) => s.setSetupLanding);
+  const setSetupFrom = useApp((s) => s.setSetupFrom);
   const diagnosticsOpen = useApp((s) => s.diagnosticsOpen);
   const setDiagnosticsOpen = useApp((s) => s.setDiagnosticsOpen);
   const aboutOpen = useApp((s) => s.aboutOpen);
@@ -814,26 +820,55 @@ export function App(): React.JSX.Element {
 
   /* ---------------- AI review ---------------- */
 
-  /* The Setup screen, from the launch card, the status bar, Settings or the
-     review dialog's warning (setup.7). The launch card has done its job once
-     Setup is open, which says the same at length, so it goes. */
-  const openSetup = useCallback(() => {
-    setReviewDialogOpen(false);
-    setSettingsOpen(false);
-    dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);
-    setSetupFor('claude');
-    setSetupOpen(true);
-  }, [setReviewDialogOpen, setSettingsOpen, setSetupFor, setSetupOpen, dismissNotificationsByKey]);
+  /* The Setup screen in place of Review with AI and Settings, in Claude's
+     view or ChatGPT's, noting where it was opened from, which Done, Close and
+     Escape go back to (setup.19, `leaveSetup`), and where the focus was, for
+     a return to the chapter. The launch card has done its job once Claude's
+     view is open, which says the same at length, so it goes; ChatGPT's says
+     nothing it says, so it stays (codex.2). */
+  const setupOpener = useRef<HTMLElement | null>(null);
+  const showSetup = useCallback(
+    (view: SetupFor, from: SetupFrom) => {
+      if (view === 'claude') dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);
+      setupOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      openSetupScreen(view, from);
+    },
+    [openSetupScreen, dismissNotificationsByKey]
+  );
 
-  /* The Setup screen's ChatGPT view (codex.2), from Settings' ChatGPT account
-     row: the sign-in and the training warning. Claude's launch card says
-     nothing it says, so it stays. */
-  const openChatGptSetup = useCallback(() => {
-    setReviewDialogOpen(false);
-    setSettingsOpen(false);
-    setSetupFor('chatgpt');
-    setSetupOpen(true);
-  }, [setReviewDialogOpen, setSettingsOpen, setSetupFor, setSetupOpen]);
+  /* Claude's view, from the launch card, the status bar, Settings, the
+     Review menu or a review that failed (setup.7). */
+  const openSetup = useCallback(() => showSetup('claude', 'elsewhere'), [showSetup]);
+
+  /* ChatGPT's view (codex.2), from Settings' ChatGPT account row, the status
+     bar, the Review menu or a review that failed (codex.3): the sign-in and
+     the training warning. */
+  const openChatGptSetup = useCallback(() => showSetup('chatgpt', 'elsewhere'), [showSetup]);
+
+  /* Open Setup in Review with AI, Claude's warning or ChatGPT's account row:
+     leaving Setup opens the dialog again (setup.19). */
+  const openSetupFromDialog = useCallback(() => showSetup('claude', 'review-dialog'), [showSetup]);
+  const openChatGptSetupFromDialog = useCallback(() => showSetup('chatgpt', 'review-dialog'), [showSetup]);
+
+  /* The welcome guide's Set up Claude and Set up ChatGPT: leaving Setup
+     shows the guide again, under it all along (setup.11, setup.19). */
+  const openSetupFromWelcome = useCallback(() => showSetup('claude', 'welcome'), [showSetup]);
+  const openChatGptSetupFromWelcome = useCallback(() => showSetup('chatgpt', 'welcome'), [showSetup]);
+
+  /* Where leaving Setup landed (setup.19). Review with AI and the welcome
+     guide have taken what they need of it as they were drawn again, the
+     focus on Start or on the step's button; a return to the chapter hands
+     the focus back where it was when Setup opened, when that is still on the
+     page, such as the status bar's label. Then it is cleared, so a guide
+     shown again later takes no focus from it. */
+  useEffect(() => {
+    if (setupLanding === null) return;
+    if (setupLanding.to === 'chapter') {
+      focusReturnTarget(setupOpener.current, document.body, null)?.focus({ preventScroll: true });
+    }
+    setupOpener.current = null;
+    setSetupLanding(null);
+  }, [setupLanding, setSetupLanding]);
 
   /* Test the connection, on the Setup screen (setup.8): one very small
      request. A test that fails for a reason Setup can fix checks again, as a
@@ -918,9 +953,21 @@ export function App(): React.JSX.Element {
         openChatGptSetup();
         return;
       }
+      /* Opened from the Review menu over the Setup screen, the dialog is not
+         the one Setup's Open Setup came from: leaving Setup later goes to the
+         chapter (setup.19). */
+      setSetupFrom('elsewhere');
       setReviewDialogOpen(true);
     },
-    [claudeRuntime, chatgpt.status, setReviewDialogOpen, refuseWhileEditing, openSetup, openChatGptSetup]
+    [
+      claudeRuntime,
+      chatgpt.status,
+      setReviewDialogOpen,
+      setSetupFrom,
+      refuseWhileEditing,
+      openSetup,
+      openChatGptSetup
+    ]
   );
 
   /** Review with AI with the provider already chosen, as Setup's Try the review anyway opens it. */
@@ -1207,14 +1254,15 @@ export function App(): React.JSX.Element {
         onCheckClaude={() => ai.check('claude')}
         checking={ai.checking}
         claudeLastFailure={ai.lastFailure}
-        onOpenSetup={openSetup}
+        onOpenSetup={openSetupFromDialog}
         chatgpt={chatgpt.status}
         chatgptWaiting={chatgpt.waiting}
-        onOpenChatGptSetup={openChatGptSetup}
+        onOpenChatGptSetup={openChatGptSetupFromDialog}
         onConfirmDataSettings={chatgpt.setDataSettingsConfirmed}
         onOpenDataControls={chatgpt.openDataControls}
         onStart={startReview}
         onClose={() => setReviewDialogOpen(false)}
+        focusStart={setupLanding?.to === 'review-dialog'}
       />
     ) : null;
   const settingsDialog =
@@ -1346,7 +1394,7 @@ export function App(): React.JSX.Element {
                 welcome={planWelcomeShown(chatgpt.status, settings?.dismissedHints)}
                 onManageUsage={chatgpt.openUsage}
                 onWelcomeDone={() => void dismissHint(PLAN_WELCOME_HINT, HINT_IO)}
-                onClose={() => setSetupOpen(false)}
+                onClose={leaveSetup}
                 version={updateStatus?.current ?? null}
               />
             ) : setupOpen ? (
@@ -1355,7 +1403,7 @@ export function App(): React.JSX.Element {
                 lastFailure={ai.lastFailure}
                 checking={ai.checking}
                 onCheckAgain={() => ai.check('claude')}
-                onClose={() => setSetupOpen(false)}
+                onClose={leaveSetup}
                 {...(review?.sourcePath && canTryReviewAnyway(claudeRuntime, ai.lastFailure)
                   ? { onTryAnyway: tryReviewAnyway }
                   : {})}
@@ -1372,12 +1420,13 @@ export function App(): React.JSX.Element {
                 claude={claudeRuntime}
                 claudeLastFailure={ai.lastFailure}
                 chatgpt={chatgpt.status}
-                onSetUpClaude={openSetup}
-                onSetUpChatGpt={openChatGptSetup}
+                onSetUpClaude={openSetupFromWelcome}
+                onSetUpChatGpt={openChatGptSetupFromWelcome}
                 onUseProvider={chooseProvider}
                 onChooseFolder={chooseManuscriptFolder}
                 onStart={finishWelcome}
                 onSkip={finishWelcome}
+                landOn={setupLanding?.to === 'welcome' ? setupLanding.view : null}
               />
             ) : null}
           </div>

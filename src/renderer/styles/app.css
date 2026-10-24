@@ -3099,6 +3099,15 @@ button.help {
   color: var(--ink-soft);
 }
 
+/* Done, the blue button at the foot of each of the Setup screen's views,
+   on the right as the welcome guide's Start is, above the privacy footer and
+   the version (setup.19). */
+.setup__foot {
+  display: flex;
+  justify-content: flex-end;
+  margin: 16px 0;
+}
+
 /* ---------- Diagnostics (hardening.5) ---------- */
 
 /* Wide enough that the report's paths and log lines seldom wrap. The text

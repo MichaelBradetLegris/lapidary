@@ -221,6 +221,22 @@ describe('which call each button makes', () => {
       expect(press(input).includes('start')).toBe(!welcomeStart(welcomeSteps(input)).disabled);
     }
   });
+
+  it("marks each step's button with its action, which the focus finds when Setup goes back to the guide (setup.19)", () => {
+    for (const input of [FRESH, DONE, { ...DONE, provider: 'chatgpt' as const }]) {
+      const marked = [
+        ...renderToStaticMarkup(
+          createElement(WelcomePage, {
+            steps: welcomeSteps(input),
+            onAction: () => undefined,
+            onStart: () => undefined,
+            onSkip: () => undefined
+          })
+        ).matchAll(/<button type="button" data-action="([\w-]+)"/g)
+      ].map((m) => m[1]);
+      expect(marked).toEqual(welcomeSteps(input).flatMap((step) => step.actions.map((action) => action.id)));
+    }
+  });
 });
 
 describe('the screen before its reads are in', () => {

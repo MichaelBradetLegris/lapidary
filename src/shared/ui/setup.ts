@@ -1039,3 +1039,100 @@ export function connectionTestLine(outcome: ConnectionTestOutcome): ConnectionTe
     text: `The test at ${at} did not go through: ${result.error?.message ?? 'no reason was given.'}`
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Leaving the Setup screen (setup.19)                                 */
+/* ------------------------------------------------------------------ */
+
+/** The primary button at the foot of each of the Setup screen's views, which leaves it as Close does. */
+export const SETUP_DONE = 'Done';
+
+/**
+ * Where the Setup screen was opened from, which leaving it goes back to
+ * (setup.19): Open Setup in Review with AI, Claude's warning or ChatGPT's
+ * account row; the welcome guide's Set up Claude or Set up ChatGPT; or
+ * anywhere else, such as the status bar, Settings, a card, the Review menu
+ * or a review that failed.
+ */
+export type SetupFrom = 'review-dialog' | 'welcome' | 'elsewhere';
+
+/**
+ * Where leaving the Setup screen lands (setup.19): Review with AI opened
+ * again, the focus on its Start; the welcome guide, the focus on the step's
+ * Set up button for the view that was open; or the chapter, the focus back
+ * where it was when Setup opened, if that is still there.
+ */
+export type SetupLanding = { to: 'review-dialog' } | { to: 'welcome'; view: SetupFor } | { to: 'chapter' };
+
+/** What leaving reads of the page. */
+export interface SetupLeavePage {
+  /** a chapter is open, which Review with AI needs */
+  chapterOpen: boolean;
+  /** a review is running, of this chapter or another: the Review menu waits for it, and so does the dialog */
+  reviewRunning: boolean;
+  /** the welcome guide is under the Setup screen (`welcomeShown`) */
+  welcomeShown: boolean;
+}
+
+/**
+ * Where Done, Close or Escape on the Setup screen goes (setup.19, PLAN 5.6
+ * item 5): back to Review with AI when its Open Setup led here, a chapter is
+ * still open and no review runs, to the welcome guide when its button did and
+ * the guide is still under the screen, and otherwise to the chapter, or
+ * whatever the page shows without Setup.
+ */
+export function setupLeave(from: SetupFrom, view: SetupFor, page: SetupLeavePage): SetupLanding {
+  if (from === 'review-dialog' && page.chapterOpen && !page.reviewRunning) return { to: 'review-dialog' };
+  if (from === 'welcome' && page.welcomeShown) return { to: 'welcome', view };
+  return { to: 'chapter' };
+}
+
+/** What can be over the Setup screen and keep Escape from it. */
+export interface OverSetup {
+  /** a dialog: Settings, New chapter, Review with AI, Submit manual review, Diagnostics or About */
+  dialog: boolean;
+  /** a question (`confirmSpec`) */
+  question: boolean;
+  /** Restart now's overlay (release.9) */
+  overlay: boolean;
+  /** a toolbar menu or the status bar's legend (`popupTakesEscape`) */
+  popup: boolean;
+}
+
+/** The parts of a keydown event the rule reads, as `DialogKey` in dialog.ts. */
+export interface SetupKey {
+  key: string;
+  isComposing: boolean;
+  defaultPrevented: boolean;
+}
+
+/**
+ * Whether a key leaves the Setup screen (setup.19): Escape, as Close, unless
+ * something over the screen takes it first, a dialog, a question, Restart
+ * now's overlay or a toolbar menu or the legend, each of which closes on it
+ * (New chapter and Submit manual review ignore it, and Setup waits behind
+ * them too), unless something has already answered it (`defaultPrevented`),
+ * or unless it ends an IME composition.
+ */
+export function setupTakesEscape(event: SetupKey, over: OverSetup): boolean {
+  return (
+    event.key === 'Escape' &&
+    !event.isComposing &&
+    !event.defaultPrevented &&
+    !over.dialog &&
+    !over.question &&
+    !over.overlay &&
+    !over.popup
+  );
+}
+
+/**
+ * Whether a check has just found Claude ready after Setup had something for
+ * the author to do (setup.19): the focus then goes to Done, as it does on
+ * ChatGPT's view once the sign-in has succeeded. A first check that finds it
+ * ready, from `checking`, is not a setup that succeeded, nor is a usage limit
+ * that has reset.
+ */
+export function claudeSetupSucceeded(before: SetupViewId, after: SetupViewId): boolean {
+  return needsSetup(before) && (after === 'ready' || after === 'api-key');
+}

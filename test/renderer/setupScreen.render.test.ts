@@ -175,6 +175,16 @@ describe('the Setup screen in each view (setup.7)', () => {
         expect(page).toContain(PRIVACY_FOOTER);
         expect(html).toContain('href="https://code.claude.com/docs/en/setup"');
       });
+
+      it('has Done, the blue button, at the foot, after Advanced and before the privacy footer, and Close at the top (setup.19)', () => {
+        const all = buttons(html);
+        expect(all[0]).toBe('Close');
+        expect(all.at(-1)).toBe('Done');
+        expect(all.filter((label) => label === 'Done')).toHaveLength(1);
+        expect(html).toContain(
+          '</details><div class="setup__foot"><button type="button" class="primary">Done</button></div><p class="setup__footer">'
+        );
+      });
     });
   }
 

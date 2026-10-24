@@ -136,6 +136,16 @@ export function chatGptSetupStatus(status: ChatGptStatus | null, waiting: boolea
 }
 
 /**
+ * Whether the sign-in has just succeeded (setup.19): main said there was
+ * none, and now says there is one. The view then hands the focus to Done. A
+ * status read for the first time that finds a sign-in kept (`null` before)
+ * is not one, nor is a sign-in that stays.
+ */
+export function signInSucceeded(before: boolean | null, after: boolean | null): boolean {
+  return before === false && after === true;
+}
+
+/**
  * Whether the view shows the wait: a sign-in this page started, or one main
  * says is waiting, as after a reload while one waited.
  */

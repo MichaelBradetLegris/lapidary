@@ -97,7 +97,12 @@ describe("the Setup screen's ChatGPT view (codex.2)", () => {
     expect(html).toContain('<h1>Set up ChatGPT</h1>');
     expect(html).toContain('data-view="chatgpt-signed-out"');
     expect(text(html)).toContain('Not signed in to ChatGPT');
-    expect(buttons(html)).toEqual(['Close', 'Sign in with ChatGPT [primary]', 'Open Data controls']);
+    expect(buttons(html)).toEqual([
+      'Close',
+      'Sign in with ChatGPT [primary]',
+      'Open Data controls',
+      'Done [primary]'
+    ]);
     expect(html).toMatch(/<input type="checkbox" disabled="" aria-describedby="[^"]+"\/>/);
     expect(text(warning(html))).toContain(dataSettingsNote(SIGNED_OUT));
   });
@@ -110,7 +115,8 @@ describe("the Setup screen's ChatGPT view (codex.2)", () => {
       'Close',
       'Sign in with ChatGPT [primary] [held]',
       'Cancel',
-      'Open Data controls'
+      'Open Data controls',
+      'Done [primary]'
     ]);
   });
 
@@ -120,7 +126,13 @@ describe("the Setup screen's ChatGPT view (codex.2)", () => {
     expect(html).toContain('setup__status--ok');
     expect(text(html)).toContain('Signed in to ChatGPT');
     expect(text(html)).toContain('Your ChatGPT account is on the Plus plan.');
-    expect(buttons(html)).toEqual(['Close', MANAGE_USAGE_BUTTON, 'Sign out', 'Open Data controls']);
+    expect(buttons(html)).toEqual([
+      'Close',
+      MANAGE_USAGE_BUTTON,
+      'Sign out',
+      'Open Data controls',
+      'Done [primary]'
+    ]);
     expect(html).toMatch(/<input type="checkbox" aria-describedby="[^"]+"\/>/);
     const confirmed = render({ ...SIGNED_IN, dataSettingsConfirmed: true });
     expect(confirmed).toMatch(/<input type="checkbox" aria-describedby="[^"]+" checked=""\/>/);
@@ -135,7 +147,8 @@ describe("the Setup screen's ChatGPT view (codex.2)", () => {
       'Close',
       'Sign in with ChatGPT [primary]',
       'Use another account',
-      'Open Data controls'
+      'Open Data controls',
+      'Done [primary]'
     ]);
   });
 
@@ -145,7 +158,8 @@ describe("the Setup screen's ChatGPT view (codex.2)", () => {
     expect(buttons(html)).toEqual([
       'Close',
       'Sign in with ChatGPT [primary] [disabled]',
-      'Open Data controls'
+      'Open Data controls',
+      'Done [primary]'
     ]);
   });
 
@@ -221,6 +235,30 @@ describe("the Setup screen's ChatGPT view (codex.2)", () => {
     const html = render(SIGNED_IN);
     expect(decode(html)).toContain(CHATGPT_PRIVACY_FOOTER);
     expect(html).toMatch(/<p class="setup__version">[^<]+ 1\.0\.0<\/p><\/div><\/div>$/);
+  });
+
+  it('has Done, the blue button, after the warning and before the privacy footer, in every state (setup.19)', () => {
+    const states: Array<[ChatGptStatus | null, { waiting?: boolean; welcome?: boolean }]> = [
+      [null, {}],
+      [SIGNED_OUT, {}],
+      [SIGNED_OUT, { waiting: true }],
+      [{ ...SIGNED_OUT, encryptionAvailable: false }, {}],
+      [SIGNED_IN, {}],
+      [SIGNED_IN, { welcome: true }]
+    ];
+    for (const [status, options] of states) {
+      const html = render(status, options);
+      const all = buttons(html);
+      // Close stays at the top, as on Set up Claude.
+      expect(all[0]).toBe('Close');
+      expect(all.at(-1)).toBe('Done [primary]');
+      expect(all.filter((label) => label.startsWith('Done'))).toHaveLength(1);
+      const foot = html.indexOf(
+        '<div class="setup__foot"><button type="button" class="primary">Done</button></div><p class="setup__footer">'
+      );
+      expect(foot).toBeGreaterThan(html.indexOf(warning(html)));
+      expect(foot).toBeGreaterThan(-1);
+    }
   });
 });
 

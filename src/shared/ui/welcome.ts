@@ -30,7 +30,7 @@ import {
   openGuidelinesTitle
 } from './guidelines';
 import { withHint } from './saveHint';
-import { setupStatus, setupView, type LastFailure } from './setup';
+import { setupStatus, setupView, type LastFailure, type SetupFor } from './setup';
 
 /**
  * Whether the guide shows: once the settings are in, until Start or Skip.
@@ -399,4 +399,26 @@ export function welcomeStart(steps: readonly WelcomeStep[]): WelcomeStart {
 /** The card when Start or Skip could not be written: the guide goes for now and comes back at the next start. */
 export function welcomeNotKept(reason: string): string {
   return `The welcome guide is closed for now, but that could not be saved, so it will show again at the next start: ${reason}`;
+}
+
+/** The guide's button that opens each of the Setup screen's views (setup.11, codex.3). */
+export const SET_UP_ACTIONS: Readonly<Record<SetupFor, WelcomeActionId>> = {
+  claude: 'set-up-claude',
+  chatgpt: 'set-up-chatgpt'
+};
+
+/**
+ * Where the focus goes when leaving the Setup screen lands on the guide
+ * (setup.19): the step's button that opened the view the author leaves, or,
+ * should the step no longer show it, as when the provider was changed in
+ * Settings over Setup, the step's button for the other view, which the guide
+ * shows in its place; null when no step has either.
+ */
+export function welcomeLandingAction(view: SetupFor, steps: readonly WelcomeStep[]): WelcomeActionId | null {
+  const shown = new Set(steps.flatMap((step) => step.actions.map((action) => action.id)));
+  const other: SetupFor = view === 'claude' ? 'chatgpt' : 'claude';
+  for (const id of [SET_UP_ACTIONS[view], SET_UP_ACTIONS[other]]) {
+    if (shown.has(id)) return id;
+  }
+  return null;
 }

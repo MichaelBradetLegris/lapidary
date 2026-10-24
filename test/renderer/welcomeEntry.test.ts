@@ -40,12 +40,14 @@ describe('when the guide shows (setup.11)', () => {
       'claude={claudeRuntime}',
       'claudeLastFailure={ai.lastFailure}',
       'chatgpt={chatgpt.status}',
-      'onSetUpClaude={openSetup}',
-      'onSetUpChatGpt={openChatGptSetup}',
+      'onSetUpClaude={openSetupFromWelcome}',
+      'onSetUpChatGpt={openChatGptSetupFromWelcome}',
       'onUseProvider={chooseProvider}',
       'onChooseFolder={chooseManuscriptFolder}',
       'onStart={finishWelcome}',
-      'onSkip={finishWelcome}'
+      'onSkip={finishWelcome}',
+      // Back from Setup, the step's button takes the focus (setup.19).
+      "landOn={setupLanding?.to === 'welcome' ? setupLanding.view : null}"
     ]) {
       expect(screen).toContain(prop);
     }

@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatGptStatus, EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../../shared/ipc';
 import type { Provider, Settings } from '../../shared/types';
 import { openedGuidelinesNote } from '../../shared/ui/guidelines';
-import type { LastFailure } from '../../shared/ui/setup';
+import type { LastFailure, SetupFor } from '../../shared/ui/setup';
 import {
   WELCOME_INTRO,
   WELCOME_SKIP,
   WELCOME_SKIP_TITLE,
   WELCOME_START,
   WELCOME_TITLE,
+  welcomeLandingAction,
   welcomeStart,
   welcomeSteps,
   type WelcomeActionId,
@@ -87,6 +88,7 @@ export function WelcomePage({ steps, note = null, onAction, onStart, onSkip }: P
                     <button
                       key={action.id}
                       type="button"
+                      data-action={action.id}
                       className={action.primary ? 'primary' : undefined}
                       disabled={action.disabled}
                       title={action.title}
@@ -138,6 +140,12 @@ interface Props {
   /** Start and Skip both put the guide away for good (`onboardingDone`) */
   onStart: () => void;
   onSkip: () => void;
+  /**
+   * The view of the Setup screen the author has just left by Done, Close or
+   * Escape, when the guide's own button opened it (setup.19): that button
+   * takes the focus as the guide shows again. Read as the guide is drawn.
+   */
+  landOn?: SetupFor | null;
 }
 
 /**
@@ -163,7 +171,8 @@ export function WelcomeScreen({
   onUseProvider,
   onChooseFolder,
   onStart,
-  onSkip
+  onSkip,
+  landOn = null
 }: Props): React.JSX.Element {
   const [paths, setPaths] = useState<EffectivePaths | null>(null);
   const [guidelines, setGuidelines] = useState<GuidelinesStatus | null>(null);
@@ -267,6 +276,18 @@ export function WelcomeScreen({
     guidelines,
     guidelinesProblem: problem
   });
+
+  /* Back from the Setup screen the step's Set up Claude or Set up ChatGPT
+     opened (setup.19): the focus goes to that button, or to the step's
+     button for the other view should the step show that one instead
+     (`welcomeLandingAction`), so the keyboard carries on from the step. Read
+     as the guide is drawn, so a development run's second pretend drawing
+     hands it over again. */
+  const [landing] = useState(() => (landOn ? welcomeLandingAction(landOn, steps) : null));
+  useEffect(() => {
+    if (landing === null) return;
+    document.querySelector<HTMLElement>(`.welcome [data-action="${landing}"]`)?.focus();
+  }, [landing]);
 
   return <WelcomePage steps={steps} note={note} onAction={onAction} onStart={onStart} onSkip={onSkip} />;
 }

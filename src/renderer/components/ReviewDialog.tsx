@@ -85,6 +85,12 @@ interface Props {
   onOpenDataControls?: () => void;
   onStart: () => void;
   onClose: () => void;
+  /**
+   * Opened again by leaving the Setup screen its Open Setup led to
+   * (setup.19): the focus goes to Start, once it can be pressed, rather than
+   * to the dialog's box. Read as the dialog opens.
+   */
+  focusStart?: boolean;
 }
 
 /**
@@ -128,7 +134,8 @@ export function ReviewDialog({
   onConfirmDataSettings,
   onOpenDataControls,
   onStart,
-  onClose
+  onClose,
+  focusStart = false
 }: Props): React.JSX.Element {
   const [paths, setPaths] = useState<EffectivePaths | null>(null);
   const [guidelines, setGuidelines] = useState<GuidelinesStatus | null>(null);
@@ -248,6 +255,26 @@ export function ReviewDialog({
      `polish.7`). */
   useDialogEscape(boxRef, onClose);
   useDialogFocus(boxRef, REVIEW_BUTTON_SELECTOR);
+
+  /* Back from the Setup screen its Open Setup led to (setup.19): the focus
+     goes to Start, the blue button, as soon as it can be pressed, which for
+     ChatGPT after a sign-in is once the model list has come. Until then it is
+     on the dialog's box, where it goes as any dialog opens, and the author
+     who moves it elsewhere keeps it there. Read as the dialog opens, so a
+     development run's second pretend opening hands it to Start again. */
+  const startRef = useRef<HTMLButtonElement>(null);
+  const wantsStart = useRef(focusStart);
+  const startDisabled = !canStart || saving;
+  useEffect(() => {
+    if (!wantsStart.current) return;
+    const active = document.activeElement;
+    const start = startRef.current;
+    if (active !== boxRef.current && active !== document.body && active !== start) {
+      wantsStart.current = false;
+      return;
+    }
+    if (!startDisabled) start?.focus();
+  }, [startDisabled]);
 
   const update = (patch: Partial<Settings>): void => {
     call('settings:set', patch)
@@ -480,9 +507,10 @@ export function ReviewDialog({
             </button>
           ) : null}
           <button
+            ref={startRef}
             type="button"
             className="primary"
-            disabled={!canStart || saving}
+            disabled={startDisabled}
             onClick={unsavedDecisions > 0 ? saveThenStart : onStart}
           >
             {saving ? 'Saving…' : labels.primary}

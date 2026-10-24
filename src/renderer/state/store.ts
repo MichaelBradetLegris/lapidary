@@ -32,7 +32,7 @@ import {
 } from '../../shared/ui/modes';
 import { stepFocus, type StepOptions } from '../../shared/ui/navigate';
 import type { SaveShortcutContext } from '../../shared/ui/save';
-import type { SetupFor } from '../../shared/ui/setup';
+import { setupLeave, type SetupFor, type SetupFrom, type SetupLanding } from '../../shared/ui/setup';
 import type { UpdateStatus } from '../../shared/updates';
 import { welcomeShown } from '../../shared/ui/welcome';
 import type { Hunk, HunkStatus, Review, ReviewComment, Settings } from '../../shared/types';
@@ -426,6 +426,14 @@ export interface AppState {
   setupOpen: boolean;
   /** which view the Setup screen shows: Claude's, or ChatGPT's sign-in (codex.2) */
   setupFor: SetupFor;
+  /** where the Setup screen was opened from, which Done, Close and Escape go back to (setup.19) */
+  setupFrom: SetupFrom;
+  /**
+   * Where leaving the Setup screen has just landed (setup.19, `setupLeave`):
+   * Review with AI and the welcome guide read it as they are drawn again, to
+   * take the focus, and App clears it once they have; null otherwise.
+   */
+  setupLanding: SetupLanding | null;
   /**
    * the Diagnostics dialog is open (hardening.5): `copy` from Setup's Copy
    * diagnostics, which copies the report as it comes in, `show` from a card's
@@ -534,6 +542,18 @@ export interface AppState {
   setSettingsOpen: (open: boolean) => void;
   setSetupOpen: (open: boolean) => void;
   setSetupFor: (view: SetupFor) => void;
+  /**
+   * The Setup screen in `view`, in place of Review with AI and Settings,
+   * noting where it was opened from (setup.19).
+   */
+  openSetupScreen: (view: SetupFor, from: SetupFrom) => void;
+  /**
+   * Done, Close or Escape on the Setup screen (setup.19): it closes, and
+   * Review with AI opens again when its Open Setup led there (`setupLeave`).
+   */
+  leaveSetup: () => void;
+  setSetupFrom: (from: SetupFrom) => void;
+  setSetupLanding: (landing: SetupLanding | null) => void;
   setDiagnosticsOpen: (open: 'copy' | 'show' | null) => void;
   setAboutOpen: (open: boolean) => void;
   setUpdateStatus: (status: UpdateStatus) => void;
@@ -631,6 +651,8 @@ export const useApp = create<AppState>()((set, get) => ({
   settingsOpen: false,
   setupOpen: false,
   setupFor: 'claude',
+  setupFrom: 'elsewhere',
+  setupLanding: null,
   diagnosticsOpen: null,
   aboutOpen: false,
   updateStatus: null,
@@ -843,6 +865,32 @@ export const useApp = create<AppState>()((set, get) => ({
 
   setSetupOpen: (setupOpen) => set({ setupOpen }),
   setSetupFor: (setupFor) => set({ setupFor }),
+  openSetupScreen: (setupFor, setupFrom) =>
+    set({
+      setupOpen: true,
+      setupFor,
+      setupFrom,
+      setupLanding: null,
+      reviewDialogOpen: false,
+      settingsOpen: false
+    }),
+  leaveSetup: () =>
+    set((state) => {
+      if (!state.setupOpen) return {};
+      const landing = setupLeave(state.setupFrom, state.setupFor, {
+        chapterOpen: Boolean(state.review?.sourcePath),
+        reviewRunning: state.aiBusyPath !== null,
+        welcomeShown: welcomeShown(state.settings, state.welcomeClosed)
+      });
+      return {
+        setupOpen: false,
+        setupFrom: 'elsewhere',
+        setupLanding: landing,
+        ...(landing.to === 'review-dialog' ? { reviewDialogOpen: true } : {})
+      };
+    }),
+  setSetupFrom: (setupFrom) => set({ setupFrom }),
+  setSetupLanding: (setupLanding) => set({ setupLanding }),
   setDiagnosticsOpen: (diagnosticsOpen) => set({ diagnosticsOpen }),
   setAboutOpen: (aboutOpen) => set({ aboutOpen }),
   setUpdateStatus: (updateStatus) => set({ updateStatus }),
