@@ -132,3 +132,22 @@ export function readingRange(scroller: Element | null): ReadingRange | null {
 export function followFocus(row: Element | null | undefined): void {
   scrollToElement(row, 'if-needed');
 }
+
+/**
+ * Give a button the focus without letting the browser scroll to it, then
+ * bring it into view in `scroller` only when it is not wholly in view
+ * already: the Setup screen's Done, at the foot of a page that can be taller
+ * than the window, once the sign-in has succeeded (setup.19 review). A page
+ * that shows Done keeps still, the status card that says so where it was;
+ * one that does not comes up just far enough to show it, with the app's
+ * margin and timing (`scrollRectIntoView`, 'if-needed'), so the focus never
+ * lands where the author cannot see it.
+ */
+export function focusInView(
+  element: HTMLElement | null | undefined,
+  scroller: HTMLElement | null | undefined
+): void {
+  if (!element) return;
+  element.focus({ preventScroll: true });
+  if (scroller) scrollRectIntoView(scroller, element.getBoundingClientRect(), 'if-needed');
+}

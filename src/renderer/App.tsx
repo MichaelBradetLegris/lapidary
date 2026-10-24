@@ -823,14 +823,19 @@ export function App(): React.JSX.Element {
   /* The Setup screen in place of Review with AI and Settings, in Claude's
      view or ChatGPT's, noting where it was opened from, which Done, Close and
      Escape go back to (setup.19, `leaveSetup`), and where the focus was, for
-     a return to the chapter. The launch card has done its job once Claude's
-     view is open, which says the same at length, so it goes; ChatGPT's says
-     nothing it says, so it stays (codex.2). */
+     a return to the chapter. Asked for again while it is open, as the status
+     bar's label and Settings over it can, it keeps both (the store keeps
+     where from, `openSetupScreen`), so the way back is not lost to a button
+     on the Setup screen itself (setup.19 review). The launch card has done
+     its job once Claude's view is open, which says the same at length, so it
+     goes; ChatGPT's says nothing it says, so it stays (codex.2). */
   const setupOpener = useRef<HTMLElement | null>(null);
   const showSetup = useCallback(
     (view: SetupFor, from: SetupFrom) => {
       if (view === 'claude') dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);
-      setupOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      if (!useApp.getState().setupOpen) {
+        setupOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      }
       openSetupScreen(view, from);
     },
     [openSetupScreen, dismissNotificationsByKey]

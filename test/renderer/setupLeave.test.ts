@@ -101,6 +101,50 @@ describe('the store opens and leaves the Setup screen (setup.19)', () => {
     expect(state().setupFrom).toBe('elsewhere');
   });
 
+  it('keeps where it was opened from when asked for again while open, in either view (setup.19 review)', () => {
+    // The status bar's label on Claude's view, opened from the dialog.
+    state().openSetupScreen('claude', 'review-dialog');
+    state().openSetupScreen('claude', 'elsewhere');
+    expect(state()).toMatchObject({ setupOpen: true, setupFor: 'claude', setupFrom: 'review-dialog' });
+    state().leaveSetup();
+    expect(state()).toMatchObject({ setupLanding: { to: 'review-dialog' }, reviewDialogOpen: true });
+
+    // Settings over it, ChatGPT's Setup: the other view, the same way back.
+    useApp.setState({ reviewDialogOpen: false, setupLanding: null });
+    state().openSetupScreen('claude', 'review-dialog');
+    useApp.setState({ settingsOpen: true });
+    state().openSetupScreen('chatgpt', 'elsewhere');
+    expect(state()).toMatchObject({ setupFor: 'chatgpt', setupFrom: 'review-dialog', settingsOpen: false });
+    state().leaveSetup();
+    expect(state()).toMatchObject({ setupLanding: { to: 'review-dialog' }, reviewDialogOpen: true });
+  });
+
+  it("keeps the welcome guide as the way back when the status bar's label is pressed over it", () => {
+    useApp.setState({ settings: normalizeSettings({ onboardingDone: false }) });
+    state().openSetupScreen('claude', 'welcome');
+    state().openSetupScreen('claude', 'elsewhere');
+    state().leaveSetup();
+    expect(state()).toMatchObject({
+      setupLanding: { to: 'welcome', view: 'claude' },
+      reviewDialogOpen: false
+    });
+  });
+
+  it('takes Open Setup in a Review with AI opened over it as the new way in', () => {
+    // The Review menu opens the dialog over Setup and forgets the first way in;
+    // the dialog's Open Setup then names the dialog.
+    state().openSetupScreen('claude', 'elsewhere');
+    useApp.setState({ setupFrom: 'elsewhere', reviewDialogOpen: true });
+    state().openSetupScreen('chatgpt', 'review-dialog');
+    expect(state()).toMatchObject({
+      setupFor: 'chatgpt',
+      setupFrom: 'review-dialog',
+      reviewDialogOpen: false
+    });
+    state().leaveSetup();
+    expect(state()).toMatchObject({ setupLanding: { to: 'review-dialog' }, reviewDialogOpen: true });
+  });
+
   it('does nothing when Setup is not open', () => {
     useApp.setState({ setupFrom: 'review-dialog' });
     state().leaveSetup();
@@ -109,10 +153,10 @@ describe('the store opens and leaves the Setup screen (setup.19)', () => {
 });
 
 describe('App: where each way in is noted, and where leaving lands (setup.19)', () => {
-  it('opens Setup through the store, noting where the focus was', () => {
+  it('opens Setup through the store, noting where the focus was unless Setup is open already', () => {
     const show = APP.slice(APP.indexOf('const showSetup = '), APP.indexOf('const openSetup = '));
-    expect(show).toContain(
-      'setupOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;'
+    expect(show).toMatch(
+      /if \(!useApp\.getState\(\)\.setupOpen\) \{\s*setupOpener\.current = document\.activeElement instanceof HTMLElement \? document\.activeElement : null;\s*\}/
     );
     expect(show).toContain('openSetupScreen(view, from);');
     for (const [name, view, from] of [
@@ -172,12 +216,17 @@ describe('the screens: Done, Escape and the focus (setup.19)', () => {
   });
 
   it('hands the focus to Done once the check finds Claude ready, or the ChatGPT sign-in has succeeded', () => {
+    // focusInView: no scroll while Done is in view, just enough when it is not (setup.19 review).
     expect(claude).toMatch(
-      /useEffect\(\(\) => \{\s*if \(claudeSetupSucceeded\(lastView\.current, view\)\) doneRef\.current\?\.focus\(\{ preventScroll: true \}\);\s*lastView\.current = view;\s*\}, \[view\]\);/
+      /useEffect\(\(\) => \{\s*if \(claudeSetupSucceeded\(lastView\.current, view\)\) focusInView\(doneRef\.current, pageRef\.current\);\s*lastView\.current = view;\s*\}, \[view\]\);/
     );
     expect(chatgpt).toMatch(
-      /useEffect\(\(\) => \{\s*if \(signInSucceeded\(wasSignedIn\.current, signedInNow\)\) doneRef\.current\?\.focus\(\{ preventScroll: true \}\);\s*wasSignedIn\.current = signedInNow;\s*\}, \[signedInNow\]\);/
+      /useEffect\(\(\) => \{\s*if \(signInSucceeded\(wasSignedIn\.current, signedInNow\)\) focusInView\(doneRef\.current, pageRef\.current\);\s*wasSignedIn\.current = signedInNow;\s*\}, \[signedInNow\]\);/
     );
+    // The scroller focusInView measures is the page itself, the one `.setup`.
+    expect(claude).toContain('<div ref={pageRef} className="setup" data-view={view}>');
+    expect(chatgpt).toMatch(/<div\s*ref=\{pageRef\}\s*className="setup"/);
+    for (const screen of [claude, chatgpt]) expect(screen).not.toContain('doneRef.current?.focus(');
     // After the wait's own hand-back, which would give the focus to Sign out.
     expect(chatgpt.indexOf('signInSucceeded(wasSignedIn.current')).toBeGreaterThan(
       chatgpt.indexOf('if (wasWaiting.current && !waiting')

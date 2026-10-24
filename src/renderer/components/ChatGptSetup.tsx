@@ -19,6 +19,7 @@ import {
 } from '../../shared/ui/chatgpt';
 import { SETUP_DONE } from '../../shared/ui/setup';
 import { heldButton } from '../state/heldButton';
+import { focusInView } from '../state/scroll';
 import { useSetupEscape } from '../state/setupEscape';
 import { DataSettingsWarning } from './DataSettingsWarning';
 
@@ -114,20 +115,25 @@ export function ChatGptSetup({
 
   /* Done, Close and Escape leave alike (setup.19). Once the sign-in has
      succeeded, the focus goes to Done, wherever it was, so the author back
-     from the browser leaves with Enter; without scrolling, so the status
-     card, which says "Signed in to ChatGPT", stays in view. After the wait's
-     effect above, which would otherwise hand it to Sign out. */
+     from the browser leaves with Enter. The page keeps still while Done is in
+     view, so the status card, which says "Signed in to ChatGPT", stays where
+     it was; when Done is below the fold, as in a short window, at a large
+     zoom or with OpenAI's welcome up, the page comes up just far enough to
+     show it (`focusInView`, setup.19 review). After the wait's effect above,
+     which would otherwise hand it to Sign out. */
   useSetupEscape(onClose);
+  const pageRef = useRef<HTMLDivElement>(null);
   const doneRef = useRef<HTMLButtonElement>(null);
   const signedInNow = status?.signedIn ?? null;
   const wasSignedIn = useRef(signedInNow);
   useEffect(() => {
-    if (signInSucceeded(wasSignedIn.current, signedInNow)) doneRef.current?.focus({ preventScroll: true });
+    if (signInSucceeded(wasSignedIn.current, signedInNow)) focusInView(doneRef.current, pageRef.current);
     wasSignedIn.current = signedInNow;
   }, [signedInNow]);
 
   return (
     <div
+      ref={pageRef}
       className="setup"
       data-view={`chatgpt-${signedIn ? 'signed-in' : waiting ? 'waiting' : 'signed-out'}`}
     >

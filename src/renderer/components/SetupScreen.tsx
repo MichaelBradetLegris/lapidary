@@ -27,6 +27,7 @@ import {
 import { setupFooterText } from '../../shared/ui/about';
 import { COPY_DIAGNOSTICS, SETUP_DIAGNOSTICS_TEXT } from '../../shared/ui/diagnostics';
 import { heldButton } from '../state/heldButton';
+import { focusInView } from '../state/scroll';
 import { useSetupEscape } from '../state/setupEscape';
 import { Command } from './Command';
 import { UpdateNote } from './UpdateNote';
@@ -124,20 +125,24 @@ export function SetupScreen({
 
   /* Done, Close and Escape leave alike (setup.19). Once a check finds Claude
      ready after there was something to do, as when the author comes back
-     from signing in in a terminal, the focus goes to Done, without scrolling
-     the status card, which says so, out of view. */
+     from signing in in a terminal, the focus goes to Done. The page keeps
+     still while Done is in view, so the status card, which says so, stays
+     where it was; when Done is below the fold, as under the long steps of a
+     view that had something to do, the page comes up just far enough to
+     show it (`focusInView`, setup.19 review). */
   useSetupEscape(onClose);
+  const pageRef = useRef<HTMLDivElement>(null);
   const doneRef = useRef<HTMLButtonElement>(null);
   const lastView = useRef(view);
   useEffect(() => {
-    if (claudeSetupSucceeded(lastView.current, view)) doneRef.current?.focus({ preventScroll: true });
+    if (claudeSetupSucceeded(lastView.current, view)) focusInView(doneRef.current, pageRef.current);
     lastView.current = view;
   }, [view]);
 
   // The whole width scrolls, so the wheel works over the margins and the
   // scrollbar sits at the window's edge; the page inside is a centred column.
   return (
-    <div className="setup" data-view={view}>
+    <div ref={pageRef} className="setup" data-view={view}>
       <div className="setup__page">
         <div className="setup__head">
           <h1>Set up Claude</h1>

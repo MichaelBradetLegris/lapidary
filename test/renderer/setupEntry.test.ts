@@ -62,7 +62,7 @@ describe('every layout has the cards, the dialogs and the question (setup.7)', (
     expect(rule('.setup__page')).toContain('max-width: 720px;');
     expect(rule('.setup__page')).toContain('margin: 0 auto;');
     expect(read('components/SetupScreen.tsx')).toMatch(
-      /<div className="setup" data-view=\{view\}>\s*<div className="setup__page">/
+      /<div ref=\{pageRef\} className="setup" data-view=\{view\}>\s*<div className="setup__page">/
     );
   });
 

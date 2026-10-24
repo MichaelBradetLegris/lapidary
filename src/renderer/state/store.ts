@@ -544,7 +544,9 @@ export interface AppState {
   setSetupFor: (view: SetupFor) => void;
   /**
    * The Setup screen in `view`, in place of Review with AI and Settings,
-   * noting where it was opened from (setup.19).
+   * noting where it was opened from (setup.19). Asked for again from
+   * anywhere but Review with AI while it is open, it keeps where it was first
+   * opened from.
    */
   openSetupScreen: (view: SetupFor, from: SetupFrom) => void;
   /**
@@ -866,14 +868,19 @@ export const useApp = create<AppState>()((set, get) => ({
   setSetupOpen: (setupOpen) => set({ setupOpen }),
   setSetupFor: (setupFor) => set({ setupFor }),
   openSetupScreen: (setupFor, setupFrom) =>
-    set({
+    set((state) => ({
       setupOpen: true,
       setupFor,
-      setupFrom,
+      /* Asked for again while it is open, by the status bar's label, Settings'
+         Setup over it or the Review menu, in either view, it keeps where it
+         was first opened from (setup.19 review). Open Setup in a Review with
+         AI opened over it is a way in of its own, the dialog the author has
+         just left. */
+      setupFrom: state.setupOpen && setupFrom === 'elsewhere' ? state.setupFrom : setupFrom,
       setupLanding: null,
       reviewDialogOpen: false,
       settingsOpen: false
-    }),
+    })),
   leaveSetup: () =>
     set((state) => {
       if (!state.setupOpen) return {};
