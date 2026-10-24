@@ -212,6 +212,42 @@ export interface OpenAiKeyStatus {
   encryptionAvailable: boolean;
 }
 
+/**
+ * Everything the page is told about the ChatGPT sign-in (codex.2, CLAUDE.md
+ * rule 2 b): whether there is one, the plan the sign-in named, and the
+ * account's "I have confirmed my data settings" box. The tokens, the client
+ * id OpenAI issued, the account's id and its email never cross this boundary.
+ */
+export interface ChatGptStatus {
+  /** a sign-in is kept, with OpenAI's permission to use the ChatGPT plan */
+  signedIn: boolean;
+  /** the account's plan as the sign-in named it, such as `Plus`; null when it named none */
+  plan: string | null;
+  /** the signed-in account's box is ticked; false while signed out */
+  dataSettingsConfirmed: boolean;
+  /** a sign-in is waiting for the browser */
+  signingIn: boolean;
+  /** an earlier sign-in registered the app, so Sign in with ChatGPT reuses that registration */
+  registered: boolean;
+  /** false when safeStorage cannot encrypt on this machine, so no sign-in can be kept */
+  encryptionAvailable: boolean;
+  /** the sign-in server a development run uses in place of OpenAI's (`MANUSCRIPT_REVIEW_CHATGPT_AUTH_URL`) */
+  devServer?: string;
+}
+
+/** `chatgpt:sign-out`'s answer: the status, and whether OpenAI confirmed that it ended the sign-in. */
+export interface ChatGptSignOut {
+  status: ChatGptStatus;
+  revoked: boolean;
+}
+
+/**
+ * The only web pages the page may ask main to open (`shell:open-external`),
+ * by name, so it never hands the shell an address: ChatGPT's Data controls
+ * settings, where training is turned off (codex.2).
+ */
+export type ExternalPage = 'chatgpt-data-controls';
+
 export interface ReviewRequest {
   requestId: string;
   provider: Provider;
@@ -622,6 +658,24 @@ export interface ApiRequestMap {
   'secrets:openai-status': { request: void; response: OpenAiKeyStatus };
   'secrets:openai-set': { request: { key: string }; response: OpenAiKeyStatus };
   'secrets:openai-clear': { request: void; response: OpenAiKeyStatus };
+  /* Sign in with ChatGPT (codex.2). The tokens never cross: main signs in,
+     keeps them encrypted and answers with the status alone. */
+  'chatgpt:status': { request: void; response: ChatGptStatus };
+  /**
+   * open OpenAI's sign-in page in the browser and wait for its answer on a
+   * loopback port; answers once signed in, and fails, `cancelled` included,
+   * when the sign-in does not finish. `another` registers the app anew, for
+   * another ChatGPT account, instead of reusing the registration kept.
+   */
+  'chatgpt:sign-in': { request: { another: boolean }; response: ChatGptStatus };
+  /** stop waiting for the browser; the waiting `chatgpt:sign-in` fails as `cancelled` */
+  'chatgpt:cancel-sign-in': { request: void; response: void };
+  /** ask OpenAI to end the sign-in, then remove it from this computer either way */
+  'chatgpt:sign-out': { request: void; response: ChatGptSignOut };
+  /** tick or clear the signed-in account's "I have confirmed my data settings" */
+  'chatgpt:confirm-data-settings': { request: { confirmed: boolean }; response: ChatGptStatus };
+  /** open one of the pages `ExternalPage` names in the browser */
+  'shell:open-external': { request: { page: ExternalPage }; response: void };
   /** step or reset the window zoom; answers with the level now in use (round 5) */
   'view:zoom': { request: { action: ZoomAction }; response: { zoom: number } };
   /* The close guard (apply.8, PLAN 7.7 and 11.3 i): the page tells main what a
@@ -707,6 +761,12 @@ const REQUEST_CHANNEL_FLAGS = {
   'secrets:openai-status': true,
   'secrets:openai-set': true,
   'secrets:openai-clear': true,
+  'chatgpt:status': true,
+  'chatgpt:sign-in': true,
+  'chatgpt:cancel-sign-in': true,
+  'chatgpt:sign-out': true,
+  'chatgpt:confirm-data-settings': true,
+  'shell:open-external': true,
   'view:zoom': true,
   'app:guard-state': true,
   'app:close-status': true,

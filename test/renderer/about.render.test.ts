@@ -322,6 +322,9 @@ describe('Settings, Setup and Review with AI (release.9)', () => {
         onKeyChanged: () => undefined,
         onClose: () => undefined,
         onOpenSetup: () => undefined,
+        chatgpt: null,
+        chatgptWaiting: false,
+        onOpenChatGptSetup: () => undefined,
         onShowWelcome: () => undefined,
         onAbout: () => undefined
       })

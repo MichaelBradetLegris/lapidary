@@ -6,8 +6,10 @@ import {
   clearOpenAiKey,
   openAiKey,
   openAiKeyStatus,
+  readSecrets,
   secretsPath,
   storeOpenAiKey,
+  updateSecrets,
   type KeyVault
 } from '../../src/main/secrets';
 
@@ -131,5 +133,40 @@ describe('OpenAI key storage', () => {
   it('treats a corrupt secrets file as no key rather than crashing', async () => {
     await fs.writeFile(secretsPath(dir), '{ not json');
     expect((await openAiKeyStatus(fakeVault(), dir, noEnv)).configured).toBe(false);
+  });
+});
+
+/* codex.2: the file holds the ChatGPT sign-in too, which src/main/chatgpt
+   reads and writes through `updateSecrets`; chatgptSignIn.test.ts drives it. */
+describe('the two credentials side by side', () => {
+  it('keeps the ChatGPT sign-in when the key is saved or removed', async () => {
+    const vault = fakeVault();
+    await updateSecrets(dir, (file) => ({ ...file, chatgpt: { hostId: 'kept' } }));
+    await storeOpenAiKey(vault, dir, KEY, noEnv);
+    expect((await readSecrets(dir)).chatgpt).toEqual({ hostId: 'kept' });
+    await clearOpenAiKey(vault, dir, noEnv);
+    const file = await readSecrets(dir);
+    expect(file).toEqual({ version: 1, chatgpt: { hostId: 'kept' } });
+  });
+
+  it('keeps every change when two arrive at once, writing one after the other', async () => {
+    await Promise.all([
+      storeOpenAiKey(fakeVault(), dir, KEY, noEnv),
+      updateSecrets(dir, (file) => ({ ...file, chatgpt: { hostId: 'kept' } })),
+      updateSecrets(dir, (file) => ({ ...file, chatgpt: { ...(file.chatgpt as object), lastClientId: 'c' } }))
+    ]);
+    const file = await readSecrets(dir);
+    expect(file.openai?.last4).toBe('abcd');
+    expect(file.chatgpt).toEqual({ hostId: 'kept', lastClientId: 'c' });
+  });
+
+  it('goes on writing after a change that throws', async () => {
+    await expect(
+      updateSecrets(dir, () => {
+        throw new Error('refused');
+      })
+    ).rejects.toThrow('refused');
+    await storeOpenAiKey(fakeVault(), dir, KEY, noEnv);
+    expect((await readSecrets(dir)).openai?.last4).toBe('abcd');
   });
 });

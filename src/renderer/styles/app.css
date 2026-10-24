@@ -2925,6 +2925,38 @@ button.help {
   color: var(--danger);
 }
 
+/* A sign-out that OpenAI did not confirm (codex.2). */
+.setup__test-result--warn {
+  color: var(--warn);
+}
+
+/* The training warning on the Setup screen's ChatGPT view (codex.2): the
+   dialogs' orange box, its title, two paragraphs, then Open Data controls and
+   the box on one line, which wraps, and the box's note under them. */
+.setup .data-warning {
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.setup .data-warning p,
+.setup .data-warning .data-warning__title {
+  margin: 0;
+}
+
+.data-warning__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.data-warning__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
 .setup .modal__warn {
   margin-bottom: 18px;
 }

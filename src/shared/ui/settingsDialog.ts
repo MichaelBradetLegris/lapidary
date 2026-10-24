@@ -63,6 +63,9 @@ export const GUIDELINES_TIP = `Sent with every review: your style sheet, such as
 
 export const CLAUDE_ACCOUNT_TIP = `Reviews with Claude run through Claude Code on this computer, signed in to your own account. ${APP_NAME} never sees your Claude password or sign-in token. Setup shows how to install Claude Code and sign in.`;
 
+/** The ChatGPT account row's (?) (codex.2): what the sign-in is for, where it is kept, and Setup. */
+export const CHATGPT_ACCOUNT_TIP = `Reviews with ChatGPT use your ChatGPT plan, with no API key, once you sign in with ChatGPT on Setup, where the note on ChatGPT's data settings is too. The sign-in is encrypted with your Windows login, kept beside the settings file and never shown; only ${APP_NAME}'s background process uses it. Sign out removes it.`;
+
 /** The note under the key, before its link and after it. */
 export const OPENAI_KEY_NOTE = 'For OpenAI reviews, billed per token. Get one at';
 export const OPENAI_KEYS_PAGE = 'platform.openai.com/api-keys';

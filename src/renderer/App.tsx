@@ -29,6 +29,7 @@ import type { UpdateAction } from '../shared/ui/update';
 import type { ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
 import { PROVIDER_NAMES, type Provider, type Review } from '../shared/types';
 import { AboutDialog } from './components/AboutDialog';
+import { ChatGptSetup } from './components/ChatGptSetup';
 import { ColumnStrip } from './components/ColumnStrip';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { DiagnosticsDialog } from './components/DiagnosticsDialog';
@@ -53,6 +54,7 @@ import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
 import { UpdateOverlay } from './components/UpdateOverlay';
 import { WelcomeScreen } from './components/WelcomeScreen';
+import { useChatGpt } from './state/chatgpt';
 import { ApiError, call, errorMessage } from './state/client';
 import { installCloseGuard, prepareToLeaveApp, type CloseGuardDeps } from './state/closeGuard';
 import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state/drafts';
@@ -156,6 +158,8 @@ export function App(): React.JSX.Element {
   const setSettingsOpen = useApp((s) => s.setSettingsOpen);
   const setupOpen = useApp((s) => s.setupOpen);
   const setSetupOpen = useApp((s) => s.setSetupOpen);
+  const setupFor = useApp((s) => s.setupFor);
+  const setSetupFor = useApp((s) => s.setSetupFor);
   const diagnosticsOpen = useApp((s) => s.diagnosticsOpen);
   const setDiagnosticsOpen = useApp((s) => s.setDiagnosticsOpen);
   const aboutOpen = useApp((s) => s.aboutOpen);
@@ -182,6 +186,8 @@ export function App(): React.JSX.Element {
 
   const ai = useAi();
   const claudeRuntime = ai.runtimes.claude ?? null;
+  /* Sign in with ChatGPT (codex.2): main's status and the sign-in the page waits on. */
+  const chatgpt = useChatGpt();
   const progressLabel = useProgressLabel(ai.running, ai.startedAt, ai.progress?.outputTokens);
 
   /* The chapter's name, and the dot while changes are not saved to it, in
@@ -217,7 +223,10 @@ export function App(): React.JSX.Element {
 
   const activeProvider = settings?.provider ?? 'claude';
   const claudeView = setupView(claudeRuntime, ai.lastFailure);
-  const claudeInUse = activeProvider === 'claude' || setupOpen;
+  /* The Setup screen shows Claude's view or ChatGPT's (codex.2); only
+     Claude's says what the launch card says, and only it puts Claude in use. */
+  const claudeSetupOpen = setupOpen && setupFor === 'claude';
+  const claudeInUse = activeProvider === 'claude' || claudeSetupOpen;
   const settingsLoaded = settings !== null;
 
   /* The launch card (section 7): once the settings and Claude's first check
@@ -238,7 +247,7 @@ export function App(): React.JSX.Element {
       showing,
       pastLaunch: runtimeCardPastLaunch.current,
       provider: activeProvider,
-      setupOpen,
+      setupOpen: claudeSetupOpen,
       welcomeOpen
     });
     runtimeCardPastLaunch.current = true;
@@ -252,7 +261,7 @@ export function App(): React.JSX.Element {
     claudeView,
     settingsLoaded,
     activeProvider,
-    setupOpen,
+    claudeSetupOpen,
     welcomeOpen,
     upsertNotification,
     dismissNotificationsByKey
@@ -774,8 +783,19 @@ export function App(): React.JSX.Element {
     setReviewDialogOpen(false);
     setSettingsOpen(false);
     dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);
+    setSetupFor('claude');
     setSetupOpen(true);
-  }, [setReviewDialogOpen, setSettingsOpen, setSetupOpen, dismissNotificationsByKey]);
+  }, [setReviewDialogOpen, setSettingsOpen, setSetupFor, setSetupOpen, dismissNotificationsByKey]);
+
+  /* The Setup screen's ChatGPT view (codex.2), from Settings' ChatGPT account
+     row: the sign-in and the training warning. Claude's launch card says
+     nothing it says, so it stays. */
+  const openChatGptSetup = useCallback(() => {
+    setReviewDialogOpen(false);
+    setSettingsOpen(false);
+    setSetupFor('chatgpt');
+    setSetupOpen(true);
+  }, [setReviewDialogOpen, setSettingsOpen, setSetupFor, setSetupOpen]);
 
   /* Test the connection, on the Setup screen (setup.8): one very small
      request. A test that fails for a reason Setup can fix checks again, as a
@@ -1121,6 +1141,8 @@ export function App(): React.JSX.Element {
         models={ai.models.claude ?? []}
         runtime={claudeRuntime}
         keyStatus={ai.keyStatus}
+        chatgpt={chatgpt.status}
+        chatgptWaiting={chatgpt.waiting}
         onKeyChanged={ai.keyChanged}
         onApply={(next) => {
           setSettings(next);
@@ -1128,6 +1150,7 @@ export function App(): React.JSX.Element {
         }}
         onClose={() => setSettingsOpen(false)}
         onOpenSetup={openSetup}
+        onOpenChatGptSetup={openChatGptSetup}
         onShowWelcome={showWelcomeAgain}
         onAbout={() => {
           setSettingsOpen(false);
@@ -1228,7 +1251,21 @@ export function App(): React.JSX.Element {
           {toolbar}
           <div className="body body--single">
             <NotificationCards onAction={onCardAction} />
-            {setupOpen ? (
+            {setupOpen && setupFor === 'chatgpt' ? (
+              <ChatGptSetup
+                status={chatgpt.status}
+                waiting={chatgpt.waiting}
+                busy={chatgpt.busy}
+                outcome={chatgpt.outcome}
+                onSignIn={chatgpt.signIn}
+                onCancelSignIn={chatgpt.cancelSignIn}
+                onSignOut={chatgpt.signOut}
+                onConfirmDataSettings={chatgpt.setDataSettingsConfirmed}
+                onOpenDataControls={chatgpt.openDataControls}
+                onClose={() => setSetupOpen(false)}
+                version={updateStatus?.current ?? null}
+              />
+            ) : setupOpen ? (
               <SetupScreen
                 runtime={claudeRuntime}
                 lastFailure={ai.lastFailure}

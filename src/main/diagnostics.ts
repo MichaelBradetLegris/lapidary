@@ -64,6 +64,7 @@ export function switchWords(switches: DevSwitches): string[] {
   return [
     ...(switches.userDataDir ? ['isolated user data'] : []),
     ...(switches.openAiBaseUrl ? ['OpenAI base URL'] : []),
+    ...(switches.chatGptAuthUrl ? ['ChatGPT sign-in URL'] : []),
     ...(switches.noClaudeCode ? ['no Claude Code'] : []),
     ...(switches.fakeUpdate ? [`fake update ${switches.fakeUpdate}`] : []),
     ...(switches.quietWindow ? ['quiet window'] : []),

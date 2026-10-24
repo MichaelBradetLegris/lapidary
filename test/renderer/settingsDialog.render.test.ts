@@ -2,12 +2,13 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SettingsDialog } from '../../src/renderer/components/SettingsDialog';
-import type { OpenAiKeyStatus, RuntimeStatus } from '../../src/shared/ipc';
+import type { ChatGptStatus, OpenAiKeyStatus, RuntimeStatus } from '../../src/shared/ipc';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
 import {
   APPEARANCE_NOTE,
   BACKUPS_ROW_NOTE,
   BACKUPS_TIP,
+  CHATGPT_ACCOUNT_TIP,
   CLAUDE_ACCOUNT_TIP,
   EFFORT_TIP,
   GUIDELINES_TIP,
@@ -69,6 +70,7 @@ function render(
     settings?: Partial<Settings>;
     keyStatus?: OpenAiKeyStatus | null;
     runtime?: RuntimeStatus | null;
+    chatgpt?: ChatGptStatus | null;
   } = {}
 ): string {
   return renderToStaticMarkup(
@@ -84,6 +86,9 @@ function render(
       onKeyChanged: () => undefined,
       onClose: () => undefined,
       onOpenSetup: () => undefined,
+      chatgpt: options.chatgpt ?? null,
+      chatgptWaiting: false,
+      onOpenChatGptSetup: () => undefined,
       onShowWelcome: () => undefined,
       onAbout: () => undefined
     })
@@ -195,6 +200,7 @@ describe('the sections and rows (polish.4)', () => {
       '>Open folder</button>',
       '>Accounts</h3>',
       '<span>Claude account</span>',
+      '<span>ChatGPT account</span>',
       '<span>OpenAI API key (experimental)</span>',
       'aria-label="OpenAI API key"',
       '>Save key</button>',
@@ -230,6 +236,7 @@ describe('the (?) of a row (polish.4)', () => {
     ['backups', BACKUPS_TIP],
     ['the guidelines file', GUIDELINES_TIP],
     ['the Claude account', CLAUDE_ACCOUNT_TIP],
+    ['the ChatGPT account', CHATGPT_ACCOUNT_TIP],
     ['the OpenAI API key', OPENAI_KEY_TIP]
   ];
 
@@ -254,7 +261,7 @@ describe('the (?) of a row (polish.4)', () => {
     const rows = [...html.matchAll(/<div class="modal__row">([\s\S]*?)<\/div>/g)].map(([, inner = '']) =>
       cells(inner)
     );
-    expect(rows).toHaveLength(10);
+    expect(rows).toHaveLength(11);
     for (const row of rows) {
       expect(row, row.join('')).toHaveLength(4);
       expect(row[3]).toMatch(/^<span class="modal__help">/);
@@ -270,6 +277,7 @@ describe('the (?) of a row (polish.4)', () => {
       'Backups',
       'Guidelines file',
       'Claude account',
+      'ChatGPT account',
       'OpenAI API key (experimental)',
       ''
     ]);
@@ -280,7 +288,7 @@ describe('the (?) of a row (polish.4)', () => {
       null
     ]);
     expect(rows[2]?.[3]).toBe('<span class="modal__help"></span>');
-    expect(rows[9]?.[3]).toBe('<span class="modal__help"></span>');
+    expect(rows[10]?.[3]).toBe('<span class="modal__help"></span>');
     expect(html.match(/class="help"/g)).toHaveLength(TIPS.length);
     expect(html).not.toContain('modal__name');
   });
@@ -338,6 +346,19 @@ describe('every control has a name and a description (polish.4)', () => {
   const states: Array<[string, Parameters<typeof render>[0]]> = [
     ['nothing checked yet', {}],
     ['a saved key and Claude ready', { keyStatus: STORED, runtime: READY }],
+    [
+      'signed in to ChatGPT',
+      {
+        chatgpt: {
+          signedIn: true,
+          plan: 'Plus',
+          dataSettingsConfirmed: false,
+          signingIn: false,
+          registered: true,
+          encryptionAvailable: true
+        }
+      }
+    ],
     ['no encryption', { keyStatus: NO_ENCRYPTION }],
     ['no manuscript folder', { settings: { manuscriptFolder: null } }]
   ];
@@ -370,6 +391,7 @@ describe('every control has a name and a description (polish.4)', () => {
     expect(find('Open').description).toBe('choose a manuscript folder first');
     expect(find('Open folder').description).toBe('choose a manuscript folder first');
     expect(find('Setup').description).toBe('ann@example.com (Claude Max)');
+    expect(find('Setup', 1).description).toBe('not read yet');
     expect(find('Remove key').description).toBe('saved in Settings, encrypted (ends abcd)');
     expect(find('OpenAI API key').description).toBe(`${OPENAI_KEY_NOTE} ${OPENAI_KEYS_PAGE}.`);
     expect(find('Save key').description).toBe(OPENAI_KEY_TIP);

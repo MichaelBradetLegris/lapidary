@@ -5,13 +5,20 @@ import { atomicWriteFile } from './atomic';
 import { fail } from './errors';
 
 /**
- * The one credential this app stores: the author's OpenAI API key.
+ * The two credentials this app stores (CLAUDE.md rule 2 b): the author's
+ * OpenAI API key, and since codex.2 the ChatGPT sign-in, whose part of the
+ * file is `src/main/chatgpt/store.ts`'s.
  *
- * It lives in its own file beside settings.json, never inside it, encrypted with
- * Electron's safeStorage (DPAPI on Windows). Only the main process ever holds
- * the plaintext, and only for the length of one call; the renderer is told
- * nothing but whether a key exists and its last four characters (CLAUDE.md
- * rule 2). Claude's credentials are still never touched at all.
+ * They live in their own file beside settings.json, never inside it, encrypted
+ * with Electron's safeStorage (DPAPI on Windows). Only the main process ever
+ * holds the plaintext, and only for the length of one call; the renderer is told
+ * nothing but whether a key exists and its last four characters, or whether a
+ * sign-in exists and its plan. Claude's credentials are still never touched at
+ * all.
+ *
+ * Every write reads the file, changes its own part and writes the whole file
+ * back, one write at a time per folder (`updateSecrets`), so saving the key
+ * keeps the sign-in and signing in or out keeps the key.
  *
  * safeStorage is passed in rather than imported so the rules here can be tested
  * without an Electron process.
@@ -25,7 +32,7 @@ export interface KeyVault {
 
 export const SECRETS_FILENAME = 'secrets.json';
 
-interface SecretsFile {
+export interface SecretsFile {
   version: 1;
   openai?: {
     /** base64 of safeStorage.encryptString */
@@ -33,6 +40,8 @@ interface SecretsFile {
     last4: string;
     savedAt: string;
   };
+  /** the ChatGPT sign-in, read and checked by `src/main/chatgpt/store.ts` */
+  chatgpt?: unknown;
 }
 
 export function secretsPath(userDataDir: string): string {
@@ -43,7 +52,8 @@ function last4(key: string): string {
   return key.slice(-4);
 }
 
-async function readFile(userDataDir: string): Promise<SecretsFile> {
+/** The file as it is on disk; no file, an unreadable one or junk reads as an empty one. */
+export async function readSecrets(userDataDir: string): Promise<SecretsFile> {
   try {
     const text = await fs.readFile(secretsPath(userDataDir), 'utf8');
     const parsed: unknown = JSON.parse(text.replace(/^\uFEFF/, ''));
@@ -51,15 +61,45 @@ async function readFile(userDataDir: string): Promise<SecretsFile> {
       return parsed as SecretsFile;
     }
   } catch {
-    // No file, unreadable file, or junk: there is simply no stored key.
+    // No file, unreadable file, or junk: there is simply nothing stored.
   }
   return { version: 1 };
 }
 
-async function writeFile(userDataDir: string, contents: SecretsFile): Promise<void> {
+async function writeSecrets(userDataDir: string, contents: SecretsFile): Promise<void> {
   const file = secretsPath(userDataDir);
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await atomicWriteFile(file, Buffer.from(`${JSON.stringify(contents, null, 2)}\n`, 'utf8'));
+  // Off Windows only its owner may read it; on Windows the profile folder already sees to that.
+  await atomicWriteFile(file, Buffer.from(`${JSON.stringify(contents, null, 2)}\n`, 'utf8'), {
+    mode: 0o600
+  });
+}
+
+/** The write in progress for each folder, so two changes never read the same file and race. */
+const queues = new Map<string, Promise<unknown>>();
+
+/**
+ * Read the file, let `change` make the new contents, and write them, after any
+ * change already under way for the same folder. Answers with what was written.
+ */
+export function updateSecrets(
+  userDataDir: string,
+  change: (file: SecretsFile) => SecretsFile
+): Promise<SecretsFile> {
+  const key = path.resolve(userDataDir);
+  const run = (queues.get(key) ?? Promise.resolve())
+    .catch(() => undefined)
+    .then(async () => {
+      const next = change(await readSecrets(userDataDir));
+      await writeSecrets(userDataDir, next);
+      return next;
+    });
+  queues.set(key, run);
+  const done = (): void => {
+    if (queues.get(key) === run) queues.delete(key);
+  };
+  run.then(done, done);
+  return run;
 }
 
 /** The key from the environment, when one is set. Never stored, never shown. */
@@ -79,7 +119,7 @@ export async function openAiKeyStatus(
   env?: NodeJS.ProcessEnv
 ): Promise<OpenAiKeyStatus> {
   const encryptionAvailable = safely(() => vault.isEncryptionAvailable(), false);
-  const file = await readFile(userDataDir);
+  const file = await readSecrets(userDataDir);
   if (file.openai) {
     return { configured: true, source: 'stored', last4: file.openai.last4, encryptionAvailable };
   }
@@ -100,7 +140,7 @@ export async function openAiKey(
   userDataDir: string,
   env?: NodeJS.ProcessEnv
 ): Promise<string | null> {
-  const file = await readFile(userDataDir);
+  const file = await readSecrets(userDataDir);
   if (file.openai) {
     try {
       return vault.decryptString(Buffer.from(file.openai.ciphertext, 'base64'));
@@ -135,10 +175,11 @@ export async function storeOpenAiKey(
   }
 
   const ciphertext = vault.encryptString(trimmed).toString('base64');
-  await writeFile(userDataDir, {
+  await updateSecrets(userDataDir, (file) => ({
+    ...file,
     version: 1,
     openai: { ciphertext, last4: last4(trimmed), savedAt: new Date().toISOString() }
-  });
+  }));
   return openAiKeyStatus(vault, userDataDir, env);
 }
 
@@ -148,12 +189,15 @@ export async function clearOpenAiKey(
   userDataDir: string,
   env?: NodeJS.ProcessEnv
 ): Promise<OpenAiKeyStatus> {
-  await writeFile(userDataDir, { version: 1 });
+  await updateSecrets(userDataDir, (file) => {
+    const { openai: _removed, ...rest } = file;
+    return { ...rest, version: 1 };
+  });
   return openAiKeyStatus(vault, userDataDir, env);
 }
 
 /** safeStorage can throw before the app is ready; a failure means "not available". */
-function safely<T>(fn: () => T, fallback: T): T {
+export function safely<T>(fn: () => T, fallback: T): T {
   try {
     return fn();
   } catch {

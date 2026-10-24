@@ -27,6 +27,14 @@ describe('scrub', () => {
     expect(scrub('signed in as ann.o.example+books@mail.example.com.')).toBe('signed in as [email].');
   });
 
+  it('removes a signed token, the shape of a ChatGPT sign-in token (codex.2)', () => {
+    const jwt = `${Buffer.from('{"alg":"RS256","kid":"k1"}').toString('base64url')}.${Buffer.from(
+      '{"sub":"user-1","exp":1790036132}'
+    ).toString('base64url')}.c2lnbmF0dXJlLWJ5dGVz`;
+    expect(scrub(`id_token=${jwt}&state=x`)).toBe('id_token=[token]&state=x');
+    expect(scrub('version 1.0.0 eyJ but no token')).toBe('version 1.0.0 eyJ but no token');
+  });
+
   it('removes the home directory in every spelling, whatever its case', () => {
     expect(scrub('C:\\Users\\Ann Example\\Vault\\Ch 1.md', ctx)).toBe('~\\Vault\\Ch 1.md'); // check-public: allow
     expect(scrub('c:/users/ann example/Vault', ctx)).toBe('~/Vault'); // check-public: allow

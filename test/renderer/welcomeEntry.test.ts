@@ -26,7 +26,7 @@ describe('when the guide shows (setup.11)', () => {
 
   it('draws Setup first, so Set up Claude opens it over the guide, and the guide under the cards', () => {
     expect(SINGLE).toMatch(
-      /<NotificationCards onAction=\{onCardAction\} \/>\s*\{setupOpen \? \(\s*<SetupScreen[\s\S]*?\/>\s*\) : settings \? \(\s*<WelcomeScreen\s/
+      /<NotificationCards onAction=\{onCardAction\} \/>\s*\{setupOpen && setupFor === 'chatgpt' \? \(\s*<ChatGptSetup[\s\S]*?\/>\s*\) : setupOpen \? \(\s*<SetupScreen[\s\S]*?\/>\s*\) : settings \? \(\s*<WelcomeScreen\s/
     );
   });
 
@@ -52,7 +52,7 @@ describe('when the guide shows (setup.11)', () => {
   });
 
   it('keeps the launch card off the guide, whose first step says the same', () => {
-    expect(APP).toMatch(/provider: activeProvider,\s*setupOpen,\s*welcomeOpen\s*\}\);/);
+    expect(APP).toMatch(/provider: activeProvider,\s*setupOpen: claudeSetupOpen,\s*welcomeOpen\s*\}\);/);
   });
 });
 

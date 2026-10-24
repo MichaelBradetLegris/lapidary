@@ -23,6 +23,7 @@ import {
 const EVERY_SWITCH = {
   MANUSCRIPT_REVIEW_USER_DATA: 'C:/scratch/userdata',
   MANUSCRIPT_REVIEW_OPENAI_BASE_URL: 'http://127.0.0.1:4599/v1',
+  MANUSCRIPT_REVIEW_CHATGPT_AUTH_URL: 'http://127.0.0.1:4600',
   MANUSCRIPT_REVIEW_DEV_NO_CLAUDE_CODE: '1',
   MANUSCRIPT_REVIEW_DEV_FAKE_UPDATE: '1.0.1',
   MANUSCRIPT_REVIEW_DEV_QUIET_WINDOW: '1',
@@ -36,6 +37,7 @@ describe('readDevSwitches in a development build', () => {
       packaged: false,
       userDataDir: 'C:/scratch/userdata',
       openAiBaseUrl: 'http://127.0.0.1:4599/v1',
+      chatGptAuthUrl: 'http://127.0.0.1:4600',
       noClaudeCode: true,
       fakeUpdate: '1.0.1',
       quietWindow: true,
@@ -92,11 +94,27 @@ describe('readDevSwitches in a packaged build', () => {
     const s = readDevSwitches({ env: EVERY_SWITCH, packaged: true, isolatedUserData: 'C:/test-run' });
     expect(s.userDataDir).toBe('C:/test-run');
     expect(s.openAiBaseUrl).toBeNull();
+    // A sign-in kept by an installed build always goes to OpenAI's own sign-in server (codex.2).
+    expect(s.chatGptAuthUrl).toBeNull();
   });
 
   it('does not list a variable that is set but blank', () => {
     const s = readDevSwitches({ env: { MREV_VERBOSE: ' ' }, packaged: true, isolatedUserData: null });
     expect(s.ignored).toEqual([]);
+  });
+});
+
+describe('the ChatGPT sign-in URL switch (codex.2)', () => {
+  it('is read as the OpenAI base URL is: http or https only', () => {
+    const read = (value: string): string | null =>
+      readDevSwitches({
+        env: { MANUSCRIPT_REVIEW_CHATGPT_AUTH_URL: value },
+        packaged: false,
+        isolatedUserData: null
+      }).chatGptAuthUrl;
+    expect(read(' http://127.0.0.1:4600 ')).toBe('http://127.0.0.1:4600');
+    expect(read('file:///C:/x')).toBeNull();
+    expect(read('auth.openai.com')).toBeNull();
   });
 });
 

@@ -32,6 +32,7 @@ import {
 } from '../../shared/ui/modes';
 import { stepFocus, type StepOptions } from '../../shared/ui/navigate';
 import type { SaveShortcutContext } from '../../shared/ui/save';
+import type { SetupFor } from '../../shared/ui/setup';
 import type { UpdateStatus } from '../../shared/updates';
 import { welcomeShown } from '../../shared/ui/welcome';
 import type { Hunk, HunkStatus, Review, ReviewComment, Settings } from '../../shared/types';
@@ -421,8 +422,10 @@ export interface AppState {
   manualReviewOpen: boolean;
   reviewDialogOpen: boolean;
   settingsOpen: boolean;
-  /** the Claude Setup screen stands in place of the chapter */
+  /** the Setup screen stands in place of the chapter, in the view `setupFor` names */
   setupOpen: boolean;
+  /** which view the Setup screen shows: Claude's, or ChatGPT's sign-in (codex.2) */
+  setupFor: SetupFor;
   /**
    * the Diagnostics dialog is open (hardening.5): `copy` from Setup's Copy
    * diagnostics, which copies the report as it comes in, `show` from a card's
@@ -530,6 +533,7 @@ export interface AppState {
   setReviewDialogOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setSetupOpen: (open: boolean) => void;
+  setSetupFor: (view: SetupFor) => void;
   setDiagnosticsOpen: (open: 'copy' | 'show' | null) => void;
   setAboutOpen: (open: boolean) => void;
   setUpdateStatus: (status: UpdateStatus) => void;
@@ -626,6 +630,7 @@ export const useApp = create<AppState>()((set, get) => ({
   reviewDialogOpen: false,
   settingsOpen: false,
   setupOpen: false,
+  setupFor: 'claude',
   diagnosticsOpen: null,
   aboutOpen: false,
   updateStatus: null,
@@ -837,6 +842,7 @@ export const useApp = create<AppState>()((set, get) => ({
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
 
   setSetupOpen: (setupOpen) => set({ setupOpen }),
+  setSetupFor: (setupFor) => set({ setupFor }),
   setDiagnosticsOpen: (diagnosticsOpen) => set({ diagnosticsOpen }),
   setAboutOpen: (aboutOpen) => set({ aboutOpen }),
   setUpdateStatus: (updateStatus) => set({ updateStatus }),

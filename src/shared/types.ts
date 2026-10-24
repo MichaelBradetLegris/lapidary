@@ -338,7 +338,9 @@ export type ErrorCode =
   | 'openai-rate-limit'
   | 'openai-server'
   | 'openai-invalid-output'
-  | 'openai-failed';
+  | 'openai-failed'
+  /* codex.2: Sign in with ChatGPT did not finish; the message says why and what to do */
+  | 'chatgpt-sign-in-failed';
 
 export interface AppError {
   code: ErrorCode;

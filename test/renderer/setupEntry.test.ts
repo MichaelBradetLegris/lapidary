@@ -47,7 +47,7 @@ describe('every layout has the cards, the dialogs and the question (setup.7)', (
     // failed review opens it with, is above its title and never covers Close
     // (setup.7 review: drawn after it, the cards sat at the foot).
     expect(SETUP).toMatch(
-      /<div className="body body--single">\s*<NotificationCards onAction=\{onCardAction\} \/>\s*\{setupOpen \? \(\s*<SetupScreen\s/
+      /<div className="body body--single">\s*<NotificationCards onAction=\{onCardAction\} \/>\s*\{setupOpen && setupFor === 'chatgpt' \? \(\s*<ChatGptSetup[\s\S]*?\/>\s*\) : setupOpen \? \(\s*<SetupScreen\s/
     );
     const css = withoutComments(readFileSync(path.join(RENDERER, 'styles/app.css'), 'utf8'));
     const rule = (selector: string): string =>
@@ -105,6 +105,22 @@ describe('gating and entry points (setup.7)', () => {
     expect(APP.match(/onOpenSetup=\{openSetup\}/g)).toHaveLength(2);
   });
 
+  it("opens the ChatGPT view from Settings' ChatGPT account row, leaving Claude's launch card (codex.2)", () => {
+    const openSetup = APP.slice(APP.indexOf('const openSetup = '), APP.indexOf('const openChatGptSetup = '));
+    expect(openSetup).toMatch(/setSetupFor\('claude'\);\s*setSetupOpen\(true\);/);
+    const openChatGpt = APP.slice(
+      APP.indexOf('const openChatGptSetup = '),
+      APP.indexOf('const refuseWhileEditing = ')
+    );
+    expect(openChatGpt).toMatch(/setSetupFor\('chatgpt'\);\s*setSetupOpen\(true\);/);
+    expect(openChatGpt).not.toContain('CLAUDE_RUNTIME_CARD');
+    expect(APP.match(/onOpenChatGptSetup=\{openChatGptSetup\}/g)).toHaveLength(1);
+    expect(SETUP).toMatch(
+      /<ChatGptSetup\s+status=\{chatgpt\.status\}\s+waiting=\{chatgpt\.waiting\}\s+busy=\{chatgpt\.busy\}\s+outcome=\{chatgpt\.outcome\}/
+    );
+    expect(SETUP).toContain('onClose={() => setSetupOpen(false)}');
+  });
+
   it('raises the launch card under its key with Open Setup, and withdraws it by the key', () => {
     const card = APP.slice(
       APP.indexOf('const runtimeCardPastLaunch = '),
@@ -120,14 +136,14 @@ describe('gating and entry points (setup.7)', () => {
     // every check that reaches the decision (setup.7 review): without that, a
     // card closed with its X came back on the next check.
     expect(card).toMatch(
-      /const action = runtimeCardAction\(\{\s*card,\s*showing,\s*pastLaunch: runtimeCardPastLaunch\.current,\s*provider: activeProvider,\s*setupOpen,\s*welcomeOpen\s*\}\);\s*runtimeCardPastLaunch\.current = true;/
+      /const action = runtimeCardAction\(\{\s*card,\s*showing,\s*pastLaunch: runtimeCardPastLaunch\.current,\s*provider: activeProvider,\s*setupOpen: claudeSetupOpen,\s*welcomeOpen\s*\}\);\s*runtimeCardPastLaunch\.current = true;/
     );
     expect(card).toMatch(
       /if \(action === 'withdraw'\) \{\s*dismissNotificationsByKey\(CLAUDE_RUNTIME_CARD\);\s*\} else if \(card && \(action === 'raise' \|\| action === 'update'\)\) \{\s*upsertNotification\(CLAUDE_RUNTIME_CARD, card\.tone, card\.text, 'open-setup'\);/
     );
     // A switch to OpenAI, and Setup or the welcome guide opening, run the decision again.
     expect(card).toMatch(
-      /\}, \[\s*claudeRuntime,\s*claudeView,\s*settingsLoaded,\s*activeProvider,\s*setupOpen,\s*welcomeOpen,\s*upsertNotification,\s*dismissNotificationsByKey\s*\]\);/
+      /\}, \[\s*claudeRuntime,\s*claudeView,\s*settingsLoaded,\s*activeProvider,\s*claudeSetupOpen,\s*welcomeOpen,\s*upsertNotification,\s*dismissNotificationsByKey\s*\]\);/
     );
   });
 
@@ -135,7 +151,8 @@ describe('gating and entry points (setup.7)', () => {
     expect(APP).toMatch(
       /const onFocus = \(\): void => recheckOnFocus\(claudeInUse, claudeView\);\s*window\.addEventListener\('focus', onFocus\);\s*return \(\) => window\.removeEventListener\('focus', onFocus\);/
     );
-    expect(APP).toContain("const claudeInUse = activeProvider === 'claude' || setupOpen;");
+    expect(APP).toContain("const claudeSetupOpen = setupOpen && setupFor === 'claude';");
+    expect(APP).toContain("const claudeInUse = activeProvider === 'claude' || claudeSetupOpen;");
     const ai = read('state/useAi.ts');
     const recheck = ai.slice(ai.indexOf('const recheckOnFocus = '), ai.indexOf('const refreshKeyStatus = '));
     expect(recheck).toContain('inFlight: claudeChecking.current > 0,');
@@ -238,7 +255,8 @@ describe('Test the connection, from the button to main and back (setup.8)', () =
 describe("Claude's usage on the page (setup.9)", () => {
   it('words the notice in the status bar while Claude is in use, and gives Setup the notice too', () => {
     expect(APP).toContain('const usageNotice = claudeInUse ? ai.rateLimit : null;');
-    expect(APP).toContain("const claudeInUse = activeProvider === 'claude' || setupOpen;");
+    expect(APP).toContain("const claudeSetupOpen = setupOpen && setupFor === 'claude';");
+    expect(APP).toContain("const claudeInUse = activeProvider === 'claude' || claudeSetupOpen;");
     expect(SETUP).toMatch(
       /testOutcome=\{ai\.testOutcomes\.claude \?\? null\}\s*rateLimit=\{ai\.rateLimit\}\s*(onCopyDiagnostics=\{\(\) => setDiagnosticsOpen\('copy'\)\}\s*)?(version=\{updateStatus\?\.current \?\? null\}\s*)?\/>/
     );

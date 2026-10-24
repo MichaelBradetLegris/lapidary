@@ -24,6 +24,13 @@ import type { ErrorCode } from '../types';
 import { WITH_AI_IN_MENU } from './menu';
 import { isPlanLimit, usageLimitAdvice } from './usage';
 
+/**
+ * Which service the Setup screen sets up: Claude, through the Claude Code the
+ * author installs (5.6), or ChatGPT, through Sign in with ChatGPT (codex.2,
+ * PLAN 5.7). Each has a view of its own on the one screen.
+ */
+export type SetupFor = 'claude' | 'chatgpt';
+
 export type SetupViewId =
   /** no status yet: the first check is still running */
   | 'checking'

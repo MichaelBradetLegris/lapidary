@@ -267,15 +267,15 @@ They apply to Claude Code everywhere, not only in this app. Setting them in `~/.
 **Credentials.**
 
 - **Claude**: the app never reads, stores, displays or proxies your Claude credentials. You sign in through Anthropic's own flow in Claude Code. An `ANTHROPIC_API_KEY` or other Claude Code sign-in variable in your environment reaches Claude Code unread and unchanged, because Claude Code inherits the app's environment.
-- **OpenAI**: your API key is the one credential the app stores. It is encrypted with Windows' data protection for your login (Electron `safeStorage`) and written to `secrets.json` in the app's data folder, never to `settings.json`. Only the app's background process decrypts it, at the moment of a request. It is never shown again and never sent to the app's window, which only learns whether a key exists and its last four characters. If Windows cannot encrypt, the app refuses to save the key and tells you to use `OPENAI_API_KEY` instead.
-- The app offers no "Sign in with ChatGPT": OpenAI documents API keys as the route for third-party apps, and a ChatGPT subscription does not pay for API use.
+- **OpenAI**: your API key is one of the two credentials the app stores; the other is your ChatGPT sign-in, below. It is encrypted with Windows' data protection for your login (Electron `safeStorage`) and written to `secrets.json` in the app's data folder, never to `settings.json`. Only the app's background process decrypts it, at the moment of a request. It is never shown again and never sent to the app's window, which only learns whether a key exists and its last four characters. If Windows cannot encrypt, the app refuses to save the key and tells you to use `OPENAI_API_KEY` instead.
+- **ChatGPT**: **Sign in with ChatGPT**, on the Setup screen's ChatGPT view (**Settings**, **ChatGPT account**, **Setup**), opens OpenAI's own sign-in page in your browser. You sign in there, so the app never sees your ChatGPT password; once you allow the app, your browser hands the sign-in back to it on your own computer. The app keeps the sign-in's tokens as it keeps the key: encrypted for your Windows login, in `secrets.json`, decrypted only by its background process, never shown and never sent to the app's window, which learns only whether you are signed in and your plan. **Sign out** asks OpenAI to end the sign-in, then removes it. The same view warns that on personal ChatGPT plans OpenAI may use what you send to train its models unless you turn that off under **Data controls** in ChatGPT's settings, which the app cannot check; **Open Data controls** opens that page, and the box **I have confirmed my data settings** is kept for each ChatGPT account.
 
 ## Where the app keeps its data
 
 **The app's data folder** is `%APPDATA%\ai-grammar-checker`; its name dates from before the app was renamed. **Open data folder** in About opens it. It holds:
 
 - `settings.json`: your settings. If it was ever damaged (not valid JSON), Lapidary kept a copy named `settings.json.corrupt-<time>` beside it and started again from its default settings. While the app cannot read it, because another program holds it open, or because it is damaged and cannot be copied aside, the app says so with Try again and changes nothing in it.
-- `secrets.json`: the encrypted OpenAI key. It exists only once you have saved a key.
+- `secrets.json`: the encrypted OpenAI key and ChatGPT sign-in. It exists only once you have saved a key or signed in with ChatGPT.
 - `reviews\`: your reviews, unless you chose another reviews folder in Settings. Each review holds the full text of its chapter.
 - `backups\`: the versions of your chapters that Save to chapter replaced, a folder for each chapter, with a `chapter.json` naming the chapter file.
 - `drafts\`: what you have typed in open paragraph boxes and in Full edit, and in `drafts\set-aside\` the text of boxes that could not be put back.
@@ -291,7 +291,7 @@ Your chapters change only when you click **Save to chapter**. Besides them, the 
 
 In Windows 11, open **Settings > Apps > Installed apps**, click **...** beside Lapidary and choose **Uninstall**; in Windows 10, **Settings > Apps > Apps & features**, then Lapidary and **Uninstall**. This removes the app, its shortcuts and its entry in the list. It leaves your manuscript folder alone, and it also leaves the app's data folder and the copy of the installer, so a later install finds your settings and reviews again.
 
-To remove those too, delete the two folders once Lapidary is uninstalled: press Windows+R, type `%APPDATA%`, press Enter and delete the `ai-grammar-checker` folder; then do the same with `%LOCALAPPDATA%` and the `manuscript-review-updater` folder. Deleting the data folder deletes your saved OpenAI key, the backups and, unless you chose another reviews folder, your reviews. Claude Code is a separate program; it stays installed, and Anthropic's documentation says how to remove it.
+To remove those too, delete the two folders once Lapidary is uninstalled: press Windows+R, type `%APPDATA%`, press Enter and delete the `ai-grammar-checker` folder; then do the same with `%LOCALAPPDATA%` and the `manuscript-review-updater` folder. Deleting the data folder deletes your saved OpenAI key, your ChatGPT sign-in (sign out first for OpenAI to end it too), the backups and, unless you chose another reviews folder, your reviews. Claude Code is a separate program; it stays installed, and Anthropic's documentation says how to remove it.
 
 ## Building from source
 
