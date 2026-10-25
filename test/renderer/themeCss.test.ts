@@ -713,6 +713,10 @@ const LIGHT_VALUES: Record<string, string> = {
   // Added by polish.14: how much of --ink-faint a decided row's other two buttons keep,
   // where polish.12 drew them a thinner stroke in --ink-faint itself.
   '--row-fade': '35%',
+  // Added by polish.20: a decided row's shade, the hover's grey, and a step further under the
+  // pointer, where a decided row was on the panel as a pending one is.
+  '--row-decided-bg': 'var(--panel-alt)',
+  '--row-decided-hover-bg': '#ebe7df',
   // polish.16: a colour for each category. Homophone was #a3341c, a red beside
   // spelling's, and other #6d675e, the comments' --ink-soft; typo took spelling's
   // colour, agreement and tense grammar's, redundancy and awkward word-choice's,
@@ -799,6 +803,9 @@ const DARK_VALUES: Record<string, string> = {
   '--tint-small-hover': '26%',
   // polish.14: a decided row's other two buttons, as in light.
   '--row-fade': '35%',
+  // polish.20: a decided row's shade and its step under the pointer, lighter, as the dark hover is.
+  '--row-decided-bg': 'var(--panel-alt)',
+  '--row-decided-hover-bg': '#34302b',
   '--cat-spelling': '#ff7b72',
   '--cat-grammar': '#5cc0e0',
   '--cat-punctuation': '#b994f5',

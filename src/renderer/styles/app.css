@@ -104,6 +104,11 @@
      (polish.14), a color-mix() share: faint enough that the row reads as
      done, under 3:1 by the author's choice (themeContrast.test.ts). */
   --row-fade: 35%;
+  /* A decided row of the suggestions list (polish.20): shaded as a row under
+     the pointer is, and a step further under the pointer, as far as its
+     --ink-soft words keep 4.5:1 on it. */
+  --row-decided-bg: var(--panel-alt);
+  --row-decided-hover-bg: #ebe7df;
 
   --font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-prose: Literata, Georgia, 'Times New Roman', serif;
@@ -206,6 +211,9 @@
     --tint-small: 16%;
     --tint-small-hover: 26%;
     --row-fade: 35%;
+    /* lighter, as the dark hover is, by about light's step */
+    --row-decided-bg: var(--panel-alt);
+    --row-decided-hover-bg: #34302b;
 
     /* each category's own colour, on the same hues as in light (polish.16) */
     --cat-spelling: #ff7b72;
@@ -3462,6 +3470,23 @@ button.help {
   background: var(--panel-alt);
 }
 
+/* A decided row, accepted or dismissed alike (polish.20, the author: "at a
+   glance, it's not super easy to tell which rows are complete"): shaded as
+   a row under the pointer is, and a step further under the pointer. Its
+   words are --ink-soft, its decision's button bold in its colour and the
+   other two faded (below). The focused row keeps --focus-bg, as this rule
+   comes first; under the pointer a row takes the hover's step, focused or
+   not, as before. */
+.row--accepted,
+.row--dismissed {
+  background: var(--row-decided-bg);
+}
+
+.row--accepted:hover,
+.row--dismissed:hover {
+  background: var(--row-decided-hover-bg);
+}
+
 .row--focused {
   background: var(--focus-bg);
 }
@@ -3502,8 +3527,12 @@ button.help {
   font-family: var(--font-prose);
 }
 
-/* Matches the page: a decided suggestion is grey, not green (item 5). */
-.row--accepted .row__text {
+/* Matches the page: a decided suggestion is grey, not green (item 5). Since
+   polish.20 a dismissed one is --ink-soft too, where it was --ink-faint,
+   which is under 4.5:1 on the shaded row; its line through it says
+   dismissed. */
+.row--accepted .row__text,
+.row--dismissed .row__text {
   color: var(--ink-soft);
 }
 
@@ -3541,7 +3570,6 @@ button.help {
 }
 
 .row--dismissed .row__text {
-  color: var(--ink-faint);
   text-decoration: line-through;
 }
 
@@ -3601,6 +3629,14 @@ button.help {
   height: 16px;
 }
 
+/* A pending row's three buttons (polish.20): --ink-soft, 4.5:1 on the row at
+   rest, under the pointer and focused, where --ink-faint (3:1) made a row
+   still waiting look nearly as quiet as a decided one. The focused
+   suggestion's pencil, on no row, keeps --ink-faint. */
+.row--pending .row__act {
+  color: var(--ink-soft);
+}
+
 .row__act:hover:not(:disabled) {
   background: var(--border);
   color: var(--ink);
@@ -3614,7 +3650,8 @@ button.help {
    reads as done; they are under 3:1 at rest by the author's choice, and come
    back as any row button, --ink on --border, under the pointer, and --ink
    with the focus ring when the keyboard brings the focus to one
-   (themeContrast.test.ts). A pending row's buttons are as they were. */
+   (themeContrast.test.ts). Since polish.20 they sit on the decided row's
+   shade, where they keep the same band. */
 .row__act--accepted,
 .row__act--accepted:hover:not(:disabled) {
   color: var(--accept-strong);
