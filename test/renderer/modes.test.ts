@@ -275,6 +275,27 @@ describe('Full edit', () => {
     expect(await run).toBe(true);
     expect(mode()).toBe('main');
   });
+
+  /* rr.5 review: a chapter opened from Preview kept Preview over the boxes the
+     drafts file put back, and their card said they were open again. A box
+     with typed text opens the window in Main, where it shows; one left as it
+     opened stays behind Preview, as a switch to Preview leaves it. */
+  it('comes back from the drafts file into Main from Preview when a box holds typed text', async () => {
+    await chooseMode('preview');
+    expect(
+      state().reopenDrafts([{ key: 1, paragraphs: [1], initial: 'She should of known.', text: 'She knew.' }])
+    ).toBe(1);
+    expect(mode()).toBe('main');
+    expect(state().drafts[1]?.text).toBe('She knew.');
+  });
+
+  it('stays in Preview when the boxes that come back hold nothing typed', async () => {
+    await chooseMode('preview');
+    const box = { key: 1, paragraphs: [1], initial: 'She should of known.', text: 'She should of known.' };
+    expect(state().reopenDrafts([box])).toBe(1);
+    expect(mode()).toBe('preview');
+    expect(state().drafts[1]).toEqual(box);
+  });
 });
 
 /* rr.2 review: in Preview the review keys acted on suggestions the page did

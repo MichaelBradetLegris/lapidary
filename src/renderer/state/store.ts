@@ -483,7 +483,9 @@ export interface AppState {
   /**
    * Main or Preview, the view the window shows while Full edit is not open
    * (rr.2, `currentMode`). The window's own, never kept in the settings: the
-   * window starts in Main, and another chapter or review keeps it (rr.5).
+   * window starts in Main, and another chapter or review keeps it (rr.5),
+   * unless paragraph boxes with typed text come back with it, which open it
+   * in Main (`reopenDrafts`, rr.5 review).
    */
   viewMode: ViewMode;
   /**
@@ -620,8 +622,10 @@ export interface AppState {
   cancelDraft: (key: number) => void;
   /**
    * Open boxes kept from before (apply.16), as `placeDrafts` placed them. A box
-   * whose paragraphs another open box covers is skipped. Returns how many
-   * opened.
+   * whose paragraphs another open box covers is skipped. Full edit's box opens
+   * the window in Full edit (rr.2), and a paragraph box with typed text opens
+   * it in Main from Preview, where the boxes show (rr.5 review). Returns how
+   * many opened.
    */
   reopenDrafts: (drafts: readonly ParagraphDraft[]) => number;
   /** turn one open paragraph, or Full edit's box, into hunks and close it */
@@ -726,8 +730,10 @@ export const useApp = create<AppState>()((set, get) => ({
      The mode is the window's (rr.5): another chapter or review opens in the
      mode in use, which the caller passes as it was when the author chose,
      since a question on the way (the leave question's Apply and save first)
-     may have closed Full edit meanwhile. Main and Preview are set at once.
-     Full edit is a box that opens afresh on the new review, but only once
+     may have closed Full edit meanwhile. Main and Preview are set at once;
+     paragraph boxes with typed text that come back then open Preview's
+     chapter in Main, where they show (`reopenDrafts`, rr.5 review). Full
+     edit is a box that opens afresh on the new review, but only once
      what was kept for its chapter is back (`openPendingFullEdit`): a box opened
      now would leave a kept one no room and set it aside. Until then the
      window waits in Full edit (`fullEditPending`), with `viewMode` Main, where
@@ -1098,9 +1104,15 @@ export const useApp = create<AppState>()((set, get) => ({
     const taken = new Set(Object.values(drafts).flatMap((d) => d.paragraphs));
     /* Full edit's box (rr.2) goes back only onto a page with no box open, and
        none goes back beside it; back, the window is in Full edit, which
-       closes into Main. */
+       closes into Main. Paragraph boxes with typed text that go back while
+       the window is in Preview, as on another chapter opened from it, open it
+       in Main, where they show beside the card that names them (rr.5
+       review): Preview kept over them would hide boxes the card says are
+       open again. Boxes left as they opened stay behind Preview, as a switch
+       to Preview leaves them. */
     let whole = fullEditDraft(drafts) !== null;
     let opened = 0;
+    let typed = false;
     for (const draft of incoming) {
       if (draft.whole) {
         if (whole || Object.keys(drafts).length > 0) continue;
@@ -1124,6 +1136,7 @@ export const useApp = create<AppState>()((set, get) => ({
         text: draft.text
       };
       opened += 1;
+      if (draft.text !== draft.initial) typed = true;
     }
     if (opened === 0) return 0;
     set(
@@ -1135,7 +1148,9 @@ export const useApp = create<AppState>()((set, get) => ({
             hoveredHunkId: null,
             find: { ...NO_FIND, seek: state.find.seek }
           }
-        : { drafts }
+        : typed && state.viewMode === 'preview'
+          ? { drafts, viewMode: 'main' }
+          : { drafts }
     );
     return opened;
   },

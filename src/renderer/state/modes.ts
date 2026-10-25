@@ -17,10 +17,12 @@ import { FULL_EDIT_CARD, changedParagraphCount, currentMode, fullEditDraft, isLo
  * The Mode select (rr.2, PLAN section 7): Main, Full edit and Preview, the
  * window's own and never kept in the settings. The window starts in Main,
  * and another chapter or review opens in the mode in use (rr.5, the store's
- * `setReview`). Full edit is open while its box is (`fullEditDraft`); Main
- * and Preview are the store's `viewMode`. Switching with something typed and
- * not applied asks first, as leaving the chapter does (`shared/ui/modes.ts`
- * has the questions): nothing typed is ever thrown away unasked.
+ * `setReview`), or in Main when paragraph boxes with typed text come back
+ * with it (`reopenDrafts`, `openPendingFullEdit`). Full edit is open while
+ * its box is (`fullEditDraft`); Main and Preview are the store's `viewMode`.
+ * Switching with something typed and not applied asks first, as leaving the
+ * chapter does (`shared/ui/modes.ts` has the questions): nothing typed is
+ * ever thrown away unasked.
  *
  * It reaches nothing but the store, so it is tested in node. The cards it
  * shows when Full edit could not go ahead share the store's `FULL_EDIT_CARD`.

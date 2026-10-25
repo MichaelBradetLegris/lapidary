@@ -25,10 +25,12 @@ import { fullEditDraft, useApp } from './store';
  * (`placeDrafts`), and one holding typed text that cannot go back is set aside
  * as a .txt, with a card whose Show the text opens it. Until the .txt is
  * written, such a box stays in the chapter's file ("carried"), so a failure
- * never loses what was typed. Once they are back, or there were none, the
- * store hears it (`openPendingFullEdit`), so a window that was in Full edit opens
- * Full edit on the new review only after them (rr.5): a box opened earlier
- * would leave a kept one no room. The card saying boxes came back goes when
+ * never loses what was typed. Boxes with typed text that come back while the
+ * window is in Preview open it in Main, where they show (`reopenDrafts`, rr.5
+ * review). Once they are back, or there were none, the store hears it
+ * (`openPendingFullEdit`), so a window that was in Full edit opens Full edit
+ * on the new review only after them (rr.5): a box opened earlier would leave
+ * a kept one no room. The card saying boxes came back goes when
  * another chapter or review comes on screen, or once the boxes it names are
  * applied or closed.
  *
