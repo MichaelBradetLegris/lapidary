@@ -3476,7 +3476,9 @@ button.help {
    words are --ink-soft, its decision's button bold in its colour and the
    other two faded (below). The focused row keeps --focus-bg, as this rule
    comes first; under the pointer a row takes the hover's step, focused or
-   not, as before. */
+   not, as before. The step under the pointer must come after .row:hover,
+   which weighs the same (a class and a pseudo-class): above it, a decided
+   row under the pointer would stay on its shade, the hover's grey. */
 .row--accepted,
 .row--dismissed {
   background: var(--row-decided-bg);

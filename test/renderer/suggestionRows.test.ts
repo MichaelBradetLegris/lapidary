@@ -151,6 +151,9 @@ describe('pending and decided rows told apart at a glance (polish.20)', () => {
     expect(at('.row--accepted, .row--dismissed')).toBeGreaterThan(-1);
     expect([...declsFor('.row--accepted:hover')]).toEqual([['background', 'var(--row-decided-hover-bg)']]);
     expect([...declsFor('.row--dismissed:hover')]).toEqual([['background', 'var(--row-decided-hover-bg)']]);
+    // The step and `.row:hover` weigh the same (a class and a pseudo-class), so the later wins:
+    // above it, a decided row under the pointer would stay on its shade, the hover's grey.
+    expect(at('.row--accepted:hover, .row--dismissed:hover')).toBeGreaterThan(at('.row:hover'));
     // A pending row under the pointer is as before, and a pending row at rest has no shade.
     expect(declsFor('.row:hover').get('background')).toBe('var(--panel-alt)');
     expect(declsFor('.row--pending').has('background')).toBe(false);
