@@ -166,7 +166,7 @@ function copyDraft(draft: StoredDraft): StoredDraft {
  * The boxes open on screen, as they are kept: first paragraph first, without
  * their selection. Full edit's box is kept only once something is typed in it
  * (rr.2): left as it opened it holds nothing to lose, and the chapter then
- * opens in Main, as a chapter does.
+ * opens in the mode in use, as any chapter does (rr.5).
  */
 export function toStoredDrafts(drafts: Readonly<Record<number, StoredDraft>>): StoredDraft[] {
   return Object.values(drafts)
@@ -223,7 +223,7 @@ export function placeDrafts(
   /* Full edit's box holds every paragraph (rr.2), so it goes back only onto a
      page with no box open, by the same test Done applies (`fullEditText`), and
      no box goes back beside it. Its key sorts it first. One left as it opened
-     is dropped, so the chapter opens in Main. */
+     is dropped, so the chapter opens in the mode in use (rr.5). */
   let whole = open.some((draft) => draft.whole === true);
 
   for (const draft of [...stored].sort((a, b) => a.key - b.key)) {

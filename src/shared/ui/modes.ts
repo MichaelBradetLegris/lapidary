@@ -3,7 +3,8 @@
  * Mode select): Main, the review page as it has always been; Full edit, the
  * whole chapter in one box; Preview, the chapter as Royal Road's reader shows
  * it. A Mode select at the top right of the prose column picks one. The mode
- * belongs to the window, not to the settings, and a chapter opens in Main.
+ * belongs to the window, not to the settings: the window starts in Main, and
+ * another chapter or review opens in the mode in use (rr.5).
  *
  * Switching mode with something typed and not applied asks first, as leaving
  * the chapter does (PLAN 11.3 i): from Full edit, Apply first, as its Done
@@ -62,15 +63,19 @@ export interface ModePlaces {
  * not shown yet in this chapter; the top of Full edit always, as its box
  * opens afresh, its caret at the start (rr.2 review); null, to leave it where
  * it is, when the mode did not change. Another chapter forgets them all, so a
- * mode never opens at a place in another chapter.
+ * mode never opens at a place in another chapter: since the mode stays across
+ * chapters (rr.5), Preview and Full edit start another chapter at its top,
+ * and Main, which has always left the scroller to itself there, still does.
  */
 export function modePlace(
   places: ModePlaces,
   chapter: string | null,
   mode: Mode
 ): { places: ModePlaces; top: number | null } {
-  const tops = places.chapter === chapter ? places.tops : {};
-  const top = places.mode === mode ? null : mode === 'edit' ? 0 : (tops[mode] ?? 0);
+  const sameChapter = places.chapter === chapter;
+  const tops = sameChapter ? places.tops : {};
+  const stays = places.mode === mode && (sameChapter || mode === 'main');
+  const top = stays ? null : mode === 'edit' ? 0 : (tops[mode] ?? 0);
   return { places: { chapter, mode, tops }, top };
 }
 
@@ -206,6 +211,29 @@ export function leaveFullEditPrompt(target: Mode): ConfirmSpec {
     body: [
       'What you typed in Full edit is not applied yet.',
       `Apply first makes it changes of your own, already accepted, as Done does. ${NOTHING_UNTIL_SAVE}`
+    ].join('\n'),
+    confirmLabel: 'Apply first',
+    altLabel: 'Discard',
+    cancelLabel: 'Cancel',
+    defaultButton: 'confirm'
+  };
+}
+
+/**
+ * Another review of the chapter, from History or the review selector, while
+ * Full edit holds typed text (rr.5). The mode stays, so the other review
+ * opens in Full edit too, but afresh: the box holds the body as this review
+ * composes it, and could not go back over another. So it asks as leaving
+ * Full edit for another mode does: Apply first, focused, does what Done does
+ * in this review, where the changes stay; Discard throws the text away;
+ * Cancel stays.
+ */
+export function fullEditOtherReviewPrompt(): ConfirmSpec {
+  return {
+    title: 'Open another review in Full edit?',
+    body: [
+      'What you typed in Full edit is not applied yet. Full edit opens afresh on the other review.',
+      `Apply first makes it changes of your own in this review, already accepted, as Done does, and they stay in this review. ${NOTHING_UNTIL_SAVE}`
     ].join('\n'),
     confirmLabel: 'Apply first',
     altLabel: 'Discard',

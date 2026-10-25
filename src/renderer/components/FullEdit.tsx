@@ -39,14 +39,17 @@ export function FullEdit({ review }: Props): React.JSX.Element | null {
 
   /* The box takes the focus as it opens, its caret at the top, so the
      keyboard goes straight into the chapter; later renders leave the caret
-     where the author put it. */
+     where the author put it. A chapter opened from Full edit draws this with
+     no box until what was kept for it is back (rr.5, `fullEditPending`), so
+     the box opens, and takes the focus, after this has been drawn. */
+  const open = draft !== null;
   useLayoutEffect(() => {
     const area = areaRef.current;
-    if (!area) return;
+    if (!open || !area) return;
     area.focus({ preventScroll: true });
     area.setSelectionRange(0, 0);
     area.scrollTop = 0;
-  }, []);
+  }, [open]);
 
   if (!draft) return null;
   const changed = draft.text !== draft.initial;

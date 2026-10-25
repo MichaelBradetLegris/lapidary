@@ -7,7 +7,6 @@ import { createReview } from '../../src/shared/review';
 import type { Hunk, Review } from '../../src/shared/types';
 import { WHOLE_DRAFT_KEY } from '../../src/shared/ui/drafts';
 import {
-  FINISH_FULL_EDIT_FIRST,
   FULL_EDIT_CHANGED,
   FULL_EDIT_HOLDS_PARAGRAPHS,
   FULL_EDIT_WAIT_FOR_REVIEW,
@@ -15,6 +14,7 @@ import {
   boxesBeforeFullEditPrompt,
   boxesBeforePreviewPrompt,
   discardFullEditPrompt,
+  fullEditOtherReviewPrompt,
   leaveFullEditPrompt,
   type Mode
 } from '../../src/shared/ui/modes';
@@ -42,6 +42,8 @@ import {
 const FRONT = '---\ntitle: T\n---';
 const TEXT = `${FRONT}\nIt was the third night of rain.\n\nShe should of known.\n\nThe lamp guttered.`;
 const SOURCE = 'C:/vault/Chapter 01.md';
+const TWO = 'C:/vault/Chapter 02.md';
+const THREE = 'C:/vault/Chapter 03.md';
 
 function hunk(original: string, replacement: string, extra: Partial<Hunk> = {}): Hunk {
   const start = TEXT.indexOf(original);
@@ -96,8 +98,10 @@ function typeInFullEdit(transform: (text: string) => string): void {
 
 beforeEach(() => {
   useApp.setState({
+    review: null,
     drafts: {},
     viewMode: 'main',
+    fullEditPending: null,
     aiBusyPath: null,
     chapterSaving: false,
     editor: null,
@@ -117,12 +121,26 @@ describe('the mode of the window', () => {
     expect(mode()).toBe('main');
   });
 
-  it('keeps Preview for another review of the chapter, and opens another chapter in Main', async () => {
+  /* rr.5: the mode is the window's. The window starts in Main; another
+     review of the chapter or another chapter keeps Main or Preview, and the
+     mode a caller passes, the one in use when the author chose, wins. */
+  it('starts in Main, and keeps Main or Preview for another review and another chapter', async () => {
+    expect(useApp.getInitialState().viewMode).toBe('main');
+    expect(useApp.getInitialState().fullEditPending).toBeNull();
     await chooseMode('preview');
     state().setReview(chapter('review-2'), null);
     expect(mode()).toBe('preview');
-    state().setReview(chapter('review-3', 'C:/vault/Chapter 02.md'), null);
+    state().setReview(chapter('review-3', TWO), null);
+    expect(mode()).toBe('preview');
+    state().setReview(chapter('review-4', THREE), null, 'preview');
+    expect(mode()).toBe('preview');
+    state().setReview(chapter('review-5', SOURCE), null, 'main');
     expect(mode()).toBe('main');
+    state().setReview(chapter('review-6', TWO), null);
+    expect(mode()).toBe('main');
+    state().setReview(chapter('review-7', THREE), null, 'preview');
+    expect(mode()).toBe('preview');
+    expect(state().fullEditPending).toBeNull();
   });
 
   it("closes the find bar and the hover card, which are Main's, on the way out of Main", async () => {
@@ -282,33 +300,254 @@ describe('the review keys are Main s', () => {
    History, with Full edit open, closed Full edit with no question; its box,
    opened on this review's text, could not go back over another review that
    composes differently, so what was typed was set aside with a card saying
-   the chapter no longer read as it did, which was untrue. It is refused now,
-   as Review with AI and Submit manual review are. */
-describe('another review of the chapter while Full edit is open', () => {
+   the chapter no longer read as it did, which was untrue. It was refused
+   then, as Review with AI and Submit manual review are. rr.5: the mode is the
+   window's, so the other review opens in Full edit too, afresh; with typed
+   text the question a switch out of Full edit asks comes first. */
+describe('another review of the chapter while Full edit is open (rr.5)', () => {
   const deps = { save: () => Promise.resolve('saved' as const) };
 
-  it('is refused, with Full edit and what was typed kept, and asks nothing', async () => {
+  /** Leave for review-2, answer the question it asks with `choice`, and give back the question and the decision. */
+  async function leaveAnswering(choice: ConfirmChoice | null) {
+    const run = beforeLeaving({ kind: 'review', id: 'review-2' }, deps);
+    await tick();
+    const asked = state().confirmSpec;
+    if (choice) state().answerChoice(choice);
+    return { asked, decision: await run };
+  }
+
+  it('with typed text asks first; Cancel stays, with what was typed kept', async () => {
     await chooseMode('edit');
     typeInFullEdit((t) => t.replace('third', 'fourth'));
     const typed = fullEditDraft(state().drafts)?.text;
-    expect(await beforeLeaving({ kind: 'review', id: 'review-2' }, deps)).toBe('stay');
-    expect(state().confirmSpec).toBeNull();
-    expect(state().notifications.map((n) => n.text)).toEqual([FINISH_FULL_EDIT_FIRST]);
+    const { asked, decision } = await leaveAnswering('cancel');
+    expect(asked).toEqual(fullEditOtherReviewPrompt());
+    expect(decision).toBe('stay');
     expect(mode()).toBe('edit');
     expect(fullEditDraft(state().drafts)?.text).toBe(typed);
     expect(state().review!.id).toBe('review-1');
+    expect(state().notifications).toEqual([]);
   });
 
-  it('is refused with nothing typed too, and the review on screen still only flushes', async () => {
+  it('Discard throws the text away and goes on, held in Full edit while the other review loads', async () => {
     await chooseMode('edit');
-    expect(await beforeLeaving({ kind: 'review', id: 'review-2' }, deps)).toBe('stay');
+    typeInFullEdit((t) => t.replace('third', 'fourth'));
+    const { decision } = await leaveAnswering('alt');
+    expect(decision).toBe('go');
+    expect(fullEditDraft(state().drafts)).toBeNull();
+    expect(state().review!.hunks).toEqual(chapter().hunks);
+    // No Main drawn for the moments the other review takes to load.
+    expect(mode()).toBe('edit');
+    expect(state().fullEditPending).toBe('review-1');
+  });
+
+  it('opens Full edit again on the review still on screen when the other fails to open', async () => {
+    await chooseMode('edit');
+    typeInFullEdit((t) => t.replace('third', 'fourth'));
+    await leaveAnswering('alt');
+    // App's catch, with the review being left.
+    state().openPendingFullEdit('review-1');
+    expect(state().fullEditPending).toBeNull();
+    expect(fullEditDraft(state().drafts)?.text).toBe(fullEditText(TEXT, chapter().hunks));
+  });
+
+  it('opens Full edit again on the review on screen when a later click took over meanwhile', async () => {
+    await chooseMode('edit');
+    typeInFullEdit((t) => t.replace('third', 'fourth'));
+    const run = beforeLeaving({ kind: 'review', id: 'review-2' }, deps);
+    await tick();
+    expect(state().confirmSpec).toEqual(fullEditOtherReviewPrompt());
+    // A later click, on the review on screen, only flushes, and is now the last.
     expect(await beforeLeaving({ kind: 'review', id: 'review-1' }, deps)).toBe('here');
+    state().answerChoice('alt');
+    expect(await run).toBe('stay');
+    expect(state().fullEditPending).toBeNull();
+    expect(mode()).toBe('edit');
+    expect(fullEditDraft(state().drafts)?.text).toBe(fullEditText(TEXT, chapter().hunks));
+  });
+
+  it('Apply first applies it in this review, as Done does, and goes on', async () => {
+    await chooseMode('edit');
+    typeInFullEdit((t) => t.replace('third', 'fourth'));
+    const { decision } = await leaveAnswering('confirm');
+    expect(decision).toBe('go');
+    expect(fullEditDraft(state().drafts)).toBeNull();
+    expect(mode()).toBe('edit');
+    expect(state().fullEditPending).toBe('review-1');
+    expect(composeReview(state().review!)).toContain('the fourth night');
+    expect(state().notifications.map((n) => n.text)).toEqual([
+      'Full edit: 1 change added, already accepted.'
+    ]);
+  });
+
+  it('stays when Apply first cannot apply, with the card saying why', async () => {
+    await chooseMode('edit');
+    typeInFullEdit((t) => t.replace('third', 'fourth'));
+    const review = state().review!;
+    state().setReview({ ...review, base: { ...review.base, text: TEXT.replace('lamp', 'candle') } }, null);
+    const { decision } = await leaveAnswering('confirm');
+    expect(decision).toBe('stay');
+    expect(mode()).toBe('edit');
+    expect(state().notifications.map((n) => n.text)).toEqual([FULL_EDIT_CHANGED]);
+  });
+
+  it('with nothing typed goes on with no question, and the review on screen still only flushes', async () => {
+    await chooseMode('edit');
+    expect(await beforeLeaving({ kind: 'review', id: 'review-1' }, deps)).toBe('here');
+    const { asked, decision } = await leaveAnswering(null);
+    expect(asked).toBeNull();
+    expect(decision).toBe('go');
+    expect(state().notifications).toEqual([]);
+    // The box stays until the other review replaces it, so nothing waits.
+    expect(fullEditDraft(state().drafts)).not.toBeNull();
+    expect(state().fullEditPending).toBeNull();
+  });
+
+  it('then opens the other review in Full edit, afresh, once what was kept is back', async () => {
+    await chooseMode('edit');
+    typeInFullEdit((t) => t.replace('third', 'fourth'));
+    await leaveAnswering('alt');
+    state().setReview({ ...chapter('review-2'), hunks: [] }, null, 'edit');
+    expect(mode()).toBe('edit');
+    expect(fullEditDraft(state().drafts)).toBeNull();
+    state().openPendingFullEdit('review-2');
+    expect(fullEditDraft(state().drafts)).toEqual({
+      key: WHOLE_DRAFT_KEY,
+      paragraphs: [],
+      initial: fullEditText(TEXT, []),
+      text: fullEditText(TEXT, []),
+      whole: true
+    });
   });
 
   it('opens as before, with no question, once Full edit is closed', async () => {
     expect(await beforeLeaving({ kind: 'review', id: 'review-2' }, deps)).toBe('go');
     expect(state().confirmSpec).toBeNull();
     expect(state().notifications).toEqual([]);
+  });
+});
+
+/* rr.5: another chapter opens in the mode in use. Main and Preview are set as
+   it comes on screen; Full edit waits for what was kept for that chapter, so
+   a kept box goes first, and opens afresh once it is back. */
+describe('Full edit across chapters (rr.5)', () => {
+  const two = (id = 'review-2'): Review => chapter(id, TWO);
+  const typedBox = {
+    key: 1,
+    paragraphs: [1],
+    initial: 'She should of known.',
+    text: 'She should have known.'
+  };
+
+  it('waits in Full edit with no box, then opens one afresh on the other chapter', async () => {
+    await chooseMode('edit');
+    typeInFullEdit((t) => t.replace('third', 'fourth'));
+    state().setReview(two(), null, 'edit');
+    expect(mode()).toBe('edit');
+    expect(state().fullEditPending).toBe('review-2');
+    expect(state().drafts).toEqual({});
+    expect(state().viewMode).toBe('main');
+    // Nothing of Main's acts meanwhile.
+    expect(reviewKeysActive(state())).toBe(false);
+    // What comes back for another review counts for nothing.
+    state().openPendingFullEdit('review-1');
+    expect(state().fullEditPending).toBe('review-2');
+    expect(fullEditDraft(state().drafts)).toBeNull();
+    state().openPendingFullEdit('review-2');
+    expect(state().fullEditPending).toBeNull();
+    expect(mode()).toBe('edit');
+    expect(fullEditDraft(state().drafts)?.text).toBe(fullEditText(TEXT, chapter().hunks));
+    // It closes into Main, as ever.
+    expect(await cancelFullEdit()).toBe(true);
+    expect(mode()).toBe('main');
+  });
+
+  it('leaves what was typed in Full edit, back from the drafts file, as it was left', async () => {
+    await chooseMode('edit');
+    state().setReview(two(), null, 'edit');
+    const initial = fullEditText(TEXT, chapter().hunks);
+    state().reopenDrafts([
+      { key: WHOLE_DRAFT_KEY, paragraphs: [], initial, text: `${initial} More.`, whole: true }
+    ]);
+    state().openPendingFullEdit('review-2');
+    expect(mode()).toBe('edit');
+    expect(fullEditDraft(state().drafts)?.text).toBe(`${initial} More.`);
+  });
+
+  it('keeps the window in Main when paragraph boxes with typed text come back', async () => {
+    await chooseMode('edit');
+    state().setReview(two(), null, 'edit');
+    expect(state().reopenDrafts([typedBox])).toBe(1);
+    state().openPendingFullEdit('review-2');
+    expect(state().fullEditPending).toBeNull();
+    expect(mode()).toBe('main');
+    expect(state().drafts[1]?.text).toBe('She should have known.');
+  });
+
+  it('closes boxes that come back as they opened, and opens Full edit', async () => {
+    await chooseMode('edit');
+    state().setReview(two(), null, 'edit');
+    expect(state().reopenDrafts([{ ...typedBox, text: typedBox.initial }])).toBe(1);
+    state().openPendingFullEdit('review-2');
+    expect(mode()).toBe('edit');
+    expect(Object.keys(state().drafts)).toEqual([String(WHOLE_DRAFT_KEY)]);
+  });
+
+  it('stays in Main with the card while a review of the chapter runs or a save is under way', async () => {
+    await chooseMode('edit');
+    state().setReview(two(), null, 'edit');
+    useApp.setState({ aiBusyPath: TWO });
+    state().openPendingFullEdit('review-2');
+    expect(mode()).toBe('main');
+    expect(state().notifications.map((n) => n.text)).toEqual([FULL_EDIT_WAIT_FOR_REVIEW]);
+    useApp.setState({ aiBusyPath: null, chapterSaving: true });
+    state().setReview(chapter('review-3', THREE), null, 'edit');
+    state().openPendingFullEdit('review-3');
+    expect(mode()).toBe('main');
+    expect(state().notifications.map((n) => n.text)).toEqual([FULL_EDIT_WAIT_FOR_SAVE]);
+  });
+
+  it('ends the wait when the author chooses Main or Preview, or opens a box, meanwhile', async () => {
+    await chooseMode('edit');
+    state().setReview(two(), null, 'edit');
+    expect(await chooseMode('main')).toBe(true);
+    expect(mode()).toBe('main');
+    expect(state().fullEditPending).toBeNull();
+    state().openPendingFullEdit('review-2');
+    expect(mode()).toBe('main');
+
+    state().setReview(chapter('review-3', THREE), null, 'edit');
+    expect(await chooseMode('preview')).toBe(true);
+    state().openPendingFullEdit('review-3');
+    expect(mode()).toBe('preview');
+
+    state().setReview(chapter('review-4', SOURCE), null, 'edit');
+    expect(state().openDraft(1)).toBe(true);
+    expect(mode()).toBe('main');
+    state().openPendingFullEdit('review-4');
+    expect(mode()).toBe('main');
+    expect(fullEditDraft(state().drafts)).toBeNull();
+  });
+
+  it('keeps Full edit and what was typed through a reload of the same review', async () => {
+    await chooseMode('edit');
+    typeInFullEdit((t) => t.replace('third', 'fourth'));
+    const review = state().review!;
+    state().setReview({ ...review, base: { ...review.base, hash: 'h2' } }, null);
+    expect(mode()).toBe('edit');
+    expect(fullEditDraft(state().drafts)?.text).toContain('fourth');
+    expect(state().fullEditPending).toBeNull();
+  });
+
+  it('opens a review with no chapter file in Main, having no drafts to wait for; no review ends the wait', async () => {
+    await chooseMode('edit');
+    state().setReview(chapter('review-2', ''), null, 'edit');
+    expect(mode()).toBe('main');
+    expect(state().fullEditPending).toBeNull();
+    state().setReview(two('review-3'), null, 'edit');
+    expect(state().fullEditPending).toBe('review-3');
+    state().setReview(null);
+    expect(state().fullEditPending).toBeNull();
   });
 });
 
@@ -458,6 +697,41 @@ describe('the pieces in the page (source checks)', () => {
     expect(box).toMatch(
       /event\.key === 'Enter' && \(event\.ctrlKey \|\| event\.metaKey\)[\s\S]*finishFullEdit\(\)/
     );
+  });
+
+  /* rr.5: the mode in use at the click, taken before the question whose
+     Apply and save first closes Full edit, is the mode the chapter or review
+     opens in; Full edit opens once the drafts persistence has put back what
+     was kept, and its box takes the focus when it opens, not when the empty
+     view under it was drawn. */
+  it('opens another chapter or review in the mode in use at the click', () => {
+    const app = read('renderer/App.tsx');
+    for (const [from, to] of [
+      ['const openChapter = useCallback(', 'const openHistoryEntry = useCallback('],
+      ['const openHistoryEntry = useCallback(', '/* ---------------- external changes']
+    ] as const) {
+      const open = app.slice(app.indexOf(from), app.indexOf(to));
+      const taken = open.indexOf('const modeInUse = currentMode(useApp.getState());');
+      expect(taken, from).toBeGreaterThan(-1);
+      expect(taken, from).toBeLessThan(open.indexOf('await beforeLeaving('));
+      const calls = open.match(/setReview\([^;]*;/g) ?? [];
+      expect(calls.length, from).toBeGreaterThan(1);
+      for (const call of calls) expect(call, from).toMatch(/,\s*modeInUse\s*\);$/);
+    }
+    // A review that fails to open puts back the Full edit held over the one on screen.
+    const history = app.slice(app.indexOf('const openHistoryEntry = useCallback('));
+    expect(history).toMatch(/const leaving = useApp\.getState\(\)\.review\?\.id \?\? null;\s*try \{/);
+    expect(history).toMatch(
+      /notify\('error', errorMessage\(err\), OPEN_CHAPTER_CARD\);[\s\S]{0,200}if \(leaving !== null && useApp\.getState\(\)\.review\?\.id === leaving\) \{\s*useApp\.getState\(\)\.openPendingFullEdit\(leaving\);/
+    );
+    const drafts = read('renderer/state/drafts.ts');
+    expect(drafts).toContain(
+      'void restore(review).then(() => useApp.getState().openPendingFullEdit(reviewId));'
+    );
+    const box = read('renderer/components/FullEdit.tsx');
+    expect(box).toMatch(/const open = draft !== null;\s*useLayoutEffect\(\(\) => \{/);
+    expect(box).toContain('if (!open || !area) return;');
+    expect(box).toContain('}, [open]);');
   });
 });
 

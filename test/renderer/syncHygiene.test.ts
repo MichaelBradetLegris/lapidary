@@ -30,8 +30,8 @@ describe("App's calls (files.11)", () => {
     const at = open.indexOf('noteMergeMarkers(');
     for (const shown of [
       'setReview(\n              createReview(',
-      'setReview(loaded.review, loaded.path);',
-      'setReview(rebased, loaded.path);'
+      'setReview(loaded.review, loaded.path, modeInUse);',
+      'setReview(rebased, loaded.path, modeInUse);'
     ]) {
       expect(open.indexOf(shown), shown).toBeGreaterThan(-1);
       expect(open.indexOf(shown), shown).toBeLessThan(at);
@@ -61,7 +61,8 @@ describe("App's calls (files.11)", () => {
     // Read before the review from History replaces the one on screen.
     expect(before).toBeLessThan(history.indexOf('setReview('));
     const at = history.indexOf('noteMergeMarkers(before, base.text, sourcePath);');
-    expect(at).toBeGreaterThan(history.indexOf('setReview(rebased, loaded.path);'));
+    expect(history.indexOf('setReview(rebased, loaded.path, modeInUse);')).toBeGreaterThan(-1);
+    expect(at).toBeGreaterThan(history.indexOf('setReview(rebased, loaded.path, modeInUse);'));
     expect(at).toBeLessThan(history.indexOf('} catch (err) {'));
   });
 

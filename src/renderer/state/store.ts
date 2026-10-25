@@ -27,6 +27,8 @@ import {
   FULL_EDIT_CHANGED,
   FULL_EDIT_HOLDS_PARAGRAPHS,
   FULL_EDIT_NOT_EXACT,
+  FULL_EDIT_WAIT_FOR_REVIEW,
+  FULL_EDIT_WAIT_FOR_SAVE,
   type Mode,
   type ViewMode
 } from '../../shared/ui/modes';
@@ -221,12 +223,18 @@ export function fullEditChanged(drafts: Record<number, ParagraphDraft>): boolean
 }
 
 /**
- * The mode the window shows (rr.2): Full edit while its box is open, and
+ * The mode the window shows (rr.2): Full edit while its box is open, or while
+ * the chapter just opened waits to open it (`fullEditPending`, rr.5), and
  * otherwise Main or Preview, as the Mode select last left it.
  */
-export function currentMode(state: Pick<AppState, 'drafts' | 'viewMode'>): Mode {
-  return fullEditDraft(state.drafts) ? 'edit' : state.viewMode;
+export function currentMode(
+  state: Pick<AppState, 'drafts' | 'viewMode'> & Partial<Pick<AppState, 'fullEditPending'>>
+): Mode {
+  return fullEditDraft(state.drafts) || (state.fullEditPending ?? null) !== null ? 'edit' : state.viewMode;
 }
+
+/** The card's key when Full edit could not open or be applied, so a newer card replaces the last. */
+export const FULL_EDIT_CARD = 'full-edit';
 
 /** Why Full edit did not open (`openFullEdit`). */
 export type FullEditRefusal = 'no-chapter' | 'locked' | 'saving' | 'boxes';
@@ -291,7 +299,12 @@ export function reviewKeysActive(
     | 'drafts'
     | 'viewMode'
   > &
-    Partial<Pick<AppState, 'settings' | 'welcomeClosed' | 'diagnosticsOpen' | 'aboutOpen' | 'updateOverlay'>>
+    Partial<
+      Pick<
+        AppState,
+        'settings' | 'welcomeClosed' | 'diagnosticsOpen' | 'aboutOpen' | 'updateOverlay' | 'fullEditPending'
+      >
+    >
 ): boolean {
   return (
     state.review !== null &&
@@ -469,15 +482,30 @@ export interface AppState {
   drafts: Record<number, ParagraphDraft>;
   /**
    * Main or Preview, the view the window shows while Full edit is not open
-   * (rr.2, `currentMode`). The window's own, never kept in the settings: a
-   * chapter opens in Main.
+   * (rr.2, `currentMode`). The window's own, never kept in the settings: the
+   * window starts in Main, and another chapter or review keeps it (rr.5).
    */
   viewMode: ViewMode;
+  /**
+   * The id of the review on screen while the window waits to open Full edit
+   * on it (rr.5): another chapter or review opened from Full edit opens in
+   * Full edit, but only once what was kept for its chapter is back
+   * (`openPendingFullEdit`), since a box with typed text, or Full edit's own,
+   * goes first. Meanwhile the window is in Full edit (`currentMode`) with no
+   * box, so the column draws nothing rather than Main for a moment. Null
+   * otherwise.
+   */
+  fullEditPending: string | null;
   /** the chapter an AI review is running for; its review is read-only until it returns */
   aiBusyPath: string | null;
 
   setSettings: (settings: Settings) => void;
-  setReview: (review: Review | null, path?: string | null) => void;
+  /**
+   * Put `review` on screen. `mode` is the mode it opens in, as it was in use
+   * when the author chose it (rr.5); without it, Main or Preview stays and
+   * Full edit stays only with its box, on the same review.
+   */
+  setReview: (review: Review | null, path?: string | null, mode?: Mode) => void;
   patchReview: (patch: (review: Review) => Review) => void;
   setHunkStatus: (id: string, status: HunkStatus) => void;
   toggleAccepted: (id: string) => void;
@@ -610,6 +638,27 @@ export interface AppState {
    * way, or paragraph boxes open, which the caller deals with first.
    */
   openFullEdit: () => FullEditRefusal | null;
+  /**
+   * Open the Full edit the window waits for on review `reviewId`
+   * (`fullEditPending`, rr.5), now that what was kept for its chapter is
+   * back, or there was nothing (`state/drafts.ts`), or now that another
+   * review failed to open over it (App). What came back decides first: Full
+   * edit's own typed text is already open, as left; paragraph boxes with
+   * typed text keep the window in Main, where they show; boxes left as they
+   * opened close, as on the way into Full edit. A review of the chapter
+   * running, or a save, keeps it in Main with a card saying why. Nothing
+   * happens when the window waits for no Full edit, or for another review's.
+   */
+  openPendingFullEdit: (reviewId: string) => void;
+  /**
+   * Keep the window in Full edit, with no box, while another review of the
+   * chapter loads (rr.5): Discard or Apply first closed Full edit's box on
+   * the way, and Main drawn for those moments would flash up between two
+   * Full edits. The review that comes on screen opens it afresh
+   * (`setReview`); one that fails to open leaves this review, where App
+   * opens it again (`openPendingFullEdit`).
+   */
+  holdFullEdit: () => void;
 
   setAiBusy: (sourcePath: string | null) => void;
 }
@@ -663,6 +712,7 @@ export const useApp = create<AppState>()((set, get) => ({
   chapterSaving: false,
   drafts: {},
   viewMode: 'main',
+  fullEditPending: null,
   aiBusyPath: null,
 
   setSettings: (settings) => set({ settings }),
@@ -671,24 +721,46 @@ export const useApp = create<AppState>()((set, get) => ({
      rebasing it after an outside change): the commit checks whether their
      paragraph still reads the same. Anything else starts with none open, and
      Full edit's box goes with them; what was typed in either comes back from
-     the chapter's drafts file (state/drafts.ts). Another chapter opens in
-     Main; another review of the same one stays in Main or Preview (rr.2). */
-  setReview: (review, path = null) =>
-    set((state) => ({
-      review,
-      reviewPath: path,
-      focusedHunkId: review?.hunks.find((h) => h.anchor !== 'stale')?.id ?? null,
-      hoveredHunkId: null,
-      activeCommentId: null,
-      hiddenCategories: [],
-      find: { ...NO_FIND, seek: state.find.seek },
-      editor: null,
-      drafts: review && state.review && review.id === state.review.id ? state.drafts : {},
-      viewMode:
-        review && state.review && review.sourcePath.toLowerCase() === state.review.sourcePath.toLowerCase()
-          ? state.viewMode
-          : 'main'
-    })),
+     the chapter's drafts file (state/drafts.ts).
+
+     The mode is the window's (rr.5): another chapter or review opens in the
+     mode in use, which the caller passes as it was when the author chose,
+     since a question on the way (the leave question's Apply and save first)
+     may have closed Full edit meanwhile. Main and Preview are set at once.
+     Full edit is a box that opens afresh on the new review, but only once
+     what was kept for its chapter is back (`openPendingFullEdit`): a box opened
+     now would leave a kept one no room and set it aside. Until then the
+     window waits in Full edit (`fullEditPending`), with `viewMode` Main, where
+     Full edit's Done and Cancel go back to. A review with no chapter file has
+     no drafts to wait for, and opens in Main. */
+  setReview: (review, path = null, mode) =>
+    set((state) => {
+      const sameReview = review !== null && state.review !== null && review.id === state.review.id;
+      const drafts = sameReview ? state.drafts : {};
+      const viewMode: ViewMode =
+        mode === undefined ? state.viewMode : mode === 'preview' ? 'preview' : 'main';
+      const fullEditPending =
+        mode === undefined
+          ? sameReview
+            ? state.fullEditPending
+            : null
+          : mode === 'edit' && review !== null && review.sourcePath !== '' && !fullEditDraft(drafts)
+            ? review.id
+            : null;
+      return {
+        review,
+        reviewPath: path,
+        focusedHunkId: review?.hunks.find((h) => h.anchor !== 'stale')?.id ?? null,
+        hoveredHunkId: null,
+        activeCommentId: null,
+        hiddenCategories: [],
+        find: { ...NO_FIND, seek: state.find.seek },
+        editor: null,
+        drafts,
+        viewMode,
+        fullEditPending
+      };
+    }),
 
   patchReview: (patch) => {
     const review = get().review;
@@ -995,7 +1067,13 @@ export const useApp = create<AppState>()((set, get) => ({
       text: initial,
       ...(select ? { select } : {})
     };
-    set({ drafts: { ...state.drafts, [key]: draft }, editor: null, hoveredHunkId: null });
+    // A box the author opens while the window waits to open Full edit (rr.5) is Main's: the wait ends.
+    set({
+      drafts: { ...state.drafts, [key]: draft },
+      editor: null,
+      hoveredHunkId: null,
+      fullEditPending: null
+    });
     return true;
   },
 
@@ -1163,15 +1241,16 @@ export const useApp = create<AppState>()((set, get) => ({
   /* ---------------- modes (rr.2) ---------------- */
 
   /* The find bar and the hover card are Main's: neither has anything to show
-     in Preview, which draws the chapter afresh. */
+     in Preview, which draws the chapter afresh. A choice of Main or Preview
+     while the window waits to open Full edit (rr.5) ends the wait. */
   setViewMode: (viewMode) =>
-    set((state) =>
-      viewMode === state.viewMode
-        ? {}
-        : viewMode === 'main'
-          ? { viewMode }
-          : { viewMode, hoveredHunkId: null, find: { ...NO_FIND, seek: state.find.seek } }
-    ),
+    set((state) => {
+      const wait = state.fullEditPending !== null ? { fullEditPending: null } : {};
+      if (viewMode === state.viewMode) return wait;
+      return viewMode === 'main'
+        ? { viewMode, ...wait }
+        : { viewMode, hoveredHunkId: null, find: { ...NO_FIND, seek: state.find.seek }, ...wait };
+    }),
 
   openFullEdit: () => {
     const state = get();
@@ -1188,12 +1267,43 @@ export const useApp = create<AppState>()((set, get) => ({
       },
       // Done and Cancel close into Main, whichever mode Full edit was opened from.
       viewMode: 'main',
+      fullEditPending: null,
       editor: null,
       hoveredHunkId: null,
       find: { ...NO_FIND, seek: state.find.seek }
     });
     return null;
   },
+
+  openPendingFullEdit: (reviewId) => {
+    const state = get();
+    if (state.fullEditPending !== reviewId) return;
+    // Full edit's own typed text came back, as left, or boxes with typed
+    // text did, which Main shows, with the card naming them.
+    if (
+      state.review?.id !== reviewId ||
+      fullEditDraft(state.drafts) ||
+      changedParagraphCount(state.drafts) > 0
+    ) {
+      set({ fullEditPending: null });
+      return;
+    }
+    // Boxes left as they opened close on the way into Full edit (rr.2). The
+    // box that opens ends the wait in the same change, so Main is never drawn.
+    if (Object.keys(state.drafts).length > 0) set({ drafts: {} });
+    const refused = get().openFullEdit();
+    if (refused === null) return;
+    set({ fullEditPending: null });
+    if (refused === 'locked') state.notify('info', FULL_EDIT_WAIT_FOR_REVIEW, FULL_EDIT_CARD);
+    if (refused === 'saving') state.notify('info', FULL_EDIT_WAIT_FOR_SAVE, FULL_EDIT_CARD);
+  },
+
+  holdFullEdit: () =>
+    set((state) =>
+      state.review && state.review.sourcePath !== '' && !fullEditDraft(state.drafts)
+        ? { fullEditPending: state.review.id }
+        : {}
+    ),
 
   setAiBusy: (aiBusyPath) => set({ aiBusyPath }),
 

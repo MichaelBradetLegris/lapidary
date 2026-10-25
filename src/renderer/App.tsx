@@ -470,11 +470,14 @@ export function App(): React.JSX.Element {
      end first; another chapter then asks when something on screen is not
      saved to the chapter: Save first, Keep for later or Cancel
      (`beforeLeaving`). Another review of the open chapter, from History or
-     the selector, asks nothing (apply.26). Clicking what is already open, the
-     open chapter whichever of its reviews is on screen, asks nothing and only
-     writes what is waiting (PLAN 11.3 i). */
+     the selector, asks nothing (apply.26), unless Full edit holds typed text
+     (rr.5). Clicking what is already open, the open chapter whichever of its
+     reviews is on screen, asks nothing and only writes what is waiting (PLAN
+     11.3 i). Either opens in the mode in use at the click (rr.5), taken
+     before the question, whose Apply and save first closes Full edit. */
   const openChapter = useCallback(
     (file: ChapterFile) => {
+      const modeInUse = currentMode(useApp.getState());
       void (async () => {
         const decision = await beforeLeaving({ kind: 'chapter', path: file.path }, leaveDeps);
         if (decision === 'stay') return;
@@ -532,14 +535,15 @@ export function App(): React.JSX.Element {
           if (!loaded) {
             setReview(
               createReview({ sourcePath: file.path, base, hunks: [], generator: { kind: 'file' } }),
-              null
+              null,
+              modeInUse
             );
           } else if (loaded.review.base.hash === base.hash) {
             if (asOnDisk) markReviewPersistedState(loaded.review, loaded.path);
-            setReview(loaded.review, loaded.path);
+            setReview(loaded.review, loaded.path, modeInUse);
           } else {
             const { review: rebased, stats } = rebaseReview(loaded.review, base);
-            setReview(rebased, loaded.path);
+            setReview(rebased, loaded.path, modeInUse);
             notify(rebaseCardTone(stats), rebaseCardText('opened', stats));
           }
           // Merge markers in the chapter get a warning; a card left from
@@ -561,9 +565,12 @@ export function App(): React.JSX.Element {
 
   const openHistoryEntry = useCallback(
     (summary: ReviewSummary) => {
+      const modeInUse = currentMode(useApp.getState());
       void (async () => {
         const decision = await beforeLeaving({ kind: 'review', id: summary.id }, leaveDeps);
         if (decision === 'stay') return;
+        // The review being left, which Full edit may be held over (rr.5).
+        const leaving = useApp.getState().review?.id ?? null;
         try {
           // As for a chapter (openChapter): a write that failed is tried
           // again before anything waiting is written (apply.25 review).
@@ -592,10 +599,10 @@ export function App(): React.JSX.Element {
           reloadRun.current = null;
           if (review.base.hash === base.hash) {
             if (review === loaded.review) markReviewPersistedState(review, loaded.path);
-            setReview(review, loaded.path);
+            setReview(review, loaded.path, modeInUse);
           } else {
             const { review: rebased, stats } = rebaseReview(review, base);
-            setReview(rebased, loaded.path);
+            setReview(rebased, loaded.path, modeInUse);
             notify('info', rebaseCardText('history', stats));
           }
           // The chapter is the one on screen, read again: as at a reload, markers
@@ -612,6 +619,11 @@ export function App(): React.JSX.Element {
         } catch (err) {
           // Nothing on screen has changed. Another try replaces this card.
           notify('error', errorMessage(err), OPEN_CHAPTER_CARD);
+          // Full edit, held while the other review loaded (rr.5), opens again
+          // on the review still on screen.
+          if (leaving !== null && useApp.getState().review?.id === leaving) {
+            useApp.getState().openPendingFullEdit(leaving);
+          }
         }
       })();
     },

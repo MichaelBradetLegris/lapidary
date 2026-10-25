@@ -25,7 +25,10 @@ import { fullEditDraft, useApp } from './store';
  * (`placeDrafts`), and one holding typed text that cannot go back is set aside
  * as a .txt, with a card whose Show the text opens it. Until the .txt is
  * written, such a box stays in the chapter's file ("carried"), so a failure
- * never loses what was typed. The card saying boxes came back goes when
+ * never loses what was typed. Once they are back, or there were none, the
+ * store hears it (`openPendingFullEdit`), so a window that was in Full edit opens
+ * Full edit on the new review only after them (rr.5): a box opened earlier
+ * would leave a kept one no room. The card saying boxes came back goes when
  * another chapter or review comes on screen, or once the boxes it names are
  * applied or closed.
  *
@@ -338,9 +341,11 @@ export function createDraftPersistence(io: DraftIo, options: { delayMs?: number 
         if (!sameReview(review, previous.review)) {
           // Another chapter or review is on screen: a card about boxes that
           // came back on the last one is out of date, and what was left open
-          // in this one comes back, with a card of its own.
+          // in this one comes back, with a card of its own. Then the Full
+          // edit the window kept from the last one may open (rr.5).
           dismissRestoredCard();
-          void restore(review);
+          const reviewId = review.id;
+          void restore(review).then(() => useApp.getState().openPendingFullEdit(reviewId));
           return;
         }
         if (state.drafts === previous.drafts) return;

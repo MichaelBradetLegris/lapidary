@@ -25,6 +25,7 @@ import {
   editSummary,
   fullEditAppliedText,
   fullEditLabel,
+  fullEditOtherReviewPrompt,
   leaveFullEditPrompt,
   modeOf,
   modePlace,
@@ -103,6 +104,22 @@ describe("each mode's place in the chapter", () => {
       top: 0
     });
   });
+
+  /* rr.5: the mode stays across chapters, so Preview and Full edit, which
+     used to start another chapter from Main, start it at their top; Main,
+     which always left the scroller to itself there, still does. */
+  it('starts Preview and Full edit at the top of another chapter in the same mode', () => {
+    const preview: ModePlaces = { chapter: ONE, mode: 'preview', tops: { main: 2400, preview: 900 } };
+    expect(modePlace(preview, TWO, 'preview')).toEqual({
+      places: { chapter: TWO, mode: 'preview', tops: {} },
+      top: 0
+    });
+    expect(modePlace({ ...preview, mode: 'edit' }, TWO, 'edit').top).toBe(0);
+    expect(modePlace({ ...preview, mode: 'main' }, TWO, 'main').top).toBeNull();
+    // Back in the same chapter, the same mode stays where it is.
+    expect(modePlace(preview, ONE, 'preview').top).toBeNull();
+    expect(modePlace({ ...preview, mode: 'edit' }, ONE, 'edit').top).toBeNull();
+  });
 });
 
 describe("Full edit's words", () => {
@@ -179,6 +196,24 @@ describe('the questions a switch asks (as leaving the chapter does)', () => {
     ]);
     expect(focusedChoice(spec)).toBe('confirm');
     expect(leaveFullEditPrompt('main').title).toBe('Leave Full edit for Main?');
+  });
+
+  /* rr.5: another review from History or the selector keeps Full edit, afresh
+     on that review, so what was typed is settled first, as a switch out of
+     Full edit settles it, and the body says where applied changes stay. */
+  it('another review in Full edit with typed text: Apply first, focused, Discard or Cancel', () => {
+    const spec = fullEditOtherReviewPrompt();
+    expect(spec.title).toBe('Open another review in Full edit?');
+    expect(lines(spec.body)).toEqual([
+      'What you typed in Full edit is not applied yet. Full edit opens afresh on the other review.',
+      `Apply first makes it changes of your own in this review, already accepted, as Done does, and they stay in this review. ${NOTHING_UNTIL_SAVE}`
+    ]);
+    expect(confirmButtons(spec).map((b) => [b.label, b.primary])).toEqual([
+      ['Cancel', false],
+      ['Discard', false],
+      ['Apply first', true]
+    ]);
+    expect(focusedChoice(spec)).toBe('confirm');
   });
 
   it('opening Full edit over changed paragraph boxes: Apply first, focused, or Cancel', () => {
