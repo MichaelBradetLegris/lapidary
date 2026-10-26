@@ -403,3 +403,97 @@ describe('the category chips lead the toolbar (polish.10, polish.11)', () => {
     expect(render(null)).not.toContain('class="chip');
   });
 });
+
+/* rr.6: the Mode select left its strip above the prose for the toolbar's
+   left, before the eye. It is drawn while a chapter is on screen, at the
+   chips' step (the largest until the window has measured them, and with no
+   chips), outside the chips' bar, which a review of the chapter makes inert,
+   and its copy at every step is in the chips' copy out of sight. What it
+   does on a choice and with the keys is in modes.test.ts and
+   modes.render.test.ts; its steps' CSS in chipsRow.test.ts. */
+describe('the Mode select leads the toolbar (rr.6)', () => {
+  /** Two suggestions, grammar and punctuation. */
+  const TWO: Review = (() => {
+    const diff = createDiffReview({
+      originalRaw: 'The river had began. Its late, she said.',
+      correctedRaw: 'The river had begun. It is late, she said.'
+    });
+    expect(diff.hunks).toHaveLength(2);
+    const categories = ['grammar', 'punctuation'] as const;
+    return {
+      ...REVIEW,
+      base: diff.base,
+      hunks: diff.hunks.map((h, i) => ({ ...h, category: categories[i] }))
+    };
+  })();
+
+  const SELECT = '<select id="mode-select" class="mode-select__field"';
+
+  it('is the first thing in the toolbar, before the eye, the chips and Review, and the first Tab stop', () => {
+    storeWith({ review: TWO, viewMode: 'main', drafts: {} });
+    const html = render(TWO);
+    expect(html).toMatch(
+      /^<header class="toolbar"><div class="mode-select" data-chip-step="0"><label class="mode-select__label" for="mode-select">Mode<\/label><select id="mode-select" class="mode-select__field" title="Main reviews the suggestions\./
+    );
+    const select = html.indexOf(SELECT);
+    expect(select).toBeLessThan(html.indexOf('<div class="chips-bar'));
+    expect(select).toBeLessThan(html.indexOf('chips__eye'));
+    expect(select).toBeLessThan(html.indexOf('>Review'));
+    // Nothing before it takes the focus.
+    expect(html.slice(0, select)).not.toMatch(/<button|<select|<input|tabindex="0"/);
+    // One select of the window's mode; the copies have no id.
+    expect(html.split('id="mode-select"')).toHaveLength(2);
+  });
+
+  it('shows the mode of the window', () => {
+    storeWith({ review: TWO, viewMode: 'preview', drafts: {} });
+    expect(render(TWO)).toMatch(/<option value="preview" selected="">Preview<\/option>/);
+  });
+
+  it('stands at the left alone with no chips, at the largest step, before Review', () => {
+    storeWith({ review: REVIEW, viewMode: 'main', drafts: {} });
+    const html = render(REVIEW);
+    expect(html).toMatch(/^<header class="toolbar"><div class="mode-select" data-chip-step="0">/);
+    expect(html).not.toContain('chips-bar');
+    expect(html.match(/<select/g)).toHaveLength(1);
+    expect(html.indexOf(SELECT)).toBeLessThan(html.indexOf('>Review'));
+  });
+
+  it('stays out of the chips bar, so it is in reach while a review of the chapter runs', () => {
+    storeWith({ review: TWO, viewMode: 'main', drafts: {}, aiBusyPath: TWO.sourcePath });
+    const html = render(TWO, true);
+    const bar = html.indexOf('<div class="chips-bar chips--locked" inert="">');
+    expect(bar).toBeGreaterThan(0);
+    const mode = html.slice(0, bar);
+    expect(mode).toContain(SELECT);
+    expect(mode).toMatch(/<\/select><\/div>$/);
+    expect(mode).not.toContain('inert');
+    expect(mode).not.toContain('disabled');
+  });
+
+  it('has its copy at every step after the chips in the copy out of sight, with no id and out of the Tab order', () => {
+    storeWith({ review: TWO, viewMode: 'main', drafts: {} });
+    const html = render(TWO);
+    const copy = html.slice(html.indexOf('class="chips__measure"'), html.indexOf('<span class="menu">'));
+    expect(
+      copy.match(
+        /<div class="mode-select" data-chip-step="\d"><span class="mode-select__label">Mode<\/span>/g
+      )
+    ).toEqual(
+      [0, 1, 2, 3].map(
+        (at) => `<div class="mode-select" data-chip-step="${at}"><span class="mode-select__label">Mode</span>`
+      )
+    );
+    expect(copy.lastIndexOf('chips__measure-row')).toBeLessThan(copy.indexOf('<div class="mode-select"'));
+    expect(copy.match(/<select class="mode-select__field" tabindex="-1">/g)).toHaveLength(4);
+    expect(copy).not.toContain('id="mode-select"');
+    expect(copy).not.toContain('<label');
+  });
+
+  it('is not drawn behind the Setup screen or the welcome guide, nor with no review open', () => {
+    storeWith({ review: TWO });
+    expect(render(TWO, false, false, true)).not.toContain('mode-select');
+    storeWith({ review: null });
+    expect(render(null)).not.toContain('mode-select');
+  });
+});

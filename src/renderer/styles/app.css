@@ -578,11 +578,12 @@ input[type='text'] {
 }
 
 /* The one bar at the top (polish.10). The row wraps, as the status bar does:
-   when the buttons and the category chips at their narrowest (.chips-bar) do
-   not fit, zoomed in or with a review's progress showing in a narrow window,
-   the last buttons move to a second row on the right rather than running out
-   of the window (apply.4). The chips themselves never wrap. With no chips the
-   buttons keep the right end. */
+   when the Mode select (rr.6), the buttons and the category chips at their
+   narrowest (.chips-bar) do not fit, zoomed in or with a review's progress
+   showing in a narrow window, the last buttons move to a second row on the
+   right rather than running out of the window (apply.4). The chips
+   themselves never wrap. With no chips the buttons keep the right end and
+   the Mode select the left. */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -1101,6 +1102,71 @@ input[type='text'] {
 }
 
 /* ---------- filter chips ---------- */
+
+/* The Mode select (rr.6): Main, Full edit or Preview, the toolbar's first
+   item, before the eye. It is drawn at the chips' step: each step's rules
+   give its words the chips' type, the gap between them the chips' gap
+   ([data-chip-step] below), and the select a chip's padding and height, so
+   the two shrink together in a narrow window before the chips' row
+   overflows (`chipsStep`). Its width at every step is measured from its copy
+   beside the chips' (.chips__measure), so it takes its words' width
+   (`max-content`) there as here. With no chips the auto margin keeps it at
+   the left end; beside the chips' bar, which grows into all the room, the
+   margin has none to take. */
+.mode-select {
+  flex: none;
+  display: flex;
+  align-items: center;
+  width: max-content;
+  margin-right: auto;
+  white-space: nowrap;
+}
+
+.mode-select__label {
+  color: var(--ink-soft);
+}
+
+/* A chip's height is its line, its padding and its 1 px border, above and
+   below. Chromium draws a select on a normal line whatever its line-height,
+   and with a chip's padding it stood 1 or 2 px taller than the chip at every
+   step, so the height is set: on the steps whose chips have a normal line,
+   that line (1lh, the select's own, in the same type) and 6 px; on the two
+   with a 16 px line, 20 px. */
+.mode-select[data-chip-step='0'] {
+  font-size: 13px;
+}
+
+.mode-select[data-chip-step='0'] .mode-select__field {
+  height: calc(1lh + 6px);
+  padding: 2px 8px;
+}
+
+.mode-select[data-chip-step='1'] {
+  font-size: 12.5px;
+}
+
+.mode-select[data-chip-step='1'] .mode-select__field {
+  height: calc(1lh + 6px);
+  padding: 2px 7px;
+}
+
+.mode-select[data-chip-step='2'] {
+  font-size: 12px;
+}
+
+.mode-select[data-chip-step='2'] .mode-select__field {
+  height: 20px;
+  padding: 1px 6px;
+}
+
+.mode-select[data-chip-step='3'] {
+  font-size: 11.5px;
+}
+
+.mode-select[data-chip-step='3'] .mode-select__field {
+  height: 20px;
+  padding: 1px 5px;
+}
 
 /* In the toolbar's row, where the chapter's name was before it moved to the
    window's title (polish.10): the eye, then the chips (polish.11). The bar
@@ -4156,24 +4222,9 @@ button.help {
 
 /* ---------- modes (rr.2) ---------- */
 
-/* The Mode select at the top right of the prose column, inside it and above
-   the prose, where the author's screenshot put it; the toolbar stays as it
-   was. Its strip has the page's own colour, so the select reads as standing
-   at the top of the page, and the find bar, the notification cards and the
-   lock card keep the wrapper under it as theirs. */
-.modebar {
-  flex: 0 0 auto;
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 16px 0;
-  background: var(--bg);
-}
-
-.modebar__label {
-  color: var(--ink-soft);
-}
+/* The Mode select is the toolbar's first item since rr.6 (.mode-select, with
+   the filter chips); from rr.2 it stood on a strip of its own at the top
+   right of the prose column, above the prose. */
 
 /* Full edit: the whole chapter in one box, the height of the column. The box
    takes what the frontmatter above it and the foot under it leave and

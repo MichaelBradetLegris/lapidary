@@ -581,6 +581,72 @@ describe('the size the chips are drawn at (polish.11)', () => {
   });
 });
 
+/* rr.6: the Mode select stands before the eye and is drawn at the chips'
+   step, so its width at a step comes out of their room at that step. The row
+   and the select together are what no step changes; the decision must not
+   depend on the step the select happens to be drawn at, or the two would
+   swing between steps. */
+describe('the Mode select beside the chips (rr.6)', () => {
+  const total = (step: number, widths: readonly number[]): number =>
+    widths.reduce((sum, w) => sum + w, 0) + (CHIP_STEPS[step]?.gap ?? 0) * Math.max(0, widths.length - 1);
+  const widthsAt = (words: readonly number[]): number[][] =>
+    CHIP_STEPS.map((step) => {
+      const pad = parseFloat(step.padding.split(' ')[1] ?? '0');
+      return words.map((w) => (w * step.fontSize) / 13 + 2 * pad + 2);
+    });
+  /** The select's widths at each step as measured in the window (rr.6, at 100%). */
+  const SELECT = [123.75, 117.45, 113.16, 106.86];
+
+  it('takes the select at each step out of the room the row and the select have together', () => {
+    // Four chips, as Chapter 02 of the samples had in the window.
+    const natural = widthsAt([64, 84, 58, 80]);
+    const together = natural.map((widths, step) => total(step, widths) + (SELECT[step] ?? 0));
+    // Drawn at the largest step, the row has its room less the select's width there.
+    const drawn = SELECT[0] ?? 0;
+    const at = (both: number): number => chipsStep(both - drawn, natural, { drawn, steps: SELECT });
+    expect(at(2000)).toBe(0);
+    expect(at(together[0] ?? 0)).toBe(0);
+    expect(at((together[0] ?? 0) - 0.01)).toBe(1);
+    expect(at(together[1] ?? 0)).toBe(1);
+    expect(at((together[1] ?? 0) - 0.01)).toBe(2);
+    expect(at((together[2] ?? 0) - 0.01)).toBe(3);
+    expect(at(0)).toBe(3);
+    // Without it the row's own width decides, as before rr.6.
+    expect(chipsStep(total(0, natural[0] ?? []), natural)).toBe(0);
+    expect(chipsStep(total(0, natural[0] ?? []), natural, { drawn, steps: SELECT })).toBe(0);
+    expect(chipsStep(total(0, natural[0] ?? []), natural, { drawn: SELECT[3] ?? 0, steps: SELECT })).toBe(1);
+  });
+
+  it('decides the same whatever step the select is drawn at, and as without it when it is as wide at every step', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.double({ min: 10, max: 160, noNaN: true }), { minLength: 1, maxLength: 15 }),
+        fc.array(fc.double({ min: 0, max: 200, noNaN: true }), {
+          minLength: CHIP_STEPS.length,
+          maxLength: CHIP_STEPS.length
+        }),
+        fc.double({ min: 0, max: 3000, noNaN: true }),
+        (words, select, both) => {
+          const natural = widthsAt(words);
+          const steps = [...select].sort((a, b) => b - a);
+          const decided = steps.map((drawn) => chipsStep(both - drawn, natural, { drawn, steps }));
+          expect(new Set(decided).size).toBe(1);
+          // The first step at which the chips and the select fit together, else the last.
+          const first = natural.findIndex(
+            (widths, at) => at < CHIP_STEPS.length - 1 && total(at, widths) + (steps[at] ?? 0) <= both
+          );
+          expect(decided[0]).toBe(first === -1 ? CHIP_STEPS.length - 1 : first);
+          // A select as wide at every step changes nothing.
+          const same = steps[0] ?? 0;
+          expect(chipsStep(both - same, natural, { drawn: same, steps: steps.map(() => same) })).toBe(
+            chipsStep(both - same, natural)
+          );
+        }
+      )
+    );
+  });
+});
+
 describe('the arrows and the line, while the chips overflow (polish.10)', () => {
   /** The smallest window at 100% with thirteen categories, as measured: 958 px of chips in 434. */
   const SMALL: ChipsRow = { scrollLeft: 0, scrollWidth: 958, clientWidth: 434 };

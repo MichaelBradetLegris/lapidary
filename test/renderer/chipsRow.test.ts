@@ -186,7 +186,12 @@ describe('the chips keep their old size, and shrink in steps only to fit (polish
   it('decides the step from the row and a copy of the chips at every step, out of sight', () => {
     expect(CHIPS).toContain('const [step, setStep] = useState(0);');
     expect(CHIPS).toMatch(
-      /const room = row\.getBoundingClientRect\(\)\.width - CHIPS_ROW_PADDING;\s*setStep\(chipsStep\(room, naturalWidths\(copyRef\.current\)\)\);/
+      /const room = row\.getBoundingClientRect\(\)\.width - CHIPS_ROW_PADDING;\s*setStep\(chipsStep\(room, naturalWidths\(copyRef\.current\), modeBeside\(modeRef\.current, copyRef\.current\)\)\);/
+    );
+    // The chips' widths from the copy's rows alone, the Mode select's from its copies (rr.6).
+    expect(CHIPS).toContain("return [...copy.querySelectorAll(':scope > .chips__measure-row')].map((row) =>");
+    expect(CHIPS).toMatch(
+      /drawn: drawn\.getBoundingClientRect\(\)\.width,\s*steps: \[\.\.\.copy\.querySelectorAll\(':scope > \.mode-select'\)\]\.map\(\s*\(mode\) => mode\.getBoundingClientRect\(\)\.width\s*\)/
     );
     expect(CHIPS).toMatch(/className="chips"\s+data-chip-step=\{step\}/);
     // One row of the copy for each step, its chips as the row's, with their words.
@@ -204,6 +209,69 @@ describe('the chips keep their old size, and shrink in steps only to fit (polish
     expect(declsFor('.chips__measure-row').get('width')).toBe('max-content');
     // Measured again when the copy changes size, as when the fonts come in.
     expect(CHIPS).toContain('for (const copy of copyRef.current?.children ?? []) observer.observe(copy);');
+  });
+});
+
+/* rr.6: the Mode select is the toolbar's first item, before the eye, and
+   shrinks with the chips: FilterChips draws it at their step, measures it at
+   every step from its copies beside theirs, and takes its width out of their
+   room (`chipsStep`'s `beside`, tested in test/shared/chips.test.ts). */
+describe('the Mode select shrinks with the chips (rr.6)', () => {
+  it('is drawn by FilterChips first, at the chips step, outside the bar a review makes inert', () => {
+    const select = CHIPS.indexOf('<ModeSelect step={step} boxRef={modeRef} />');
+    const bar = CHIPS.indexOf('<div className={`chips-bar');
+    expect(select).toBeGreaterThan(0);
+    expect(bar).toBeGreaterThan(select);
+    expect(CHIPS.slice(select, bar)).not.toContain('inert');
+    // With no chips, alone at the largest step.
+    expect(CHIPS).toContain('if (chips.length === 0) return <ModeSelect step={0} />;');
+    // Its copy at every step, after the chips' rows in the copy out of sight.
+    expect(CHIPS).toMatch(
+      /<\/div>\s*\)\)\}\s*\{CHIP_STEPS\.map\(\(_, at\) => \(\s*<ModeSelectCopy key=\{`mode-\$\{at\}`\} step=\{at\} \/>\s*\)\)\}\s*<\/div>/
+    );
+    // In the toolbar, nowhere in the columns.
+    expect(APP).not.toContain('ModeSelect');
+    expect(APP).not.toContain('ModeBar');
+  });
+
+  it("gives it the chips' type, gap, padding and height at every step", () => {
+    CHIP_STEPS.forEach((step, at) => {
+      const box = declsFor(`.mode-select[data-chip-step='${at}']`);
+      expect(Object.fromEntries(box), `step ${at}`).toEqual({ 'font-size': `${step.fontSize}px` });
+      // The gap between the label and the select is the chips' own rule's.
+      expect(declsFor(`[data-chip-step='${at}']`).get('gap'), `step ${at}`).toBe(`${step.gap}px`);
+      /* A chip is its line, its padding and its 1 px border above and below.
+         Chromium draws a select on a normal line, so the height is set: the
+         select's own normal line (1lh), in the chips' type, where theirs is
+         normal, and their line in pixels where it is not. */
+      const vertical = parseFloat(step.padding);
+      const edges = 2 * vertical + 2;
+      const height =
+        step.lineHeight === 'normal' ? `calc(1lh + ${edges}px)` : `${parseFloat(step.lineHeight) + edges}px`;
+      expect(
+        Object.fromEntries(declsFor(`.mode-select[data-chip-step='${at}'] .mode-select__field`)),
+        `step ${at}`
+      ).toEqual({
+        height,
+        padding: step.padding
+      });
+    });
+    expect(declsFor(`.mode-select[data-chip-step='${CHIP_STEPS.length}']`).size).toBe(0);
+    // The select's border is the chips' 1 px, from the rule every select has.
+    expect(declsFor('select').get('border')).toBe('1px solid var(--border)');
+    expect(declsFor('.chip').get('border')).toBe('1px solid var(--border)');
+  });
+
+  it('keeps its width whole, at the left end with no chips, and its words in --ink-soft', () => {
+    expect(Object.fromEntries(declsFor('.mode-select'))).toEqual({
+      flex: 'none',
+      display: 'flex',
+      'align-items': 'center',
+      width: 'max-content',
+      'margin-right': 'auto',
+      'white-space': 'nowrap'
+    });
+    expect(declsFor('.mode-select__label').get('color')).toBe('var(--ink-soft)');
   });
 });
 

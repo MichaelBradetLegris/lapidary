@@ -285,13 +285,13 @@ describe('the handles in app.css', () => {
     expect(chips.get('scrollbar-width')).toBe('none');
     expect(declsFor('.chips + .center-wrap').size).toBe(0);
     expect(APP).not.toContain('<FilterChips');
-    /* Since rr.2 the Mode select's strip is at the top of the column, its
-       select at the right end, so the band over its left edge covers only
-       the strip's empty left, where nothing can be pressed. */
-    expect(APP).toMatch(
-      /<div className="center-col">\s*(\{\}\s*)?\{review \? <ModeBar \/> : null\}\s*(\{\}\s*)?<div className=\{`center-wrap /
-    );
-    expect(declsFor('.modebar').get('justify-content')).toBe('flex-end');
+    /* From rr.2 the Mode select's strip was at the top of the column, its
+       select at the right end, so the band covered only the strip's empty
+       left. Since rr.6 the select is in the toolbar and the column starts
+       with the find bar's wrapper and the prose, as before rr.2. */
+    expect(APP).toMatch(/<div className="center-col">\s*(\{\}\s*)?<div className=\{`center-wrap /);
+    expect(APP).not.toContain('ModeBar');
+    expect(declsFor('.modebar').size).toBe(0);
   });
 
   it('draws the line and a grip in the faint grey, both darker under the pointer, and the browser its focus ring', () => {

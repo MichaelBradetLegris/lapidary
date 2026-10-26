@@ -2,7 +2,8 @@
  * The three views of a chapter and their words (rr.2, PLAN section 7, The
  * Mode select): Main, the review page as it has always been; Full edit, the
  * whole chapter in one box; Preview, the chapter as Royal Road's reader shows
- * it. A Mode select at the top right of the prose column picks one. The mode
+ * it. A Mode select at the left end of the toolbar picks one (since rr.6; it
+ * stood at the top right of the prose column from rr.2). The mode
  * belongs to the window, not to the settings: the window starts in Main, and
  * another chapter or review opens in the mode in use (rr.5).
  *

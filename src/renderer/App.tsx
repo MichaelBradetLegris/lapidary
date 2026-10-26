@@ -50,7 +50,6 @@ import { FullEdit } from './components/FullEdit';
 import { HunkTooltip } from './components/HunkTooltip';
 import { LockCard } from './components/LockCard';
 import { ManualReviewDialog } from './components/ManualReviewDialog';
-import { ModeBar } from './components/ModeBar';
 import { NewChapterDialog } from './components/NewChapterDialog';
 import { NotificationCards } from './components/NotificationCards';
 import { PreviewPane } from './components/PreviewPane';
@@ -1573,10 +1572,10 @@ export function App(): React.JSX.Element {
           {/* The centre column: the manuscript pane, from the toolbar's foot,
               as the chapter list and the side panel are. The category chips
               were at its top from polish.6 and are in the toolbar's row since
-              polish.10. The Mode select is at its top right, above the prose,
-              with a chapter open (rr.2). */}
+              polish.10. The Mode select stood at its top right, above the
+              prose, from rr.2, and is the toolbar's first item since rr.6, so
+              the prose starts at the column's top again. */}
           <div className="center-col">
-            {review ? <ModeBar /> : null}
             {/* The find bar is a strip above the scroller, not a sticky bar inside
               it: inside, it scrolled out of view once the author was more than
               a screen down, and Ctrl+F then seemed to do nothing (round 4). The

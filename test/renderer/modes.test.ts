@@ -682,7 +682,7 @@ describe('the pieces in the page (source checks)', () => {
   });
 
   it('goes through chooseMode from the select, holding back the keys that would switch at every press', () => {
-    const bar = read('renderer/components/ModeBar.tsx');
+    const bar = read('renderer/components/ModeSelect.tsx');
     expect(bar).toContain('if (pickerHoldsKey(event)) event.preventDefault();');
     expect(bar).toContain('void chooseMode(target).then((switched) => {');
     expect(bar).toContain('value={mode}');
@@ -706,7 +706,7 @@ describe('the pieces in the page (source checks)', () => {
   });
 
   it('hands the focus back to the page after a choice that lands in Main or Preview, as the review selector does', () => {
-    const bar = read('renderer/components/ModeBar.tsx');
+    const bar = read('renderer/components/ModeSelect.tsx');
     expect(bar).toContain(
       "if (switched && target !== 'edit' && document.activeElement === select) select.blur();"
     );
@@ -764,9 +764,14 @@ describe('the CSS of the three modes', () => {
     return CSS.slice(at, CSS.indexOf('}', at));
   };
 
-  it('puts the select at the right of its strip, on the page s own colour', () => {
-    expect(rule('.modebar')).toContain('justify-content: flex-end;');
-    expect(rule('.modebar')).toContain('background: var(--bg);');
+  /* rr.6: the select left the strip above the prose for the toolbar's left,
+     so the column has no strip and the prose starts at its top again. Where
+     it stands in the toolbar is in toolbarMenu.render.test.ts, and its steps
+     in chipsRow.test.ts. */
+  it('draws no strip above the prose: the select is in the toolbar', () => {
+    expect(CSS).not.toContain('.modebar');
+    expect(rule('.mode-select')).toContain('flex: none;');
+    expect(rule('.mode-select__label')).toContain('color: var(--ink-soft);');
   });
 
   it("gives Full edit's box the column's height, the prose's typeface and an opaque background", () => {
