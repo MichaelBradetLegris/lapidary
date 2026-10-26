@@ -140,6 +140,30 @@ export function IconChevronLeft({ size = 12 }: IconProps = {}): React.JSX.Elemen
   );
 }
 
+/**
+ * The caret that folds a side column away and brings it back (polish.26):
+ * a chevron narrow enough for the 6 px beside a column's edge, where its
+ * handle and its edge strip are 7 px wide.
+ */
+export function IconColumnCaret({ points }: { points: 'left' | 'right' }): React.JSX.Element {
+  return (
+    <svg
+      width={6}
+      height={10}
+      viewBox="0 0 6 10"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      focusable="false"
+    >
+      <path d={points === 'left' ? 'M4.5 1 1.5 5l3 4' : 'M1.5 1 4.5 5l-3 4'} />
+    </svg>
+  );
+}
+
 /** The review selector's mark when the review on screen is not the newest (apply.26). */
 export function IconWarning({ size = 14 }: IconProps = {}): React.JSX.Element {
   return (
@@ -174,6 +198,27 @@ export function IconEyeClosed({ size = 16 }: IconProps = {}): React.JSX.Element 
     <svg {...svgProps(size)}>
       <path d="M1.6 6.4c1.6 2.5 3.8 3.8 6.4 3.8s4.8-1.3 6.4-3.8" />
       <path d="M3.9 9.3 2.7 11M8 10.2v2.1M12.1 9.3l1.2 1.7" />
+    </svg>
+  );
+}
+
+/**
+ * Full screen (polish.23): two arrows out to opposite corners, the system's
+ * sign for it.
+ */
+export function IconFullScreen({ size = 16 }: IconProps = {}): React.JSX.Element {
+  return (
+    <svg {...svgProps(size)}>
+      <path d="M9.5 2.5h4v4M13.5 2.5 9.3 6.7M6.5 13.5h-4v-4M2.5 13.5l4.2-4.2" />
+    </svg>
+  );
+}
+
+/** Leave full screen (polish.23): the same two arrows, pointing back in from the corners. */
+export function IconLeaveFullScreen({ size = 16 }: IconProps = {}): React.JSX.Element {
+  return (
+    <svg {...svgProps(size)}>
+      <path d="M13.5 2.5 9.5 6.5M9.5 2.5v4h4M2.5 13.5l4-4M2.5 9.5h4v4" />
     </svg>
   );
 }

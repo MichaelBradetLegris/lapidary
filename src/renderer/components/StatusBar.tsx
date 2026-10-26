@@ -30,8 +30,10 @@ interface Props {
  * from apply.4) and the chapter list (apply.5), what the chips count and do,
  * You and the eye included (polish.11) and the comments' (polish.13), and how
  * the suggestions list shows a decision, by the row's buttons, and the
- * heading's count (polish.12; Show states went in polish.17), and what each
- * row's three-letter tag stands for (polish.14). Exported for its render test.
+ * heading's count (polish.12; Show states went in polish.17), what each
+ * row's three-letter tag stands for (polish.14), and F11 and Escape for full
+ * screen (polish.23), held in focus mode (focus.1). Exported for its render
+ * test.
  */
 export function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -116,10 +118,9 @@ export function Legend({ onClose }: { onClose: () => void }): React.JSX.Element 
             <IconCheck />
           </span>{' '}
           <b>The suggestions list.</b> Each row starts with a tag in its chip&apos;s colour. Once you decide a
-          suggestion, its row is shaded and its words turn grey, its tick turns a bold green if you accepted
-          it, or its x red if you dismissed it, and the row&apos;s other buttons fade until the pointer is on
-          them; click the tick or the x again to put it back. The Suggestions heading counts the suggestions
-          you have decided.
+          suggestion, its words grow fainter, its tick turns a bold green if you accepted it, or its x red if
+          you dismissed it, and the row&apos;s other buttons fade until the pointer is on them; click the tick
+          or the x again to put it back. The Suggestions heading counts the suggestions you have decided.
         </li>
         <li>
           <span className="legend__swatch legend__swatch--tag" /> <b>Tags.</b> Three letters name the
@@ -139,6 +140,11 @@ export function Legend({ onClose }: { onClose: () => void }): React.JSX.Element 
         Click a suggestion to accept or undo it. The x beside the floating text, or the d key, dismisses. The
         pencil on a suggestion, or the e key, lets you rewrite it, and the pen beside a paragraph lets you
         edit the paragraph itself. Nothing reaches the chapter until you press Save to chapter or Ctrl+S.
+      </p>
+      <p className="legend__foot">
+        F11, or the two arrows before Settings, puts the window in full screen and back. Escape leaves full
+        screen too, unless something else is open, such as a dialog, a menu, the find bar or a box you are
+        typing in. With focus mode on in Settings, leaving full screen takes holding F11 or Escape.
       </p>
     </div>
   );

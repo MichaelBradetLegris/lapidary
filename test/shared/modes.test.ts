@@ -24,8 +24,11 @@ import {
   discardFullEditPrompt,
   editSummary,
   fullEditAppliedText,
+  fullEditEndKey,
   fullEditLabel,
   fullEditOtherReviewPrompt,
+  fullEditPageEnd,
+  fullEditTopPlace,
   leaveFullEditPrompt,
   modeOf,
   modePlace,
@@ -178,6 +181,54 @@ describe("Full edit's words", () => {
       confirmLabel: 'Apply and save'
     });
     expect(focusedChoice(spec)).toBe('confirm');
+  });
+});
+
+/* rr.7 review: the text area grows and the column scrolls, so the browser's
+   own scroll stopped short of the page's top and end; these decide when the
+   column goes the rest of the way (`showPageEnd` in FullEdit.tsx). */
+describe("Full edit's page ends", () => {
+  const key = (k: string, mods: Partial<Record<'altKey' | 'ctrlKey' | 'metaKey', boolean>> = {}) => ({
+    key: k,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    ...mods
+  });
+
+  it('follows Ctrl+Home and Ctrl+End (Cmd on a Mac), and Page Up and Page Down, never with Alt', () => {
+    for (const k of ['Home', 'End']) {
+      expect(fullEditEndKey(key(k, { ctrlKey: true })), k).toBe(true);
+      expect(fullEditEndKey(key(k, { metaKey: true })), k).toBe(true);
+      // Home and End alone move within the line, which the browser keeps in view.
+      expect(fullEditEndKey(key(k)), k).toBe(false);
+      expect(fullEditEndKey(key(k, { ctrlKey: true, altKey: true })), k).toBe(false);
+    }
+    for (const k of ['PageUp', 'PageDown']) {
+      expect(fullEditEndKey(key(k)), k).toBe(true);
+      expect(fullEditEndKey(key(k, { altKey: true })), k).toBe(false);
+    }
+    for (const k of ['ArrowUp', 'ArrowDown', 'a', 'Enter']) {
+      expect(fullEditEndKey(key(k, { ctrlKey: true })), k).toBe(false);
+    }
+  });
+
+  it('shows the top with the caret at the start of the text, the end at its end, and neither between', () => {
+    expect(fullEditPageEnd(0, 1363)).toBe('top');
+    expect(fullEditPageEnd(1363, 1363)).toBe('end');
+    expect(fullEditPageEnd(1, 1363)).toBeNull();
+    expect(fullEditPageEnd(1362, 1363)).toBeNull();
+    // An empty text area is at its start.
+    expect(fullEditPageEnd(0, 0)).toBe('top');
+  });
+
+  it('goes to the column s top unless the first line would leave a short column', () => {
+    // At 1424 by 900 Chapter 01's first line, under its frontmatter, ends 178.2 px down a column of 779.
+    expect(fullEditTopPlace(178.2, 779, 16)).toBe(0);
+    expect(fullEditTopPlace(763, 779, 16)).toBe(0);
+    expect(fullEditTopPlace(763.5, 779, 16)).toBe(1);
+    // In the smallest window at 200% the column is 87 px: the line ends 16 px above its foot.
+    expect(fullEditTopPlace(178.2, 87, 16)).toBe(108);
   });
 });
 

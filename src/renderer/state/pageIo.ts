@@ -4,6 +4,7 @@ import type { CloseGuardIo, PageWrites } from './closeGuard';
 import { flushColumnWrites } from './columnWidths';
 import type { CrashPageDeps } from './crashPage';
 import { draftWriteFailures, flushDraftWrites, retryDraftWrites } from './drafts';
+import { useFullScreen } from './fullScreen';
 import { flushHintWrites } from './hints';
 import { flushProviderWrites } from './providerChoice';
 import { flushReviewWrites, retryReviewWrites, reviewWriteFailures } from './reviewPersistence';
@@ -79,12 +80,24 @@ export const CRASH_WRITES: PageWrites = {
 };
 
 /**
+ * Focus mode left for the page shown after a crash (focus.1), which cannot
+ * show the hold: the same word the hold sends, and only in focus mode, so a
+ * crash in plain full screen leaves the window as it was.
+ */
+export function leaveFocusAfterCrash(): void {
+  if (useFullScreen.getState().focus === null) return;
+  void call('window:full-screen', { action: 'release' }).catch(() => undefined);
+}
+
+/**
  * What the page shown after a crash takes over and writes (hardening.4,
  * `createCrashPage`): the close guard with the writes a close makes, and
- * `CRASH_WRITES` as it opens and on Try again.
+ * `CRASH_WRITES` as it opens and on Try again; and focus mode, which it
+ * leaves as it opens (focus.1).
  */
 export const CRASH_PAGE: CrashPageDeps = {
   io: CLOSE_GUARD_IO,
   closeWrites: PAGE_WRITES,
-  writes: CRASH_WRITES
+  writes: CRASH_WRITES,
+  leaveFocusMode: leaveFocusAfterCrash
 };

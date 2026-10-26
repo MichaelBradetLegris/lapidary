@@ -1,8 +1,8 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { FullEdit } from '../../src/renderer/components/FullEdit';
-import { ModeBar } from '../../src/renderer/components/ModeBar';
+import { FullEdit, FullEditFoot } from '../../src/renderer/components/FullEdit';
+import { ModeSelect, ModeSelectCopy } from '../../src/renderer/components/ModeSelect';
 import { PreviewPane } from '../../src/renderer/components/PreviewPane';
 import { SidePanel } from '../../src/renderer/components/SidePanel';
 import { useBulkAction } from '../../src/renderer/state/bulk';
@@ -85,10 +85,10 @@ const whole = (text = BODY) => ({
 describe('the Mode select', () => {
   it('is labelled Mode and offers Main, Full edit and Preview, the mode of the window selected', () => {
     storeWith({ viewMode: 'preview', drafts: {} });
-    const html = renderToStaticMarkup(createElement(ModeBar));
-    expect(html).toContain('<label class="modebar__label" for="mode-select">Mode</label>');
+    const html = renderToStaticMarkup(createElement(ModeSelect, { step: 0 }));
+    expect(html).toContain('<label class="mode-select__label" for="mode-select">Mode</label>');
     expect(html).toMatch(
-      /<select id="mode-select" class="modebar__select" title="Main reviews the suggestions\./
+      /<select id="mode-select" class="mode-select__field" title="Main reviews the suggestions\./
     );
     expect(
       [...html.matchAll(/<option value="(\w+)"[^>]*>([^<]+)<\/option>/g)].map((m) => [m[1], m[2]])
@@ -100,26 +100,65 @@ describe('the Mode select', () => {
     expect(html).toMatch(/<option value="preview" selected="">Preview<\/option>/);
     // Full edit's box open: Full edit, whatever Main or Preview was.
     storeWith({ drafts: whole() });
-    expect(renderToStaticMarkup(createElement(ModeBar))).toMatch(
+    expect(renderToStaticMarkup(createElement(ModeSelect, { step: 0 }))).toMatch(
       /<option value="edit" selected="">Full edit<\/option>/
     );
+  });
+
+  /* rr.6: in the toolbar, at the chips' step, which app.css draws it at. */
+  it('is drawn at the step it is given, its label and select in one box', () => {
+    storeWith({ viewMode: 'main', drafts: {} });
+    for (const step of [0, 3]) {
+      expect(renderToStaticMarkup(createElement(ModeSelect, { step }))).toMatch(
+        new RegExp(
+          `^<div class="mode-select" data-chip-step="${step}"><label class="mode-select__label" for="mode-select">Mode</label><select id="mode-select"`
+        )
+      );
+    }
+  });
+
+  it('has a copy for the measure, at a step, with the same options and nothing to reach or name it', () => {
+    const html = renderToStaticMarkup(createElement(ModeSelectCopy, { step: 2 }));
+    expect(html).toMatch(
+      /^<div class="mode-select" data-chip-step="2"><span class="mode-select__label">Mode<\/span><select class="mode-select__field" tabindex="-1">/
+    );
+    expect([...html.matchAll(/<option value="(\w+)"/g)].map((m) => m[1])).toEqual([
+      'main',
+      'edit',
+      'preview'
+    ]);
+    for (const absent of ['id=', 'for=', 'title=', '<label']) expect(html, absent).not.toContain(absent);
   });
 });
 
 describe("Full edit's box", () => {
+  /* App gives the foot the scroller's press, which closes an open drawer
+     (columns.test.ts); a static render draws no handler. */
+  const FOOT_PROPS = { onPointerDown: () => undefined };
+
   it('holds the body as the page reads it, with the frontmatter above it and Cancel and Done below', () => {
     storeWith({ drafts: whole() });
     const html = renderToStaticMarkup(createElement(FullEdit, { review: REVIEW }));
+    // rr.7: the foot is drawn under the scroller, by App, not in the sheet's column.
+    const foot = renderToStaticMarkup(createElement(FullEditFoot, FOOT_PROPS));
+    expect(html).not.toContain('fulledit__foot');
     expect(html).toContain(
       '<pre class="frontmatter fulledit__frontmatter" title="Frontmatter, which Full edit leaves as it is">---\ntitle: The Flood\n---</pre>'
     );
     expect(html).toContain('aria-label="Full edit of Chapter 01 - The Flood"');
-    expect(html).toContain('class="fulledit__area"');
+    // rr.7: a plain text area, the sheet's only child, as Preview's page holds its text,
+    // and the frontmatter above the sheet.
+    expect(html).toMatch(
+      /<div class="fulledit__page"><textarea class="fulledit__area"[^>]*>[^<]*<\/textarea><\/div>/
+    );
+    expect(html.indexOf('class="frontmatter fulledit__frontmatter"')).toBeLessThan(
+      html.indexOf('class="fulledit__page"')
+    );
     expect(BODY).toContain('had begun to climb');
     expect(BODY.startsWith('# One')).toBe(true);
-    expect(html).toContain('<span class="fulledit__hint">Nothing changed yet. Esc closes.</span>');
-    expect(html).toMatch(
-      /<button type="button">Cancel<\/button><button type="button" class="primary">Done<\/button>/
+    expect(foot).toBe(
+      '<div class="fulledit__foot"><div class="fulledit__foot-row"><span class="fulledit__hint">Nothing changed yet. Esc closes.</span>' +
+        '<button type="button">Cancel</button><button type="button" class="primary">Done</button></div></div>'
     );
     // No suggestion marks: no hunk, ghost or rail.
     expect(html).not.toMatch(/class="(hunk|ghost|para__rail)/);
@@ -127,11 +166,12 @@ describe("Full edit's box", () => {
 
   it('says Ctrl+Enter applies once something is typed, and draws nothing with Full edit closed', () => {
     storeWith({ drafts: whole(`${BODY} More.`) });
-    expect(renderToStaticMarkup(createElement(FullEdit, { review: REVIEW }))).toContain(
+    expect(renderToStaticMarkup(createElement(FullEditFoot, FOOT_PROPS))).toContain(
       '<span class="fulledit__hint">Ctrl+Enter applies, Esc cancels</span>'
     );
     storeWith({ drafts: {} });
     expect(renderToStaticMarkup(createElement(FullEdit, { review: REVIEW }))).toBe('');
+    expect(renderToStaticMarkup(createElement(FullEditFoot, FOOT_PROPS))).toBe('');
   });
 });
 

@@ -21,10 +21,11 @@ import {
  *   loaded and then whenever that changes, in the same task as the change, so
  *   a close that follows a decision at once already knows about it;
  * - answers main's close request (`app:close-requested`) through
- *   `prepareToLeaveApp('close')`: it says it has the request, lets the save
- *   under way end and writes what the review and paragraph writers hold,
- *   then asks `closePrompt`'s question in the same dialog as leaving a
- *   chapter, and always answers with a decision;
+ *   `prepareToLeaveApp('close')`: it says it has the request, shows focus
+ *   mode's hold first when the window is in focus mode (focus.1, `focusHold`),
+ *   lets the save under way end and writes what the review and paragraph
+ *   writers hold, then asks `closePrompt`'s question in the same dialog as
+ *   leaving a chapter, and always answers with a decision;
  * - writes what it holds at once when Windows ends the session (`app:flush`).
  *
  * Restart now (`release.9`) calls `prepareToLeaveApp('update')` before it
@@ -83,6 +84,13 @@ export interface CloseGuardDeps {
    * waiting for an answer nobody can give.
    */
   questions?: boolean;
+  /**
+   * Focus mode's hold, first of all (focus.1, `holdToLeave`): null outside
+   * focus mode, else true once F11 or Escape has been held and main has left
+   * focus mode, or false when the overlay was closed instead, which keeps the
+   * window. The page shown after a crash has no overlay, and no hold.
+   */
+  focusHold?: () => Promise<boolean> | null;
 }
 
 /** The parts of the store a close puts at risk. */
@@ -352,6 +360,27 @@ async function writeEverything(run: Run): Promise<'written' | 'close-anyway'> {
   }
 }
 
+/**
+ * Focus mode's hold (focus.1): true at once outside focus mode; else the
+ * overlay shows, which main is told is on screen as a question is, so its
+ * native box does not come while the author holds, and the answer is whether
+ * the hold took the window out of focus mode. A run ended meanwhile stops.
+ */
+async function holdFirst(run: Run): Promise<boolean> {
+  const hold = run.deps.focusHold?.() ?? null;
+  if (hold === null) return true;
+  report(run.deps, 'prompting');
+  asking = true;
+  let left: boolean | 'ended';
+  try {
+    left = await Promise.race([hold, run.stopped]);
+  } finally {
+    asking = false;
+  }
+  goOn(run);
+  return left === true;
+}
+
 /** The page is going: a review that is running stops, as the close prompt says. */
 function stopReview(deps: CloseGuardDeps): void {
   if (useApp.getState().aiBusyPath !== null) deps.cancelReview();
@@ -364,6 +393,10 @@ function stopReview(deps: CloseGuardDeps): void {
  */
 async function decide(run: Run): Promise<boolean> {
   const deps = run.deps;
+  // In focus mode the hold comes first, over whatever is open (focus.1): a
+  // close or Restart now goes on only once it has taken the window out of
+  // focus mode, and the overlay closed instead keeps everything as it was.
+  if (!(await holdFirst(run))) return false;
   // A question already open (a leave prompt, "Apply paragraph edits first?")
   // gives way to this one, as to any question that replaces it, and a save
   // waiting on its answer then ends.

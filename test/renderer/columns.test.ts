@@ -88,10 +88,14 @@ describe('each column is in place, or a strip and a drawer (ui.3)', () => {
     for (const column of ['files', 'side']) {
       expect(APP).toMatch(
         new RegExp(
-          `<div\\s+id=\\{drawerId\\('${column}'\\)\\}\\s+className=\\{columnClassName\\('${column}', layout, shown\\)\\}\\s+inert=\\{layout\\.${column} === 'strip' && shown !== '${column}'\\}\\s*>`
+          `<div\\s+id=\\{drawerId\\('${column}'\\)\\}\\s+className=\\{columnClassName\\('${column}', layout, shown\\)\\}\\s+inert=\\{columnInert\\('${column}', layout, shown\\)\\}\\s*>`
         )
       );
     }
+    // Inert while folded with its drawer closed, and always while folded away (polish.26).
+    expect(read('../shared/ui/columns.ts')).toMatch(
+      /if \(layout\[column\] === 'hidden'\) return true;\s*return layout\[column\] === 'strip' && shown !== column;/
+    );
     // The strips come before their drawers, so Tab goes from a strip into its drawer.
     const order = [
       '<ColumnStrip column="files"',
@@ -174,9 +178,20 @@ describe('how a drawer closes (ui.3)', () => {
     // the mode, and it keeps each mode's place (`useModePlaces`, its ref and
     // onScroll spread onto it).
     expect(APP).toMatch(
-      /<main\s+\{\.\.\.modePlaces\}\s+className=\{`center center--\$\{mode\}`\}\s+onPointerDown=\{\(\) => \{\s*if \(useDrawer\.getState\(\)\.open !== null\) useDrawer\.getState\(\)\.setOpen\(null\);\s*\}\}\s*>/
+      /<main\s+\{\.\.\.modePlaces\}\s+className=\{`center center--\$\{mode\}`\}\s+onPointerDown=\{closeDrawerOnPress\}\s*>/
     );
     expect(APP).toContain('const modePlaces = useModePlaces(mode, review?.sourcePath ?? null);');
+    expect(HOOK).toMatch(
+      /export function closeDrawerOnPress\(\): void \{\s*if \(useDrawer\.getState\(\)\.open !== null\) useDrawer\.getState\(\)\.setOpen\(null\);\s*\}/
+    );
+  });
+
+  it("and on Full edit's foot under the scroller, which was in it until rr.7 (rr.7 review)", () => {
+    // Done and Cancel close the drawer as well as doing their own work, as they did in the scroller.
+    expect(APP).toContain('<FullEditFoot onPointerDown={closeDrawerOnPress} />');
+    expect(read('components/FullEdit.tsx')).toMatch(
+      /export function FullEditFoot\(\{ onPointerDown \}: \{ onPointerDown: \(\) => void \}\)[\s\S]*?<div className="fulledit__foot" onPointerDown=\{onPointerDown\}>/
+    );
   });
 
   it('once a chapter is chosen from the list, or made with its +', () => {
@@ -258,7 +273,8 @@ describe('the first-use hint gives way to the prose with the side panel folded (
   it('knows the panel is folded, on the main layout only', () => {
     // Neither the Setup screen nor the welcome guide (setup.11) has a side panel.
     expect(APP).toContain('const singleScreen = setupOpen || welcomeOpen;');
-    expect(APP).toContain("const sideFolded = layout.side === 'strip' && !singleScreen;");
+    // Folded to a strip (ui.3) or folded away by its caret (polish.26).
+    expect(APP).toContain("const sideFolded = layout.side !== 'full' && !singleScreen;");
     expect(APP).toContain('sideFolded={sideFolded}');
   });
 

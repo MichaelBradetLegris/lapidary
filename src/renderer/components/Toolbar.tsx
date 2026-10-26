@@ -11,15 +11,18 @@ import {
   suggestionChip
 } from '../../shared/ui/chips';
 import { EXPORT_HTML, EXPORT_HTML_TITLE } from '../../shared/ui/copy';
+import { FULL_SCREEN_KEY, fullScreenButton } from '../../shared/ui/fullScreen';
 import { ACTIONS_MENU, REVIEW_MENU, REVIEW_WITH_TITLES, reviewMenuLabel } from '../../shared/ui/menu';
 import { FINISH_FULL_EDIT_TITLE } from '../../shared/ui/modes';
 import { saveButtonInput, saveButtonState } from '../../shared/ui/save';
 import { SAVE_HINT_ID, saveHintText, saveHintVisible } from '../../shared/ui/saveHint';
 import { useBulkAction } from '../state/bulk';
 import { toolbarFocusLeft, useChipFocus, watchToolbarFocus } from '../state/chipFocus';
+import { toggleFullScreen, useFullScreen } from '../state/fullScreen';
 import { hintDismissedThisSession, useSaveHintAside } from '../state/hints';
 import { changedParagraphCount, fullEditDraft, isLocked, useApp } from '../state/store';
 import { FilterChips } from './FilterChips';
+import { IconFullScreen, IconLeaveFullScreen } from './icons';
 import { SaveHint } from './SaveHint';
 import { ToolbarMenu, type MenuItem } from './ToolbarMenu';
 
@@ -52,7 +55,11 @@ interface Props {
 
 /**
  * One row, the only bar at the top (polish.10), in the order the author reads
- * it: what can be shown, what can act on it, then what writes it out. The
+ * it: what can be shown, what can act on it, then what writes it out. Since
+ * `rr.6` it starts with the Mode select (Main, Full edit or Preview), which
+ * stood above the prose from `rr.2`: the mode is the window's since `rr.5`,
+ * so it sits with the window's controls, and the select shrinks with the
+ * chips, which is why FilterChips draws it. The
  * chapter's name and its unsaved dot are in the window's title since
  * `polish.10` (`windowTitle`, set by App), and the category chips took their
  * place, after the eye that shows or hides them all (polish.11): they take
@@ -75,7 +82,11 @@ interface Props {
  * was last on, while it has not left the toolbar (`useChipFocus`,
  * `watchToolbarFocus`), and since `polish.11` Show all categories and Hide all
  * categories, as the eye before the chips does; Save to chapter; and Settings
- * (`ToolbarMenu`).
+ * (`ToolbarMenu`). Since `polish.23` an icon button before Settings puts the
+ * window in full screen and back, as F11 does: two arrows out to the corners,
+ * or back in from them in full screen, its name and tooltip saying which
+ * (`fullScreenButton`). In focus mode (focus.1) it shows the hold instead,
+ * and its tooltip says to hold F11 or Esc.
  * While a review runs, its progress and Cancel come before Review, whose
  * providers' items wait until it ends.
  *
@@ -115,6 +126,9 @@ export function Toolbar({
   const changedParagraphs = useApp((s) => changedParagraphCount(s.drafts));
   const fullEdit = useApp((s) => fullEditDraft(s.drafts) !== null);
   const runBulk = useBulkAction();
+  const fullScreen = useFullScreen((s) => s.on);
+  const focusMode = useFullScreen((s) => s.focus !== null);
+  const fullScreenWords = fullScreenButton(fullScreen, focusMode);
 
   const input = saveButtonInput({ review, changedParagraphs, fullEdit, saving, locked });
   const save = saveButtonState(input);
@@ -219,7 +233,9 @@ export function Toolbar({
         );
       }}
     >
-      {/* Where the chapter's name was (polish.10): the name is in the window's title. */}
+      {/* The Mode select (rr.6), then the eye and the chips, where the
+          chapter's name was (polish.10): the name is in the window's title.
+          FilterChips draws the select too, as it shrinks with the chips. */}
       {chipShown ? <FilterChips review={review} bulkOff={bulkOff} bulkTitle={bulkTitle} /> : null}
 
       {running ? (
@@ -284,6 +300,19 @@ export function Toolbar({
         onClick={onSaveChapter}
       >
         {save.label}
+      </button>
+
+      {/* The window's full screen, as F11 (polish.23); main decides, and the
+          icon and the words follow what it says. */}
+      <button
+        type="button"
+        className="toolbar__full-screen"
+        aria-label={fullScreenWords.label}
+        aria-keyshortcuts={FULL_SCREEN_KEY}
+        title={fullScreenWords.title}
+        onClick={toggleFullScreen}
+      >
+        {fullScreen ? <IconLeaveFullScreen /> : <IconFullScreen />}
       </button>
 
       {/* Where the focus goes when Settings closes (SETTINGS_BUTTON_SELECTOR, ui.1). */}

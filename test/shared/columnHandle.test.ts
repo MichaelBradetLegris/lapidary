@@ -5,6 +5,8 @@ import {
   COLUMN_STEP_PX,
   COLUMN_TITLE_STILL,
   columnAria,
+  columnCaretPoints,
+  columnCaretText,
   columnDragShare,
   columnDragTarget,
   columnHandleText,
@@ -19,10 +21,12 @@ import {
 } from '../../src/shared/ui/columnHandle';
 import {
   columnLayout,
+  EDGE_STRIP_WIDTH,
   FILES_WIDTHS,
   keptWidth,
   PROSE_MIN,
   SIDE_WIDTHS,
+  USUAL_COLUMN_WIDTHS,
   type Column,
   type ColumnLayout
 } from '../../src/shared/ui/columns';
@@ -36,6 +40,9 @@ import { SPLIT_STEP_PX } from '../../src/shared/ui/split';
 
 const DEFAULT = 1424;
 const SMALL = 884;
+
+/** The `columnWidths` setting with these widths, neither column folded away unless named. */
+const set = (patch: Partial<ColumnShares>): ColumnShares => ({ ...USUAL_COLUMN_WIDTHS, ...patch });
 
 const room = (width: number, column: Column, kept?: ColumnShares): ColumnRoom => {
   const found = columnRoom(columnLayout(width, kept), column);
@@ -60,7 +67,7 @@ describe('the room a handle has', () => {
       max: 714
     });
     // With the side panel at its most, the list can only narrow.
-    expect(room(DEFAULT, 'files', { files: null, side: 0.501404 })).toMatchObject({ current: 230, max: 230 });
+    expect(room(DEFAULT, 'files', set({ side: 0.501404 }))).toMatchObject({ current: 230, max: 230 });
   });
 
   it('has none for a folded column, and the panel beside a folded list has the strip beside it', () => {
@@ -75,6 +82,24 @@ describe('the room a handle has', () => {
     expect(files).toMatchObject({ current: 168, min: 150, max: 168 });
     expect(side).toMatchObject({ current: 236, min: 200, max: 236 });
     expect(columnMovable(files)).toBe(false);
+    expect(columnMovable(side)).toBe(true);
+  });
+
+  it('has none for a column folded away, and the other column has the room it left (polish.26)', () => {
+    expect(columnRoom(columnLayout(DEFAULT, set({ filesHidden: true })), 'files')).toBeNull();
+    expect(columnRoom(columnLayout(DEFAULT, set({ sideHidden: true })), 'side')).toBeNull();
+    // Beside the panel's 7 px edge strip, the list may take all but the prose's 480 px.
+    expect(room(DEFAULT, 'files', set({ sideHidden: true }))).toEqual({
+      column: 'files',
+      width: DEFAULT,
+      current: 230,
+      min: 150,
+      max: DEFAULT - PROSE_MIN - EDGE_STRIP_WIDTH
+    });
+    // In the smallest window at 100% the list folded away leaves the panel its
+    // usual 240 px, and room to move: neither had to give way.
+    const side = room(SMALL, 'side', set({ filesHidden: true }));
+    expect(side).toMatchObject({ current: 240, min: 200, max: SMALL - PROSE_MIN - EDGE_STRIP_WIDTH });
     expect(columnMovable(side)).toBe(true);
   });
 
@@ -205,19 +230,39 @@ describe('what the page draws during a drag and writes', () => {
   });
 
   it("draws the dragged column at the drag's width and the other where it is set", () => {
-    const saved: ColumnShares = { files: null, side: 0.3 };
+    const saved = set({ side: 0.3 });
     const live = columnLiveShares(saved, 'files', 0.217697);
-    expect(live).toEqual({ files: 0.217697, side: 0.3 });
+    expect(live).toEqual(set({ files: 0.217697, side: 0.3 }));
     const before = columnLayout(DEFAULT, saved);
     const during = columnLayout(DEFAULT, live ?? saved);
     expect(during.filesWidth).toBe(310);
     expect(during.sideWidth).toBe(before.sideWidth);
     expect(before.sideWidth).toBe(427);
-    expect(columnLiveShares({ files: 0.2, side: null }, 'side', 0.25)).toEqual({ files: 0.2, side: 0.25 });
+    expect(columnLiveShares(set({ files: 0.2 }), 'side', 0.25)).toEqual(set({ files: 0.2, side: 0.25 }));
+    // A column folded away stays folded away while the other is dragged (polish.26).
+    expect(columnLiveShares(set({ sideHidden: true }), 'files', 0.25)).toEqual(
+      set({ files: 0.25, sideHidden: true })
+    );
     // Back where it started, the columns are laid out from settings.
     expect(columnLiveShares(saved, 'files', null)).toBeNull();
     // Settings' own object is left as it is.
-    expect(saved).toEqual({ files: null, side: 0.3 });
+    expect(saved).toEqual(set({ side: 0.3 }));
+  });
+});
+
+describe('what a caret says, and which way it points (polish.26)', () => {
+  it('folds a column away from its handle and brings it back from the edge strip, in the plan words', () => {
+    expect(columnCaretText('files', false)).toBe('Hide the chapter list');
+    expect(columnCaretText('side', false)).toBe('Hide the side panel');
+    expect(columnCaretText('files', true)).toBe('Show the chapter list');
+    expect(columnCaretText('side', true)).toBe('Show the side panel');
+  });
+
+  it("points at the window's edge on the handle, and in from it on the edge strip", () => {
+    expect(columnCaretPoints('files', false)).toBe('left');
+    expect(columnCaretPoints('side', false)).toBe('right');
+    expect(columnCaretPoints('files', true)).toBe('right');
+    expect(columnCaretPoints('side', true)).toBe('left');
   });
 });
 
@@ -259,7 +304,12 @@ describe('what a handle says', () => {
 describe('properties', () => {
   const width = fc.double({ min: 300, max: 4000, noNaN: true });
   const share = fc.option(fc.double({ min: 0.000001, max: 0.999999, noNaN: true }), { nil: null });
-  const shares: fc.Arbitrary<ColumnShares> = fc.record({ files: share, side: share });
+  const shares: fc.Arbitrary<ColumnShares> = fc.record({
+    files: share,
+    side: share,
+    filesHidden: fc.boolean(),
+    sideHidden: fc.boolean()
+  });
   const column = fc.constantFrom<Column>('files', 'side');
   const target = fc.double({ min: -1000, max: 5000, noNaN: true });
 
@@ -290,11 +340,11 @@ describe('properties', () => {
         const drawn = (l: ColumnLayout, col: Column): number =>
           col === 'files' ? l.filesWidth : l.sideWidth;
         const other: Column = c === 'files' ? 'side' : 'files';
-        // Both columns drawn at the widths set (step 1), or the list folded (step 3).
+        // Both columns drawn at the widths set, or folded away (step 1), or the list folded (step 3).
         const asSet =
           layout.files === 'strip' ||
-          (layout.filesWidth === keptWidth(FILES_WIDTHS, kept.files, w) &&
-            layout.sideWidth === keptWidth(SIDE_WIDTHS, kept.side, w));
+          ((layout.files === 'hidden' || layout.filesWidth === keptWidth(FILES_WIDTHS, kept.files, w)) &&
+            (layout.side === 'hidden' || layout.sideWidth === keptWidth(SIDE_WIDTHS, kept.side, w)));
         if (asSet) {
           expect(drawn(after, c)).toBe(next);
           expect(drawn(after, other)).toBe(drawn(layout, other));

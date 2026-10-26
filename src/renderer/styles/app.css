@@ -16,6 +16,11 @@
   --ink: #23201c;
   --ink-soft: #6d675e;
   --ink-faint: #8a8378;
+  /* A decided row's words in the suggestions list (polish.24): a step fainter
+     than --ink-soft, halfway to --ink-faint, so a row that is done reads as
+     done. Under the 4.5:1 of text and held to the 3:1 of faint text, by the
+     author's choice (themeContrast.test.ts names the exception). */
+  --ink-done: #7c756b;
   /* blue for text, links and small marks: a commented paragraph's number, the
      information card's edge, the spinner, the open editor's border and glow */
   --accent: #3b5bdb;
@@ -62,6 +67,10 @@
   --warn-border: #e5d49a;
   --danger-bg: #fdeceb;
   --editor-bg: #fbfaff;
+  /* Full edit's sheet while its text has the focus (rr.7): the edge in a
+     faint blue, --accent three quarters of the way from the sheet, 3:1 on the
+     column and on the sheet, where Preview's sheet keeps --border. */
+  --sheet-focus: #6c84e3;
 
   /* Selected text (polish.1): a turquoise laid over whatever the text sits
      on, translucent, so what lies under the text shows through it. Two
@@ -104,11 +113,6 @@
      (polish.14), a color-mix() share: faint enough that the row reads as
      done, under 3:1 by the author's choice (themeContrast.test.ts). */
   --row-fade: 35%;
-  /* A decided row of the suggestions list (polish.20): shaded as a row under
-     the pointer is, and a step further under the pointer, as far as its
-     --ink-soft words keep 4.5:1 on it. */
-  --row-decided-bg: var(--panel-alt);
-  --row-decided-hover-bg: #ebe7df;
 
   --font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-prose: Literata, Georgia, 'Times New Roman', serif;
@@ -152,6 +156,8 @@
     --ink: #ebe6dc;
     --ink-soft: #bdb5a8;
     --ink-faint: #968e82;
+    /* halfway from --ink-soft to --ink-faint, as in light */
+    --ink-done: #aaa295;
     --accent: #9db1ff;
     /* the icon's dots, with near-black text on them (theme.12); hover and
        press take the icon's rim a fifth and half of the way down */
@@ -187,6 +193,8 @@
     --warn-border: #5c4a22;
     --danger-bg: #3a1f1c;
     --editor-bg: #20222b;
+    /* --accent a little over halfway from the sheet, 3:1 on the column and the sheet */
+    --sheet-focus: #67719a;
 
     /* deep turquoises of the icon's dots' hue: #0d4e51 over the page, and the
        prose's faint band #162725 */
@@ -211,9 +219,6 @@
     --tint-small: 16%;
     --tint-small-hover: 26%;
     --row-fade: 35%;
-    /* lighter, as the dark hover is, by about light's step */
-    --row-decided-bg: var(--panel-alt);
-    --row-decided-hover-bg: #34302b;
 
     /* each category's own colour, on the same hues as in light (polish.16) */
     --cat-spelling: #ff7b72;
@@ -457,19 +462,6 @@ button.primary ::selection,
   border-bottom-right-radius: 3px;
 }
 
-/* Full edit's box (rr.2), a field that scrolls and cannot be made taller. */
-.fulledit__area::-webkit-scrollbar {
-  border-radius: 0 4px 4px 0;
-}
-
-.fulledit__area::-webkit-scrollbar-button:single-button:vertical:decrement {
-  border-top-right-radius: 4px;
-}
-
-.fulledit__area::-webkit-scrollbar-button:single-button:vertical:increment {
-  border-bottom-right-radius: 4px;
-}
-
 .paste-field textarea::-webkit-scrollbar,
 .editor__area::-webkit-scrollbar,
 .paste-field textarea::-webkit-scrollbar-button:single-button:vertical:decrement,
@@ -579,11 +571,12 @@ input[type='text'] {
 }
 
 /* The one bar at the top (polish.10). The row wraps, as the status bar does:
-   when the buttons and the category chips at their narrowest (.chips-bar) do
-   not fit, zoomed in or with a review's progress showing in a narrow window,
-   the last buttons move to a second row on the right rather than running out
-   of the window (apply.4). The chips themselves never wrap. With no chips the
-   buttons keep the right end. */
+   when the Mode select (rr.6), the buttons and the category chips at their
+   narrowest (.chips-bar) do not fit, zoomed in or with a review's progress
+   showing in a narrow window, the last buttons move to a second row on the
+   right rather than running out of the window (apply.4). The chips
+   themselves never wrap. With no chips the buttons keep the right end and
+   the Mode select the left. */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -606,6 +599,21 @@ input[type='text'] {
   white-space: nowrap;
 }
 
+/* Full screen, before Settings (polish.23): an icon button the eye's size,
+   round a 16 px pair of arrows, 30 by 26 CSS px at 100%. */
+.toolbar__full-screen {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  color: var(--ink-soft);
+}
+
+.toolbar__full-screen svg {
+  display: block;
+}
+
 /* Changes not saved to the chapter, before each such chapter's name in the
    chapter list (apply.5). The open chapter's is a dot in the window's title
    since polish.10, where it was one of these before the name in the toolbar
@@ -624,9 +632,13 @@ input[type='text'] {
    to the side panel's column, so it never meets the notification cards or the
    find bar beside it; it may cover the top of the side panel, and the find
    bar's last buttons where a narrow centre column lets them spill into the
-   side panel's (PLAN 7). Got it is the way out.
-   SaveHint.tsx sets `left`, `width` and the arrow's place from
-   `saveHintPlacement`, and it stays hidden until then, like the hover card.
+   side panel's (PLAN 7). Got it is the way out. With the side panel folded
+   or folded away it hangs over the prose's top right, where the cards are
+   pinned, and where it would meet them it hangs below them, 8 px under the
+   stack (the cards' own gap), without its arrow.
+   SaveHint.tsx sets `left`, `width`, the arrow's place, and `top` below the
+   cards, from `saveHintPlacement`, and it stays hidden until then, like the
+   hover card.
    Under the notification cards (12), so a card wins should the two ever meet,
    above the page's unpositioned content, and under the menus (30), every
    dialog's backdrop (39) and the hover card (40). */
@@ -883,6 +895,77 @@ input[type='text'] {
   background: var(--border);
 }
 
+/* The caret at the top of each handle (polish.26): a button the band's own
+   width and 24 px tall, 8 px from the column's top, beside the first row of
+   the list and the panel, with a chevron pointing at the window's edge that
+   folds the column away. Like the band, it lies over the column's border and
+   the 6 px beside it with no scrollbar, the prose's top left for the chapter
+   list and the side panel's padding for the panel, and draws its chevron in
+   those 6 px in the faint grey of the grip. Under the pointer the line
+   darkens as the band's does, beside a shade of the hovered button's. Above
+   the band (1), so it takes the press, and under the drawers (10). */
+.column-caret {
+  position: absolute;
+  top: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 7px;
+  height: 24px;
+  padding: 0 0 0 1px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--ink-faint);
+}
+
+.column-caret--files {
+  left: calc(var(--files-col) - 1px);
+}
+
+.column-caret--side {
+  right: calc(var(--side-col) - 7px);
+}
+
+button.column-caret:hover {
+  border-left: 1px solid var(--border-strong);
+  padding-left: 0;
+  background: var(--panel-alt);
+  color: var(--ink-soft);
+}
+
+/* A column folded away (polish.26): the edge strip, one button the height of
+   the column and as wide as the handle, in the column's own colours with its
+   border on the inner side, and the caret at the top where the handle had
+   it, pointing in. The whole strip brings the column back. */
+.column-edge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 15px 0 0;
+  overflow: hidden;
+  border: none;
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--ink-faint);
+}
+
+.column-edge--files {
+  border-right: 1px solid var(--border);
+}
+
+.column-edge--side {
+  border-left: 1px solid var(--border);
+}
+
+button.column-edge:hover {
+  background: var(--panel-alt);
+  color: var(--ink-soft);
+}
+
 /* While a handle is dragged, the pointer keeps its col-resize shape over
    whatever it crosses, and nothing is selected. */
 :root.column-resizing,
@@ -1087,6 +1170,71 @@ input[type='text'] {
 }
 
 /* ---------- filter chips ---------- */
+
+/* The Mode select (rr.6): Main, Full edit or Preview, the toolbar's first
+   item, before the eye. It is drawn at the chips' step: each step's rules
+   give its words the chips' type, the gap between them the chips' gap
+   ([data-chip-step] below), and the select a chip's padding and height, so
+   the two shrink together in a narrow window before the chips' row
+   overflows (`chipsStep`). Its width at every step is measured from its copy
+   beside the chips' (.chips__measure), so it takes its words' width
+   (`max-content`) there as here. With no chips the auto margin keeps it at
+   the left end; beside the chips' bar, which grows into all the room, the
+   margin has none to take. */
+.mode-select {
+  flex: none;
+  display: flex;
+  align-items: center;
+  width: max-content;
+  margin-right: auto;
+  white-space: nowrap;
+}
+
+.mode-select__label {
+  color: var(--ink-soft);
+}
+
+/* A chip's height is its line, its padding and its 1 px border, above and
+   below. Chromium draws a select on a normal line whatever its line-height,
+   and with a chip's padding it stood 1 or 2 px taller than the chip at every
+   step, so the height is set: on the steps whose chips have a normal line,
+   that line (1lh, the select's own, in the same type) and 6 px; on the two
+   with a 16 px line, 20 px. */
+.mode-select[data-chip-step='0'] {
+  font-size: 13px;
+}
+
+.mode-select[data-chip-step='0'] .mode-select__field {
+  height: calc(1lh + 6px);
+  padding: 2px 8px;
+}
+
+.mode-select[data-chip-step='1'] {
+  font-size: 12.5px;
+}
+
+.mode-select[data-chip-step='1'] .mode-select__field {
+  height: calc(1lh + 6px);
+  padding: 2px 7px;
+}
+
+.mode-select[data-chip-step='2'] {
+  font-size: 12px;
+}
+
+.mode-select[data-chip-step='2'] .mode-select__field {
+  height: 20px;
+  padding: 1px 6px;
+}
+
+.mode-select[data-chip-step='3'] {
+  font-size: 11.5px;
+}
+
+.mode-select[data-chip-step='3'] .mode-select__field {
+  height: 20px;
+  padding: 1px 5px;
+}
 
 /* In the toolbar's row, where the chapter's name was before it moved to the
    window's title (polish.10): the eye, then the chips (polish.11). The bar
@@ -2666,7 +2814,8 @@ input[type='text'] {
   color: var(--danger);
 }
 
-/* Settings (polish.4): three sections under hairlines, as About's are. The
+/* Settings (polish.4): four sections under hairlines, as About's are (App,
+   above Review since polish.22, Review, Folders and Accounts). The
    box still scrolls in a short window, between its head (the title and any
    message) and its foot (the welcome guide, About and Done), which stay in
    view, each with a hairline on its inner side; the scroll padding keeps a
@@ -3466,27 +3615,15 @@ button.help {
   padding-right: 2px;
 }
 
+/* Every row, pending or decided, is on the list's --panel at rest and
+   --panel-alt under the pointer. polish.20 shaded a decided row as a row
+   under the pointer is; polish.24 took the shade away at the author's word
+   ("I'm not a fan of the entire suggestion row getting grayed out"), so a
+   decided row says so by its fainter words and its buttons alone. Under the
+   pointer a row takes the hover's step, focused or not, as .row:hover (a
+   class and a pseudo-class) outweighs .row--focused. */
 .row:hover {
   background: var(--panel-alt);
-}
-
-/* A decided row, accepted or dismissed alike (polish.20, the author: "at a
-   glance, it's not super easy to tell which rows are complete"): shaded as
-   a row under the pointer is, and a step further under the pointer. Its
-   words are --ink-soft, its decision's button bold in its colour and the
-   other two faded (below). The focused row keeps --focus-bg, as this rule
-   comes first; under the pointer a row takes the hover's step, focused or
-   not, as before. The step under the pointer must come after .row:hover,
-   which weighs the same (a class and a pseudo-class): above it, a decided
-   row under the pointer would stay on its shade, the hover's grey. */
-.row--accepted,
-.row--dismissed {
-  background: var(--row-decided-bg);
-}
-
-.row--accepted:hover,
-.row--dismissed:hover {
-  background: var(--row-decided-hover-bg);
 }
 
 .row--focused {
@@ -3530,12 +3667,14 @@ button.help {
 }
 
 /* Matches the page: a decided suggestion is grey, not green (item 5). Since
-   polish.20 a dismissed one is --ink-soft too, where it was --ink-faint,
-   which is under 4.5:1 on the shaded row; its line through it says
+   polish.24 its words, accepted or dismissed alike, are --ink-done, a step
+   fainter than the --ink-soft polish.20 gave them both, as the author asked
+   ("make the text more faded a little"): under 4.5:1 and held to 3:1 by his
+   choice (themeContrast.test.ts). A dismissed one's line through it says
    dismissed. */
 .row--accepted .row__text,
 .row--dismissed .row__text {
-  color: var(--ink-soft);
+  color: var(--ink-done);
 }
 
 /* The tag of the chip a row's suggestion is under (polish.12), in place of
@@ -3631,12 +3770,13 @@ button.help {
   height: 16px;
 }
 
-/* A pending row's three buttons (polish.20): --ink-soft, 4.5:1 on the row at
-   rest, under the pointer and focused, where --ink-faint (3:1) made a row
-   still waiting look nearly as quiet as a decided one. The focused
-   suggestion's pencil, on no row, keeps --ink-faint. */
+/* A pending row's three buttons: in --ink, the colour of the row's own words,
+   in both themes (polish.24; the author found polish.20's --ink-soft "kind of
+   muddy" in light), where --ink-faint (3:1) made a row still waiting look
+   nearly as quiet as a decided one. The focused suggestion's pencil, on no
+   row, keeps --ink-faint. */
 .row--pending .row__act {
-  color: var(--ink-soft);
+  color: var(--ink);
 }
 
 .row__act:hover:not(:disabled) {
@@ -3652,8 +3792,9 @@ button.help {
    reads as done; they are under 3:1 at rest by the author's choice, and come
    back as any row button, --ink on --border, under the pointer, and --ink
    with the focus ring when the keyboard brings the focus to one
-   (themeContrast.test.ts). Since polish.20 they sit on the decided row's
-   shade, where they keep the same band. */
+   (themeContrast.test.ts). polish.20 put them on a decided row's shade;
+   since polish.24 they are on the row's own backgrounds again, measured
+   there. */
 .row__act--accepted,
 .row__act--accepted:hover:not(:disabled) {
   color: var(--accept-strong);
@@ -4149,77 +4290,140 @@ button.help {
 
 /* ---------- modes (rr.2) ---------- */
 
-/* The Mode select at the top right of the prose column, inside it and above
-   the prose, where the author's screenshot put it; the toolbar stays as it
-   was. Its strip has the page's own colour, so the select reads as standing
-   at the top of the page, and the find bar, the notification cards and the
-   lock card keep the wrapper under it as theirs. */
-.modebar {
-  flex: 0 0 auto;
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 16px 0;
-  background: var(--bg);
+/* The Mode select is the toolbar's first item since rr.6 (.mode-select, with
+   the filter chips); from rr.2 it stood on a strip of its own at the top
+   right of the prose column, above the prose. */
+
+/* Full edit (rr.7): Preview's page, editable. The sheet is Preview's
+   (.preview__page, below): its paper and frame, its measure, 66 characters of
+   the prose's typeface at most, and its margins, 32 px above and below the
+   text and 40 px beside it, centred in the column with 40 px of padding on
+   each side, as Preview's page is (rr.4). The text area has no border of its
+   own and is on the sheet's paper: it fills the sheet, carries the sheet's
+   margins as its padding, so a click anywhere on the sheet puts the caret
+   there, and grows with the text (`field-sizing: content`), so the column
+   scrolls, as Preview's does, rather than the area. The frontmatter stands
+   above the sheet, as before, and the foot, with Done, under the scroller
+   (FullEditFoot), so it never scrolls away. Until rr.7 the text was a
+   bordered box the height of the column that scrolled itself.
+
+   The column is a block here, so the sheet's column is at least the
+   scroller's height and grows with the text. The scroller keeps its bar's
+   gutter whether it scrolls or not, as the foot does, so the foot's row
+   stands exactly under the sheet at every zoom (scrollbar-gutter); a short
+   chapter's sheet is half a gutter, 8 px at 100%, left of where Preview's
+   page would be. */
+.center--edit {
+  display: block;
+  scrollbar-gutter: stable;
+  /* As the caret runs past the column's top or foot, the column brings its
+     whole line into view with a little room beside it, where Chromium would
+     stop with the caret itself at the edge and its line cut. Under it the
+     room is the sheet's bottom margin, its edge and the column's padding (32,
+     1 and 16 px), so the sheet's foot shows with the caret on the last line,
+     as when typing at the end; at most a quarter of the column, so one a few
+     lines tall still has room for the caret's line. Ctrl+Home and Ctrl+End,
+     and Page Up and Page Down at the start or the end of the text, go the
+     rest of the way to the page's ends (showPageEnd in FullEdit.tsx). */
+  scroll-padding-block: 16px min(49px, 25%);
 }
 
-.modebar__label {
-  color: var(--ink-soft);
-}
-
-/* Full edit: the whole chapter in one box, the height of the column. The box
-   takes what the frontmatter above it and the foot under it leave and
-   scrolls itself; where the column is too short for 12em of it, the column
-   scrolls instead. The measure is the prose's, 66 characters of the prose's
-   typeface; the font size set here is what the measure is counted in.
-
-   The box is centred in the column, with the same margin on each side
-   (rr.4): Full edit has no margin notes, so it keeps none of Main's room
-   for them. At most 66ch of text, 26 px of the box's padding and border and
-   40 px of padding on each side; `margin: 0 auto` shares out the rest. */
+/* The frontmatter and the sheet: Preview's page's width, at most 66ch of the
+   prose's typeface and its 82 px of margins and frame, with the column's
+   padding beside it. */
 .fulledit {
-  flex: 1 1 auto;
-  min-width: 0;
   width: 100%;
-  max-width: calc(66ch + 106px);
+  max-width: calc(66ch + 162px);
+  min-height: 100%;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 40px 16px;
+  padding: 16px 40px;
   font-family: var(--font-prose);
   font-size: 17px;
 }
 
 .body--narrow .fulledit {
+  max-width: calc(66ch + 114px);
   padding-left: 16px;
   padding-right: 16px;
 }
 
 .fulledit__frontmatter {
   flex: 0 0 auto;
-  margin: 0;
+  margin: 0 0 12px;
 }
 
-/* The paragraph box's look, with the browser's own focus ring. Its background
-   is opaque for LCD text while it scrolls (C.48). */
+/* At least the column's height less the frontmatter, so a short chapter
+   still has a page, and taller with a longer one. */
+.fulledit__page {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+/* The focus is the caret and the sheet's edge, a faint blue at 3:1 on the
+   column and on the sheet, rather than the browser's ring, which round a
+   field that fills the sheet would be the bordered box rr.7 took away
+   (CLAUDE.md's exceptions to the ring; themeContrast.test.ts). */
+.fulledit__page:focus-within {
+  border-color: var(--sheet-focus);
+}
+
+/* The sheet's paper, so no box shows inside it. It grows with the text and
+   never has anything to scroll, but it stays a scroller as a text area is
+   by default: Chromium moves the caret a page at Page Down and Page Up only
+   in a text area that can scroll, and with `overflow: hidden` the keys
+   scrolled the column and left the caret where it was. Its background is
+   opaque, as every scroller's is (C.48). */
 .fulledit__area {
-  flex: 1 1 auto;
-  min-height: 12em;
+  flex: 1 0 auto;
+  display: block;
   width: 100%;
-  font: inherit;
-  line-height: 1.75;
-  padding: 10px 12px;
-  border: 1px solid var(--accent);
-  border-radius: 5px;
-  background: var(--editor-bg);
+  min-height: 12em;
+  margin: 0;
+  padding: 32px 40px;
+  border: 0;
+  border-radius: 0;
+  background: var(--panel);
   color: var(--ink);
+  font: inherit;
+  line-height: 1.6;
   resize: none;
+  overflow: auto;
+  field-sizing: content;
 }
 
+.fulledit__area:focus {
+  outline: none;
+}
+
+/* Under the scroller, on the column's colour: its row as wide as the sheet
+   and under it, the sheet's width counted in the prose's typeface, as the
+   sheet's is, and the scroller's gutter kept on the right, as the scroller
+   keeps it, so the two line up whether the column scrolls or not. */
 .fulledit__foot {
   flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, calc(66ch + 82px));
+  justify-content: center;
+  padding: 8px 40px 12px;
+  overflow: hidden;
+  scrollbar-gutter: stable;
+  background: var(--bg);
+  font-family: var(--font-prose);
+  font-size: 17px;
+}
+
+.body--narrow .fulledit__foot {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+/* The hint, then Cancel and Done on the right. */
+.fulledit__foot-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -4235,7 +4439,7 @@ button.help {
   font-size: 11px;
 }
 
-.fulledit__foot > button:first-of-type {
+.fulledit__foot-row > button:first-of-type {
   margin-left: auto;
 }
 
@@ -4243,8 +4447,9 @@ button.help {
    judge it by, with nothing of theirs fetched: a sheet with its paragraphs a
    line and a fifth apart and a tight block's lines together, in the prose's
    serif, as the author's own converter previewed it. The sheet is centred in
-   the column as Full edit's box is (above, rr.4), its text at the prose's
-   measure at most: 66ch, with 80 px of padding and 2 px of frame. */
+   the column (rr.4), its text at the prose's measure at most: 66ch, with 80
+   px of padding and 2 px of frame. Full edit draws the same sheet, editable
+   (above, rr.7). */
 .preview {
   flex: 1 1 auto;
   min-width: 0;
@@ -4899,6 +5104,86 @@ button.help {
 
 .update-overlay__head h2 {
   margin: 0;
+}
+
+/* Focus mode's overlay (focus.1) covers everything, a question (45) and
+   Restart now's overlay (44) included, the window darkened under it as under
+   a dialog. Its box holds the count in a ring that fills while F11 or Escape
+   is held, in the lock card's spinner's colours, then the words, centred. */
+.modal-backdrop--focus {
+  z-index: 50;
+}
+
+.focus-overlay {
+  width: 360px;
+  padding: 22px 24px 20px;
+  text-align: center;
+}
+
+.focus-overlay__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.focus-overlay__ring {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin-bottom: 14px;
+}
+
+.focus-overlay__ring svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.focus-overlay__track,
+.focus-overlay__arc {
+  stroke-width: 8;
+}
+
+.focus-overlay__track {
+  stroke: var(--border);
+}
+
+.focus-overlay__arc {
+  stroke: var(--accent);
+}
+
+.focus-overlay__count {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.focus-overlay h2 {
+  margin: 0 0 6px;
+}
+
+.focus-overlay__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+/* Settings' Focus mode row (focus.1): the box, then the hold time in the
+   words of the hold, wrapping in a narrow box rather than overflowing. */
+.settings__focus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
 }
 
 /* The Setup screen's last line: the app's name and version. */

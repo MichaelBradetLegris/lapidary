@@ -13,7 +13,10 @@
  * is drawn. In a window too narrow for the widths set, the columns give way
  * and fold as `columnLayout` says (ui.3); a folded column has no handle, and
  * one that could move less than an arrow step is no control, as the split's
- * is not (C.59).
+ * is not (C.59). A column folded away by the caret at the top of its handle
+ * (polish.26) has no handle either, and the other column has the room it
+ * left; what the carets say and which way they point are here too
+ * (`columnCaretText`, `columnCaretPoints`).
  *
  * Pure (CLAUDE.md rule 4). The page draws the handles and follows the pointer
  * and the keys (`src/renderer/state/columnHandles.ts`); what it draws during a
@@ -184,6 +187,27 @@ export interface ColumnHandleText {
 /** The tooltip of a handle that cannot move an arrow step (`columnMovable`). */
 export const COLUMN_TITLE_STILL =
   'The window is too narrow to move this line. Make the window wider, or zoom out, to give it room.';
+
+/**
+ * What a column's caret says (polish.26), as its accessible name and its
+ * tooltip: on the handle, which folds the column away, "Hide the chapter
+ * list"; on the edge strip, which brings it back, "Show the chapter list"
+ * ("the side panel" for the other).
+ */
+export function columnCaretText(column: Column, hidden: boolean): string {
+  return `${hidden ? 'Show' : 'Hide'} the ${COLUMN_NAMES[column]}`;
+}
+
+/**
+ * Which way a column's caret points: at the window's edge on the handle,
+ * where it folds the column away, and in from it on the edge strip, where it
+ * brings the column back.
+ */
+export function columnCaretPoints(column: Column, hidden: boolean): 'left' | 'right' {
+  const outward = column === 'files' ? 'left' : 'right';
+  if (!hidden) return outward;
+  return outward === 'left' ? 'right' : 'left';
+}
 
 /** A handle's name and tooltip, by column and whether it can move. */
 export function columnHandleText(column: Column, still: boolean): ColumnHandleText {

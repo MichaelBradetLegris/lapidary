@@ -6,7 +6,6 @@ import {
   mixWithTransparent,
   over,
   parseColour,
-  relativeLuminance,
   toHex,
   type Rgb
 } from '../helpers/contrast';
@@ -28,14 +27,13 @@ const HIGHLIGHTS = ['--focus-bg', '--selected-bg', '--find-bg', ...PARAGRAPHS];
 /** What a suggestion's words can sit on: the page, an active or flashing paragraph, the focus. */
 const UNDER_SUGGESTIONS = ['--bg', ...PARAGRAPHS, '--focus-bg'];
 const FILLS = ['--accent-fill', '--accent-hover', '--accent-active'];
-/** What a pending row of the suggestions list sits on: the list at rest, the row under the pointer, the focused row (polish.12). */
-const ROWS = ['--panel', '--panel-alt', '--focus-bg'];
 /**
- * What a decided row sits on since polish.20: its shade at rest, a step
- * further under the pointer (focused or not, as any row under the pointer
- * takes the hover's step), and the focused row's yellow.
+ * What a row of the suggestions list sits on, pending or decided: the list at
+ * rest, the row under the pointer, the focused row (polish.12). polish.20 gave
+ * a decided row a shade of its own and a step further under the pointer;
+ * polish.24 took them away, so a decided row is on these three again.
  */
-const DECIDED_ROWS = ['--row-decided-bg', '--row-decided-hover-bg', '--focus-bg'];
+const ROWS = ['--panel', '--panel-alt', '--focus-bg'];
 /** The two colours of a decided row's own button (polish.12): the accepted tick and the dismissed x. */
 const DECIDED = ['--accept-strong', '--danger'];
 
@@ -178,16 +176,10 @@ const TEXT_PAIRS: Pair[] = [
     why: "a suggestion row's tag, on its own --panel fill whatever the row's background (polish.12)"
   })),
   ...ROWS.map((on) => ({
-    ink: '--ink-soft',
+    ink: '--ink',
     on,
     min: 4.5,
-    why: "a pending row's buttons, on the row at rest, hovered and focused, where they were --ink-faint at 3:1 (polish.20)"
-  })),
-  ...DECIDED_ROWS.map((on) => ({
-    ink: '--ink-soft',
-    on,
-    min: 4.5,
-    why: "a decided row's words, accepted or dismissed, on its shade, a step further under the pointer, and focused (polish.20)"
+    why: "a pending row's buttons in its words' --ink, on the row at rest, hovered and focused (polish.24; --ink-soft from polish.20, --ink-faint at 3:1 before)"
   }))
 ];
 
@@ -217,18 +209,30 @@ const FAINT_PAIRS: Pair[] = [
     min: 3,
     why: "a scrollbar's arrows, at rest and under the pointer, and a field's resize handle beside a bar (polish.2)"
   })),
-  ...each(DECIDED, [...DECIDED_ROWS, '--border', '--panel']).map(([ink, on]) => ({
+  ...each(DECIDED, [...ROWS, '--border']).map(([ink, on]) => ({
     ink,
     on,
     min: 3,
-    why: "a decided row's own button, the accepted tick or the dismissed x, on the decided row at rest, hovered and focused (polish.20), under the pointer on the button's --border (polish.12), and the legend's tick on --panel"
+    why: "a decided row's own button, the accepted tick or the dismissed x, on the row at rest (and the legend's tick on --panel), hovered and focused, and under the pointer on the button's --border (polish.12)"
+  })),
+  ...ROWS.map((on) => ({
+    ink: '--ink-done',
+    on,
+    min: 3,
+    why: "a decided row's words, accepted or dismissed, on the row at rest, hovered and focused: faint text by the author's choice, the third exception below (polish.24)"
   })),
   {
     ink: '--ink',
     on: '--border',
     min: 3,
     why: "a row button under the pointer, a decided row's faded ones among them, which come back there (polish.14)"
-  }
+  },
+  ...['--bg', '--panel'].map((on) => ({
+    ink: '--sheet-focus',
+    on,
+    min: 3,
+    why: "Full edit's sheet's edge while its text has the focus, on the column outside it and the sheet inside it: with the caret, the focus's one mark, in place of the browser's ring (rr.7, CLAUDE.md's fourth exception to the ring)"
+  }))
 ];
 
 /**
@@ -280,13 +284,13 @@ function outOfBand(scheme: Scheme, bands: Band[]): string[] {
  * "barely looks any different". On a decided row the two buttons not chosen
  * keep `--row-fade` of `--ink-faint`, painted as color-mix() paints it over
  * the row at rest, hovered and focused: 1.48, 1.43 and 1.45:1 in light, 1.74,
- * 1.71 and 1.54 in dark, near the scrollbar thumb's 1.4. Since polish.20 a
- * decided row has a shade of its own, `--row-decided-bg` at rest and
- * `--row-decided-hover-bg` under the pointer, and the fade is measured there:
- * 1.43, 1.41 and 1.44:1 in light, 1.70, 1.66 and 1.54 in dark. Under the
- * pointer they come back as any row button, `--ink` on `--border` (a pair
- * above at 3:1), and with the keyboard's focus as `--ink` on the row (a text
- * pair). The exception names this ink, this share and the decided row's three
+ * 1.71 and 1.54 in dark, near the scrollbar thumb's 1.4. polish.20 gave a
+ * decided row a shade of its own and measured the fade there (1.43, 1.41 and
+ * 1.44:1 in light, 1.70, 1.66 and 1.54 in dark); polish.24 took the shade
+ * away, so the fade is measured on the row's own three backgrounds again.
+ * Under the pointer they come back as any row button, `--ink` on `--border`
+ * (a pair above at 3:1), and with the keyboard's focus as `--ink` on the row
+ * (a text pair). The exception names this ink, this share and the row's three
  * backgrounds and no other, and pins each ratio to a band, so the fade can
  * neither vanish nor creep back towards the grey it fades from.
  */
@@ -301,7 +305,7 @@ interface Fade {
 const FADE_EXCEPTION: Fade = {
   ink: '--ink-faint',
   share: '--row-fade',
-  on: DECIDED_ROWS,
+  on: ROWS,
   min: 1.35,
   max: 1.9
 };
@@ -321,40 +325,45 @@ function fadeOutOfBand(scheme: Scheme, { ink, share, on, min, max }: Fade): stri
 }
 
 /**
- * polish.20 (the author: "at a glance, it's not super easy to tell which rows
- * are complete and which are not"): a decided row is shaded a step off the
- * panel, the way a row under the pointer is (darker in light, lighter in
- * dark), and a step further under the pointer. Each step is held to a
- * difference the eye sees between two flat patches side by side, CIE76 2.3,
- * the shade at rest to more; the words' 4.5:1 above keeps it from going far.
+ * polish.24: the third exception, and the one for text, by the author's choice
+ * (2026-10-26: "when something is selected, for both light/dark, can we lower
+ * the text contrast again? As in, make the text more faded a little"). A
+ * decided row's words, accepted or dismissed, are `--ink-done`, a step fainter
+ * than the `--ink-soft` polish.20 gave them, halfway to `--ink-faint`: on the
+ * row at rest, hovered and focused 4.48, 3.93 and 4.08:1 in light and 6.28,
+ * 5.66 and 4.13 in dark, so under the 4.5:1 of text on all three in light and
+ * on the focused row in dark. They are held to the 3:1 of faint text (a pair
+ * above). The exception names this token and the row's three backgrounds and
+ * no other, and holds each ratio between that floor and a step under
+ * `--ink-soft`'s on the same background (`--ink-soft` stands 1.23 times above
+ * the words in light and 1.24 in dark), so the words can neither fade past
+ * 3:1 nor creep back to the soft ink unnoticed.
  */
-interface Shade {
-  rest: string;
-  hover: string;
+interface Done {
+  ink: string;
+  /** The ink the words are a step fainter than. */
+  than: string;
+  on: readonly string[];
+  /** The 3:1 of faint text. */
+  min: number;
+  /** How many times `than`'s ratio on each background stands above the words', at least. */
+  step: number;
 }
 
-const DECIDED_SHADE: Shade = { rest: '--row-decided-bg', hover: '--row-decided-hover-bg' };
-/** How far the shade at rest stands from the panel, and the hover from the shade, in CIE76. */
-const SHADE_APART = 3.5;
-const STEP_APART = 2.3;
+const DONE_EXCEPTION: Done = { ink: '--ink-done', than: '--ink-soft', on: ROWS, min: 3, step: 1.15 };
 
-function shadeProblems(scheme: Scheme, { rest, hover }: Shade): string[] {
-  const panel = opaque(scheme, '--panel');
-  const pointer = opaque(scheme, '--panel-alt');
-  const [r, h] = [opaque(scheme, rest), opaque(scheme, hover)];
-  const lum = relativeLuminance;
-  // The hover's way off the panel: darker in light, lighter in dark.
-  const way = Math.sign(lum(pointer) - lum(panel));
-  const problems: string[] = [];
-  if (Math.sign(lum(r) - lum(panel)) !== way)
-    problems.push(`${rest} ${toHex(r)} is not off --panel the hover's way`);
-  if (Math.sign(lum(h) - lum(r)) !== way)
-    problems.push(`${hover} ${toHex(h)} is not a step further than ${rest}`);
-  if (deltaE76(r, panel) < SHADE_APART)
-    problems.push(`${rest} ${toHex(r)}: ${deltaE76(r, panel).toFixed(1)} from --panel, under ${SHADE_APART}`);
-  if (deltaE76(h, r) < STEP_APART)
-    problems.push(`${hover} ${toHex(h)}: ${deltaE76(h, r).toFixed(1)} from ${rest}, under ${STEP_APART}`);
-  return problems;
+function doneOutOfBand(scheme: Scheme, { ink, than, on, min, step }: Done): string[] {
+  return on.flatMap((base) => {
+    const row = opaque(scheme, base);
+    const words = opaque(scheme, ink);
+    const ratio = contrastRatio(words, row);
+    const max = contrastRatio(opaque(scheme, than), row) / step;
+    return ratio >= min && ratio <= max
+      ? []
+      : [
+          `${ink} ${toHex(words)} on ${base} ${toHex(row)}: ${ratio.toFixed(2)}, not ${min} to ${max.toFixed(2)}, a step under ${than} (a decided row's words)`
+        ];
+  });
 }
 
 /**
@@ -600,13 +609,17 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
     // polish.16: thirteen categories where there were seven tokens (156, 75, 105 and 33 pairs).
     // polish.20: six text pairs more for the rows (246 before), and the decided buttons' pairs
     // on the decided row's backgrounds, where the pending buttons' 3:1 pairs went (111 before).
+    // polish.24: the decided words' three text pairs went to 3:1 as --ink-done (252 and 110
+    // before), and the decided buttons' pairs are on the row's own backgrounds again, the
+    // legend's tick on --panel among them. rr.7: Full edit's focus edge on the column
+    // and the sheet (111 before).
     expect(CATEGORIES).toHaveLength(13);
     expect([
       TEXT_PAIRS.length,
       FAINT_PAIRS.length,
       SELECTION_TEXT_PAIRS.length,
       SELECTION_FAINT_PAIRS.length
-    ]).toEqual([252, 110, 177, 57]);
+    ]).toEqual([249, 113, 177, 57]);
   });
 
   /* polish.12: the accepted tick "needs to pop a little more" (the author).
@@ -673,6 +686,22 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
       expect(tooClose(scheme)).toEqual([]);
     });
 
+    it(`draws Full edit's focus edge a faint blue in ${scheme}: 3:1 as a mark, fainter than --accent, plainer than --border (rr.7)`, () => {
+      // The 3:1 pairs are above. A faint edge rather than the old box's --accent border,
+      // and a plain step from the edge the sheet has without the focus.
+      for (const base of ['--bg', '--panel']) {
+        const on = opaque(scheme, base);
+        const edge = contrastRatio(opaque(scheme, '--sheet-focus'), on);
+        expect(edge, base).toBeLessThan(contrastRatio(opaque(scheme, '--accent'), on));
+        expect(edge, base).toBeGreaterThan(contrastRatio(opaque(scheme, '--border'), on) * 1.5);
+      }
+      // A blue, on --accent's hue within 15 degrees.
+      const hue = ({ r, g, b }: Rgb): number =>
+        (Math.atan2(Math.sqrt(3) * (g - b), 2 * r - g - b) * 180) / Math.PI;
+      const apart = Math.abs(hue(opaque(scheme, '--sheet-focus')) - hue(opaque(scheme, '--accent')));
+      expect(Math.min(apart, 360 - apart)).toBeLessThan(15);
+    });
+
     it(`keeps the scrollbar's thumb a shade off its gutter in ${scheme}, a mark under 3:1 (polish.2)`, () => {
       expect(outOfBand(scheme, THUMB_EXCEPTION)).toEqual([]);
       // Each state a step further from the track, and all three under the floor they are exempt from.
@@ -682,17 +711,27 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
       expect(Math.max(...ratios)).toBeLessThan(3);
     });
 
-    it(`fades a decided row's other buttons plainly in ${scheme}, the second mark under 3:1 (polish.14, on the decided row's shade since polish.20)`, () => {
+    it(`fades a decided row's other buttons plainly in ${scheme}, the second mark under 3:1 (polish.14, on the row's own backgrounds again since polish.24)`, () => {
       expect(fadeOutOfBand(scheme, FADE_EXCEPTION)).toEqual([]);
-      // The grey it fades from holds 3:1 on every decided row's background; faded, it is well under it.
-      for (const base of DECIDED_ROWS) {
+      // The grey it fades from holds 3:1 on every row background; faded, it is well under it.
+      for (const base of ROWS) {
         const row = opaque(scheme, base);
         expect(contrastRatio(opaque(scheme, '--ink-faint'), row), base).toBeGreaterThanOrEqual(3);
       }
     });
 
-    it(`shades a decided row a step off the panel, and a step further under the pointer, in ${scheme} (polish.20)`, () => {
-      expect(shadeProblems(scheme, DECIDED_SHADE)).toEqual([]);
+    it(`fades a decided row's words in ${scheme}, the third exception and the one for text, held to 3:1 (polish.24)`, () => {
+      expect(doneOutOfBand(scheme, DONE_EXCEPTION)).toEqual([]);
+      // Under the 4.5:1 of text on at least one of the row's backgrounds, or it would be no exception.
+      const ratios = ROWS.map((base) => contrastRatio(opaque(scheme, '--ink-done'), opaque(scheme, base)));
+      expect(Math.min(...ratios)).toBeLessThan(4.5);
+      // Fainter than the soft ink and the pending row's buttons and words, on every background.
+      for (const base of ROWS) {
+        const row = opaque(scheme, base);
+        expect(contrastRatio(opaque(scheme, '--ink-soft'), row), base).toBeGreaterThan(
+          contrastRatio(opaque(scheme, '--ink-done'), row)
+        );
+      }
     });
   }
 
@@ -702,37 +741,24 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
       expect(fadeOutOfBand(scheme, { ...FADE_EXCEPTION, share: '--tint-pending' })).toHaveLength(3);
     }
     const whole = SCHEMES.flatMap((scheme) =>
-      DECIDED_ROWS.map((base) => contrastRatio(opaque(scheme, '--ink-faint'), opaque(scheme, base)))
+      ROWS.map((base) => contrastRatio(opaque(scheme, '--ink-faint'), opaque(scheme, base)))
     );
     expect(Math.min(...whole)).toBeGreaterThan(FADE_EXCEPTION.max);
-    expect(FADE_EXCEPTION.on).toEqual(['--row-decided-bg', '--row-decided-hover-bg', '--focus-bg']);
+    expect(FADE_EXCEPTION.on).toEqual(['--panel', '--panel-alt', '--focus-bg']);
   });
 
-  /* polish.20: a decided row as plain as a pending one, or a hover no further
-     than the shade, or a shade the wrong way, is what the steps are there to
-     stop. */
-  it("fails a decided row's shade that is no step, or goes the wrong way, so the steps can fail", () => {
+  /* polish.24: the words polish.20 gave a decided row, --ink-soft, are no fade
+     at all, and a grey under 3:1, such as a dotted line's --border-strong, is
+     too far; either is what the band is there to stop. */
+  it("fails a decided row's words that are no step under --ink-soft or under 3:1, so the words' exception can fail", () => {
     for (const scheme of SCHEMES) {
-      expect(shadeProblems(scheme, { rest: '--panel', hover: '--row-decided-hover-bg' }), scheme).toEqual([
-        `--panel ${toHex(opaque(scheme, '--panel'))} is not off --panel the hover's way`,
-        `--panel ${toHex(opaque(scheme, '--panel'))}: 0.0 from --panel, under ${SHADE_APART}`
-      ]);
-      expect(
-        shadeProblems(scheme, { rest: '--row-decided-bg', hover: '--row-decided-bg' }),
-        scheme
-      ).toHaveLength(2);
-      // The two the other way round: the hover back towards the panel.
-      expect(
-        shadeProblems(scheme, { rest: '--row-decided-hover-bg', hover: '--row-decided-bg' }),
-        scheme
-      ).toEqual([
-        `--row-decided-bg ${toHex(opaque(scheme, '--row-decided-bg'))} is not a step further than --row-decided-hover-bg`
-      ]);
+      expect(doneOutOfBand(scheme, { ...DONE_EXCEPTION, ink: '--ink-soft' }), scheme).toHaveLength(3);
+      expect(doneOutOfBand(scheme, { ...DONE_EXCEPTION, ink: '--border-strong' }), scheme).toHaveLength(3);
+      // The pending row's --ink, plainer than the soft ink, is no fade either.
+      expect(doneOutOfBand(scheme, { ...DONE_EXCEPTION, ink: '--ink' }), scheme).toHaveLength(3);
     }
-    // The shade at rest is the hover's own grey, as the author asked: "like when you hover".
-    expect(SCHEMES.map((scheme) => resolveToken(BLOCKS, scheme, '--row-decided-bg'))).toEqual(
-      SCHEMES.map((scheme) => resolveToken(BLOCKS, scheme, '--panel-alt'))
-    );
+    expect(DONE_EXCEPTION.on).toEqual(['--panel', '--panel-alt', '--focus-bg']);
+    expect([DONE_EXCEPTION.ink, DONE_EXCEPTION.than]).toEqual(['--ink-done', '--ink-soft']);
   });
 
   it("fails a thumb outside its band, so the scrollbar's exception can fail", () => {

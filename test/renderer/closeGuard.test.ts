@@ -101,6 +101,8 @@ function harness(
     writesWaitMs?: number;
     /** what a close puts at risk, as the page shown after a crash reads it (hardening.4) */
     stateOf?: CloseGuardDeps['stateOf'];
+    /** focus mode's hold, as `holdToLeave` gives it (focus.1) */
+    focusHold?: CloseGuardDeps['focusHold'];
   } = {}
 ): Harness {
   const h: Harness = {
@@ -164,7 +166,8 @@ function harness(
       h.cancels += 1;
     },
     ...(options.writesWaitMs !== undefined ? { writesWaitMs: options.writesWaitMs } : {}),
-    ...(options.stateOf ? { stateOf: options.stateOf } : {})
+    ...(options.stateOf ? { stateOf: options.stateOf } : {}),
+    ...(options.focusHold ? { focusHold: options.focusHold } : {})
   };
   h.uninstall = installCloseGuard(h.deps);
   return h;
@@ -688,6 +691,126 @@ describe('prepareToLeaveApp, the close request (apply.9)', () => {
   });
 });
 
+/* focus.1: in focus mode a close, and Restart now, wait on the hold of F11
+   or Escape, which the page shows over everything before anything else. */
+describe('a close in focus mode waits on the hold (focus.1)', () => {
+  it('shows the hold first, telling main it is on screen, then asks the usual question once focus mode is left', async () => {
+    const hold = deferred<boolean>();
+    let held = 0;
+    const h = guard({
+      focusHold: () => {
+        held += 1;
+        return hold.promise;
+      }
+    });
+    state().toggleAccepted('h1');
+    h.closeRequested();
+    await settle();
+    expect(held).toBe(1);
+    expect(toMain(h)).toEqual(['received', 'prompting']);
+    expect(state().confirmSpec).toBeNull();
+    expect(h.flushes).toBe(0);
+    hold.resolve(true);
+    await settle();
+    expect(state().confirmSpec?.title).toMatch(/^Close /);
+    state().answerChoice('cancel');
+    await settle();
+    expect(toMain(h)).toEqual(['received', 'prompting', 'prompting', 'decision:false']);
+  });
+
+  it('keeps the window, and writes and asks nothing, when the overlay is closed instead', async () => {
+    const hold = deferred<boolean>();
+    const h = guard({ focusHold: () => hold.promise });
+    state().toggleAccepted('h1');
+    h.closeRequested();
+    await settle();
+    hold.resolve(false);
+    await settle();
+    expect(toMain(h)).toEqual(['received', 'prompting', 'decision:false']);
+    expect(h.flushes).toBe(0);
+    expect(state().confirmSpec).toBeNull();
+  });
+
+  it('closes once the hold is done when nothing is at risk', async () => {
+    const h = guard({ focusHold: () => Promise.resolve(true) });
+    h.closeRequested();
+    await settle();
+    expect(toMain(h)).toEqual(['received', 'prompting', 'decision:true']);
+  });
+
+  it('asks for no hold outside focus mode', async () => {
+    const h = guard({ focusHold: () => null });
+    h.closeRequested();
+    await settle();
+    expect(toMain(h)).toEqual(['received', 'decision:true']);
+  });
+
+  it('says it is prompting again to a second close while the hold shows', async () => {
+    const hold = deferred<boolean>();
+    const h = guard({ focusHold: () => hold.promise });
+    h.closeRequested();
+    await settle();
+    h.closeRequested();
+    await settle();
+    expect(toMain(h)).toEqual(['received', 'prompting', 'received', 'prompting']);
+    hold.resolve(false);
+    await settle();
+    expect(toMain(h).at(-1)).toBe('decision:false');
+  });
+
+  it('holds a question already open until the hold is done, then replaces it', async () => {
+    const hold = deferred<boolean>();
+    const h = guard({ focusHold: () => hold.promise });
+    state().toggleAccepted('h1');
+    const open = state().askChoice({
+      title: 'Leave Chapter 01?',
+      body: 'A question.',
+      confirmLabel: 'Leave'
+    });
+    h.closeRequested();
+    await settle();
+    expect(state().confirmSpec?.title).toBe('Leave Chapter 01?');
+    hold.resolve(true);
+    await settle();
+    await expect(open).resolves.toBe('cancel');
+    expect(state().confirmSpec?.title).toMatch(/^Close /);
+    state().answerChoice('cancel');
+    await settle();
+  });
+
+  it('makes Restart now wait on the hold too', async () => {
+    const hold = deferred<boolean>();
+    let held = 0;
+    guard({
+      focusHold: () => {
+        held += 1;
+        return hold.promise;
+      }
+    });
+    const going = prepareToLeaveApp('update');
+    await settle();
+    expect(held).toBe(1);
+    hold.resolve(false);
+    await expect(going).resolves.toBe(false);
+  });
+
+  it('has no hold on the page shown after a crash, which has no overlay', async () => {
+    let held = 0;
+    const h = guard({
+      focusHold: () => {
+        held += 1;
+        return Promise.resolve(true);
+      }
+    });
+    const uninstall = installCrashedPageGuard(h.deps.io, h.deps.writes, { questions: true });
+    h.closeRequested();
+    await settle();
+    expect(held).toBe(0);
+    expect(toMain(h).at(-1)).toBe('decision:true');
+    uninstall();
+  });
+});
+
 describe('"Still writing your decisions" (apply.9)', () => {
   it('asks after 5 s of writing, Wait focused, and Wait gives the writes another 5 s', async () => {
     vi.useFakeTimers();
@@ -1122,8 +1245,12 @@ describe('the wiring (apply.9)', () => {
     expect(crashWrites).toContain('await Promise.all([flushReviewWrites(), flushDraftWrites()]);');
     expect(crashWrites).toContain('retry: () => PAGE_WRITES.retry(),');
     expect(crashWrites).toContain('failures: () => PAGE_WRITES.failures()');
+    // focus.1: and it leaves focus mode as it opens, which it has no overlay to hold in.
     expect(io).toMatch(
-      /export const CRASH_PAGE: CrashPageDeps = \{\s*io: CLOSE_GUARD_IO,\s*closeWrites: PAGE_WRITES,\s*writes: CRASH_WRITES\s*\};/
+      /export const CRASH_PAGE: CrashPageDeps = \{\s*io: CLOSE_GUARD_IO,\s*closeWrites: PAGE_WRITES,\s*writes: CRASH_WRITES,\s*leaveFocusMode: leaveFocusAfterCrash\s*\};/
+    );
+    expect(io).toMatch(
+      /export function leaveFocusAfterCrash\(\): void \{\s*if \(useFullScreen\.getState\(\)\.focus === null\) return;\s*void call\('window:full-screen', \{ action: 'release' \}\)\.catch\(\(\) => undefined\);\s*\}/
     );
     const fallback = read('components/CrashFallback.tsx');
     expect(fallback).toContain('export function CrashFallback({ onReload, deps = CRASH_PAGE }: Props)');
@@ -1154,9 +1281,10 @@ describe('the wiring (apply.9)', () => {
     // The Setup screen can show with a review still open, and a close can ask
     // from there (apply.9 review): a layout without the dialog left the
     // question in the store and nothing on screen.
-    const layouts = [...app.matchAll(/return \(\s*<div className="app-shell">([\s\S]*?)\r?\n {2,4}\);/g)].map(
-      (m) => m[1] ?? ''
-    );
+    // The shell's class says full screen too since polish.23 (`shellClass`).
+    const layouts = [
+      ...app.matchAll(/return \(\s*<div className=\{shellClass\}>([\s\S]*?)\r?\n {2,4}\);/g)
+    ].map((m) => m[1] ?? '');
     // The main layout, the Setup screen's and the card of a settings.json
     // that could not be read (hardening.15).
     expect(layouts).toHaveLength(3);
@@ -1167,8 +1295,14 @@ describe('the wiring (apply.9)', () => {
       expect(layout).toMatch(
         /<div className="app-shell__page" inert=\{(questionOpen|inert\.page|cardInert\.page)\}>/
       );
-      expect(layout.match(/<ConfirmDialog \/>/g)).toHaveLength(1);
-      expect(layout).toMatch(/<ConfirmDialog \/>\s*<\/div>\s*$/);
+      // Inert only under focus mode's hold (the focus.1 review).
+      const question = /<ConfirmDialog inert=\{(inert|cardInert)\.over\} \/>/g;
+      expect(layout.match(question)).toHaveLength(1);
+      expect(layout.match(/<ConfirmDialog\b/g)).toHaveLength(1);
+      // Last but for focus mode's hold, which covers even the question (focus.1).
+      expect(layout).toMatch(
+        /<ConfirmDialog inert=\{(inert|cardInert)\.over\} \/>\s*(\{\/\*[^*]*\*\/\}\s*)?<FocusOverlay \/>\s*<\/div>\s*$/
+      );
     }
     expect(layouts.some((layout) => layout.includes('<SetupScreen'))).toBe(true);
     expect(layouts.some((layout) => layout.includes('<SettingsUnreadable'))).toBe(true);

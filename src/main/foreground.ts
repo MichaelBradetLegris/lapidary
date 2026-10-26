@@ -5,7 +5,8 @@ import type { DevSwitches } from './devSwitches';
  * (`dev.1`, PLAN Appendix C "Quiet test windows").
  *
  * The window takes the foreground when it first shows (C.36), when a second
- * launch finds it running (C.40), and when a close has to ask the page (7.7).
+ * launch finds it running (C.40), when a close has to ask the page (7.7), and
+ * when it has lost the focus in focus mode (`refocus`, focus.1).
  * A verification run on the author's machine must not do that to whatever the
  * author is working in. Under the development switch
  * `MANUSCRIPT_REVIEW_DEV_QUIET_WINDOW` (`npm run dev:clean -- --quiet`):
@@ -58,6 +59,20 @@ export function backgroundThrottling(switches: Pick<DevSwitches, 'quietWindow'>)
 export function showWindow(win: Pick<FrontWindow, 'show' | 'showInactive'>, quiet: boolean): void {
   if (quiet) win.showInactive();
   else win.show();
+}
+
+/**
+ * Focus mode's refocus (focus.1, src/main/fullScreen.ts): a window that has
+ * lost the focus in focus mode comes back to the front. Electron's `focus()`
+ * restores a minimised window and asks Windows for the foreground, which
+ * Windows may refuse to a process in the background, flashing the taskbar
+ * button instead; the window is kept on top either way. Never in a quiet
+ * window, which never takes the foreground (dev.1): focus mode runs there
+ * without it.
+ */
+export function refocus(win: Pick<FrontWindow, 'focus'>, quiet: boolean): void {
+  if (quiet) return;
+  win.focus();
 }
 
 /**

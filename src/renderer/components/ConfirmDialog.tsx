@@ -29,10 +29,15 @@ const FOCUS_WITH_RING: FocusOptions & { focusVisible: boolean } = { focusVisible
  * inert, so Tab cannot reach the toolbar, the chapter list or History behind
  * it (apply.7 review). When it closes, the focus goes back to where it was
  * when it opened, a list row or a paragraph box, if that is still there.
+ *
+ * Only focus mode's overlay stands over it (focus.1), and App makes it inert
+ * while that shows (`inert`, `shellInert`'s `over`), so nothing reaches its
+ * buttons under the hold, a screen reader's cursor included (focus.1 review).
  */
-export function ConfirmDialog(): React.JSX.Element | null {
+export function ConfirmDialog({ inert = false }: { inert?: boolean }): React.JSX.Element | null {
   const spec = useApp((s) => s.confirmSpec);
   const answer = useApp((s) => s.answerChoice);
+  const boxRef = useRef<HTMLDivElement>(null);
   const buttonRefs = useRef<Partial<Record<ConfirmChoice, HTMLButtonElement | null>>>({});
   const open = spec !== null;
   const returnTo = useRef<Element | null>(null);
@@ -66,6 +71,14 @@ export function ConfirmDialog(): React.JSX.Element | null {
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [spec, answer]);
 
+  /* A question asked while focus mode's overlay covered it could not take the
+     focus, being inert then: its default takes it as the overlay goes, unless
+     the overlay has handed it back to one of its buttons (focus.1 review). */
+  useEffect(() => {
+    if (!spec || inert || boxRef.current?.contains(document.activeElement)) return;
+    buttonRefs.current[focusedChoice(spec)]?.focus(FOCUS_WITH_RING);
+  }, [spec, inert]);
+
   if (!spec) return null;
 
   // A question with a middle choice has longer labels, so its dialog is wider.
@@ -75,8 +88,12 @@ export function ConfirmDialog(): React.JSX.Element | null {
       role="dialog"
       aria-modal="true"
       aria-label={spec.title}
+      inert={inert}
     >
-      <div className={spec.altLabel ? 'modal modal--narrow modal--choice' : 'modal modal--narrow'}>
+      <div
+        className={spec.altLabel ? 'modal modal--narrow modal--choice' : 'modal modal--narrow'}
+        ref={boxRef}
+      >
         <h2>{spec.title}</h2>
         {bodyLines(spec.body).map((line, i) => (
           <p key={i} className="modal__hint">

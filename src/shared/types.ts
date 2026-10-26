@@ -4,6 +4,7 @@
  */
 
 import type { SyntaxKind } from './text/obsidian';
+import type { FocusHoldSeconds } from './ui/focusMode';
 import type { Theme } from './ui/theme';
 
 export const CHANGE_CATEGORIES = [
@@ -241,13 +242,19 @@ export const PROVIDER_NAMES: Record<GeneratorProvider, string> = {
 /**
  * The side columns' widths the author set by moving their inner edges
  * (polish.5): each a share of the window's width, strictly between 0 and 1,
- * or null for the column's usual width (shared/ui/columns.ts).
+ * or null for the column's usual width (shared/ui/columns.ts). And whether
+ * the author folded either away with the caret at the top of its edge
+ * (polish.26), which keeps its width for when it comes back.
  */
 export interface ColumnShares {
   /** the chapter list */
   files: number | null;
   /** the side panel */
   side: number | null;
+  /** the chapter list is folded away to the strip at the window's left edge */
+  filesHidden: boolean;
+  /** the side panel is folded away to the strip at the window's right edge */
+  sideHidden: boolean;
 }
 
 export interface Settings {
@@ -281,6 +288,14 @@ export interface Settings {
   zoom: number;
   /** Appearance: follow the computer, or pin light or dark (PLAN 11.3 d) */
   theme: Theme;
+  /**
+   * Focus mode (focus.1, PLAN 11.3 d): going full screen enters it, and only
+   * holding F11 or Escape for `focusHoldSeconds` leaves it. Read by main as
+   * the window goes full screen, so a change takes effect the next time.
+   */
+  focusMode: boolean;
+  /** how long F11 or Escape must be held to leave focus mode: 15, 30 or 60 seconds */
+  focusHoldSeconds: FocusHoldSeconds;
   /** the welcome guide has been finished or skipped; settings from before 1.0 count as done when a folder is set */
   onboardingDone: boolean;
   /** one-time hints the author has dismissed, by id */
@@ -295,7 +310,10 @@ export interface Settings {
    * is the usual split (shared/ui/split.ts)
    */
   sideSplit: number | null;
-  /** the chapter list's and the side panel's widths (polish.5); null for either is its usual width */
+  /**
+   * the chapter list's and the side panel's widths (polish.5), null for either
+   * its usual width, and whether either is folded away (polish.26)
+   */
   columnWidths: ColumnShares;
 }
 
@@ -315,12 +333,14 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   effort: 'high',
   zoom: 1,
   theme: 'system',
+  focusMode: false,
+  focusHoldSeconds: 30,
   onboardingDone: false,
   dismissedHints: Object.freeze([]) as unknown as string[],
   checkForUpdates: true,
   updateDownloadConsent: null,
   sideSplit: null,
-  columnWidths: Object.freeze({ files: null, side: null })
+  columnWidths: Object.freeze({ files: null, side: null, filesHidden: false, sideHidden: false })
 });
 
 /** The model setting that belongs to a provider. */

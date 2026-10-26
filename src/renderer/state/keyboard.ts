@@ -1,13 +1,16 @@
 import { useEffect } from 'react';
 import { commentsHidden } from '../../shared/ui/chips';
 import { nextComment } from '../../shared/ui/comments';
+import { escapeLeavesFullScreen, fullScreenToggle } from '../../shared/ui/fullScreen';
 import { isTypingField } from '../../shared/ui/navigate';
 import { saveShortcutAction } from '../../shared/ui/save';
 import { arrowsScrollBox } from '../../shared/ui/scroll';
 import { splitTakesKey } from '../../shared/ui/split';
 import { closeDrawer, inOpenDrawer, popupTakesEscape, useDrawer } from './columns';
 import { editHunk } from './edit';
+import { escapeTakers, leaveFullScreen, toggleFullScreen, useFullScreen } from './fullScreen';
 import { saveHintGivesWay } from './hints';
+import { hoverCancel } from './hover';
 import { SAVE_CARD, type SaveOptions, type SaveOutcome } from './saveChapter';
 import { readingRange, scrollToElement } from './scroll';
 import { currentMode, isModalOpen, reviewKeysActive, saveShortcutContext, useApp } from './store';
@@ -28,7 +31,10 @@ function isTypingTarget(target: EventTarget | null): boolean {
  * Settings or the Setup screen (`reviewKeysActive`, `isModalOpen`; apply.20
  * review). The review keys are Main's: in Full edit and Preview none acts,
  * and the arrows and the page keys are left to the browser, which scrolls
- * the page (rr.2 review).
+ * the page (rr.2 review). F11 puts the window in full screen and back,
+ * wherever the focus is, and Escape leaves full screen when nothing else
+ * takes it, a suggestion's hover card included, which Escape closes
+ * (polish.23, `fullScreenToggle`, `escapeLeavesFullScreen`).
  */
 export function useKeyboardBindings(save: (options: SaveOptions) => Promise<SaveOutcome>): void {
   useEffect(() => {
@@ -44,7 +50,7 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
           saveShortcutContext(
             state,
             target?.closest('.para-editor') != null,
-            target?.closest('.fulledit') != null
+            target?.closest('.fulledit, .fulledit__foot') != null
           )
         );
         if (shortcut.kind !== 'pass') {
@@ -53,6 +59,16 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
           else if (shortcut.kind === 'save') void save({ applyDrafts: 'ask' });
           return;
         }
+      }
+
+      /* F11 puts the window in full screen and back wherever the focus is, a
+         text box and a dialog included (polish.23); held down, it does
+         nothing more. Escape's part comes last, below. */
+      const toggle = fullScreenToggle(event);
+      if (toggle !== 'pass') {
+        event.preventDefault();
+        if (toggle === 'toggle') toggleFullScreen();
+        return;
       }
 
       if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'f') {
@@ -108,6 +124,41 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
 
       if (drawerEscape) {
         closeDrawer();
+        event.preventDefault();
+        return;
+      }
+
+      /* A suggestion's hover card closes on Escape, as a tooltip should,
+         after everything above (polish.23); the pointer brings it back by
+         leaving the words and coming back to them. */
+      const hoverEscape =
+        event.key === 'Escape' &&
+        state.hoveredHunkId !== null &&
+        !isModalOpen(state) &&
+        !event.defaultPrevented &&
+        !popupTakesEscape();
+      if (hoverEscape) {
+        hoverCancel();
+        event.preventDefault();
+        return;
+      }
+
+      /* Escape leaves full screen last of all (polish.23), once nothing
+         above has taken it and nothing else on the page would: a dialog, a
+         question, Settings, the Setup screen or the welcome guide, which
+         take it in listeners of their own or have no use for it here; a
+         toolbar menu, a chip's menu or the legend, which close on it in
+         listeners that run after this one; a paragraph box open in Main or
+         Full edit's box, which close on it when the focus is in them and are
+         left open by it otherwise, so a box is never left by surprise. A
+         paragraph box kept behind Preview is not drawn, and takes nothing. */
+      const inFullScreen = useFullScreen.getState().on;
+      if (
+        event.key === 'Escape' &&
+        inFullScreen &&
+        escapeLeavesFullScreen(event, inFullScreen, escapeTakers(state))
+      ) {
+        leaveFullScreen();
         event.preventDefault();
         return;
       }

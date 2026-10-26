@@ -15,6 +15,7 @@ import type {
   Settings
 } from './types';
 import type { ZoomAction } from './ui/zoom';
+import type { FullScreenAction, FullScreenChange, FullScreenState } from './ui/fullScreen';
 import type { StyleSheetStatus } from './prompt/guidelines';
 import type { ClaudeCredential } from './ai/claudeStatus';
 import type { UpdateStatus } from './updates';
@@ -673,6 +674,15 @@ export interface ApiRequestMap {
   'shell:open-external': { request: { page: ExternalPage }; response: void };
   /** step or reset the window zoom; answers with the level now in use (round 5) */
   'view:zoom': { request: { action: ZoomAction }; response: { zoom: number } };
+  /**
+   * the window's full screen (polish.23): `toggle` for F11 and the toolbar's
+   * button, `leave` for Escape, `current` to read it, and `release` once F11
+   * or Escape has been held through focus mode's time (focus.1), the one
+   * word that leaves focus mode; answers with where the window is asked to
+   * stand and whether it is in focus mode, and every change also comes as
+   * `window:full-screen-changed`. Main never starts in it.
+   */
+  'window:full-screen': { request: { action: FullScreenAction }; response: FullScreenState };
   /* The close guard (apply.8, PLAN 7.7 and 11.3 i): the page tells main what a
      close would put at risk, how far it has got with a close request, and what
      the author decided. */
@@ -760,6 +770,7 @@ const REQUEST_CHANNEL_FLAGS = {
   'chatgpt:confirm-data-settings': true,
   'shell:open-external': true,
   'view:zoom': true,
+  'window:full-screen': true,
   'app:guard-state': true,
   'app:close-status': true,
   'app:close-decision': true,
@@ -804,6 +815,12 @@ export interface ApiEventMap {
   'ai:rate-limit': RateLimitInfo;
   /** the zoom changed from outside the renderer's own controls: Ctrl+wheel or a shortcut */
   'view:zoom-changed': { zoom: number };
+  /**
+   * the window entered or left full screen, by F11, the button, Escape or the
+   * system (polish.23), or focus mode (focus.1); `kept` when main put it back
+   * in full screen in focus mode, for the page to show the hold
+   */
+  'window:full-screen-changed': FullScreenChange;
   /** a card main wants shown: a crash it survived, an update, a backup problem */
   'app:notice': AppNotice;
   /**
@@ -832,6 +849,7 @@ const EVENT_CHANNEL_FLAGS = {
   'ai:progress': true,
   'ai:rate-limit': true,
   'view:zoom-changed': true,
+  'window:full-screen-changed': true,
   'app:notice': true,
   'app:close-requested': true,
   'app:flush': true,

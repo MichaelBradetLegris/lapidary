@@ -2,7 +2,8 @@
  * The three views of a chapter and their words (rr.2, PLAN section 7, The
  * Mode select): Main, the review page as it has always been; Full edit, the
  * whole chapter in one box; Preview, the chapter as Royal Road's reader shows
- * it. A Mode select at the top right of the prose column picks one. The mode
+ * it. A Mode select at the left end of the toolbar picks one (since rr.6; it
+ * stood at the top right of the prose column from rr.2). The mode
  * belongs to the window, not to the settings: the window starts in Main, and
  * another chapter or review opens in the mode in use (rr.5).
  *
@@ -94,6 +95,48 @@ export function fullEditLabel(chapter: string): string {
 
 /** The frontmatter's, shown above the box and never in it. */
 export const FRONTMATTER_LABEL = 'Frontmatter, which Full edit leaves as it is';
+
+/**
+ * The keys in Full edit's text area after which the column may go on to an
+ * end of the page (rr.7 review): Ctrl+Home and Ctrl+End (Cmd on a Mac), Page
+ * Up and Page Down, with or without Shift, which selects; not with Alt. The
+ * text area grows with the text and the column scrolls, so the browser, which
+ * brings only the caret's line into view, stopped with the sheet's top margin
+ * and edge, and the frontmatter above them, out of sight at the start of the
+ * text, and the sheet's foot at its end, where Docs and Writer show the top
+ * and the end of the page.
+ */
+export function fullEditEndKey(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+}): boolean {
+  if (event.altKey) return false;
+  if (event.key === 'PageUp' || event.key === 'PageDown') return true;
+  return (event.ctrlKey || event.metaKey) && (event.key === 'Home' || event.key === 'End');
+}
+
+/**
+ * The end of the page to show once such a key has moved the caret, by where
+ * its moving end is (`caret`, of `length` characters): 'top' at the start of
+ * the text, 'end' at its end, and null between, where the browser's own
+ * scroll stands, as for a page key that stops short of either end.
+ */
+export function fullEditPageEnd(caret: number, length: number): 'top' | 'end' | null {
+  return caret <= 0 ? 'top' : caret >= length ? 'end' : null;
+}
+
+/**
+ * Where the column goes for the top of the page, in CSS px from the top of
+ * what it holds: its top, unless the frontmatter above the sheet would then push the
+ * caret's line, the text's first, out of a column only a few lines tall (the
+ * smallest window at 200%), when it stops as near the top as keeps that line
+ * in view with `room` under it.
+ */
+export function fullEditTopPlace(firstLineBottom: number, columnHeight: number, room: number): number {
+  return Math.max(0, Math.ceil(firstLineBottom + room - columnHeight));
+}
 
 /** Ctrl+S from inside the box (PLAN 11.1, Ctrl+S), as `PRESS_DONE_FIRST` is for a paragraph box. */
 export const FULL_EDIT_DONE_FIRST =

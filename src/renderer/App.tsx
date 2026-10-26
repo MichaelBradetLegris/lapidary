@@ -11,6 +11,7 @@ import {
   planWelcomeShown
 } from '../shared/ui/chatgpt';
 import { copiedHtmlNote } from '../shared/ui/copy';
+import { FULL_SCREEN_CLASS } from '../shared/ui/fullScreen';
 import { FINISH_FULL_EDIT_FIRST } from '../shared/ui/modes';
 import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
 import { mergeReloadRun, rebaseCardText, rebaseCardTone, type ReloadRun } from '../shared/ui/rebase';
@@ -31,24 +32,25 @@ import {
 import { usageLimitCard } from '../shared/ui/usage';
 import { welcomeNotKept, welcomeShown } from '../shared/ui/welcome';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
-import { bodyClassName, columnClassName } from '../shared/ui/columns';
+import { bodyClassName, columnClassName, columnInert } from '../shared/ui/columns';
 import { focusReturnTarget, shellInert } from '../shared/ui/dialog';
 import type { UpdateAction } from '../shared/ui/update';
 import type { ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
 import { PROVIDER_NAMES, type Provider, type Review, type Settings } from '../shared/types';
 import { AboutDialog } from './components/AboutDialog';
 import { ChatGptSetup } from './components/ChatGptSetup';
+import { ColumnCaret } from './components/ColumnCaret';
 import { ColumnStrip } from './components/ColumnStrip';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { DiagnosticsDialog } from './components/DiagnosticsDialog';
 import { EditPopover } from './components/EditPopover';
 import { FileList } from './components/FileList';
 import { FindBar } from './components/FindBar';
-import { FullEdit } from './components/FullEdit';
+import { FocusOverlay } from './components/FocusOverlay';
+import { FullEdit, FullEditFoot } from './components/FullEdit';
 import { HunkTooltip } from './components/HunkTooltip';
 import { LockCard } from './components/LockCard';
 import { ManualReviewDialog } from './components/ManualReviewDialog';
-import { ModeBar } from './components/ModeBar';
 import { NewChapterDialog } from './components/NewChapterDialog';
 import { NotificationCards } from './components/NotificationCards';
 import { PreviewPane } from './components/PreviewPane';
@@ -67,7 +69,9 @@ import { ApiError, call, errorMessage } from './state/client';
 import { installCloseGuard, prepareToLeaveApp, type CloseGuardDeps } from './state/closeGuard';
 import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state/drafts';
 import { useColumnHandle } from './state/columnHandles';
-import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
+import { closeDrawer, closeDrawerOnPress, drawerId, useColumns } from './state/columns';
+import { holdToLeave, installFocusMode } from './state/focusMode';
+import { installFullScreen, useFocusOverlay, useFullScreen } from './state/fullScreen';
 import { dismissHint, type HintIo } from './state/hints';
 import { CLOSE_GUARD_IO, PAGE_WRITES } from './state/pageIo';
 import { chooseProvider as chooseReviewProvider } from './state/providerChoice';
@@ -437,11 +441,27 @@ export function App(): React.JSX.Element {
 
   useKeyboardBindings(save);
 
+  /* Full screen is the window's (polish.23): main says where it stands as
+     the page loads and whenever it changes, and the shell carries a class
+     while it is on. Nothing in the layout changes with it. */
+  useEffect(() => installFullScreen(), []);
+  const fullScreen = useFullScreen((s) => s.on);
+  const shellClass = fullScreen ? `app-shell ${FULL_SCREEN_CLASS}` : 'app-shell';
+
+  /* Focus mode (focus.1, state/focusMode.ts): with Settings' box ticked, full
+     screen is only left by holding F11 or Escape, over an overlay that shows
+     the count and keeps every key from the page while it is up. Its keys are
+     caught on the window before anything else's, and everything under it is
+     inert, the question and Restart now's overlay included. */
+  useEffect(() => installFocusMode(), []);
+  const focusOverlayOpen = useFocusOverlay((s) => s.open);
+
   /* The side columns give way to the prose in a narrow window, which is what
      zooming in makes: they shrink, then fold to strips that open them as
      drawers over the edge of the prose (ui.3, state/columns.ts). Each has a
      handle on its inner edge while it is drawn in place, which sets its width
-     (polish.5, state/columnHandles.ts). */
+     (polish.5, state/columnHandles.ts), and a caret at the handle's top that
+     folds it away (polish.26). */
   const {
     layout,
     setLive: setLiveWidths,
@@ -726,7 +746,9 @@ export function App(): React.JSX.Element {
       io: CLOSE_GUARD_IO,
       writes: PAGE_WRITES,
       save,
-      cancelReview
+      cancelReview,
+      // In focus mode a close, or Restart now, waits on the hold (focus.1).
+      focusHold: holdToLeave
     }),
     [save, cancelReview]
   );
@@ -1170,11 +1192,11 @@ export function App(): React.JSX.Element {
   const runtimeLabel = labelForRuntime(activeRuntime, activeLastFailure) ?? undefined;
 
   // The first-use hint hangs over the prose when the side panel is folded
-  // (ui.3); the Setup screen and the welcome guide have no side panel,
-  // folded or not, and while either is up the hint waits, since it would
-  // hang over their own buttons (setup.11 review).
+  // (ui.3) or folded away (polish.26); the Setup screen and the welcome guide
+  // have no side panel, folded or not, and while either is up the hint
+  // waits, since it would hang over their own buttons (setup.11 review).
   const singleScreen = setupOpen || welcomeOpen;
-  const sideFolded = layout.side === 'strip' && !singleScreen;
+  const sideFolded = layout.side !== 'full' && !singleScreen;
 
   const toolbar = (
     <Toolbar
@@ -1349,9 +1371,10 @@ export function App(): React.JSX.Element {
         onClose={() => setAboutOpen(false)}
       />
     ) : null;
-  /* Restart now's overlay (release.9), over the page and the dialogs from the
-     moment the page has agreed to go until the app closes for the installer. */
-  const updateOverlay = updateOverlayShown ? <UpdateOverlay update={updateStatus} /> : null;
+  /* Restart now's overlay (release.9) covers the page and the dialogs, and
+     focus mode's (focus.1) covers everything, the question and Restart now's
+     overlay included: what each covers is inert under it (`over` for the
+     question and Restart now's overlay, given to both below). */
   const inert = shellInert({
     dialog: [
       newChapterDialog,
@@ -1362,8 +1385,14 @@ export function App(): React.JSX.Element {
       aboutDialog
     ].some((d) => d !== null),
     question: questionOpen,
-    overlay: updateOverlay !== null
+    overlay: updateOverlayShown,
+    focus: focusOverlayOpen
   });
+  /* Restart now's overlay, from the moment the page has agreed to go until
+     the app closes for the installer. */
+  const updateOverlay = updateOverlayShown ? (
+    <UpdateOverlay update={updateStatus} inert={inert.over} />
+  ) : null;
 
   /* settings.json could not be read (hardening.15, C.86): one card says so,
      in the words for the reason main gave, with Try again, in place of
@@ -1380,10 +1409,11 @@ export function App(): React.JSX.Element {
     const cardInert = shellInert({
       dialog: diagnosticsDialog !== null,
       question: questionOpen,
-      overlay: updateOverlay !== null
+      overlay: updateOverlayShown,
+      focus: focusOverlayOpen
     });
     return (
-      <div className="app-shell">
+      <div className={shellClass}>
         <div className="app-shell__page" inert={cardInert.page}>
           <div className="body body--single">
             <NotificationCards onAction={onCardAction} />
@@ -1401,7 +1431,8 @@ export function App(): React.JSX.Element {
           {diagnosticsDialog}
         </div>
         {updateOverlay}
-        <ConfirmDialog />
+        <ConfirmDialog inert={cardInert.over} />
+        <FocusOverlay />
       </div>
     );
   }
@@ -1419,7 +1450,7 @@ export function App(): React.JSX.Element {
      the store and come back with it (`EditorRequest.text`). */
   if (singleScreen) {
     return (
-      <div className="app-shell">
+      <div className={shellClass}>
         <div className="app-shell__page" inert={inert.page}>
           {toolbar}
           <div className="body body--single">
@@ -1493,13 +1524,14 @@ export function App(): React.JSX.Element {
           {aboutDialog}
         </div>
         {updateOverlay}
-        <ConfirmDialog />
+        <ConfirmDialog inert={inert.over} />
+        <FocusOverlay />
       </div>
     );
   }
 
   return (
-    <div className="app-shell">
+    <div className={shellClass}>
       {/* Everything but the dialogs and the question. While either is open
           this is inert, so Tab, a click or a screen reader cannot reach the
           page behind it (apply.7 review for the question, ui.4 for the
@@ -1514,15 +1546,19 @@ export function App(): React.JSX.Element {
             a closed drawer is hidden and inert. A column in place has a handle
             on its inner edge, after it in the Tab order for the chapter list
             and before it for the side panel, laid over the edge rather than
-            given a grid column of its own (polish.5). */}
+            given a grid column of its own (polish.5), with a caret at its top
+            just before it, which folds the column away to the edge strip in
+            its place, whose caret brings it back (polish.26); folded away,
+            the column's wrapper is a drawer that never opens. */}
         <div className={bodyClassName(layout)} style={columnStyle} ref={measureBody}>
           {layout.files === 'strip' ? (
             <ColumnStrip column="files" open={shown === 'files'} onToggle={() => toggleDrawer('files')} />
           ) : null}
+          {layout.files === 'hidden' ? <ColumnCaret column="files" hidden /> : null}
           <div
             id={drawerId('files')}
             className={columnClassName('files', layout, shown)}
-            inert={layout.files === 'strip' && shown !== 'files'}
+            inert={columnInert('files', layout, shown)}
           >
             <FileList
               files={files}
@@ -1537,15 +1573,16 @@ export function App(): React.JSX.Element {
               onNewChapter={() => setNewChapterOpen(true)}
             />
           </div>
+          {layout.files === 'full' ? <ColumnCaret column="files" hidden={false} /> : null}
           {filesHandle ? <div {...filesHandle} /> : null}
 
           {/* The centre column: the manuscript pane, from the toolbar's foot,
               as the chapter list and the side panel are. The category chips
               were at its top from polish.6 and are in the toolbar's row since
-              polish.10. The Mode select is at its top right, above the prose,
-              with a chapter open (rr.2). */}
+              polish.10. The Mode select stood at its top right, above the
+              prose, from rr.2, and is the toolbar's first item since rr.6, so
+              the prose starts at the column's top again. */}
           <div className="center-col">
-            {review ? <ModeBar /> : null}
             {/* The find bar is a strip above the scroller, not a sticky bar inside
               it: inside, it scrolled out of view once the author was more than
               a screen down, and Ctrl+F then seemed to do nothing (round 4). The
@@ -1555,13 +1592,7 @@ export function App(): React.JSX.Element {
               {review && mode === 'main' ? <FindBar /> : null}
               {/* A press in the prose closes an open drawer, as a click
                   outside a menu closes it (ui.3), and does what it would anyway. */}
-              <main
-                {...modePlaces}
-                className={`center center--${mode}`}
-                onPointerDown={() => {
-                  if (useDrawer.getState().open !== null) useDrawer.getState().setOpen(null);
-                }}
-              >
+              <main {...modePlaces} className={`center center--${mode}`} onPointerDown={closeDrawerOnPress}>
                 {review ? (
                   mode === 'edit' ? (
                     <FullEdit review={review} />
@@ -1581,12 +1612,19 @@ export function App(): React.JSX.Element {
                   </div>
                 )}
               </main>
+              {/* Full edit's hint, Cancel and Done, under the scroller rather
+                  than in it, so they never scroll away and taking the focus
+                  scrolls nothing (rr.7). A press on them closes an open
+                  drawer, as one in the scroller does, where they were before. */}
+              {review && mode === 'edit' ? <FullEditFoot onPointerDown={closeDrawerOnPress} /> : null}
               <NotificationCards onAction={onCardAction} />
               <LockCard label={progressLabel} onCancel={ai.cancel} />
             </div>
           </div>
+          {layout.side === 'full' ? <ColumnCaret column="side" hidden={false} /> : null}
           {sideHandle ? <div {...sideHandle} /> : null}
 
+          {layout.side === 'hidden' ? <ColumnCaret column="side" hidden /> : null}
           {layout.side === 'strip' ? (
             review ? (
               <ColumnStrip column="side" open={shown === 'side'} onToggle={() => toggleDrawer('side')} />
@@ -1598,7 +1636,7 @@ export function App(): React.JSX.Element {
           <div
             id={drawerId('side')}
             className={columnClassName('side', layout, shown)}
-            inert={layout.side === 'strip' && shown !== 'side'}
+            inert={columnInert('side', layout, shown)}
           >
             {review ? (
               <SidePanel
@@ -1634,8 +1672,10 @@ export function App(): React.JSX.Element {
         {aboutDialog}
       </div>
       {updateOverlay}
-      {/* Last, above everything: a question can be asked from any dialog above. */}
-      <ConfirmDialog />
+      {/* Above everything: a question can be asked from any dialog above. */}
+      <ConfirmDialog inert={inert.over} />
+      {/* Focus mode's hold (focus.1) covers even a question, inert under it. */}
+      <FocusOverlay />
     </div>
   );
 }

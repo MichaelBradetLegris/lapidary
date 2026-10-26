@@ -44,6 +44,22 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings({ updateDownloadConsent: '' }).updateDownloadConsent).toBeNull();
   });
 
+  /* focus.1: off unless the file says true, with a hold time Settings offers. */
+  it('keeps focus mode off unless the file says true, and a hold time of 15, 30 or 60 seconds', () => {
+    expect(defaultSettings().focusMode).toBe(false);
+    expect(defaultSettings().focusHoldSeconds).toBe(30);
+    expect(normalizeSettings({ focusMode: true }).focusMode).toBe(true);
+    for (const other of [false, 'true', 1, 'yes', null, {}]) {
+      expect(normalizeSettings({ focusMode: other }).focusMode, JSON.stringify(other)).toBe(false);
+    }
+    for (const seconds of [15, 30, 60]) {
+      expect(normalizeSettings({ focusHoldSeconds: seconds }).focusHoldSeconds).toBe(seconds);
+    }
+    for (const other of [10, 45, 120, '15', null, -15]) {
+      expect(normalizeSettings({ focusHoldSeconds: other }).focusHoldSeconds, JSON.stringify(other)).toBe(30);
+    }
+  });
+
   it('keeps the side panel split as a share, and the usual split as null (ui.6)', () => {
     expect(defaultSettings().sideSplit).toBeNull();
     expect(normalizeSettings({ sideSplit: 0.3125 }).sideSplit).toBe(0.3125);
@@ -53,28 +69,53 @@ describe('normalizeSettings', () => {
   });
 
   it("keeps each side column's width as a share of the window, and the usual width as null (polish.5)", () => {
-    expect(defaultSettings().columnWidths).toEqual({ files: null, side: null });
+    const usual = { files: null, side: null, filesHidden: false, sideHidden: false };
+    expect(defaultSettings().columnWidths).toEqual(usual);
     expect(normalizeSettings({ columnWidths: { files: 0.105337, side: 0.501404 } }).columnWidths).toEqual({
+      ...usual,
       files: 0.105337,
       side: 0.501404
     });
     // Each is read on its own: a bad one is the usual width, the other kept.
     expect(normalizeSettings({ columnWidths: { files: 1.2, side: 0.3 } }).columnWidths).toEqual({
-      files: null,
+      ...usual,
       side: 0.3
     });
-    expect(normalizeSettings({ columnWidths: { files: '0.2', side: 0 } }).columnWidths).toEqual({
-      files: null,
-      side: null
-    });
+    expect(normalizeSettings({ columnWidths: { files: '0.2', side: 0 } }).columnWidths).toEqual(usual);
     // Anything but an object, and unknown keys, are dropped.
     for (const bad of [null, 0.2, 'wide', [0.2, 0.3]]) {
-      expect(normalizeSettings({ columnWidths: bad }).columnWidths).toEqual({ files: null, side: null });
+      expect(normalizeSettings({ columnWidths: bad }).columnWidths).toEqual(usual);
     }
     expect(normalizeSettings({ columnWidths: { files: 0.2, centre: 0.5 } }).columnWidths).toEqual({
-      files: 0.2,
-      side: null
+      ...usual,
+      files: 0.2
     });
+  });
+
+  it('keeps a side column folded away by its caret only for a JSON true, with its width (polish.26)', () => {
+    expect(
+      normalizeSettings({ columnWidths: { files: 0.2, side: null, filesHidden: true, sideHidden: false } })
+        .columnWidths
+    ).toEqual({ files: 0.2, side: null, filesHidden: true, sideHidden: false });
+    expect(normalizeSettings({ columnWidths: { sideHidden: true } }).columnWidths).toEqual({
+      files: null,
+      side: null,
+      filesHidden: false,
+      sideHidden: true
+    });
+    // A settings.json from before polish.26 has neither flag: both columns show.
+    expect(normalizeSettings({ columnWidths: { files: 0.2, side: 0.3 } }).columnWidths).toMatchObject({
+      filesHidden: false,
+      sideHidden: false
+    });
+    for (const bad of ['true', 1, null, {}]) {
+      expect(
+        normalizeSettings({ columnWidths: { filesHidden: bad, sideHidden: bad } }).columnWidths
+      ).toMatchObject({
+        filesHidden: false,
+        sideHidden: false
+      });
+    }
   });
 
   /* polish.17: Show states went, and with it `showRowStates`, which polish.12

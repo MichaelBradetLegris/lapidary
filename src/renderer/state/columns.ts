@@ -16,9 +16,11 @@ import { useApp } from './store';
 /**
  * The side columns at narrow widths (ui.3, PLAN 7 "Narrow windows"): the page's
  * width measured, the layout `columnLayout` gives for it with the widths the
- * author set (polish.5, PLAN 7 "Column widths"), and the one drawer the author
- * has open. The rules are in `src/shared/ui/columns.ts`; the handles that set
- * the widths are `useColumnHandle` (state/columnHandles.ts).
+ * author set and the columns they folded away (polish.5 and polish.26, PLAN 7
+ * "Column widths"), and the one drawer the author has open. The rules are in
+ * `src/shared/ui/columns.ts`; the handles that set the widths are
+ * `useColumnHandle`, and the carets that fold a column away and back press
+ * `setColumnHidden` (state/columnHandles.ts).
  */
 
 interface DrawerState {
@@ -74,6 +76,17 @@ export function closeDrawer(column?: Column): void {
   const focusInside = drawer !== null && drawer.contains(document.activeElement);
   setOpen(null);
   if (focusInside) document.querySelector<HTMLElement>(`button.strip--${open}`)?.focus();
+}
+
+/**
+ * A press in the prose closes an open drawer, as a click outside a menu
+ * closes it, and goes on to do what it would anyway (ui.3). App gives it to
+ * the scroller that holds every mode and to Full edit's foot under it, which
+ * was inside the scroller until rr.7 drew it after: without it, Done went back
+ * to Main with the chapter list's drawer still open over the prose.
+ */
+export function closeDrawerOnPress(): void {
+  if (useDrawer.getState().open !== null) useDrawer.getState().setOpen(null);
 }
 
 export interface Columns {
