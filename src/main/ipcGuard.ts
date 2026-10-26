@@ -38,8 +38,6 @@ const TAKES_NOTHING = {
   'guidelines:ensure': true,
   'guidelines:open': true,
   'guidelines:status': true,
-  'secrets:openai-status': true,
-  'secrets:openai-clear': true,
   'chatgpt:status': true,
   'chatgpt:cancel-sign-in': true,
   'chatgpt:sign-out': true,
@@ -84,7 +82,7 @@ export type PathFieldTable = { readonly [C in RequestChannel]?: readonly StringF
  * cannot contain ...").
  */
 export const PATH_FIELDS: PathFieldTable = {
-  'settings:set': ['manuscriptFolder', 'reviewsFolder', 'guidelinesPath'],
+  'settings:set': ['manuscriptFolder', 'reviewsFolder', 'backupsFolder', 'guidelinesPath'],
   'dialog:pick-folder': ['defaultPath'],
   'dialog:pick-file': ['defaultPath'],
   'files:read': ['path'],

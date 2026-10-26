@@ -5,12 +5,16 @@ import { ChatGptSetup } from '../../src/renderer/components/ChatGptSetup';
 import { SettingsDialog } from '../../src/renderer/components/SettingsDialog';
 import type { ChatGptStatus } from '../../src/shared/ipc';
 import {
+  CHATGPT_PLAN_NOTE,
   CHATGPT_PRIVACY_FOOTER,
   DATA_SETTINGS_CHECKBOX,
+  MANAGE_USAGE_BUTTON,
+  PLAN_WELCOME_TITLE,
   SIGNED_OUT_NOT_REVOKED,
   TRAINING_CHOICE_TEXT,
   TRAINING_WARNING_TEXT,
   TRAINING_WARNING_TITLE,
+  USING_CHATGPT_PLAN,
   dataSettingsNote,
   type ChatGptOutcome
 } from '../../src/shared/ui/chatgpt';
@@ -59,7 +63,7 @@ const SIGNED_IN: ChatGptStatus = { ...SIGNED_OUT, signedIn: true, plan: 'Plus', 
 
 function render(
   status: ChatGptStatus | null,
-  options: { waiting?: boolean; busy?: boolean; outcome?: ChatGptOutcome | null } = {}
+  options: { waiting?: boolean; busy?: boolean; outcome?: ChatGptOutcome | null; welcome?: boolean } = {}
 ): string {
   return renderToStaticMarkup(
     createElement(ChatGptSetup, {
@@ -72,6 +76,9 @@ function render(
       onSignOut: () => undefined,
       onConfirmDataSettings: () => undefined,
       onOpenDataControls: () => undefined,
+      welcome: options.welcome ?? false,
+      onManageUsage: () => undefined,
+      onWelcomeDone: () => undefined,
       onClose: () => undefined,
       version: '1.0.0'
     })
@@ -90,7 +97,12 @@ describe("the Setup screen's ChatGPT view (codex.2)", () => {
     expect(html).toContain('<h1>Set up ChatGPT</h1>');
     expect(html).toContain('data-view="chatgpt-signed-out"');
     expect(text(html)).toContain('Not signed in to ChatGPT');
-    expect(buttons(html)).toEqual(['Close', 'Sign in with ChatGPT [primary]', 'Open Data controls']);
+    expect(buttons(html)).toEqual([
+      'Close',
+      'Sign in with ChatGPT [primary]',
+      'Open Data controls',
+      'Done [primary]'
+    ]);
     expect(html).toMatch(/<input type="checkbox" disabled="" aria-describedby="[^"]+"\/>/);
     expect(text(warning(html))).toContain(dataSettingsNote(SIGNED_OUT));
   });
@@ -103,7 +115,8 @@ describe("the Setup screen's ChatGPT view (codex.2)", () => {
       'Close',
       'Sign in with ChatGPT [primary] [held]',
       'Cancel',
-      'Open Data controls'
+      'Open Data controls',
+      'Done [primary]'
     ]);
   });
 
@@ -113,7 +126,13 @@ describe("the Setup screen's ChatGPT view (codex.2)", () => {
     expect(html).toContain('setup__status--ok');
     expect(text(html)).toContain('Signed in to ChatGPT');
     expect(text(html)).toContain('Your ChatGPT account is on the Plus plan.');
-    expect(buttons(html)).toEqual(['Close', 'Sign out', 'Open Data controls']);
+    expect(buttons(html)).toEqual([
+      'Close',
+      MANAGE_USAGE_BUTTON,
+      'Sign out',
+      'Open Data controls',
+      'Done [primary]'
+    ]);
     expect(html).toMatch(/<input type="checkbox" aria-describedby="[^"]+"\/>/);
     const confirmed = render({ ...SIGNED_IN, dataSettingsConfirmed: true });
     expect(confirmed).toMatch(/<input type="checkbox" aria-describedby="[^"]+" checked=""\/>/);
@@ -128,7 +147,8 @@ describe("the Setup screen's ChatGPT view (codex.2)", () => {
       'Close',
       'Sign in with ChatGPT [primary]',
       'Use another account',
-      'Open Data controls'
+      'Open Data controls',
+      'Done [primary]'
     ]);
   });
 
@@ -138,7 +158,8 @@ describe("the Setup screen's ChatGPT view (codex.2)", () => {
     expect(buttons(html)).toEqual([
       'Close',
       'Sign in with ChatGPT [primary] [disabled]',
-      'Open Data controls'
+      'Open Data controls',
+      'Done [primary]'
     ]);
   });
 
@@ -170,10 +191,74 @@ describe("the Setup screen's ChatGPT view (codex.2)", () => {
     }
   });
 
+  /* The codex.5 review: the dialog lost "Using ChatGPT plan" with Manage
+     usage, which the task said stays on this view; before the fix the view
+     had them only in OpenAI's welcome, until Got it. */
+  it('says "Using ChatGPT plan" with Manage usage in the status card once the welcome has gone', () => {
+    const html = render(SIGNED_IN);
+    const card = html.slice(html.indexOf('aria-label="ChatGPT status"'), html.indexOf('</section>'));
+    const note = card.slice(card.indexOf('<p data-testid="chatgpt-plan-note">'));
+    expect(note).toMatch(
+      /^<p data-testid="chatgpt-plan-note"><b>[^<]+<\/b> [^<]+ <button type="button" class="link">[^<]+<\/button><\/p><\/div><div class="setup__status-actions">/
+    );
+    expect(text(note.slice(0, note.indexOf('</p>')))).toBe(
+      `${USING_CHATGPT_PLAN}. ${CHATGPT_PLAN_NOTE} ${MANAGE_USAGE_BUTTON}`
+    );
+    expect(USING_CHATGPT_PLAN).toBe('Using ChatGPT plan');
+    // Once on the page: the card's Manage usage is the only one.
+    expect(buttons(html).filter((b) => b === MANAGE_USAGE_BUTTON)).toHaveLength(1);
+  });
+
+  it('leaves the plan note to the welcome while the welcome is up, so Manage usage stands once', () => {
+    const html = render(SIGNED_IN, { welcome: true });
+    expect(text(html)).toContain(PLAN_WELCOME_TITLE);
+    expect(html).not.toContain('chatgpt-plan-note');
+    expect(text(html)).not.toContain(USING_CHATGPT_PLAN);
+    expect(buttons(html).filter((b) => b === MANAGE_USAGE_BUTTON)).toHaveLength(1);
+  });
+
+  it('has no plan note while not signed in', () => {
+    for (const html of [
+      render(null),
+      render(SIGNED_OUT),
+      render(SIGNED_OUT, { waiting: true }),
+      render({ ...SIGNED_OUT, registered: true }),
+      render({ ...SIGNED_OUT, encryptionAvailable: false })
+    ]) {
+      expect(html).not.toContain('chatgpt-plan-note');
+      expect(text(html)).not.toContain(USING_CHATGPT_PLAN);
+      expect(buttons(html)).not.toContain(MANAGE_USAGE_BUTTON);
+    }
+  });
+
   it("ends with the privacy footer and the app's version", () => {
     const html = render(SIGNED_IN);
     expect(decode(html)).toContain(CHATGPT_PRIVACY_FOOTER);
     expect(html).toMatch(/<p class="setup__version">[^<]+ 1\.0\.0<\/p><\/div><\/div>$/);
+  });
+
+  it('has Done, the blue button, after the warning and before the privacy footer, in every state (setup.19)', () => {
+    const states: Array<[ChatGptStatus | null, { waiting?: boolean; welcome?: boolean }]> = [
+      [null, {}],
+      [SIGNED_OUT, {}],
+      [SIGNED_OUT, { waiting: true }],
+      [{ ...SIGNED_OUT, encryptionAvailable: false }, {}],
+      [SIGNED_IN, {}],
+      [SIGNED_IN, { welcome: true }]
+    ];
+    for (const [status, options] of states) {
+      const html = render(status, options);
+      const all = buttons(html);
+      // Close stays at the top, as on Set up Claude.
+      expect(all[0]).toBe('Close');
+      expect(all.at(-1)).toBe('Done [primary]');
+      expect(all.filter((label) => label.startsWith('Done'))).toHaveLength(1);
+      const foot = html.indexOf(
+        '<div class="setup__foot"><button type="button" class="primary">Done</button></div><p class="setup__footer">'
+      );
+      expect(foot).toBeGreaterThan(html.indexOf(warning(html)));
+      expect(foot).toBeGreaterThan(-1);
+    }
   });
 });
 
@@ -185,11 +270,9 @@ describe("Settings' ChatGPT account row (codex.2)", () => {
           settings: { ...DEFAULT_SETTINGS, manuscriptFolder: 'C:\\Novel' }, // check-public: allow
           models: [],
           runtime: null,
-          keyStatus: null,
           chatgpt,
           chatgptWaiting: waiting,
           onApply: () => undefined,
-          onKeyChanged: () => undefined,
           onClose: () => undefined,
           onOpenSetup: () => undefined,
           onOpenChatGptSetup: () => undefined,
@@ -206,13 +289,17 @@ describe("Settings' ChatGPT account row (codex.2)", () => {
     return html.slice(start, html.indexOf('</div>', start));
   }
 
-  it('comes between the Claude account and the OpenAI key, with Setup and its (?)', () => {
+  it('comes after the Claude account, the last row of Accounts since codex.6 took out the OpenAI key, with Setup and its (?)', () => {
     const html = settings(SIGNED_IN);
-    const at = ['<span>Claude account</span>', '<span>ChatGPT account</span>', '<span>OpenAI API key'].map(
-      (part) => html.indexOf(part)
+    const at = ['<span>Claude account</span>', '<span>ChatGPT account</span>'].map((part) =>
+      html.indexOf(part)
     );
     expect(at.every((i) => i > -1)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(html).not.toContain('OpenAI API key');
+    // Accounts ends with it: the next thing is the foot.
+    expect(html.indexOf('</section>', at[1])).toBeLessThan(html.indexOf('settings__foot'));
+    expect(html.slice(at[1] ?? 0, html.indexOf('</section>', at[1]))).not.toContain('<input');
     const cells = row(html);
     expect(cells).toMatch(
       /<span class="modal__path" id="([^"]+)" data-testid="chatgpt-account-line">signed in \(Plus\)<\/span><span class="modal__buttons"><button type="button" aria-describedby="\1">Setup<\/button><\/span>/

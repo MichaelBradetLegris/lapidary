@@ -36,12 +36,12 @@ import {
 import type { ProviderHooks, ProviderResult, ReviewProvider } from './types';
 
 /**
- * ChatGPT, on the author's ChatGPT plan (codex.3, PLAN 5.8): the same
- * streamed `store: false` Responses request the API key's provider makes
- * (`reviewRequestBody`, `readReplyStream`, openai.ts), sent to OpenAI's API
- * with the access token of Sign in with ChatGPT (codex.2) as the bearer, as
- * OpenAI's page on models and inference for open-source apps gives it
- * (Appendix A). The differences are OpenAI's: `input` is a list of
+ * ChatGPT, on the author's ChatGPT plan (codex.3, PLAN 5.8), OpenAI's one
+ * route since codex.6 took out the OpenAI API key: the streamed
+ * `store: false` Responses request of openai.ts (`reviewRequestBody`,
+ * `readReplyStream`), sent to OpenAI's API with the access token of Sign in
+ * with ChatGPT (codex.2) as the bearer, as OpenAI's page on models and
+ * inference for open-source apps gives it (Appendix A): `input` is a list of
  * messages, the model list is the one the sign-in allows, in its own shape,
  * an access token is renewed when it has ended or a request is refused with
  * a 401, the plan's limits come with the answers, and the errors are the
@@ -323,8 +323,9 @@ function paramOf(err: { param?: unknown }): string | null {
  * account that is not eligible, a part of the request the route does not
  * take (structured output named on its own, the open question of codex.3),
  * a sign-in OpenAI still refuses after it was renewed, and the plain HTTP
- * cases as the API key's provider words them. OpenAI's own words, and the
- * request id, stay in `detail`, which is never logged.
+ * cases: a rate limit, a refused request, a server error, no connection.
+ * OpenAI's own words, and the request id, stay in `detail`, which is never
+ * logged.
  */
 export function mapChatGptError(err: unknown, doing: string, chapter?: ReplyLimitFacts): AppFailure {
   if (err instanceof AppFailure) return err;

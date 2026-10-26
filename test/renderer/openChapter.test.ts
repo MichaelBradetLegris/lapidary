@@ -207,8 +207,9 @@ describe('a review whose latest decisions could not be written (apply.25 review)
       expect(history.indexOf(change), change).toBeGreaterThan(check);
     }
     // Its failures share the open card: the next try replaces it, an open that works closes it.
+    // Then a Full edit held over the review still on screen opens again (rr.5).
     expect(history).toMatch(
-      /\} catch \(err\) \{\s*notify\('error', errorMessage\(err\), OPEN_CHAPTER_CARD\);\s*\}/
+      /\} catch \(err\) \{\s*notify\('error', errorMessage\(err\), OPEN_CHAPTER_CARD\);\s*if \(leaving !== null[^}]*\}\s*\}/
     );
     expect(history).not.toContain('fail(err)');
     expect(history.indexOf('dismissNotificationsByKey(OPEN_CHAPTER_CARD);')).toBeLessThan(

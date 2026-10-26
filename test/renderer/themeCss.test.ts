@@ -381,23 +381,15 @@ describe('dark block (theme.5)', () => {
     expect(declsFor('a:visited').get('color')).toBe('var(--accent)');
   });
 
-  it("gives form controls the theme's ink and the password field a panel, with no weight of their own", () => {
+  it("gives form controls the theme's ink, with no weight of its own", () => {
     expect(CSS).toMatch(/:where\(select, input, textarea\) \{\s*color: var\(--ink\);\s*\}/);
-    expect(declsFor(":where(input[type='password'])").get('background-color')).toBe('var(--panel)');
     expect(declsFor('body').get('accent-color')).toBe('var(--accent-fill)');
   });
 
-  it('frames the password field like the other text fields, since its background turns off the browser frame', () => {
-    // With a background of its own the field is no longer drawn by the browser
-    // and falls back to a 2 px inset border, dark above and light below.
-    const password = declsFor(":where(input[type='password'])");
-    const textField = declsFor("input[type='text']");
-    expect(password.get('border')).toBe('1px solid var(--border)');
-    for (const property of ['border', 'border-radius', 'padding']) {
-      expect(password.get(property)).toBe(textField.get(property));
-    }
-    // .modal__key-input gives the key its monospace font, which a `font` here would undo.
-    expect([...password.keys()].filter((property) => property.startsWith('font'))).toEqual([]);
+  it("has no rule for a password field or the key's input, which went with the OpenAI API key (codex.6)", () => {
+    // The key's field was the app's one password field, framed here like the text fields.
+    expect(declsFor(":where(input[type='password'])").size).toBe(0);
+    expect(CSS).not.toMatch(/password|modal__key-input/);
   });
 
   it('sets the active find match in --find-active-ink', () => {
@@ -721,6 +713,10 @@ const LIGHT_VALUES: Record<string, string> = {
   // Added by polish.14: how much of --ink-faint a decided row's other two buttons keep,
   // where polish.12 drew them a thinner stroke in --ink-faint itself.
   '--row-fade': '35%',
+  // Added by polish.20: a decided row's shade, the hover's grey, and a step further under the
+  // pointer, where a decided row was on the panel as a pending one is.
+  '--row-decided-bg': 'var(--panel-alt)',
+  '--row-decided-hover-bg': '#ebe7df',
   // polish.16: a colour for each category. Homophone was #a3341c, a red beside
   // spelling's, and other #6d675e, the comments' --ink-soft; typo took spelling's
   // colour, agreement and tense grammar's, redundancy and awkward word-choice's,
@@ -807,6 +803,9 @@ const DARK_VALUES: Record<string, string> = {
   '--tint-small-hover': '26%',
   // polish.14: a decided row's other two buttons, as in light.
   '--row-fade': '35%',
+  // polish.20: a decided row's shade and its step under the pointer, lighter, as the dark hover is.
+  '--row-decided-bg': 'var(--panel-alt)',
+  '--row-decided-hover-bg': '#34302b',
   '--cat-spelling': '#ff7b72',
   '--cat-grammar': '#5cc0e0',
   '--cat-punctuation': '#b994f5',

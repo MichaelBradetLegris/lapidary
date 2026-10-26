@@ -41,7 +41,7 @@ body:
       description: Which service was reviewing when it happened.
       options:
         - Claude
-        - OpenAI (API key)
+        - ChatGPT
         - Not related to a review
     validations:
       required: true

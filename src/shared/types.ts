@@ -3,7 +3,6 @@
  * This module must not import Node or DOM APIs (CLAUDE.md rule 4).
  */
 
-import { openAiProviderLabel } from './ai/openai';
 import type { SyntaxKind } from './text/obsidian';
 import type { Theme } from './ui/theme';
 
@@ -131,9 +130,18 @@ export interface ReviewBase {
  * Where a review came from. 'manual' was called 'paste' until Phase 5b; reviews
  * written before the rename are migrated on load by `migrateReview`. For a review
  * a model wrote, the kind is the provider's id, and `generator.provider` carries
- * the same value explicitly (Phase 5c; `chatgpt` since codex.3).
+ * the same value explicitly (Phase 5c; `chatgpt` since codex.3). `openai` is a
+ * review made on an OpenAI API key, which no provider makes since codex.6: such
+ * a review still opens, and is named "OpenAI (API key)" (`PROVIDER_NAMES`).
  */
 export type GeneratorKind = 'claude' | 'chatgpt' | 'openai' | 'manual' | 'file';
+
+/**
+ * The service a model-written review names (`ReviewGenerator.provider`): a
+ * provider of `PROVIDERS`, or `openai`, for a review saved on an OpenAI API
+ * key before codex.6 took that provider out.
+ */
+export type GeneratorProvider = Exclude<GeneratorKind, 'manual' | 'file'>;
 
 export interface ReviewGenerator {
   kind: GeneratorKind;
@@ -141,7 +149,7 @@ export interface ReviewGenerator {
    * Which service answered. Absent on every review written before Phase 5c, so
    * `migrateReview` fills in 'claude' on load.
    */
-  provider?: Provider;
+  provider?: GeneratorProvider;
   /** model that actually answered, as the provider reported it */
   model?: string;
   effort?: string;
@@ -203,30 +211,31 @@ export type EffortLevel = (typeof EFFORT_LEVELS)[number];
  * the Review menu list them (codex.3). Claude runs through the Claude Code the
  * user installed, signed in with their own Claude plan or API key; ChatGPT
  * runs on the author's ChatGPT plan, through Sign in with ChatGPT (codex.2 and
- * codex.3, PLAN 5.7 and 5.8); OpenAI runs on an API key the author pastes into
- * Settings and is billed per token.
+ * codex.3, PLAN 5.7 and 5.8), the one OpenAI route since codex.6 took out the
+ * OpenAI API key.
  */
-export const PROVIDERS = ['claude', 'chatgpt', 'openai'] as const;
+export const PROVIDERS = ['claude', 'chatgpt'] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
 /**
- * How the provider select and the Review menu name each one. Claude's label
- * is the plain name of the service, since Claude Code may run on a plan or on
- * an API key (opensource.6), and so is ChatGPT's, which runs on the plan;
- * OpenAI's also says how it is paid for and, while `OPENAI_MATURITY` says so,
- * that it is experimental (hardening.11).
+ * How the provider select and the Review menu name each one: the plain name
+ * of the service, since Claude Code may run on a plan or on an API key
+ * (opensource.6), and ChatGPT runs on the plan.
  */
 export const PROVIDER_LABELS: Record<Provider, string> = {
   claude: 'Claude',
-  chatgpt: 'ChatGPT',
-  openai: openAiProviderLabel()
+  chatgpt: 'ChatGPT'
 };
 
-/** The short name, for the status bar and the history badges. */
-export const PROVIDER_NAMES: Record<Provider, string> = {
+/**
+ * The short name, for the status bar and the history badges, of each service
+ * a review may name: a review saved on an OpenAI API key before codex.6 is
+ * "OpenAI (API key)", so it is not taken for a ChatGPT one.
+ */
+export const PROVIDER_NAMES: Record<GeneratorProvider, string> = {
   claude: 'Claude',
   chatgpt: 'ChatGPT',
-  openai: 'OpenAI'
+  openai: 'OpenAI (API key)'
 };
 
 /**
@@ -244,6 +253,12 @@ export interface ColumnShares {
 export interface Settings {
   manuscriptFolder: string | null;
   reviewsFolder: string | null;
+  /**
+   * Where Save to chapter copies what it replaces (setup.18, PLAN 6.5): null
+   * for `<userData>/backups`. Never the manuscript folder or a folder inside
+   * it: main refuses a save of the settings that would make it so.
+   */
+  backupsFolder: string | null;
   /** defaults to <manuscriptFolder>/GUIDELINES.md when null */
   guidelinesPath: string | null;
   provider: Provider;
@@ -253,19 +268,14 @@ export interface Settings {
    */
   model: string;
   /**
-   * The OpenAI model id. Empty means "whichever model the list defaults to",
-   * which is the newest full gpt-5 the key can see, then a mini, then a nano,
-   * and a -pro, -codex or -chat model only when the key can see no other text
-   * model, a -pro one last (`defaultOpenAiModel`, hardening.10).
-   */
-  openaiModel: string;
-  /**
    * The model a ChatGPT review asks for, a slug from the list the sign-in
    * allows (codex.3). Empty means the list's default: the first model it
    * lists that is not a -pro, -codex or -chat one (`defaultChatGptModel`).
+   * The OpenAI API key's `openaiModel` went with that provider (codex.6); a
+   * settings.json that still names it loses it at the next save.
    */
   chatgptModel: string;
-  /** shared by every provider; ChatGPT and OpenAI send it as a reasoning effort */
+  /** shared by every provider; ChatGPT sends it as a reasoning effort */
   effort: EffortLevel;
   /** window zoom, one of ZOOM_STEPS in shared/ui/zoom.ts; 1 is normal size (round 5) */
   zoom: number;
@@ -297,10 +307,10 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   manuscriptFolder: null,
   reviewsFolder: null,
+  backupsFolder: null,
   guidelinesPath: null,
   provider: 'claude',
   model: 'default',
-  openaiModel: '',
   chatgptModel: '',
   effort: 'high',
   zoom: 1,
@@ -315,16 +325,12 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
 
 /** The model setting that belongs to a provider. */
 export function modelFor(settings: Settings, provider: Provider): string {
-  if (provider === 'openai') return settings.openaiModel;
-  if (provider === 'chatgpt') return settings.chatgptModel;
-  return settings.model;
+  return provider === 'chatgpt' ? settings.chatgptModel : settings.model;
 }
 
 /** The settings patch that changes the model of one provider. */
 export function modelPatch(provider: Provider, model: string): Partial<Settings> {
-  if (provider === 'openai') return { openaiModel: model };
-  if (provider === 'chatgpt') return { chatgptModel: model };
-  return { model };
+  return provider === 'chatgpt' ? { chatgptModel: model } : { model };
 }
 
 /* ------------------------------------------------------------------ */
@@ -351,14 +357,6 @@ export type ErrorCode =
   | 'claude-refusal'
   | 'claude-invalid-output'
   | 'claude-failed'
-  /* OpenAI. 'openai-no-key' and 'openai-invalid-key' are the two the renderer
-     turns into a pointer at Settings. */
-  | 'openai-no-key'
-  | 'openai-invalid-key'
-  | 'openai-rate-limit'
-  | 'openai-server'
-  | 'openai-invalid-output'
-  | 'openai-failed'
   /* codex.2: Sign in with ChatGPT did not finish; the message says why and what to do */
   | 'chatgpt-sign-in-failed'
   /* codex.3, a ChatGPT review. 'chatgpt-not-signed-in' (no sign-in, or one

@@ -2,9 +2,11 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createChatGptAuth } from '../../src/main/chatgpt';
 import { AppFailure, fail } from '../../src/main/errors';
 import { runHandler } from '../../src/main/ipcEnvelope';
 import { LOG_FILE, flushLog, initLog, log } from '../../src/main/log';
+import { createChatGptProvider } from '../../src/main/providers/chatgpt';
 import {
   reviewRequestFields,
   runtimeFields,
@@ -12,9 +14,9 @@ import {
   withLogging
 } from '../../src/main/providers/logged';
 import { testConnection } from '../../src/main/providers/connectionTest';
-import { createOpenAiProvider } from '../../src/main/providers/openai';
 import type { ReviewProvider } from '../../src/main/providers/types';
 import { listReviews, loadLatestReview, loadReviewFile } from '../../src/main/reviews';
+import type { KeyVault } from '../../src/main/secrets';
 import type {
   ConnectionTestResult,
   IpcResult,
@@ -27,13 +29,17 @@ import { buildSystemPrompt } from '../../src/shared/prompt/system';
 import { chapterName, chapterSlug } from '../../src/shared/review';
 import { normalizeText } from '../../src/shared/text/eol';
 import { nextLastFailure, setupView, testSetupEvent } from '../../src/shared/ui/setup';
+import { MOCK_EMAIL, startMockChatGptAuth, type MockChatGptAuth } from '../helpers/mockChatGptAuth';
 import { CANNED_REVIEW, PROSE_REPLY, startMockOpenAi, type MockOpenAi } from '../helpers/mockOpenAi';
 
 /* hardening.3b: what the log holds after reviews, runtime checks and failed
    requests. Mock reviews (success, malformed, prose) run through withLogging
    and the IPC envelope into the app's real log file, and nothing of the
-   chapter, the prompt, the guidelines, the reply or the key may be in it.
-   Nor may anything of a corrupt review file. No real key and no network. */
+   chapter, the prompt, the guidelines, the reply or the sign-in may be in it.
+   Nor may anything of a corrupt review file. The reviews are ChatGPT's, on a
+   sign-in made against test/helpers/mockChatGptAuth.ts, the mock's scenario
+   picking each reply: an OpenAI API key's reviews were these tests' until
+   codex.6 took that provider out. No account and no network. */
 
 const SAMPLE = path.join(
   import.meta.dirname,
@@ -49,14 +55,23 @@ const GUIDELINES_SENTINEL = 'GUIDELINES-SENTINEL-41b7';
 const REVIEW_SENTINEL = 'REVIEW-SENTINEL-5c1f';
 const PAYLOAD_SENTINEL = 'PAYLOAD-SENTINEL-d09a';
 const GUIDELINES = `# House style\n\n${GUIDELINES_SENTINEL}: use British spelling, and keep "towards" rather than "toward".`;
-/** The mock's scenario is in the key; all three end in the same last four characters. */
-const KEYS = { ok: 'sk-test-ok-QZ7W', malformed: 'sk-test-malformed-QZ7W', prose: 'sk-test-prose-QZ7W' };
 const MALFORMED_REPLY = '{"changes": [{"paragraph": 0, "before": "had began", "after": ';
 
 let mock: MockOpenAi;
+let authMock: MockChatGptAuth;
 let root: string;
 let chapter: string;
-let key: string = KEYS.ok;
+
+/** A stand-in for safeStorage, as chatgptProvider.test.ts has it. */
+const vault: KeyVault = {
+  isEncryptionAvailable: () => true,
+  encryptString: (plain) => Buffer.from(`VAULT:${[...plain].reverse().join('')}`, 'utf8'),
+  decryptString: (buf) => {
+    const text = buf.toString('utf8');
+    if (!text.startsWith('VAULT:')) throw new Error('not ours');
+    return [...text.slice('VAULT:'.length)].reverse().join('');
+  }
+};
 
 /** What happened, for the tests to read. */
 const outcome: {
@@ -74,7 +89,7 @@ const outcome: {
 function request(): ReviewRequest {
   return {
     requestId: 'req-logged',
-    provider: 'openai',
+    provider: 'chatgpt',
     sourcePath: SOURCE,
     text: chapter,
     model: 'gpt-5-mini',
@@ -118,37 +133,52 @@ beforeAll(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'lapidary-logged-'));
   initLog(path.join(root, 'logs'));
   mock = await startMockOpenAi();
+  authMock = await startMockChatGptAuth();
   const sample = normalizeText(await fs.readFile(SAMPLE, 'utf8')).text;
   chapter = `${sample}\n${CHAPTER_SENTINEL}: the river kept its own counsel that night.\n`;
 
-  const openai = withLogging(
-    createOpenAiProvider({
-      key: () => Promise.resolve(key),
-      status: () => Promise.resolve({ configured: true, source: 'stored' as const, last4: key.slice(-4) }),
-      baseUrl: () => mock.url,
-      maxRetries: 0
+  // Signed in with ChatGPT, the box ticked, as the app logs it: into the real log.
+  const session = createChatGptAuth({
+    userDataDir: () => path.join(root, 'userdata'),
+    vault,
+    shell: () => ({
+      openExternal: (url) => {
+        void authMock.approve(url).catch(() => undefined);
+        return Promise.resolve();
+      },
+      openPath: () => Promise.resolve(''),
+      showItemInFolder: () => undefined
     }),
-    { log }
-  );
+    fetch: (input, init) => fetch(input, init),
+    authBase: () => authMock.url,
+    log,
+    sleep: () => Promise.resolve()
+  });
+  await session.signIn({ another: false });
+  await session.confirmDataSettings(true);
+
+  const chatgpt = withLogging(createChatGptProvider({ session: () => session, baseUrl: () => mock.url }), {
+    log
+  });
   // As the IPC bridge runs them: a review's failure is withLogging's to log, never the envelope's.
   const review = (): Promise<IpcResult<unknown>> =>
-    runHandler('ai:review', request(), (payload) => openai.review(payload as ReviewRequest, hooks), log);
+    runHandler('ai:review', request(), (payload) => chatgpt.review(payload as ReviewRequest, hooks), log);
   const note = (result: IpcResult<unknown>): void => {
     if (!result.ok) outcome.failures.push(new AppFailure(result.error.code, result.error.message));
-    outcome.lastFailures.push(openai.lastFailure()?.code ?? null);
+    outcome.lastFailures.push(chatgpt.lastFailure()?.code ?? null);
   };
 
-  outcome.runtime = await openai.runtime();
-  outcome.models = (await openai.models()).length;
+  outcome.runtime = await chatgpt.runtime();
+  outcome.models = (await chatgpt.models()).length;
   outcome.done = await review();
   note(outcome.done);
-  key = KEYS.malformed;
+  mock.chatGptScenario = 'malformed';
   outcome.malformed = await review();
   note(outcome.malformed);
-  key = KEYS.prose;
+  mock.chatGptScenario = 'prose';
   outcome.prose = await review();
   note(outcome.prose);
-  key = KEYS.ok;
+  mock.chatGptScenario = null;
   note(await review());
 
   // A failed request whose payload carries text: the envelope logs the channel and the error, never the payload.
@@ -190,20 +220,21 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await mock.close();
+  await authMock.close();
   flushLog();
   await fs.rm(root, { recursive: true, force: true });
 });
 
 describe('a provider wrapped in withLogging, against the mock', () => {
-  it('logs the runtime check with the fields diagnostics show, never the key or its last four', async () => {
-    expect(outcome.runtime).toMatchObject({ state: 'ready', keyLast4: 'QZ7W' });
+  it('logs the runtime check with the fields diagnostics show, never the account or a message', async () => {
+    expect(outcome.runtime).toMatchObject({ provider: 'chatgpt', state: 'ready', plan: 'Plus' });
+    // The runtime's message names the development endpoint; the log leaves it out.
+    expect(outcome.runtime?.message).toMatch(/^Using a development endpoint: /);
     const [line] = await linesOf('ai.runtime');
-    expect(line).toMatch(
-      / INFO ai\.runtime provider=openai state=ready apiKeySource=Settings keySource=stored durationMs=\d+$/
-    );
+    expect(line).toMatch(/ INFO ai\.runtime provider=chatgpt state=ready plan=Plus durationMs=\d+$/);
     expect(await linesOf('ai.models')).toEqual([
       expect.stringMatching(
-        new RegExp(` INFO ai\\.models provider=openai count=${outcome.models} durationMs=\\d+$`)
+        new RegExp(` INFO ai\\.models provider=chatgpt count=${outcome.models} durationMs=\\d+$`)
       )
     ]);
   });
@@ -215,37 +246,38 @@ describe('a provider wrapped in withLogging, against the mock', () => {
     const words = reviewRequestFields(request())['words'];
     expect(starts[0]).toMatch(
       new RegExp(
-        ` INFO ai\\.review\\.start provider=openai model=gpt-5-mini effort=low words=${words} chars=${chapter.length} paragraphs=\\d+ guidelinesChars=${GUIDELINES.length}$`
+        ` INFO ai\\.review\\.start provider=chatgpt model=gpt-5-mini effort=low words=${words} chars=${chapter.length} paragraphs=\\d+ guidelinesChars=${GUIDELINES.length}$`
       )
     );
     const done = await linesOf('ai.review.done');
     expect(done).toHaveLength(2);
+    // A plan has no cost per token, so none is logged.
     expect(done[0]).toMatch(
       new RegExp(
-        ` INFO ai\\.review\\.done provider=openai model=gpt-5-mini-2026-06-01 changes=${CANNED_REVIEW.changes.length} comments=${CANNED_REVIEW.comments.length} inputTokens=2400 outputTokens=\\d+(?: costUsd=[\\d.]+ costEstimated=true)? durationMs=\\d+$`
+        ` INFO ai\\.review\\.done provider=chatgpt model=gpt-5-mini changes=${CANNED_REVIEW.changes.length} comments=${CANNED_REVIEW.comments.length} inputTokens=2400 outputTokens=\\d+ durationMs=\\d+$`
       )
     );
   });
 
   it('logs only the code of a reply that is not JSON or is prose, once, and not as ipc.failed', async () => {
-    expect(outcome.malformed).toMatchObject({ ok: false, error: { code: 'openai-invalid-output' } });
-    expect(outcome.prose).toMatchObject({ ok: false, error: { code: 'openai-invalid-output' } });
+    expect(outcome.malformed).toMatchObject({ ok: false, error: { code: 'chatgpt-invalid-output' } });
+    expect(outcome.prose).toMatchObject({ ok: false, error: { code: 'chatgpt-invalid-output' } });
     // The page is told what V8 said of the prose; the log is not.
     expect(outcome.failures.map((f) => f.message).join(' ')).toContain('Here is my');
     expect(await linesOf('ai.review.failed')).toEqual([
       expect.stringMatching(
-        / WARN ai\.review\.failed provider=openai code=openai-invalid-output durationMs=\d+$/
+        / WARN ai\.review\.failed provider=chatgpt code=chatgpt-invalid-output durationMs=\d+$/
       ),
       expect.stringMatching(
-        / WARN ai\.review\.failed provider=openai code=openai-invalid-output durationMs=\d+$/
+        / WARN ai\.review\.failed provider=chatgpt code=chatgpt-invalid-output durationMs=\d+$/
       )
     ]);
     expect((await linesOf('ipc.failed')).filter((line) => line.includes('ai:review'))).toEqual([]);
   });
 
   // The renderer keeps Claude's last failure only; main keeps one for each provider.
-  it("keeps OpenAI's last failure too: set by a failed review, cleared by one that worked", () => {
-    expect(outcome.lastFailures).toEqual([null, 'openai-invalid-output', 'openai-invalid-output', null]);
+  it("keeps ChatGPT's last failure too: set by a failed review, cleared by one that worked", () => {
+    expect(outcome.lastFailures).toEqual([null, 'chatgpt-invalid-output', 'chatgpt-invalid-output', null]);
   });
 
   it('logs a failed request with its channel and error, never its payload', async () => {
@@ -282,11 +314,19 @@ describe('the log after all of it', () => {
     expect(text).not.toContain('Here is my');
   });
 
-  it('holds no key, nor its last four characters', async () => {
+  it('holds nothing of the sign-in: no token, code, client id or email, though the sign-in is logged', async () => {
     const text = await logText();
-    for (const k of Object.values(KEYS)) expect(text).not.toContain(k);
-    expect(text).not.toContain('sk-test');
-    expect(text).not.toContain('QZ7W');
+    expect(await linesOf('chatgpt.sign-in.done')).toHaveLength(1);
+    const secrets = [
+      ...authMock.secrets.accessTokens,
+      ...authMock.secrets.refreshTokens,
+      ...authMock.secrets.idTokens,
+      ...authMock.secrets.codes,
+      ...authMock.issued,
+      MOCK_EMAIL
+    ];
+    expect(secrets.length).toBeGreaterThan(4);
+    for (const secret of secrets) expect(text).not.toContain(secret);
     expect(text).not.toContain('[key]');
   });
 
@@ -345,12 +385,13 @@ describe('the fields withLogging takes', () => {
       apiKeySource: 'none'
     });
     expect(
-      runtimeFields({ provider: 'openai', state: 'ready', keySource: 'stored', keyLast4: 'QZ7W' })
-    ).toEqual({
-      provider: 'openai',
-      state: 'ready',
-      keySource: 'stored'
-    });
+      runtimeFields({
+        provider: 'chatgpt',
+        state: 'ready',
+        plan: 'Plus',
+        message: 'Using a development endpoint: http://127.0.0.1:4599/v1'
+      })
+    ).toEqual({ provider: 'chatgpt', state: 'ready', plan: 'Plus' });
   });
 
   it("reads tokens from either provider's usage", () => {
@@ -562,8 +603,8 @@ describe('the fields withLogging takes', () => {
 
   it('gives a provider without a connection test none', () => {
     const plain: ReviewProvider = {
-      id: 'openai',
-      label: 'OpenAI',
+      id: 'chatgpt',
+      label: 'ChatGPT',
       runtime: () => Promise.reject(new Error('unused')),
       models: () => Promise.resolve([]),
       review: () => Promise.reject(new Error('unused'))

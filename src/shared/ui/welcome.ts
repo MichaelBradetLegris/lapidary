@@ -5,28 +5,27 @@
  * A fresh install has no settings file, so `onboardingDone` is false and the
  * guide takes the place of the chapter list, the prose and the side panel, as
  * the Setup screen does. Start and Skip put it away for good; Settings has
- * Show the welcome guide again. Each step says where it stands from what the
- * app already knows, and so follows it as it changes: Claude's check, in the
- * Setup screen's own words (`setupStatus`, setup.7), the manuscript folder in
- * the settings, and the guidelines file's status (`guidelines:status`,
- * setup.10), which the screen reads again whenever the window gets the focus
- * back. The style sheet's buttons are Review with AI's, Open and Open folder
- * (polish.3), worded for a file that may not be there yet.
+ * Show the welcome guide again. Since setup.18 the steps are: 1 the
+ * manuscript folder, the one Start needs, with two optional rows under it,
+ * where reviews and backups are kept; 2 the AI agents, optional, with a
+ * section each for Claude and ChatGPT; 3 the style sheet, optional too. Each
+ * says where it stands from what the app already knows, and so follows it as
+ * it changes: the folders in the settings and `settings:effective`, Claude's
+ * check in the Setup screen's own words (`setupStatus`, setup.7), the ChatGPT
+ * sign-in in its view's words (`chatGptSetupStatus`, codex.2), and the
+ * guidelines file's status (`guidelines:status`, setup.10), which the screen
+ * reads again whenever the window gets the focus back. The style sheet's
+ * buttons are Review with AI's, Open and Open folder (polish.3), worded for a
+ * file that may not be there yet.
  *
  * Pure (CLAUDE.md rule 4).
  */
 
 import { PRO_PRESELECT_HINT } from '../ai/claudeModels';
-import {
-  OPENAI_MATURITY,
-  openAiMaturitySentence,
-  openAiMaturityWord,
-  type OpenAiMaturity
-} from '../ai/openai';
 import { APP_NAME } from '../branding';
 import type { ChatGptStatus, EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../ipc';
 import type { Provider, Settings } from '../types';
-import { chatGptSetupStatus } from './chatgpt';
+import { SIGN_IN_BUTTON, chatGptSetupStatus } from './chatgpt';
 import {
   OPEN_FOLDER,
   OPEN_GUIDELINES,
@@ -36,7 +35,7 @@ import {
   openGuidelinesTitle
 } from './guidelines';
 import { withHint } from './saveHint';
-import { runtimeLabel, setupStatus, setupView, type LastFailure } from './setup';
+import { setupStatus, setupView, type LastFailure, type SetupFor } from './setup';
 
 /**
  * Whether the guide shows: once the settings are in, until Start or Skip.
@@ -75,39 +74,36 @@ export const WELCOME_TITLE = `Welcome to ${APP_NAME}`;
 export const SHOW_WELCOME_AGAIN = 'Show the welcome guide again';
 
 /** Its tooltip and description at the foot of Settings (polish.4; a note under its row before). */
-export const WELCOME_GUIDE_NOTE = 'The first-start steps: Claude, the manuscript folder and the style sheet.';
+export const WELCOME_GUIDE_NOTE =
+  'The first-start steps: the manuscript folder, the AI agents and the style sheet.';
 
-export const WELCOME_INTRO = `Three steps get ${APP_NAME} ready to review your chapters. Each one says when it is done, and you can do them in any order. Skip leaves the guide; Settings has ${SHOW_WELCOME_AGAIN}.`;
+export const WELCOME_INTRO = `Three steps get ${APP_NAME} ready to review your chapters, and only the first is needed to start. Each one says when it is done, and you can do them in any order. Skip leaves the guide; Settings has ${SHOW_WELCOME_AGAIN}.`;
 
 export const WELCOME_START = 'Start';
 export const WELCOME_SKIP = 'Skip';
 export const WELCOME_SKIP_TITLE = `Close the guide. Settings has ${SHOW_WELCOME_AGAIN}.`;
 
+/** Beside the title of each step Start does not wait for, and of step 1's two rows (setup.18). */
+export const OPTIONAL = 'optional';
+
 export const SET_UP_CLAUDE = 'Set up Claude';
 /**
- * The button that makes OpenAI the provider: "Use OpenAI instead
- * (experimental, pay per use)" while `OPENAI_MATURITY` says so (hardening.11).
+ * ChatGPT's button while signed in, while a sign-in waits, or when no sign-in
+ * can be kept: it opens the Setup screen's ChatGPT view (codex.3) and starts
+ * nothing; while signed out the button is Sign in with ChatGPT (setup.18).
  */
-export function openAiChoiceLabel(maturity: OpenAiMaturity = OPENAI_MATURITY): string {
-  const word = openAiMaturityWord(maturity);
-  return word ? `Use OpenAI instead (${word}, pay per use)` : 'Use OpenAI instead (pay per use)';
-}
-
-export const USE_OPENAI = openAiChoiceLabel();
-export const USE_CLAUDE = 'Use Claude instead';
-/** The button that opens the Setup screen's ChatGPT view, while ChatGPT is the provider (codex.3). */
 export const SET_UP_CHATGPT = 'Set up ChatGPT';
 
-export type WelcomeStepId = 'claude' | 'folder' | 'style-sheet';
+export type WelcomeStepId = 'folder' | 'agents' | 'style-sheet';
 
-/** What a step's button does; the screen maps each to its call. */
+/** What a button does; the screen maps each to its call. */
 export type WelcomeActionId =
-  | 'set-up-claude'
-  | 'set-up-chatgpt'
-  | 'use-openai'
-  | 'use-claude'
-  | 'open-settings'
   | 'choose-folder'
+  | 'change-reviews-folder'
+  | 'change-backups-folder'
+  | 'set-up-claude'
+  | 'sign-in-chatgpt'
+  | 'set-up-chatgpt'
   | 'open-guidelines'
   | 'open-guidelines-folder';
 
@@ -121,9 +117,39 @@ export interface WelcomeAction {
   title?: string;
 }
 
+/** Where a folder row keeps things: reviews or backups (setup.18). */
+export type WelcomeFolderId = 'reviews' | 'backups';
+
+/** One of step 1's two optional rows, under Choose folder (setup.18). */
+export interface WelcomeFolderRow {
+  id: WelcomeFolderId;
+  label: string;
+  /** where it is now, in a few words: in the app's data folder, or the folder chosen */
+  value: string;
+  /** the folder in use, for the tooltip, once known */
+  path: string | null;
+  /** what it holds, one line */
+  note: string;
+  actions: WelcomeAction[];
+}
+
+/** One of step 2's two sections, an AI agent (setup.18). */
+export interface WelcomeSection {
+  id: SetupFor;
+  title: string;
+  /** it can review: Claude is ready, or the ChatGPT sign-in is kept */
+  done: boolean;
+  /** where it stands, in its Setup view's own words */
+  status: string;
+  lines: string[];
+  actions: WelcomeAction[];
+}
+
 export interface WelcomeStep {
   id: WelcomeStepId;
   title: string;
+  /** Start does not wait for it: every step but the manuscript folder's (setup.18) */
+  optional: boolean;
   done: boolean;
   /** where the step stands, in a few words, as the app finds it now */
   status: string;
@@ -132,18 +158,27 @@ export interface WelcomeStep {
   /** what the step means for the author's files, as a list under the lines */
   facts: string[];
   actions: WelcomeAction[];
+  /** step 1's rows, the reviews folder and the backups folder; none elsewhere */
+  rows: WelcomeFolderRow[];
+  /** step 2's sections, Claude and ChatGPT; none elsewhere */
+  sections: WelcomeSection[];
 }
 
 export interface WelcomeInput {
+  /** the provider Review with AI starts with, which a section's button may change (`welcomeProviderFor`) */
   provider: Provider;
   /** Claude's last check, null until the first one answers */
   claude: RuntimeStatus | null;
   claudeLastFailure: LastFailure | null;
-  /** OpenAI's runtime: ready once a key is stored or in the environment */
-  openai: RuntimeStatus | null;
-  /** the ChatGPT sign-in, for a guide shown with ChatGPT as the provider (codex.3); null until read */
+  /** the ChatGPT sign-in, null until read */
   chatgpt?: ChatGptStatus | null;
+  /** a ChatGPT sign-in waits for the browser (`chatGptWaiting`), as the ChatGPT view shows it */
+  chatgptWaiting?: boolean;
   manuscriptFolder: string | null;
+  /** `Settings.reviewsFolder`: null for the folder in the app's data folder */
+  reviewsSetting?: string | null;
+  /** `Settings.backupsFolder`: null for the folder in the app's data folder (setup.18) */
+  backupsSetting?: string | null;
   /** `Settings.guidelinesPath`: null for the usual GUIDELINES.md in the manuscript folder */
   guidelinesSetting: string | null;
   /** `settings:effective`, null until read */
@@ -154,95 +189,9 @@ export interface WelcomeInput {
   guidelinesProblem?: string | null;
 }
 
-/* ---------------- 1. Connect Claude ---------------- */
+/* ---------------- 1. Connect your manuscript folder ---------------- */
 
-export const CLAUDE_STEP_TITLE = 'Connect Claude';
-
-export const CLAUDE_STEP_TEXT = `${APP_NAME} reviews your chapters with Claude through Claude Code, Anthropic's command-line tool, which you install and sign in to yourself, with your Claude plan or an API key. ${SET_UP_CLAUDE} shows how, and this step says when Claude is ready.`;
-
-/** The step's text with OpenAI chosen; it says OpenAI is experimental while `OPENAI_MATURITY` does. */
-export function openAiStepText(maturity: OpenAiMaturity = OPENAI_MATURITY): string {
-  return [
-    'Reviews go to OpenAI instead, billed per token to the account that owns the API key.',
-    openAiMaturitySentence(maturity),
-    'Paste a key in Settings to finish this step.'
-  ]
-    .filter((sentence) => sentence !== null)
-    .join(' ');
-}
-
-export const OPENAI_STEP_TEXT = openAiStepText();
-
-/** The step's text with ChatGPT chosen (codex.3). */
-export const CHATGPT_STEP_TEXT = `Reviews go to ChatGPT instead, on your ChatGPT plan, with no API key. ${SET_UP_CHATGPT} signs you in with ChatGPT and says what to check in ChatGPT's data settings; this step is done once you are signed in.`;
-
-/**
- * Claude can review: signed in, on a plan that runs Claude Code. A usage limit
- * reached by the last review still counts, since it resets by itself.
- */
-function claudeConnected(input: WelcomeInput): boolean {
-  const view = setupView(input.claude, input.claudeLastFailure);
-  const signedIn = view === 'ready' || view === 'api-key' || view === 'usage-limit';
-  return signedIn && !input.claude?.planWarning;
-}
-
-function claudeStep(input: WelcomeInput): WelcomeStep {
-  if (input.provider === 'chatgpt') {
-    const done = input.chatgpt?.signedIn === true;
-    return {
-      id: 'claude',
-      title: CLAUDE_STEP_TITLE,
-      done,
-      // The ChatGPT view's own title for where the sign-in stands.
-      status: chatGptSetupStatus(input.chatgpt ?? null, false).title,
-      lines: [CHATGPT_STEP_TEXT],
-      facts: [],
-      actions: [
-        { id: 'set-up-chatgpt', label: SET_UP_CHATGPT, primary: !done },
-        { id: 'use-claude', label: USE_CLAUDE }
-      ]
-    };
-  }
-  if (input.provider === 'openai') {
-    const done = input.openai?.state === 'ready';
-    return {
-      id: 'claude',
-      title: CLAUDE_STEP_TITLE,
-      done,
-      status: runtimeLabel(input.openai) ?? 'Checking OpenAI…',
-      lines: [OPENAI_STEP_TEXT],
-      facts: [],
-      actions: [
-        {
-          id: 'open-settings',
-          label: 'Open Settings',
-          primary: !done,
-          title: 'Paste an OpenAI API key in Settings.'
-        },
-        { id: 'use-claude', label: USE_CLAUDE }
-      ]
-    };
-  }
-  const done = claudeConnected(input);
-  const view = setupView(input.claude, input.claudeLastFailure);
-  return {
-    id: 'claude',
-    title: CLAUDE_STEP_TITLE,
-    done,
-    // The Setup screen's own title for what the last check found.
-    status: setupStatus(view, input.claude, input.claudeLastFailure).title,
-    lines: [CLAUDE_STEP_TEXT],
-    facts: [],
-    actions: [
-      { id: 'set-up-claude', label: SET_UP_CLAUDE, primary: !done },
-      { id: 'use-openai', label: USE_OPENAI }
-    ]
-  };
-}
-
-/* ---------------- 2. Choose your manuscript folder ---------------- */
-
-export const FOLDER_STEP_TITLE = 'Choose your manuscript folder';
+export const FOLDER_STEP_TITLE = 'Connect your manuscript folder';
 
 export const FOLDER_STEP_TEXT =
   'The folder that holds your chapters: your Obsidian vault, or a folder inside it.';
@@ -255,7 +204,8 @@ export const FOLDER_STEP_TEXT =
  */
 export const FOLDER_LISTS = `${APP_NAME} lists the .md and .txt files in the folder and its subfolders as chapters, leaving out a few, among them the guidelines file, Excalidraw drawings and anything whose name starts with a dot, such as Obsidian's .obsidian and .trash folders.`;
 
-export const FOLDER_SAVES = `It changes a chapter file only when you press Save to chapter, and first copies the version it replaces into a backup in ${APP_NAME}'s own data folder.`;
+/** The second fact: Save to chapter, and the backup it makes first, in the folder of the row below (setup.18). */
+export const FOLDER_SAVES = `It changes a chapter file only when you press Save to chapter, and first copies the version it replaces into the backups folder below.`;
 
 /** The third fact: the one file the app adds, or the guidelines file chosen in Settings. */
 export function folderGuidelinesFact(guidelinesSetting: string | null): string {
@@ -265,40 +215,214 @@ export function folderGuidelinesFact(guidelinesSetting: string | null): string {
   return `Its guidelines file is the one chosen in Settings, ${guidelinesSetting}. It creates that file from a template only if it is missing, and never changes it after that.`;
 }
 
-/** The fourth fact: where reviews are kept, as `settings:effective` says once read. */
-export function folderReviewsFact(paths: EffectivePaths | null): string {
-  if (paths === null) {
-    return `Reviews are kept in the reviews folder Settings shows: ${APP_NAME}'s own data folder unless you choose another.`;
-  }
-  if (paths.reviewsFolderIsDefault) {
-    return `Reviews are kept in ${APP_NAME}'s own data folder, ${paths.reviewsFolder}, not in the manuscript folder. You can choose another reviews folder in Settings.`;
-  }
-  return `Reviews are kept in ${paths.reviewsFolder}, the reviews folder chosen in Settings.`;
+/** A folder row's value while it is the folder in the app's data folder, as the task words it (setup.18). */
+export const IN_DATA_FOLDER = `In ${APP_NAME}'s data folder`;
+
+/** Each row's button, as in Settings. */
+export const CHANGE_FOLDER = 'Change';
+
+export const REVIEWS_ROW_LABEL = 'Reviews folder';
+export const BACKUPS_ROW_LABEL = 'Backups folder';
+
+export const WELCOME_REVIEWS_NOTE =
+  'Where your reviews and decisions are kept. Each review holds the full text of its chapter.';
+export const WELCOME_BACKUPS_NOTE =
+  'Where Save to chapter copies the version it replaces. It cannot be the manuscript folder or a folder inside it.';
+
+/** The folder picker's title for each row's Change, as Settings words it. */
+export const FOLDER_PICKER_TITLES: Readonly<Record<WelcomeFolderId, string>> = {
+  reviews: 'Choose the reviews folder',
+  backups: 'Choose the backups folder'
+};
+
+/** The setting each row's Change writes. */
+export const FOLDER_SETTINGS: Readonly<Record<WelcomeFolderId, 'reviewsFolder' | 'backupsFolder'>> = {
+  reviews: 'reviewsFolder',
+  backups: 'backupsFolder'
+};
+
+/**
+ * A folder row: in the app's data folder while the setting is null, else the
+ * folder chosen. `settings:effective` says so once read, and gives the folder
+ * in use for the tooltip; until then the setting does.
+ */
+function folderRow(
+  id: WelcomeFolderId,
+  label: string,
+  note: string,
+  setting: string | null,
+  inUse: { folder: string; isDefault: boolean } | null
+): WelcomeFolderRow {
+  const isDefault = inUse ? inUse.isDefault : setting === null;
+  const path = inUse ? inUse.folder : setting;
+  return {
+    id,
+    label,
+    value: isDefault || path === null ? IN_DATA_FOLDER : path,
+    path,
+    note,
+    actions: [{ id: `change-${id}-folder`, label: CHANGE_FOLDER, title: FOLDER_PICKER_TITLES[id] }]
+  };
 }
 
 function folderStep(input: WelcomeInput): WelcomeStep {
   const folder = input.manuscriptFolder;
+  const paths = input.paths;
   return {
     id: 'folder',
     title: FOLDER_STEP_TITLE,
+    optional: false,
     done: folder !== null,
     status: folder ?? 'No folder chosen yet',
     lines: [FOLDER_STEP_TEXT],
-    // The four things the author should know before choosing it (setup.11).
-    facts: [
-      FOLDER_LISTS,
-      FOLDER_SAVES,
-      folderGuidelinesFact(input.guidelinesSetting),
-      folderReviewsFact(input.paths)
-    ],
+    // What the author should know before choosing it (setup.11); where reviews
+    // and backups are kept is said by the rows (setup.18).
+    facts: [FOLDER_LISTS, FOLDER_SAVES, folderGuidelinesFact(input.guidelinesSetting)],
     actions: [
       {
         id: 'choose-folder',
         label: folder ? 'Choose another folder' : 'Choose folder',
         primary: folder === null
       }
+    ],
+    rows: [
+      folderRow(
+        'reviews',
+        REVIEWS_ROW_LABEL,
+        WELCOME_REVIEWS_NOTE,
+        input.reviewsSetting ?? null,
+        paths ? { folder: paths.reviewsFolder, isDefault: paths.reviewsFolderIsDefault } : null
+      ),
+      folderRow(
+        'backups',
+        BACKUPS_ROW_LABEL,
+        WELCOME_BACKUPS_NOTE,
+        input.backupsSetting ?? null,
+        paths ? { folder: paths.backupsFolder, isDefault: paths.backupsFolderIsDefault } : null
+      )
+    ],
+    sections: []
+  };
+}
+
+/* ---------------- 2. Connect AI agents ---------------- */
+
+export const AGENTS_STEP_TITLE = 'Connect AI agents';
+
+export const AGENTS_STEP_TEXT = `Reviews with AI need Claude or ChatGPT, and either will do. You can start without them and set one up later, from Settings.`;
+
+export const CLAUDE_SECTION_TITLE = 'Claude';
+export const CHATGPT_SECTION_TITLE = 'ChatGPT';
+
+export const CLAUDE_SECTION_TEXT = `Claude reviews through Claude Code, Anthropic's command-line tool, which you install and sign in to yourself, with your Claude plan or an API key. ${SET_UP_CLAUDE} shows how.`;
+
+/**
+ * ChatGPT's line while its button is Sign in with ChatGPT. It names that
+ * button alone: until the setup.18 review it named the view by its heading,
+ * Set up ChatGPT, which is also the label the button takes once signed in.
+ */
+export const CHATGPT_SECTION_TEXT = `ChatGPT reviews on your ChatGPT plan, with no API key. ${SIGN_IN_BUTTON} opens Setup's ChatGPT view, which says what to check in ChatGPT's data settings, and OpenAI's sign-in page in your browser.`;
+
+/** ChatGPT's line while its button is Set up ChatGPT: signed in, waiting, or no sign-in can be kept. */
+export const CHATGPT_SECTION_SET_UP_TEXT = `ChatGPT reviews on your ChatGPT plan, with no API key. ${SET_UP_CHATGPT} says where the sign-in stands and what to check in ChatGPT's data settings.`;
+
+/**
+ * Claude can review: signed in, on a plan that runs Claude Code. A usage limit
+ * reached by the last review still counts, since it resets by itself.
+ */
+function claudeConnected(input: WelcomeInput): boolean {
+  const view = setupView(input.claude, input.claudeLastFailure);
+  const signedIn = view === 'ready' || view === 'api-key' || view === 'usage-limit';
+  return signedIn && !input.claude?.planWarning;
+}
+
+/** ChatGPT can review: a sign-in is kept. */
+function chatGptConnected(input: WelcomeInput): boolean {
+  return input.chatgpt?.signedIn === true;
+}
+
+/** The step's own line under its title: which of the two can review. */
+function agentsStatus(claude: boolean, chatgpt: boolean): string {
+  if (claude && chatgpt) return 'Claude and ChatGPT are both connected';
+  if (claude) return 'Claude is connected';
+  if (chatgpt) return 'ChatGPT is connected';
+  return 'Not connected yet';
+}
+
+function claudeSection(input: WelcomeInput, stepDone: boolean): WelcomeSection {
+  const done = claudeConnected(input);
+  const view = setupView(input.claude, input.claudeLastFailure);
+  return {
+    id: 'claude',
+    title: CLAUDE_SECTION_TITLE,
+    done,
+    // The Setup screen's own title for what the last check found.
+    status: setupStatus(view, input.claude, input.claudeLastFailure).title,
+    lines: [CLAUDE_SECTION_TEXT],
+    actions: [{ id: 'set-up-claude', label: SET_UP_CLAUDE, primary: !stepDone }]
+  };
+}
+
+/**
+ * ChatGPT's section. While signed out, Sign in with ChatGPT, which opens the
+ * ChatGPT view and starts the sign-in there, as that view's own button does;
+ * held until the status is read. Once signed in, while a sign-in waits for the
+ * browser (the view has Cancel), and when Windows cannot encrypt a sign-in
+ * (the view says why), Set up ChatGPT, which opens the view and starts nothing.
+ */
+function chatGptSection(input: WelcomeInput, stepDone: boolean): WelcomeSection {
+  const status = input.chatgpt ?? null;
+  const waiting = input.chatgptWaiting === true;
+  const done = chatGptConnected(input);
+  const signIn = !waiting && !done && status?.encryptionAvailable !== false;
+  const blue = !stepDone && (signIn ? status !== null : waiting);
+  return {
+    id: 'chatgpt',
+    title: CHATGPT_SECTION_TITLE,
+    done,
+    // The ChatGPT view's own title for where the sign-in stands.
+    status: chatGptSetupStatus(status, waiting).title,
+    lines: [signIn ? CHATGPT_SECTION_TEXT : CHATGPT_SECTION_SET_UP_TEXT],
+    actions: [
+      signIn
+        ? { id: 'sign-in-chatgpt', label: SIGN_IN_BUTTON, primary: blue, disabled: status === null }
+        : { id: 'set-up-chatgpt', label: SET_UP_CHATGPT, primary: blue }
     ]
   };
+}
+
+function agentsStep(input: WelcomeInput): WelcomeStep {
+  const claude = claudeConnected(input);
+  const chatgpt = chatGptConnected(input);
+  const done = claude || chatgpt;
+  return {
+    id: 'agents',
+    title: AGENTS_STEP_TITLE,
+    optional: true,
+    done,
+    status: agentsStatus(claude, chatgpt),
+    lines: [AGENTS_STEP_TEXT],
+    facts: [],
+    actions: [],
+    rows: [],
+    // Either will do, so the step's blue buttons go once one can review.
+    sections: [claudeSection(input, done), chatGptSection(input, done)]
+  };
+}
+
+/**
+ * The provider a section's button makes the one Review with AI starts with,
+ * or null to leave it (setup.18): the section's own, when the provider is the
+ * other one and that one cannot review. So an author who connects only
+ * ChatGPT is not shown Claude's launch card and status, as Use ChatGPT
+ * instead saw to until the two sections replaced it, and an author who can
+ * already review with the provider keeps it; the Review menu still chooses
+ * either for each review (5.8 item 8).
+ */
+export function welcomeProviderFor(section: SetupFor, input: WelcomeInput): Provider | null {
+  if (input.provider === section) return null;
+  const otherConnected = section === 'chatgpt' ? claudeConnected(input) : chatGptConnected(input);
+  return otherConnected ? null : section;
 }
 
 /* ---------------- 3. Fill in your style sheet ---------------- */
@@ -387,6 +511,7 @@ function styleSheetStep(input: WelcomeInput): WelcomeStep {
   return {
     id: 'style-sheet',
     title: STYLE_SHEET_STEP_TITLE,
+    optional: true,
     done: state.done,
     status: state.status,
     lines: state.lines,
@@ -405,7 +530,9 @@ function styleSheetStep(input: WelcomeInput): WelcomeStep {
         disabled: path === null,
         ...titled(openFolderTitle(path, missing))
       }
-    ]
+    ],
+    rows: [],
+    sections: []
   };
 }
 
@@ -417,7 +544,16 @@ function titled(title: string | undefined): { title?: string } {
 
 /** The three steps, in order, each as the app finds it now. */
 export function welcomeSteps(input: WelcomeInput): WelcomeStep[] {
-  return [claudeStep(input), folderStep(input), styleSheetStep(input)];
+  return [folderStep(input), agentsStep(input), styleSheetStep(input)];
+}
+
+/** Every button of a step, its own and its rows' and sections', in the order the guide draws them. */
+export function stepActions(step: WelcomeStep): WelcomeAction[] {
+  return [
+    ...step.actions,
+    ...step.rows.flatMap((row) => row.actions),
+    ...step.sections.flatMap((section) => section.actions)
+  ];
 }
 
 export interface WelcomeStart {
@@ -427,22 +563,37 @@ export interface WelcomeStart {
   note: string | null;
 }
 
-/** Start, and what is left to do, said beside it. */
+/**
+ * Start, and what is left to do, said beside it. Start needs the manuscript
+ * folder alone (setup.18): what is left once it is chosen is optional.
+ */
 export function welcomeStart(steps: readonly WelcomeStep[]): WelcomeStart {
-  const folder = steps.find((step) => step.id === 'folder');
-  if (folder && !folder.done) {
+  const required = steps.filter((step) => !step.optional && !step.done);
+  if (required.length > 0) {
     return { disabled: true, note: 'Choose a manuscript folder to start, or skip the guide for now.' };
   }
   const left = steps.filter((step) => !step.done).map((step) => step.title);
   if (left.length === 0) return { disabled: false, note: null };
-  const them = left.length === 1 ? 'it' : 'them';
+  const [what, them] = left.length === 1 ? ['step', 'it'] : ['steps', 'them'];
   return {
     disabled: false,
-    note: `Still to do: ${left.join(', ')}. You can start now and come back to ${them} with ${SHOW_WELCOME_AGAIN}, in Settings.`
+    note: `Optional ${what} not done yet: ${left.join(', ')}. You can start now and come back to ${them} with ${SHOW_WELCOME_AGAIN}, in Settings.`
   };
 }
 
 /** The card when Start or Skip could not be written: the guide goes for now and comes back at the next start. */
 export function welcomeNotKept(reason: string): string {
   return `The welcome guide is closed for now, but that could not be saved, so it will show again at the next start: ${reason}`;
+}
+
+/**
+ * Where the focus goes when leaving the Setup screen lands on the guide
+ * (setup.19): the button of the section for the view the author leaves, Set
+ * up Claude, or ChatGPT's Sign in with ChatGPT or Set up ChatGPT, whichever it
+ * shows now (setup.18); null when no step has that section, or its button
+ * cannot take the focus.
+ */
+export function welcomeLandingAction(view: SetupFor, steps: readonly WelcomeStep[]): WelcomeActionId | null {
+  const section = steps.flatMap((step) => step.sections).find((s) => s.id === view);
+  return section?.actions.find((action) => action.disabled !== true)?.id ?? null;
 }

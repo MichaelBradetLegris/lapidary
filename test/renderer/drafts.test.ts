@@ -780,3 +780,152 @@ describe("Full edit's box, kept on disk (rr.2)", () => {
     expect(f.files.has(ONE)).toBe(false);
   });
 });
+
+/* rr.5: a chapter opened from Full edit opens in Full edit, but only once
+   what was kept for it is back (`openPendingFullEdit`): a kept box goes first, as
+   it would in Main, and nothing is set aside because the window was in Full
+   edit, which a box opened at once would have done. */
+describe('a chapter opened from Full edit (rr.5)', () => {
+  const wholeBox = (text: string): StoredDraft => ({
+    key: WHOLE_DRAFT_KEY,
+    paragraphs: [],
+    initial: fullEditText(TEXT, []),
+    text,
+    whole: true
+  });
+
+  /** Open `review` in `mode`, as App does with the mode in use at the click, and let it settle. */
+  async function showIn(review: Review, mode: 'main' | 'edit' | 'preview'): Promise<void> {
+    state().setReview(review, null, mode);
+    await persistence.settled();
+    await Promise.resolve();
+  }
+
+  beforeEach(async () => {
+    useApp.setState({ viewMode: 'main', fullEditPending: null });
+    await show(chapter(ONE));
+    expect(state().openFullEdit()).toBeNull();
+  });
+
+  it('opens Full edit afresh on a chapter with nothing kept', async () => {
+    await showIn(chapter(TWO), 'edit');
+    expect(f.loads).toEqual([ONE, TWO]);
+    expect(currentMode(state())).toBe('edit');
+    expect(state().drafts[WHOLE_DRAFT_KEY]?.text).toBe(fullEditText(TEXT, []));
+    expect(state().fullEditPending).toBeNull();
+    expect(f.setAsides).toEqual([]);
+  });
+
+  it('waits in Full edit with no box while the kept boxes are read', async () => {
+    f.holdLoad = true;
+    state().setReview(chapter(TWO), null, 'edit');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.loads).toEqual([ONE, TWO]);
+    expect(currentMode(state())).toBe('edit');
+    expect(state().drafts).toEqual({});
+    f.release();
+    await persistence.settled();
+    await Promise.resolve();
+    expect(state().drafts[WHOLE_DRAFT_KEY]).toBeDefined();
+  });
+
+  it('puts a kept box with typed text back first, in Main, and sets nothing aside', async () => {
+    f.files.set(TWO, kept(TWO, [rainBox()]));
+    await showIn(chapter(TWO), 'edit');
+    expect(currentMode(state())).toBe('main');
+    expect(state().drafts[1]?.text).toBe('The rain came hard, and harder.');
+    expect(state().drafts[WHOLE_DRAFT_KEY]).toBeUndefined();
+    expect(f.setAsides).toEqual([]);
+    expect(cards().map((c) => c.key)).toEqual([DRAFTS_RESTORED_CARD]);
+  });
+
+  it('brings back what was typed in Full edit as it was left', async () => {
+    f.files.set(TWO, kept(TWO, [wholeBox(`${TEXT} More.`)]));
+    await showIn(chapter(TWO), 'edit');
+    expect(currentMode(state())).toBe('edit');
+    expect(state().drafts[WHOLE_DRAFT_KEY]?.text).toBe(`${TEXT} More.`);
+    expect(f.setAsides).toEqual([]);
+    expect(cards().map((c) => c.text)).toEqual(['Full edit is open again, as you left it.']);
+  });
+
+  it('keeps what was typed in the chapter left, which opens in Full edit with it again', async () => {
+    state().setDraftText(WHOLE_DRAFT_KEY, `${TEXT} And then the rain stopped.`);
+    await vi.advanceTimersByTimeAsync(DRAFT_WRITE_DELAY_MS);
+    await showIn(chapter(TWO), 'edit');
+    expect(state().drafts[WHOLE_DRAFT_KEY]?.text).toBe(fullEditText(TEXT, []));
+    await showIn(chapter(ONE), 'edit');
+    expect(currentMode(state())).toBe('edit');
+    expect(state().drafts[WHOLE_DRAFT_KEY]?.text).toBe(`${TEXT} And then the rain stopped.`);
+    expect(f.setAsides).toEqual([]);
+  });
+
+  it('opens Preview and Main at once, with no wait', async () => {
+    state().setReview(chapter(TWO), null, 'preview');
+    expect(currentMode(state())).toBe('preview');
+    expect(state().fullEditPending).toBeNull();
+    await persistence.settled();
+    expect(currentMode(state())).toBe('preview');
+  });
+});
+
+/* rr.5 review: a chapter opened from Preview kept Preview, so the boxes kept
+   for it came back in Main behind Preview, out of sight, under a card saying
+   they were open for editing again. Boxes with typed text now open the
+   window in Main, where they show (`reopenDrafts`), as from Full edit; boxes
+   left as they opened stay behind Preview, as a switch to Preview leaves them. */
+describe('a chapter opened from Preview (rr.5 review)', () => {
+  /** Open `review` in `mode`, as App does with the mode in use at the click, and let it settle. */
+  async function showIn(review: Review, mode: 'main' | 'edit' | 'preview'): Promise<void> {
+    state().setReview(review, null, mode);
+    await persistence.settled();
+    await Promise.resolve();
+  }
+
+  beforeEach(async () => {
+    useApp.setState({ viewMode: 'main', fullEditPending: null });
+    await show(chapter(ONE));
+    state().setViewMode('preview');
+  });
+
+  it('a chapter opened from Preview with a kept typed box opens in Main with it, nothing set aside', async () => {
+    f.files.set(TWO, kept(TWO, [rainBox()]));
+    await showIn(chapter(TWO), 'preview');
+    expect(currentMode(state())).toBe('main');
+    expect(state().drafts[1]?.text).toBe('The rain came hard, and harder.');
+    expect(f.setAsides).toEqual([]);
+    expect(cards().map((c) => c.text)).toEqual(['Paragraph 2 is open for editing again, as you left it.']);
+  });
+
+  it('brings back a box typed in Main and kept for later, after another chapter in Preview', async () => {
+    await showIn(chapter(ONE, TEXT, 'review-in-main'), 'main');
+    state().openDraft(1);
+    state().setDraftText(1, 'The rain came hard, and harder.');
+    // The leave question's Keep for later flushes the box to the chapter's file.
+    await persistence.flush(ONE);
+    await showIn(chapter(TWO), 'main');
+    state().setViewMode('preview');
+    await showIn(chapter(ONE, TEXT, 'review-in-main'), 'preview');
+    expect(currentMode(state())).toBe('main');
+    expect(state().drafts[1]?.text).toBe('The rain came hard, and harder.');
+    expect(f.setAsides).toEqual([]);
+  });
+
+  it('opens another review of the chapter in Main when a typed box was kept behind Preview', async () => {
+    state().setViewMode('main');
+    state().openDraft(1);
+    state().setDraftText(1, 'The rain came hard, and harder.');
+    // "Leave Main for Preview?" answered Keep for later: the box stays open in Main.
+    state().setViewMode('preview');
+    await showIn(chapter(ONE, TEXT, 'another-review'), 'preview');
+    expect(currentMode(state())).toBe('main');
+    expect(state().drafts[1]?.text).toBe('The rain came hard, and harder.');
+  });
+
+  it('stays in Preview when the kept box holds nothing typed, the box open behind it', async () => {
+    f.files.set(TWO, kept(TWO, [rainBox('The rain came hard.')]));
+    await showIn(chapter(TWO), 'preview');
+    expect(currentMode(state())).toBe('preview');
+    expect(state().drafts[1]?.text).toBe('The rain came hard.');
+    expect(cards()).toEqual([]);
+  });
+});

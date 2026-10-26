@@ -9,11 +9,15 @@ import {
   localDayNumber,
   parseBackupFileName
 } from '../../src/shared/backups';
+import { APP_NAME } from '../../src/shared/branding';
 import {
   BACKUPS_NOTE,
   SHOW_ALL_BACKUPS,
   SHOW_BACKUPS,
   SHOW_BACKUPS_TITLE,
+  backupsFolderInManuscript,
+  backupsFolderMissing,
+  manuscriptHoldsBackups,
   noBackupsYet
 } from '../../src/shared/ui/backups';
 
@@ -291,9 +295,13 @@ describe('backupsToPrune', () => {
 
 /* apply.11: the words for finding backups. */
 describe('finding backups: the wording', () => {
-  it('puts the Settings note word for word as PLAN apply.11 gives it', () => {
+  /* setup.18: the folder can be chosen, so the tooltip says where backups
+     go with none chosen, where the folder may not be, and that choosing
+     another moves nothing; "Backups stay on this computer" held only while
+     the data folder was the one place. */
+  it("puts apply.11's note, with where the folder may be since it can be chosen", () => {
     expect(BACKUPS_NOTE).toBe(
-      'Before every Save to chapter, the version it replaces is copied here. The last 20 saves and the first save of each day for 30 days are kept. Backups stay on this computer.'
+      `Before every Save to chapter, the version it replaces is copied here. The last 20 saves and the first save of each day for 30 days are kept. With no folder chosen, backups stay in ${APP_NAME}'s data folder, on this computer. The folder cannot be the manuscript folder or inside it, and choosing another leaves the backups made so far where they are.`
     );
   });
 
@@ -305,14 +313,17 @@ describe('finding backups: the wording', () => {
     expect(SHOW_BACKUPS).toBe('Show backups');
     expect(SHOW_ALL_BACKUPS).toBe('Show all backups');
     expect(noBackupsYet('Chapter 03')).toBe(
-      'No backups of Chapter 03 at this path yet. Save to chapter makes one each time it changes the file. If the chapter or its folder was renamed or moved, its earlier backups are in another folder, named after its old file name.'
+      'No backups of Chapter 03 at this path yet. Save to chapter makes one each time it changes the file. If the chapter or its folder was renamed or moved, its earlier backups are in another folder, named after its old file name, and if another backups folder was chosen since, they are still in the one before.'
     );
     for (const text of [
       BACKUPS_NOTE,
       SHOW_BACKUPS,
       SHOW_BACKUPS_TITLE,
       SHOW_ALL_BACKUPS,
-      noBackupsYet('Chapter 03')
+      noBackupsYet('Chapter 03'),
+      backupsFolderMissing('E:/Backups'),
+      backupsFolderInManuscript('C:/Novel'),
+      manuscriptHoldsBackups('C:/Novel', 'C:/Novel/Backups', false)
     ]) {
       expect(text).not.toMatch(/accepted changes?/i);
     }
@@ -326,5 +337,32 @@ describe('finding backups: the wording', () => {
     expect(text).not.toMatch(/has no backups/);
     expect(text).toContain('at this path');
     expect(text).toMatch(/renamed or moved/);
+    // Nor once another backups folder is chosen (setup.18), which starts empty.
+    expect(text).toMatch(/another backups folder was chosen since, they are still in the one before/);
+  });
+});
+
+/* setup.18: main's words when the backups folder chosen in Settings is not
+   there, and when it refuses one in the manuscript folder, from either side. */
+describe('the backups folder chosen in Settings: the wording', () => {
+  it('says a missing folder may be on a drive not connected, or made again by the next save', () => {
+    expect(backupsFolderMissing('E:/Backups')).toBe(
+      'The backups folder, E:/Backups, is not there. If it is on a network, USB or cloud drive, check that the drive is connected. Otherwise the next Save to chapter makes it again.'
+    );
+  });
+
+  it('refuses a backups folder in the manuscript folder, naming the manuscript folder and why', () => {
+    expect(backupsFolderInManuscript('C:/Novel')).toBe(
+      'The backups folder cannot be the manuscript folder, C:/Novel, or a folder inside it: backups there would be listed as chapters, indexed by Obsidian and synced. Nothing was changed; choose another folder.'
+    );
+  });
+
+  it('refuses a manuscript folder that is or holds the backups folder, offering either way out', () => {
+    expect(manuscriptHoldsBackups('C:/Novel', 'C:/Novel/Backups', false)).toBe(
+      'The manuscript folder cannot be C:/Novel, because it holds the backups folder, C:/Novel/Backups, and backups there would be listed as chapters, indexed by Obsidian and synced. Nothing was changed; choose another manuscript folder, or choose another backups folder first.'
+    );
+    expect(manuscriptHoldsBackups('C:/Novel', 'C:/Novel', true)).toBe(
+      'The manuscript folder cannot be C:/Novel, because it is the backups folder, and backups there would be listed as chapters, indexed by Obsidian and synced. Nothing was changed; choose another manuscript folder, or choose another backups folder first.'
+    );
   });
 });

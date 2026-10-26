@@ -104,6 +104,11 @@
      (polish.14), a color-mix() share: faint enough that the row reads as
      done, under 3:1 by the author's choice (themeContrast.test.ts). */
   --row-fade: 35%;
+  /* A decided row of the suggestions list (polish.20): shaded as a row under
+     the pointer is, and a step further under the pointer, as far as its
+     --ink-soft words keep 4.5:1 on it. */
+  --row-decided-bg: var(--panel-alt);
+  --row-decided-hover-bg: #ebe7df;
 
   --font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-prose: Literata, Georgia, 'Times New Roman', serif;
@@ -206,6 +211,9 @@
     --tint-small: 16%;
     --tint-small-hover: 26%;
     --row-fade: 35%;
+    /* lighter, as the dark hover is, by about light's step */
+    --row-decided-bg: var(--panel-alt);
+    --row-decided-hover-bg: #34302b;
 
     /* each category's own colour, on the same hues as in light (polish.16) */
     --cat-spelling: #ff7b72;
@@ -529,21 +537,9 @@ button.link {
 }
 
 /* Form controls take the theme's ink rather than the browser's field colours.
-   :where() gives these no weight, so any rule with a class still decides. The
-   password field (the OpenAI key) has no rule of its own for its background. A
-   background turns off the browser's own drawing of the field, which then falls
-   back to a 2 px inset border, dark at the top and left and light at the bottom
-   and right, so it takes the frame of the other text fields below as well. No
-   font here: .modal__key-input sets its own. */
+   :where() gives these no weight, so any rule with a class still decides. */
 :where(select, input, textarea) {
   color: var(--ink);
-}
-
-:where(input[type='password']) {
-  background-color: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 3px 6px;
 }
 
 select,
@@ -1002,8 +998,9 @@ input[type='text'] {
   color: var(--unsaved);
 }
 
-/* The provider's readiness is a button that opens Setup, or Settings for
-   OpenAI (setup.7), drawn as the text it was, underlined under the pointer. */
+/* The provider's readiness is a button that opens Setup, Claude's view or
+   ChatGPT's (setup.7, codex.3), drawn as the text it was, underlined under the
+   pointer. */
 .statusbar__runtime {
   padding: 0;
   border: none;
@@ -2509,6 +2506,13 @@ input[type='text'] {
   color: var(--ink-soft);
 }
 
+/* The provider badge keeps its words on one line, "OpenAI (API key)" for a
+   review on the key codex.6 took out among them; the time gives way first. */
+.history__item .badge {
+  flex: none;
+  white-space: nowrap;
+}
+
 /* The model beside the provider badge; the time gives way first when narrow. */
 .history__model {
   flex: 0 1 auto;
@@ -2633,6 +2637,14 @@ input[type='text'] {
   margin-bottom: 8px;
 }
 
+/* Review with AI's ChatGPT account (codex.5): as high as a row with a button
+   whether Open Setup is in it or not, so it is as high as the rows around it
+   and nothing moves when a sign-in comes or goes. A button is its line, 4 px
+   of padding and 1 px of border above and below. */
+.modal__row--account {
+  min-height: calc(1lh + 10px);
+}
+
 /* A row's name; a <label> where it names a control (Appearance, theme.7, and
    in Settings Claude model and Effort, polish.4). */
 .modal__row > span:first-child,
@@ -2649,15 +2661,9 @@ input[type='text'] {
   color: var(--ink);
 }
 
-/* A missing OpenAI key: the one row that blocks Start (Phase 5c). */
+/* A row that blocks Start: ChatGPT's account while not signed in (codex.3). */
 .modal__path--warn {
   color: var(--danger);
-}
-
-.modal__key-input {
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 12px;
-  min-width: 0;
 }
 
 /* Settings (polish.4): three sections under hairlines, as About's are. The
@@ -3101,6 +3107,15 @@ button.help {
   color: var(--ink-soft);
 }
 
+/* Done, the blue button at the foot of each of the Setup screen's views,
+   on the right as the welcome guide's Start is, above the privacy footer and
+   the version (setup.19). */
+.setup__foot {
+  display: flex;
+  justify-content: flex-end;
+  margin: 16px 0;
+}
+
 /* ---------- Diagnostics (hardening.5) ---------- */
 
 /* Wide enough that the report's paths and log lines seldom wrap. The text
@@ -3294,8 +3309,7 @@ button.help {
 
 /* The buttons wrap onto more rows in a narrow column. A label could break
    inside its button only in a column narrower than the label, which even the
-   smallest window at 200% is not for "Use OpenAI instead (experimental, pay
-   per use)". */
+   smallest window at 200% is not for the longest, "Choose another folder". */
 .welcome__actions {
   display: flex;
   flex-wrap: wrap;
@@ -3311,6 +3325,66 @@ button.help {
 
 .setup .welcome__note--error {
   color: var(--danger);
+}
+
+/* "(optional)" after the title of a step Start does not wait for, and of a
+   folder row (setup.18): part of the title, in the soft ink and plain. */
+.welcome__optional {
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+/* Step 1's two folder rows and step 2's two sections (setup.18), under the
+   step's own lines and buttons, each parted from what is above by a line. */
+.welcome__row,
+.welcome__section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.welcome__row h3,
+.welcome__section h3 {
+  margin: 0 0 2px;
+  font-size: 13px;
+}
+
+/* A row: its name, where it is and what it holds, with Change on its right,
+   and a refusal under both. A chosen folder's path wraps anywhere. */
+.welcome__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: start;
+}
+
+.welcome__row > .welcome__note {
+  grid-column: 1 / -1;
+}
+
+.welcome__row .welcome__actions {
+  margin-top: 0;
+}
+
+.setup .welcome__row-value {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.setup .welcome__row-note {
+  margin: 2px 0 0;
+  color: var(--ink-soft);
+}
+
+/* Where an agent stands, in its Setup view's own words, green once it can
+   review, whatever the step's tick says of the other one. */
+.welcome__section-status {
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.welcome__section--done .welcome__section-status {
+  color: var(--accept);
 }
 
 .welcome__foot {
@@ -3396,6 +3470,25 @@ button.help {
   background: var(--panel-alt);
 }
 
+/* A decided row, accepted or dismissed alike (polish.20, the author: "at a
+   glance, it's not super easy to tell which rows are complete"): shaded as
+   a row under the pointer is, and a step further under the pointer. Its
+   words are --ink-soft, its decision's button bold in its colour and the
+   other two faded (below). The focused row keeps --focus-bg, as this rule
+   comes first; under the pointer a row takes the hover's step, focused or
+   not, as before. The step under the pointer must come after .row:hover,
+   which weighs the same (a class and a pseudo-class): above it, a decided
+   row under the pointer would stay on its shade, the hover's grey. */
+.row--accepted,
+.row--dismissed {
+  background: var(--row-decided-bg);
+}
+
+.row--accepted:hover,
+.row--dismissed:hover {
+  background: var(--row-decided-hover-bg);
+}
+
 .row--focused {
   background: var(--focus-bg);
 }
@@ -3436,8 +3529,12 @@ button.help {
   font-family: var(--font-prose);
 }
 
-/* Matches the page: a decided suggestion is grey, not green (item 5). */
-.row--accepted .row__text {
+/* Matches the page: a decided suggestion is grey, not green (item 5). Since
+   polish.20 a dismissed one is --ink-soft too, where it was --ink-faint,
+   which is under 4.5:1 on the shaded row; its line through it says
+   dismissed. */
+.row--accepted .row__text,
+.row--dismissed .row__text {
   color: var(--ink-soft);
 }
 
@@ -3475,7 +3572,6 @@ button.help {
 }
 
 .row--dismissed .row__text {
-  color: var(--ink-faint);
   text-decoration: line-through;
 }
 
@@ -3535,6 +3631,14 @@ button.help {
   height: 16px;
 }
 
+/* A pending row's three buttons (polish.20): --ink-soft, 4.5:1 on the row at
+   rest, under the pointer and focused, where --ink-faint (3:1) made a row
+   still waiting look nearly as quiet as a decided one. The focused
+   suggestion's pencil, on no row, keeps --ink-faint. */
+.row--pending .row__act {
+  color: var(--ink-soft);
+}
+
 .row__act:hover:not(:disabled) {
   background: var(--border);
   color: var(--ink);
@@ -3548,7 +3652,8 @@ button.help {
    reads as done; they are under 3:1 at rest by the author's choice, and come
    back as any row button, --ink on --border, under the pointer, and --ink
    with the focus ring when the keyboard brings the focus to one
-   (themeContrast.test.ts). A pending row's buttons are as they were. */
+   (themeContrast.test.ts). Since polish.20 they sit on the decided row's
+   shade, where they keep the same band. */
 .row__act--accepted,
 .row__act--accepted:hover:not(:disabled) {
   color: var(--accept-strong);
@@ -4069,26 +4174,20 @@ button.help {
    scrolls instead. The measure is the prose's, 66 characters of the prose's
    typeface; the font size set here is what the measure is counted in.
 
-   The notification cards are pinned to the column's top right. Main keeps
-   the right of a column 820 CSS px wide or more for its margin notes
-   (`.pane--gutter`: 22 px of padding, a 22 px gap and a 300 px column, 344
-   px in all; `GUTTER_MIN_WIDTH` in ReviewPane.tsx), and the cards sit over
-   them; Full edit and Preview keep the same 344 px free on the right in such
-   a column, so the box and the page end where Main's prose ends and a card
-   does not cover their first lines (rr.2 review). The right padding is 40 px
-   up to 820 px and 344 px from there: `(100% - 819px) * 1000` is negative
-   below and past 344 px above, and a percentage in padding or max-width is
-   of the scroller's width. */
+   The box is centred in the column, with the same margin on each side
+   (rr.4): Full edit has no margin notes, so it keeps none of Main's room
+   for them. At most 66ch of text, 26 px of the box's padding and border and
+   40 px of padding on each side; `margin: 0 auto` shares out the rest. */
 .fulledit {
   flex: 1 1 auto;
   min-width: 0;
   width: 100%;
-  max-width: calc(66ch + 66px + clamp(40px, (100% - 819px) * 1000, 344px));
+  max-width: calc(66ch + 106px);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px clamp(40px, (100% - 819px) * 1000, 344px) 16px 40px;
+  padding: 12px 40px 16px;
   font-family: var(--font-prose);
   font-size: 17px;
 }
@@ -4143,12 +4242,13 @@ button.help {
 /* Preview: the chapter as Royal Road's reader page shows it, near enough to
    judge it by, with nothing of theirs fetched: a sheet with its paragraphs a
    line and a fifth apart and a tight block's lines together, in the prose's
-   serif, as the author's own converter previewed it. Its right is kept free
-   of the cards as Full edit's is (above). */
+   serif, as the author's own converter previewed it. The sheet is centred in
+   the column as Full edit's box is (above, rr.4), its text at the prose's
+   measure at most: 66ch, with 80 px of padding and 2 px of frame. */
 .preview {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 16px clamp(40px, (100% - 819px) * 1000, 344px) 120px 40px;
+  padding: 16px 40px 120px;
 }
 
 .body--narrow .preview {
@@ -4157,7 +4257,7 @@ button.help {
 }
 
 .preview__page {
-  max-width: 760px;
+  max-width: calc(66ch + 82px);
   margin: 0 auto;
   padding: 32px 40px;
   border: 1px solid var(--border);

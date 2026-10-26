@@ -13,7 +13,8 @@ import type { ReviewProvider } from './types';
  * gives up after 60 s, and turns whatever happened into one answer, so the
  * page is never left waiting and never has to read a thrown error. No
  * electron import: test/main/connectionTest.test.ts drives it against
- * test/helpers/fakeClaude.ts and test/helpers/mockOpenAi.ts.
+ * test/helpers/fakeClaude.ts. Claude's is the one test today: ChatGPT has
+ * none (codex.3), and the OpenAI API key's went with that provider (codex.6).
  */
 
 /** How long a test may take before it is stopped. */
@@ -29,8 +30,7 @@ export const CONNECTION_TEST_PROMPT = 'This is a connection test.';
 const FAILED: Readonly<Record<ReviewProvider['id'], ErrorCode>> = {
   claude: 'claude-failed',
   // ChatGPT has no connection test (codex.3); its code is here for a provider list that is whole.
-  chatgpt: 'chatgpt-failed',
-  openai: 'openai-failed'
+  chatgpt: 'chatgpt-failed'
 };
 
 export interface ConnectionTestOptions {

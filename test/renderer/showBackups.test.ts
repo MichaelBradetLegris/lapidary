@@ -125,7 +125,7 @@ describe('the Backups row in Settings (apply.11)', () => {
   /* polish.4: the note is one short line, and apply.11's note, with the
      20-and-30-days rule, is the tooltip of the (?) at the row's right end
      (polish.15; test/renderer/settingsDialog.render.test.ts renders it). */
-  it('shows the backups folder, Show in folder, the (?) and the short note, after the reviews folder', () => {
+  it('shows the backups folder, Change, Show in folder, the (?) and the short note, after the reviews folder', () => {
     const reviews = SETTINGS.indexOf('<span>Reviews folder</span>');
     const backups = SETTINGS.indexOf('<span>Backups</span>');
     const guidelines = SETTINGS.indexOf('<span>Guidelines file</span>');
@@ -134,28 +134,52 @@ describe('the Backups row in Settings (apply.11)', () => {
     expect(guidelines).toBeGreaterThan(backups);
     const row = SETTINGS.slice(backups, guidelines);
     expect(row).toContain(`<HelpTip id={id('backups-tip')} topic="backups" text={BACKUPS_TIP} />`);
-    expect(row).toContain("{paths?.backupsFolder ?? '…'}");
-    expect(row).toMatch(/onClick=\{\(\) => reveal\('backups'\)\}\s*>\s*Show in folder\s*</);
+    expect(row).toContain("{paths?.backupsFolder ?? settings.backupsFolder ?? '…'}");
+    // Change, since the folder is a setting (setup.18), then Show in folder.
     expect(row).toMatch(
-      /<p className="modal__note" id=\{id\('backups-note'\)\}>\s*\{BACKUPS_ROW_NOTE\}\s*<\/p>/
+      /onClick=\{\(\) => pickFolder\('backupsFolder', 'Choose the backups folder'\)\}\s*>\s*Change\s*<\/button>\s*<button[\s\S]*?onClick=\{\(\) => reveal\('backups'\)\}\s*>\s*Show in folder\s*</
+    );
+    expect(row).toMatch(
+      /<p className="modal__note" id=\{id\('backups-note'\)\}>\s*\{backupsFolderNote\(paths\?\.backupsFolderIsDefault \?\? false\)\}\s*<\/p>/
     );
   });
 });
 
 describe("main's shell:reveal for a chapter's backups (apply.11)", () => {
-  it('works the folder out from the path, through chapterBackups, before any other target', () => {
+  it('works the folder out from the path, through chapterBackups, in the backups folder in use, before any other target', () => {
     const handler = MAIN_IPC.slice(MAIN_IPC.indexOf("handle('shell:reveal'"));
     const chapter = handler.indexOf("if (target === 'backups' && sourcePath !== undefined)");
     expect(chapter).toBeGreaterThan(-1);
     expect(chapter).toBeLessThan(handler.indexOf("if (target === 'drafts' && name !== undefined)"));
+    // The folder chosen in Settings, or the data folder's (setup.18).
     expect(handler).toMatch(
-      /chapterBackups\(\s*backupsRootFor\(app\.getPath\('userData'\)\),\s*sourcePath,\s*caseInsensitiveFs\(\)\s*\)/
+      /const settings = await loadSettings\(\);\s*const shown = await chapterBackups\(backupsFolder\(settings\), sourcePath, caseInsensitiveFs\(\), \{\s*chosen: !isDefaultBackupsFolder\(settings\.backupsFolder\)\s*\}\);/
     );
     expect(handler).toContain("if (!shown) throw fail('not-found', noBackupsYet(chapterName(sourcePath)));");
     expect(handler).toContain('system.showItemInFolder(shown.newest);');
+    // Settings' Show in folder and the card's Show all backups show the folder in use too.
+    expect(handler).toMatch(/\} else if \(target === 'backups'\) \{\s*file = await backupsTarget\(\);/);
   });
 
-  it('tells Settings where the backups root is', () => {
-    expect(MAIN_IPC).toContain("backupsFolder: backupsRootFor(app.getPath('userData'))");
+  it('tells Settings and the welcome guide where the backups folder is, and whether it is the default', () => {
+    expect(MAIN_IPC).toContain('backupsFolder: backupsFolder(settings),');
+    expect(MAIN_IPC).toContain('backupsFolderIsDefault: isDefaultBackupsFolder(settings.backupsFolder)');
+    expect(MAIN_IPC).toMatch(
+      /function backupsFolder\(settings: Settings\): string \{\s*return resolveBackupsFolder\(settings\.backupsFolder, app\.getPath\('userData'\)\);\s*\}/
+    );
+  });
+
+  it('backs up into the backups folder in use at Save to chapter, saying when it is a chosen one (setup.18)', () => {
+    const save = MAIN_IPC.slice(MAIN_IPC.indexOf("handleWrite('files:save'"));
+    expect(save).toMatch(
+      /chapterBackupHooks\(\{\s*backupsRoot: backupsFolder\(settings\),\s*chosen: !isDefaultBackupsFolder\(settings\.backupsFolder\),\s*manuscriptFolder: settings\.manuscriptFolder,/
+    );
+    expect(MAIN_IPC).not.toContain('backupsRootFor');
+  });
+
+  it('makes the folder Settings shows, in words that offer another when it cannot be made (setup.18)', () => {
+    expect(MAIN_IPC).toMatch(
+      /async function backupsTarget\(\): Promise<string> \{\s*const folder = backupsFolder\(await loadSettings\(\)\);\s*try \{\s*await fs\.mkdir\(folder, \{ recursive: true \}\);\s*\} catch \(err\) \{\s*throw writeFailure\(err, 'folder', backupsFolderName\(folder\), \{ setting: 'backups folder' \}\);\s*\}\s*return folder;\s*\}/
+    );
   });
 });

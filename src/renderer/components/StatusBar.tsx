@@ -13,7 +13,7 @@ import { IconCheck, IconMinus, IconPlus } from './icons';
 interface Props {
   review: Review | null;
   runtimeLabel?: string;
-  /** the label is a button: Setup for Claude, Settings for OpenAI (setup.7) */
+  /** the label is a button: Setup for Claude, its ChatGPT view for ChatGPT (setup.7, codex.3) */
   onRuntime?: () => void;
   /** what the button opens, as its tooltip */
   runtimeTitle?: string;
@@ -116,9 +116,10 @@ export function Legend({ onClose }: { onClose: () => void }): React.JSX.Element 
             <IconCheck />
           </span>{' '}
           <b>The suggestions list.</b> Each row starts with a tag in its chip&apos;s colour. Once you decide a
-          suggestion, its tick turns a bold green if you accepted it, or its x red if you dismissed it, and
-          the row&apos;s other buttons fade until the pointer is on them; click the tick or the x again to put
-          it back. The Suggestions heading counts the suggestions you have decided.
+          suggestion, its row is shaded and its words turn grey, its tick turns a bold green if you accepted
+          it, or its x red if you dismissed it, and the row&apos;s other buttons fade until the pointer is on
+          them; click the tick or the x again to put it back. The Suggestions heading counts the suggestions
+          you have decided.
         </li>
         <li>
           <span className="legend__swatch legend__swatch--tag" /> <b>Tags.</b> Three letters name the

@@ -15,7 +15,9 @@ import { normalizeZoom } from './ui/zoom';
 /**
  * Settings as the app understands them, from whatever a settings.json holds
  * (PLAN 11.3 d). Tolerant: unknown keys are dropped and a bad value falls back to
- * its default, so a hand-edited or older file never stops the app starting.
+ * its default, so a hand-edited or older file never stops the app starting. So a
+ * file from before codex.6 loses `openaiModel` at the next save, and its
+ * `provider: "openai"`, a provider no longer offered, reads as the default.
  *
  * Pure (CLAUDE.md rule 4); reading and writing the file is src/main/settingsStore.ts.
  */
@@ -56,9 +58,14 @@ function guidelinesSetting(value: unknown): string | null {
 }
 
 /** The settings that name a folder or a file, which the normaliser drops when it cannot use them. */
-export type PathSettingKey = 'manuscriptFolder' | 'reviewsFolder' | 'guidelinesPath';
+export type PathSettingKey = 'manuscriptFolder' | 'reviewsFolder' | 'backupsFolder' | 'guidelinesPath';
 
-const PATH_SETTING_KEYS: readonly PathSettingKey[] = ['manuscriptFolder', 'reviewsFolder', 'guidelinesPath'];
+const PATH_SETTING_KEYS: readonly PathSettingKey[] = [
+  'manuscriptFolder',
+  'reviewsFolder',
+  'backupsFolder',
+  'guidelinesPath'
+];
 
 /**
  * The first folder or file in `patch` that `normalizeSettings` would drop to
@@ -94,13 +101,14 @@ export function normalizeSettings(input: unknown): Settings {
   return {
     manuscriptFolder,
     reviewsFolder: folderSetting(raw['reviewsFolder']),
+    // Kept on the same terms as the reviews folder; whether it lies in the
+    // manuscript folder is main's to refuse, as it saves (setup.18).
+    backupsFolder: folderSetting(raw['backupsFolder']),
     guidelinesPath: guidelinesSetting(raw['guidelinesPath']),
     provider: isProvider(raw['provider']) ? raw['provider'] : DEFAULT_SETTINGS.provider,
     // Any model a file names is kept, even one the list no longer shows; empty means the default.
     model: typeof raw['model'] === 'string' && raw['model'] ? raw['model'] : DEFAULT_SETTINGS.model,
-    // Empty is meaningful here ("the list's default"), so only a non-string falls back.
-    openaiModel: typeof raw['openaiModel'] === 'string' ? raw['openaiModel'] : DEFAULT_SETTINGS.openaiModel,
-    // The same for ChatGPT's (codex.3): empty is the list's default.
+    // Empty is meaningful for ChatGPT's (codex.3), "the list's default", so only a non-string falls back.
     chatgptModel:
       typeof raw['chatgptModel'] === 'string' ? raw['chatgptModel'] : DEFAULT_SETTINGS.chatgptModel,
     effort: isEffort(raw['effort']) ? raw['effort'] : DEFAULT_SETTINGS.effort,

@@ -4,7 +4,16 @@
  * (CLAUDE.md rule 3). Pure types only: no Node or DOM imports.
  */
 
-import type { AppError, EffortLevel, Eol, Provider, Review, ReviewComment, Settings } from './types';
+import type {
+  AppError,
+  EffortLevel,
+  Eol,
+  GeneratorProvider,
+  Provider,
+  Review,
+  ReviewComment,
+  Settings
+} from './types';
 import type { ZoomAction } from './ui/zoom';
 import type { StyleSheetStatus } from './prompt/guidelines';
 import type { ClaudeCredential } from './ai/claudeStatus';
@@ -122,7 +131,7 @@ export interface ReviewSummary {
   updatedAt: string;
   generatorKind: Review['generator']['kind'];
   /** which service answered, for the history badge; absent on a manual review */
-  provider?: Provider;
+  provider?: GeneratorProvider;
   /** model that answered, for the history badge */
   model?: string;
   hunkCount: number;
@@ -151,9 +160,9 @@ export interface LoadedReview {
 
 /**
  * 'missing-binary' and 'not-signed-in' are Claude's words for "install it" and
- * "sign in". The OpenAI provider reuses 'not-signed-in' for "no API key yet",
- * which is the same thing from the UI's point of view: the provider cannot run
- * until the author does something in Setup or Settings.
+ * "sign in". The ChatGPT provider reuses 'not-signed-in' for "no ChatGPT
+ * sign-in kept", which is the same thing from the UI's point of view: the
+ * provider cannot run until the author does something on the Setup screen.
  */
 export type RuntimeState = 'ready' | 'missing-binary' | 'not-signed-in' | 'error';
 
@@ -178,10 +187,6 @@ export interface RuntimeStatus {
   subscriptionType?: string;
   apiKeySource?: string;
   message?: string;
-  /** OpenAI: where the key in use came from */
-  keySource?: OpenAiKeySource;
-  /** OpenAI: last four characters of the key, never the key itself */
-  keyLast4?: string;
   /** ChatGPT: the plan the sign-in named, such as `Plus` (codex.3); never the account or a token */
   plan?: string;
 }
@@ -192,26 +197,6 @@ export interface ModelInfo {
   description?: string;
   /** the model used when the author has not chosen one */
   isDefault?: boolean;
-}
-
-/**
- * Where the OpenAI key in use comes from. 'stored' is the encrypted file beside
- * settings.json; 'environment' is OPENAI_API_KEY, which wins nothing: it is only
- * consulted when nothing is stored.
- */
-export type OpenAiKeySource = 'stored' | 'environment' | 'none';
-
-/**
- * Everything the renderer is ever told about the key. The key itself never
- * crosses this boundary and is never written to settings.json (CLAUDE.md rule 2).
- */
-export interface OpenAiKeyStatus {
-  configured: boolean;
-  source: OpenAiKeySource;
-  /** last four characters, for recognising which key is in use */
-  last4: string;
-  /** false when safeStorage cannot encrypt on this machine, so nothing may be stored */
-  encryptionAvailable: boolean;
 }
 
 /**
@@ -258,7 +243,7 @@ export interface ReviewRequest {
   sourcePath: string;
   /** LF-normalized chapter text */
   text: string;
-  /** empty means "the provider's own default", which OpenAI resolves from its model list */
+  /** empty means "the provider's own default", which ChatGPT resolves from its model list */
   model: string;
   effort: EffortLevel;
   /** full text of GUIDELINES.md */
@@ -273,9 +258,8 @@ export interface ReviewResponse {
   /** untouched structured output for Review.raw */
   raw: unknown;
   model?: string;
+  /** the provider's own figure: Claude Code's estimate at API prices; a ChatGPT review has none */
   costUsd?: number;
-  /** true when costUsd is this app's arithmetic from a price table, not the provider's figure */
-  costEstimated?: boolean;
   usage?: unknown;
   durationMs?: number;
   sessionId?: string;
@@ -451,16 +435,20 @@ export interface EffectivePaths {
   reviewsFolderIsDefault: boolean;
   guidelinesPath: string | null;
   /**
-   * `<userData>/backups`, where every chapter has a backup folder of its own
-   * (PLAN 6.5), for the Backups row in Settings (apply.11)
+   * The backups folder in use, where every chapter has a backup folder of its
+   * own (PLAN 6.5): the one Settings names, or `<userData>/backups`, for the
+   * Backups row in Settings (apply.11) and the welcome guide (setup.18)
    */
   backupsFolder: string;
+  /** true when backupsFolder is the fallback inside the app's data directory (setup.18) */
+  backupsFolderIsDefault: boolean;
 }
 
 /**
  * The only places the renderer may ask the shell to open or reveal: what "show
  * in folder" can point at. The last five live under userData, the folders
- * created on demand: `data` is the folder itself, `settings` selects
+ * created on demand, save a backups folder chosen in Settings, which may lie
+ * elsewhere since setup.18: `data` is the folder itself, `settings` selects
  * settings.json, or the data folder once the file is gone (the card shown
  * while it cannot be read, hardening.15), `logs` selects main.log, `backups`
  * the backups root, and `drafts` the folder of set-aside paragraph text
@@ -531,7 +519,6 @@ export interface SetAsideRequest {
  * (`app:notice`). App maps each name to what it does.
  */
 export type NotificationAction =
-  | 'open-settings'
   | 'open-setup'
   | 'show-diagnostics'
   | 'reveal-drafts'
@@ -666,10 +653,6 @@ export interface ApiRequestMap {
   'ai:cancel': { request: { requestId: string }; response: void };
   /** one very small request, only when the author asks (setup.8); never throws for a failed test */
   'ai:test': { request: { provider: Provider }; response: ConnectionTestResult };
-  /* The key itself only ever travels renderer -> main. Nothing sends it back. */
-  'secrets:openai-status': { request: void; response: OpenAiKeyStatus };
-  'secrets:openai-set': { request: { key: string }; response: OpenAiKeyStatus };
-  'secrets:openai-clear': { request: void; response: OpenAiKeyStatus };
   /* Sign in with ChatGPT (codex.2). The tokens never cross: main signs in,
      keeps them encrypted and answers with the status alone. */
   'chatgpt:status': { request: void; response: ChatGptStatus };
@@ -701,7 +684,7 @@ export interface ApiRequestMap {
   'app:info': { request: void; response: AppInfo };
   /**
    * the diagnostics report (hardening.5): what the last checks found, never a
-   * new check of Claude or OpenAI, and nothing of the chapters but their count
+   * new check of Claude or ChatGPT, and nothing of the chapters but their count
    */
   'app:diagnostics': { request: void; response: DiagnosticsReport };
   /**
@@ -770,9 +753,6 @@ const REQUEST_CHANNEL_FLAGS = {
   'ai:review': true,
   'ai:cancel': true,
   'ai:test': true,
-  'secrets:openai-status': true,
-  'secrets:openai-set': true,
-  'secrets:openai-clear': true,
   'chatgpt:status': true,
   'chatgpt:sign-in': true,
   'chatgpt:cancel-sign-in': true,

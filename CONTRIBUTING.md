@@ -9,7 +9,7 @@ This file is for people who build the app, change it or send a pull request. Use
 - npm, which comes with Node.
 - Git. `npm run check:public` asks git which files to scan.
 - Python 3 with Pillow, only for `npm run icons`.
-- Claude Code or an OpenAI key only for real reviews, set up as the README says. The tests need neither.
+- Claude Code or a ChatGPT plan only for real reviews, set up as the README says. The tests need neither.
 
 ## Getting started
 
@@ -70,7 +70,8 @@ src/
     watcher.ts       watches the manuscript folder
     reviews.ts       the review store
     settings.ts      settings.json, through settingsStore.ts
-    secrets.ts       the encrypted OpenAI key
+    secrets.ts       secrets.json, where the ChatGPT sign-in is kept encrypted
+    chatgpt/         Sign in with ChatGPT: the browser sign-in, its tokens and their renewal
     guidelines.ts    the guidelines file (openGuidelines.ts opens it)
     navigation.ts    the window refuses navigation and file drops
     devSwitches.ts   development switches, ignored by packaged builds
@@ -82,7 +83,8 @@ src/
       claudeCli.ts     the stream-json protocol: the review run and the handshake
       claudeResult.ts  which error a review run's result stands for, if any
       claudeRuntime.ts the launch check (claudeHandshake.ts)
-      openai.ts        OpenAI, through the Responses API
+      chatgpt.ts       ChatGPT, on the user's plan, with the sign-in's token
+      openai.ts        the Responses API request ChatGPT sends
       logged.ts        logs each provider's calls as counts, never their text
   preload/         the typed bridge the window receives, and nothing else
   renderer/        React UI with no Node access: App.tsx, components/, state/, styles/
@@ -93,11 +95,11 @@ src/
     text/            paragraphs, line endings and byte order marks, encodings
     diff/            word diff, anchoring, compose, rebase
     prompt/          the system prompt, the chapter as the model sees it, the output schema
-    ai/              Claude Code's status and models, OpenAI helpers, the price table
+    ai/              Claude Code's status and models, the OpenAI request's and ChatGPT's helpers
     ui/              pure helpers for the window
     diagnostics/     log scrubbing
 scripts/           build and check scripts
-test/              vitest; helpers/ holds the OpenAI mock and a fake Claude Code
+test/              vitest; helpers/ holds the OpenAI and ChatGPT sign-in mocks and a fake Claude Code
 resources/         the guidelines template and the icons
 samples/           a small manuscript to try the app on
 ```
@@ -107,7 +109,7 @@ samples/           a small manuscript to try the app on
 [CLAUDE.md](CLAUDE.md) has the full text. In brief:
 
 1. Only Save, in `src/main/files.ts`, changes a chapter, atomically and keeping its line endings, byte order mark and final newline. New chapter and the guidelines file only ever create.
-2. The app never reads, stores, displays or proxies Claude credentials and never starts a sign-in. The OpenAI key is the one credential it stores, encrypted, and it never reaches the window.
+2. The app never reads, stores, displays or proxies Claude credentials and never starts a Claude sign-in. The ChatGPT sign-in is the one credential it stores, encrypted, and it never reaches the window.
 3. The renderer has no Node access. Everything else goes through typed IPC in `src/shared/ipc.ts`.
 4. `src/shared` imports no Node or DOM APIs, and every algorithm there has unit tests.
 5. Hunks never overlap, offsets refer to the review's LF-normalised base text, and the output is a pure function of base and decisions.
@@ -116,22 +118,27 @@ samples/           a small manuscript to try the app on
 8. Every user-visible change adds a line to CHANGELOG.md in the same commit (below).
 9. The log records what happened, never content: a log call takes scalar fields, and an error goes in only through `loggableErrorFields`. That keeps an app error's message, so a `fail` message never quotes chapter text, a prompt, the guidelines or a reply; such text goes in `detail`, which is never logged.
 
-## Testing without a key
+## Testing without an account
 
-**OpenAI.** `test/helpers/mockOpenAi.ts` stands in for the two OpenAI endpoints the app uses. Vitest starts it in-process. To drive the real app against it, run the mock in one PowerShell window:
+**ChatGPT.** `test/helpers/mockChatGptAuth.ts` stands in for OpenAI's sign-in server and `test/helpers/mockOpenAi.ts` for the two endpoints a ChatGPT review uses. Vitest starts them in-process. To drive the real app against them, run each mock in a PowerShell window of its own, naming the scenario the sign-in's tokens are to carry:
+
+```powershell
+node test/helpers/mockChatGptAuth.ts --port 4600 --api-scenario slow
+```
 
 ```powershell
 node test/helpers/mockOpenAi.ts --port 4599
 ```
 
-and the app in another:
+and the app in a third:
 
 ```powershell
+$env:MANUSCRIPT_REVIEW_CHATGPT_AUTH_URL = 'http://127.0.0.1:4600'
 $env:MANUSCRIPT_REVIEW_OPENAI_BASE_URL = 'http://127.0.0.1:4599/v1'
-npm run dev:clean
+npm run dev:clean -- --shell-stub
 ```
 
-Then save any key in Settings. The key picks what the mock does: one containing `unauthorized` gets a 401, `ratelimit` a 429, `servererror` a 500, `malformed` a reply that is not JSON, `prose` a reply written as prose, `wrongshape` JSON of the wrong shape, `slow` a reply that trickles in over several seconds (to try Cancel), `obsidian` a review of `Chapter 03 - Obsidian.md` in which some suggestions reach into its Obsidian syntax, `outputlimit` a reply cut off at the model's output limit, `unverified` the refusal OpenAI gives a streamed request from an organisation that has not verified its identity, `skippedonly` a model list holding only models the default usually passes over, and anything else a canned review of Chapter 01. CLAUDE.md says what each does in full. The address variable is a development switch: a packaged build ignores it, like every other switch in `src/main/devSwitches.ts`.
+Open Settings, then Setup beside ChatGPT account, and click Sign in with ChatGPT. With `--shell-stub` the app prints the address it would open in the browser instead; open that address yourself, and the mock signs the app in. Tick I have confirmed my data settings, then review with ChatGPT. The scenario decides what the mock answers: `malformed` a reply that is not JSON, `prose` a reply written as prose, `wrongshape` JSON of the wrong shape, `slow` a reply that trickles in over several seconds (to try Cancel), `obsidian` a review of `Chapter 03 - Obsidian.md` in which some suggestions reach into its Obsidian syntax, `outputlimit` a reply cut off at the model's output limit, `unauthorized`, `ratelimit` and `servererror` a 401, a 429 and a 500, `usagelimit` the plan's usage limit, `nearlimit` a limit 85% used, and anything else a canned review of Chapter 01. To change it without signing in again, send the new name to the API mock: `Invoke-RestMethod -Method Post -Uri http://127.0.0.1:4599/mock/scenario -Body malformed`. CLAUDE.md lists every scenario and says what each does in full. Both address variables are development switches: a packaged build ignores them, like every other switch in `src/main/devSwitches.ts`.
 
 **Claude.** The tests use `test/helpers/fakeClaude.ts`, which speaks Claude Code's stream-json protocol, and `test/main/claudeCli.test.ts` pins that protocol. When Claude Code changes it, update both, and `MIN_CLAUDE_CODE` in `src/shared/ai/claudeStatus.ts`. In the app, `dev:clean`'s options show the Setup screen's states without touching your own sign-in: `--claude-config-empty` (signed out), `--no-claude-code` (not installed) and `--api-key-dummy` (an API key in use).
 

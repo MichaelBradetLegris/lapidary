@@ -90,9 +90,28 @@ describe('normalizeSettings', () => {
     }
   });
 
-  /* hardening.8: a folder or a guidelines file the app cannot use is dropped to null, the usual one. */
+  /* codex.6: the OpenAI API key went, and with it `openaiModel` and the
+     `openai` provider. A settings.json written before then is read as a file
+     with a key the app does not know and a provider it does not know: the
+     model is dropped, the provider reads as Claude, the default, and the rest
+     is read as ever (settingsStore.test.ts: the next write leaves both out). */
+  it('drops openaiModel and reads the openai provider as Claude, as codex.6 took out the key', () => {
+    expect(Object.keys(defaultSettings())).not.toContain('openaiModel');
+    const read = normalizeSettings({
+      provider: 'openai',
+      openaiModel: 'gpt-5-mini',
+      chatgptModel: 'gpt-5.5',
+      zoom: 1.25
+    });
+    expect(Object.keys(read)).not.toContain('openaiModel');
+    expect(read).toEqual({ ...defaultSettings(), provider: 'claude', chatgptModel: 'gpt-5.5', zoom: 1.25 });
+    expect(normalizeSettings({ provider: 'chatgpt' }).provider).toBe('chatgpt');
+  });
+
+  /* hardening.8: a folder or a guidelines file the app cannot use is dropped
+     to null, the usual one; the backups folder since setup.18 too. */
   const NUL = '\u0000';
-  const FOLDERS = ['manuscriptFolder', 'reviewsFolder'] as const;
+  const FOLDERS = ['manuscriptFolder', 'reviewsFolder', 'backupsFolder'] as const;
 
   it('keeps a folder given as an absolute path, on Windows or POSIX', () => {
     for (const key of FOLDERS) {
@@ -133,6 +152,16 @@ describe('normalizeSettings', () => {
         expect(normalizeSettings({ [key]: folder })[key], `${key} ${JSON.stringify(folder)}`).toBeNull();
       }
     }
+  });
+
+  /* setup.18: a settings.json from before has no backups folder, which reads
+     as the one in the data folder. Whether one lies in the manuscript folder
+     is main's to refuse as it saves, not the normaliser's. */
+  it('reads a settings.json with no backups folder as the data folder, and keeps one inside the manuscript folder', () => {
+    expect(normalizeSettings({ manuscriptFolder: 'C:\\Novel' }).backupsFolder).toBeNull();
+    expect(
+      normalizeSettings({ manuscriptFolder: 'C:\\Novel', backupsFolder: 'C:\\Novel\\Backups' }).backupsFolder
+    ).toBe('C:\\Novel\\Backups');
   });
 
   it('shows the welcome guide again when the only manuscript folder named is dropped', () => {
@@ -231,7 +260,7 @@ describe('droppedPathSetting', () => {
     ['C:\\Novel'],
     { path: 'C:\\Novel' }
   ];
-  const KEYS = ['manuscriptFolder', 'reviewsFolder', 'guidelinesPath'] as const;
+  const KEYS = ['manuscriptFolder', 'reviewsFolder', 'backupsFolder', 'guidelinesPath'] as const;
 
   it('names a value exactly when normalizeSettings would drop it to null', () => {
     for (const key of KEYS) {

@@ -271,7 +271,7 @@ describe('collectDiagnostics: the last checks, never a new one', () => {
     let asked = 0;
     const data = await collectDiagnostics(
       deps(
-        { provider: 'openai', openaiModel: 'gpt-5-mini', effort: 'low' },
+        { provider: 'chatgpt', chatgptModel: 'gpt-5-mini', effort: 'low' },
         {
           switches: { ...NO_DEV_SWITCHES, packaged: false, quietWindow: true, noClaudeCode: true },
           logWriting: () => false,
@@ -288,11 +288,14 @@ describe('collectDiagnostics: the last checks, never a new one', () => {
       dataFolder: path.join(root, 'userdata'),
       logWriting: false,
       display,
-      settings: { provider: 'openai', model: 'default', openaiModel: 'gpt-5-mini', effort: 'low' },
+      settings: { provider: 'chatgpt', model: 'default', chatgptModel: 'gpt-5-mini', effort: 'low' },
       switches: ['no Claude Code', 'quiet window'],
       claude: ['Claude: not checked yet'],
-      openai: { runtime: null, lastFailure: null }
+      chatgpt: { runtime: null, lastFailure: null }
     });
+    // The OpenAI API key's part went with that provider (codex.6).
+    expect(data).not.toHaveProperty('openai');
+    expect(data.settings).not.toHaveProperty('openaiModel');
     expect(asked).toBe(10);
     expect(data.warnings).toHaveLength(1);
   });

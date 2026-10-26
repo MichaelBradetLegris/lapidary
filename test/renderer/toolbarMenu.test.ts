@@ -23,8 +23,9 @@ describe("the menus' items (polish.7)", () => {
       TOOLBAR.indexOf('label={REVIEW_MENU.label}'),
       TOOLBAR.indexOf('label={ACTIONS_MENU}')
     );
-    // codex.3: With AI gave way to Claude, ChatGPT and OpenAI (API key), each opening
-    // Review with AI with that provider chosen, in PROVIDERS' order.
+    // codex.3: With AI gave way to an item for each provider, each opening Review
+    // with AI with that provider chosen, in PROVIDERS' order: Claude and ChatGPT
+    // since codex.6 took out OpenAI (API key).
     expect(review).toMatch(
       /\.\.\.PROVIDERS\.map\(\(provider\): MenuItem => \(\{\s*label: reviewMenuLabel\(provider\),\s*onSelect: \(\) => onReviewWith\(provider\),\s*disabled: running,\s*title: running\s*\?\s*'Wait until the review that is running ends, or cancel it'\s*:\s*REVIEW_WITH_TITLES\[provider\]\s*\}\)\)/
     );

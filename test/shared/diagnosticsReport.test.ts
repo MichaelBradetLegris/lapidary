@@ -15,30 +15,22 @@ import type { RuntimeStatus } from '../../src/shared/ipc';
 
 /* hardening.5: the text Copy diagnostics puts on the clipboard. It holds
    the versions, settings and last checks, paths with the home folder as ~,
-   and never an email address, a key, a key's last four characters or a
-   status message, whatever the facts it is given carry. */
+   and never an email address, a key, a token or a status message, whatever
+   the facts it is given carry. */
 
 const HOME = 'C:\\Users\\Ann'; // check-public: allow
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/;
 const KEY = /sk-[A-Za-z0-9_-]{16,}/;
 const DUMMY_KEY = 'sk-proj-abcdefghijklmnopqrstuvwxyz0123456789'; // check-public: allow
 
-const openAiRuntime: RuntimeStatus = {
-  provider: 'openai',
-  state: 'ready',
-  keySource: 'stored',
-  keyLast4: 'Wq7z',
-  checkedAt: '2026-10-20T08:00:00.000Z',
-  message: 'Signed in as ann@example.com with a secret note',
-  email: 'ann@example.com'
-};
-
 /** The ChatGPT sign-in as its last check found it (codex.3): a message that must never reach the report. */
 const chatGptRuntime: RuntimeStatus = {
   provider: 'chatgpt',
   state: 'ready',
   plan: 'Plus',
-  message: 'Signed in as ann@example.com'
+  checkedAt: '2026-10-20T08:00:00.000Z',
+  message: 'Signed in as ann@example.com with a secret note',
+  email: 'ann@example.com'
 };
 
 function data(patch: Partial<DiagnosticsData> = {}): DiagnosticsData {
@@ -70,7 +62,7 @@ function data(patch: Partial<DiagnosticsData> = {}): DiagnosticsData {
       window: { width: 1440, height: 940, maximized: false },
       gpuCompositing: 'enabled'
     },
-    settings: { provider: 'claude', model: 'default', chatgptModel: '', openaiModel: '', effort: 'high' },
+    settings: { provider: 'claude', model: 'default', chatgptModel: '', effort: 'high' },
     claude: [
       'Claude: ready (subscription)',
       `Claude Code: 2.1.302 at ${HOME}\\.local\\bin\\claude.exe`,
@@ -81,7 +73,6 @@ function data(patch: Partial<DiagnosticsData> = {}): DiagnosticsData {
       'Last failure: none'
     ],
     chatgpt: { runtime: chatGptRuntime, lastFailure: null },
-    openai: { runtime: openAiRuntime, lastFailure: null },
     folders: {
       manuscript: `${HOME}\\OneDrive\\Vault\\Novel`,
       chapters: 12,
@@ -169,16 +160,7 @@ describe('diagnosticsReport', () => {
   it('starts with the title, what it leaves out and when it was made, then the sections in order', () => {
     const lines = text.split('\n');
     expect(lines.slice(0, 3)).toEqual([REPORT_TITLE, REPORT_PROMISE, 'Made: 2026-10-20T08:30:00.000Z']);
-    const titles = [
-      'App',
-      'Display',
-      'Reviews',
-      'Claude',
-      'ChatGPT',
-      'OpenAI',
-      'Manuscript folder',
-      'Recent warnings'
-    ];
+    const titles = ['App', 'Display', 'Reviews', 'Claude', 'ChatGPT', 'Manuscript folder', 'Recent warnings'];
     expect(reportSections(data()).map((s) => s.title)).toEqual(titles);
     let at = 0;
     for (const title of titles) {
@@ -206,12 +188,19 @@ describe('diagnosticsReport', () => {
     expect(text).toContain('  Guidelines file: ~\\OneDrive\\Vault\\Novel\\GUIDELINES.md');
   });
 
-  it("never holds the account's email, a key's last four characters or a status message", () => {
+  it("never holds the account's email or a status message", () => {
     expect(text).not.toMatch(EMAIL);
-    expect(text).not.toContain('Wq7z');
     expect(text).not.toContain('secret note');
-    expect(text).toContain('  OpenAI: ready');
-    expect(text).toContain('  Key: saved in the app, encrypted');
+    expect(text).toContain('  ChatGPT: ready');
+    expect(text).toContain('  Plan: Plus');
+  });
+
+  it('has no part for an OpenAI API key, the provider codex.6 took out', () => {
+    expect(text.split('\n')).not.toContain('OpenAI');
+    expect(text).not.toContain('Key:');
+    expect(text).not.toContain('OpenAI model');
+    // The package ChatGPT's reviews go through is still named.
+    expect(text).toContain('  OpenAI package: 7.15.0');
   });
 
   it('scrubs an email address or a key shape that reached a line, as the log does', () => {
@@ -268,17 +257,16 @@ describe('diagnosticsReport', () => {
   it('gives the review settings and the switches in effect', () => {
     expect(text).toContain('  Provider: Claude');
     expect(text).toContain('  Claude model: default');
-    expect(text).toContain('  OpenAI model: the default');
+    expect(text).toContain('  ChatGPT model: the default');
     expect(text).toContain('  Effort: high');
     expect(text).toContain('  Development switches: none');
     expect(text).toContain('  Log file: writing');
     const other = diagnosticsReport(
       data({
         settings: {
-          provider: 'openai',
+          provider: 'chatgpt',
           model: 'opus',
           chatgptModel: 'gpt-5.5',
-          openaiModel: 'gpt-5-mini',
           effort: 'low'
         },
         switches: ['isolated user data', 'quiet window'],
@@ -286,8 +274,8 @@ describe('diagnosticsReport', () => {
         info: { ...data().info, packaged: true }
       })
     );
-    expect(other).toContain('  Provider: OpenAI');
-    expect(other).toContain('  OpenAI model: gpt-5-mini');
+    expect(other).toContain('  Provider: ChatGPT');
+    expect(other).toContain('  ChatGPT model: gpt-5.5');
     expect(other).toContain('  Development switches: isolated user data, quiet window');
     expect(other).toContain('  Log file: stopped after a write failed');
     expect(other).toContain('  Lapidary: 0.1.0, installed');
@@ -363,24 +351,24 @@ describe('diagnosticsReport', () => {
       data({
         info: { ...data().info, openai: null, claudeCode: { state: 'not-checked' } },
         claude: ['Claude: not checked yet'],
-        openai: { runtime: null, lastFailure: null },
+        chatgpt: { runtime: null, lastFailure: null },
         warnings: []
       })
     );
     expect(early).toContain('  OpenAI package: unknown version');
     expect(early).toContain('  Claude Code: not looked for yet');
     expect(early).toContain('  Claude: not checked yet');
-    expect(early).toContain('  OpenAI: not checked yet');
+    expect(early).toContain('  ChatGPT: not checked yet');
     expect(early).toContain('  Last failure: none');
     expect(early).toMatch(/Recent warnings\n {2}none in this run\n$/);
     const missing = diagnosticsReport(
       data({
         info: { ...data().info, claudeCode: { state: 'not-installed' } },
-        openai: { runtime: openAiRuntime, lastFailure: { code: 'openai-invalid-key' } }
+        chatgpt: { runtime: chatGptRuntime, lastFailure: { code: 'chatgpt-usage-limit' } }
       })
     );
     expect(missing).toContain('  Claude Code: not found');
-    expect(missing).toContain('  Last failure: openai-invalid-key');
+    expect(missing).toContain('  Last failure: chatgpt-usage-limit');
     const unread = diagnosticsReport(
       data({ info: { ...data().info, claudeCode: { state: 'found', version: null, onPath: false } } })
     );
@@ -433,10 +421,10 @@ describe('warningLine', () => {
     );
     expect(
       warningLine(
-        '2026-10-20T08:10:00.000Z WARN ai.review.failed provider=openai code=openai-timeout message="x" durationMs=60012'
+        '2026-10-20T08:10:00.000Z WARN ai.review.failed provider=chatgpt code=chatgpt-server message="x" durationMs=60012'
       )
     ).toBe(
-      '2026-10-20T08:10:00.000Z WARN ai.review.failed provider=openai code=openai-timeout durationMs=60012'
+      '2026-10-20T08:10:00.000Z WARN ai.review.failed provider=chatgpt code=chatgpt-server durationMs=60012'
     );
     expect(warningLine('2026-10-20T08:10:00.000Z WARN drafts.unreadable')).toBe(
       '2026-10-20T08:10:00.000Z WARN drafts.unreadable'

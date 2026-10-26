@@ -1,8 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { NO_DEV_SWITCHES, setDevSwitches } from '../../src/main/devSwitches';
+import { describe, expect, it, vi } from 'vitest';
 import { fail } from '../../src/main/errors';
 import { CONNECTION_TEST_MODEL, runCliTest, type CliDeps } from '../../src/main/providers/claudeCli';
 import { BASE_CLAUDE_ARGS } from '../../src/main/providers/claudeOptions';
@@ -12,19 +11,19 @@ import {
   CONNECTION_TEST_TIMEOUT_MS,
   testConnection
 } from '../../src/main/providers/connectionTest';
+import { createChatGptProvider } from '../../src/main/providers/chatgpt';
 import { abortAll, liveControllerCount, registerController } from '../../src/main/providers/controllers';
-import { createOpenAiProvider } from '../../src/main/providers/openai';
 import type { ProviderTestHooks, ReviewProvider } from '../../src/main/providers/types';
 import type { RateLimitInfo } from '../../src/shared/ipc';
-import { startMockOpenAi, type MockOpenAi } from '../helpers/mockOpenAi';
 
 /* setup.8: Test the connection. The Claude test is the review's exchange with
    Claude Code with a one-line prompt, run against test/helpers/fakeClaude.ts,
-   which plays one scenario each; the OpenAI test runs over real HTTP against
-   test/helpers/mockOpenAi.ts, whose key picks the scenario. `testConnection`
-   is what `ai:test` answers with: it times the test, stops it after 60 s and
-   turns every outcome into an answer, never a thrown error. Each outcome is
-   covered: ok, refused, signed out, rate and usage limits, and a timeout. */
+   which plays one scenario each. ChatGPT has none (codex.3), and the OpenAI
+   API key's, against test/helpers/mockOpenAi.ts, went with that provider
+   (codex.6). `testConnection` is what `ai:test` answers with: it times the
+   test, stops it after 60 s and turns every outcome into an answer, never a
+   thrown error. Each outcome is covered: ok, refused, signed out, rate and
+   usage limits, and a timeout. */
 
 const FAKE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'helpers', 'fakeClaude.ts');
 
@@ -280,8 +279,8 @@ describe('testConnection, what ai:test answers', () => {
 
   it('registers its own controller, so quitting ends a test that holds none of its own', async () => {
     // The Claude test above is also ended through the exchange's controller,
-    // so it would pass without this one; OpenAI's test, like this stub, only
-    // listens to the signal it is given (setup.8 review).
+    // so it would pass without this one; a provider's test that, like this
+    // stub, only listens to the signal it is given needs it (setup.8 review).
     let heard = false;
     const listening: ReviewProvider = {
       ...claudeOn(fake('success')),
@@ -323,79 +322,20 @@ describe('testConnection, what ai:test answers', () => {
       message: 'The test failed: EACCES: boom'
     });
   });
-});
 
-describe('the OpenAI test, against the mock', () => {
-  let mock: MockOpenAi;
-
-  beforeAll(async () => {
-    setDevSwitches(NO_DEV_SWITCHES);
-    mock = await startMockOpenAi();
-  });
-
-  afterAll(async () => {
-    await mock.close();
-  });
-
-  afterEach(() => {
-    mock.requests.length = 0;
-  });
-
-  function openai(key: string | null, baseUrl?: string): ReviewProvider {
-    return createOpenAiProvider({
-      key: () => Promise.resolve(key),
-      status: () => Promise.resolve({ configured: key !== null, source: 'stored' as const, last4: '' }),
-      baseUrl: () => baseUrl ?? mock.url,
-      maxRetries: 0
+  it('answers ChatGPT, which has no test, without asking its sign-in for anything (codex.3)', async () => {
+    let asked = false;
+    const chatgpt = createChatGptProvider({
+      session: () => {
+        asked = true;
+        throw new Error('not used');
+      }
     });
-  }
-
-  it('sends one small unstreamed request to the default model, with the test prompt, kept off OpenAI', async () => {
-    const result = await testConnection(openai('sk-test-1234'));
-    expect(result).toMatchObject({ ok: true, model: 'gpt-5.5-2026-06-01' });
-    const sent = mock.requests.filter((r) => r.path === '/v1/responses');
-    expect(sent).toHaveLength(1);
-    expect(sent[0]?.body).toEqual({
-      model: 'gpt-5.5',
-      instructions: 'Reply with the single word OK.',
-      input: CONNECTION_TEST_PROMPT,
-      store: false
+    expect('test' in chatgpt).toBe(false);
+    expect(await testConnection(chatgpt)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid-input', message: 'ChatGPT has no connection test.' }
     });
-  });
-
-  it('answers a refused key, a rate limit and a server error with their reasons', async () => {
-    expect((await testConnection(openai('sk-unauthorized-1234'))).error?.code).toBe('openai-invalid-key');
-    expect((await testConnection(openai('sk-ratelimit-1234'))).error?.code).toBe('openai-rate-limit');
-    expect((await testConnection(openai('sk-servererror-1234'))).error?.code).toBe('openai-server');
-  });
-
-  it('answers no key, and a server that is not there', async () => {
-    expect((await testConnection(openai(null))).error?.code).toBe('openai-no-key');
-    expect((await testConnection(openai('sk-test-1234', 'http://127.0.0.1:9/v1'))).error?.code).toBe(
-      'openai-server'
-    );
-  });
-
-  it('is ended by quitting, through the controller testConnection registers', async () => {
-    expect(liveControllerCount()).toBe(0);
-    const pending = testConnection(openai('sk-slow-1234'), { track: registerController });
-    expect(liveControllerCount()).toBe(1);
-    await vi.waitFor(() => expect(mock.requests.some((r) => r.path === '/v1/responses')).toBe(true));
-    const started = Date.now();
-    expect(abortAll()).toBe(1);
-    expect(await pending).toMatchObject({ ok: false, error: { code: 'cancelled' } });
-    // The mock holds this reply for 7.2 s; the abort ends the request at once.
-    expect(Date.now() - started).toBeLessThan(2000);
-    expect(liveControllerCount()).toBe(0);
-  });
-
-  it('stops a test that runs out of time', async () => {
-    const started = Date.now();
-    const result = await testConnection(openai('sk-slow-1234'), { timeoutMs: 1000 });
-    expect(Date.now() - started).toBeLessThan(3000);
-    expect(result.error).toEqual({
-      code: 'openai-failed',
-      message: 'OpenAI did not answer within 1 second, so the test was stopped. Try again in a minute.'
-    });
+    expect(asked).toBe(false);
   });
 });

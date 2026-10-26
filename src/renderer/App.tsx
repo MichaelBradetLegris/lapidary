@@ -18,22 +18,24 @@ import { NOTHING_UNTIL_SAVE, SAVE_HINT_ID } from '../shared/ui/saveHint';
 import { windowTitleFor } from '../shared/ui/title';
 import {
   CLAUDE_RUNTIME_CARD,
+  RUNTIME_BUTTON_TITLE,
   canTryReviewAnyway,
   reviewGate,
-  runtimeButtonTitle,
   runtimeCard,
   runtimeCardAction,
   runtimeLabel as labelForRuntime,
-  setupView
+  setupView,
+  type SetupFor,
+  type SetupFrom
 } from '../shared/ui/setup';
 import { usageLimitCard } from '../shared/ui/usage';
 import { welcomeNotKept, welcomeShown } from '../shared/ui/welcome';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
 import { bodyClassName, columnClassName } from '../shared/ui/columns';
-import { shellInert } from '../shared/ui/dialog';
+import { focusReturnTarget, shellInert } from '../shared/ui/dialog';
 import type { UpdateAction } from '../shared/ui/update';
 import type { ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
-import { PROVIDER_NAMES, type Provider, type Review } from '../shared/types';
+import { PROVIDER_NAMES, type Provider, type Review, type Settings } from '../shared/types';
 import { AboutDialog } from './components/AboutDialog';
 import { ChatGptSetup } from './components/ChatGptSetup';
 import { ColumnStrip } from './components/ColumnStrip';
@@ -73,6 +75,11 @@ import type { SettingIo } from './state/settingWrites';
 import { beforeLeaving, type LeaveDeps } from './state/leave';
 import { noteMergeMarkers } from './state/mergeMarkers';
 import { useKeyboardBindings } from './state/keyboard';
+import {
+  chooseManuscriptFolder as pickManuscriptFolder,
+  noteSavedSettings,
+  type ManuscriptFolderIo
+} from './state/manuscriptFolder';
 import { useModePlaces } from './state/modePlaces';
 import { useProgressLabel } from './state/progress';
 import { reviewWithoutSaving, saveThenReview } from './state/reviewStart';
@@ -124,6 +131,12 @@ const WELCOME_IO: WelcomeIo = {
   setSettings: (patch) => call('settings:set', patch)
 };
 
+/** How Choose folder picks and saves the manuscript folder (setup.18 review, state/manuscriptFolder.ts). */
+const MANUSCRIPT_FOLDER_IO: ManuscriptFolderIo = {
+  pickFolder: () => call('dialog:pick-folder', { title: 'Choose the manuscript folder' }),
+  setSettings: (patch) => call('settings:set', patch)
+};
+
 /** How the update card, About and Restart now reach main's updater (release.9, state/updates.ts). */
 const UPDATE_IO: UpdateIo = {
   get: () => call('update:get', undefined),
@@ -172,7 +185,11 @@ export function App(): React.JSX.Element {
   const setupOpen = useApp((s) => s.setupOpen);
   const setSetupOpen = useApp((s) => s.setSetupOpen);
   const setupFor = useApp((s) => s.setupFor);
-  const setSetupFor = useApp((s) => s.setSetupFor);
+  const openSetupScreen = useApp((s) => s.openSetupScreen);
+  const leaveSetup = useApp((s) => s.leaveSetup);
+  const setupLanding = useApp((s) => s.setupLanding);
+  const setSetupLanding = useApp((s) => s.setSetupLanding);
+  const setSetupFrom = useApp((s) => s.setSetupFrom);
   const diagnosticsOpen = useApp((s) => s.diagnosticsOpen);
   const setDiagnosticsOpen = useApp((s) => s.setDiagnosticsOpen);
   const aboutOpen = useApp((s) => s.aboutOpen);
@@ -250,7 +267,7 @@ export function App(): React.JSX.Element {
      are in, a card says what Setup has to do when Claude is the provider,
      with Open Setup, unless Setup or the welcome guide, whose first step says
      the same, is open already. While it is up, a later check keeps its words
-     current; a check with nothing left to say, OpenAI as the provider, or
+     current; a check with nothing left to say, ChatGPT as the provider, or
      Setup or the welcome guide open withdraws it by its key. Only the first
      check may put it up, so once closed with its X it stays closed
      (`runtimeCardAction`). */
@@ -453,11 +470,14 @@ export function App(): React.JSX.Element {
      end first; another chapter then asks when something on screen is not
      saved to the chapter: Save first, Keep for later or Cancel
      (`beforeLeaving`). Another review of the open chapter, from History or
-     the selector, asks nothing (apply.26). Clicking what is already open, the
-     open chapter whichever of its reviews is on screen, asks nothing and only
-     writes what is waiting (PLAN 11.3 i). */
+     the selector, asks nothing (apply.26), unless Full edit holds typed text
+     (rr.5). Clicking what is already open, the open chapter whichever of its
+     reviews is on screen, asks nothing and only writes what is waiting (PLAN
+     11.3 i). Either opens in the mode in use at the click (rr.5), taken
+     before the question, whose Apply and save first closes Full edit. */
   const openChapter = useCallback(
     (file: ChapterFile) => {
+      const modeInUse = currentMode(useApp.getState());
       void (async () => {
         const decision = await beforeLeaving({ kind: 'chapter', path: file.path }, leaveDeps);
         if (decision === 'stay') return;
@@ -515,14 +535,15 @@ export function App(): React.JSX.Element {
           if (!loaded) {
             setReview(
               createReview({ sourcePath: file.path, base, hunks: [], generator: { kind: 'file' } }),
-              null
+              null,
+              modeInUse
             );
           } else if (loaded.review.base.hash === base.hash) {
             if (asOnDisk) markReviewPersistedState(loaded.review, loaded.path);
-            setReview(loaded.review, loaded.path);
+            setReview(loaded.review, loaded.path, modeInUse);
           } else {
             const { review: rebased, stats } = rebaseReview(loaded.review, base);
-            setReview(rebased, loaded.path);
+            setReview(rebased, loaded.path, modeInUse);
             notify(rebaseCardTone(stats), rebaseCardText('opened', stats));
           }
           // Merge markers in the chapter get a warning; a card left from
@@ -544,9 +565,12 @@ export function App(): React.JSX.Element {
 
   const openHistoryEntry = useCallback(
     (summary: ReviewSummary) => {
+      const modeInUse = currentMode(useApp.getState());
       void (async () => {
         const decision = await beforeLeaving({ kind: 'review', id: summary.id }, leaveDeps);
         if (decision === 'stay') return;
+        // The review being left, which Full edit may be held over (rr.5).
+        const leaving = useApp.getState().review?.id ?? null;
         try {
           // As for a chapter (openChapter): a write that failed is tried
           // again before anything waiting is written (apply.25 review).
@@ -575,10 +599,10 @@ export function App(): React.JSX.Element {
           reloadRun.current = null;
           if (review.base.hash === base.hash) {
             if (review === loaded.review) markReviewPersistedState(review, loaded.path);
-            setReview(review, loaded.path);
+            setReview(review, loaded.path, modeInUse);
           } else {
             const { review: rebased, stats } = rebaseReview(review, base);
-            setReview(rebased, loaded.path);
+            setReview(rebased, loaded.path, modeInUse);
             notify('info', rebaseCardText('history', stats));
           }
           // The chapter is the one on screen, read again: as at a reload, markers
@@ -595,6 +619,11 @@ export function App(): React.JSX.Element {
         } catch (err) {
           // Nothing on screen has changed. Another try replaces this card.
           notify('error', errorMessage(err), OPEN_CHAPTER_CARD);
+          // Full edit, held while the other review loaded (rr.5), opens again
+          // on the review still on screen.
+          if (leaving !== null && useApp.getState().review?.id === leaving) {
+            useApp.getState().openPendingFullEdit(leaving);
+          }
         }
       })();
     },
@@ -770,17 +799,26 @@ export function App(): React.JSX.Element {
     [notify, dismissNotificationsByKey]
   );
 
+  /* Choose folder, in the chapter list and the welcome guide: a refusal, such
+     as a folder that holds the backups folder, is a card under its own key,
+     which a later choice that main takes withdraws (setup.18 review). */
   const chooseManuscriptFolder = useCallback(() => {
-    void call('dialog:pick-folder', { title: 'Choose the manuscript folder' })
-      .then((folder) => (folder ? call('settings:set', { manuscriptFolder: folder }) : null))
-      .then((next) => {
-        if (next) {
-          setSettings(next);
-          refreshFiles();
-        }
-      })
-      .catch(fail);
-  }, [setSettings, refreshFiles, fail]);
+    void pickManuscriptFolder(MANUSCRIPT_FOLDER_IO).then((next) => {
+      if (next) refreshFiles();
+    });
+  }, [refreshFiles]);
+
+  /* The settings as main saved them after a change in Settings, or in the
+     welcome guide's folder rows (setup.18): the chapter list is read again,
+     as it leaves out a reviews folder that lies inside the manuscript folder,
+     and a save that changes either folder withdraws Choose folder's card. */
+  const applySavedSettings = useCallback(
+    (next: Settings) => {
+      noteSavedSettings(next);
+      refreshFiles();
+    },
+    [refreshFiles]
+  );
 
   const loadCorrectedFromFile = useCallback(async (): Promise<string | null> => {
     const file = await call('dialog:pick-file', {
@@ -814,32 +852,70 @@ export function App(): React.JSX.Element {
 
   /* ---------------- AI review ---------------- */
 
-  const openSettings = useCallback(() => {
-    setReviewDialogOpen(false);
-    setSetupOpen(false);
-    setSettingsOpen(true);
-  }, [setReviewDialogOpen, setSetupOpen, setSettingsOpen]);
+  /* The Setup screen in place of Review with AI and Settings, in Claude's
+     view or ChatGPT's, noting where it was opened from, which Done, Close and
+     Escape go back to (setup.19, `leaveSetup`), and where the focus was, for
+     a return to the chapter. Asked for again while it is open, as the status
+     bar's label and Settings over it can, it keeps both (the store keeps
+     where from, `openSetupScreen`), so the way back is not lost to a button
+     on the Setup screen itself (setup.19 review). The launch card has done
+     its job once Claude's view is open, which says the same at length, so it
+     goes; ChatGPT's says nothing it says, so it stays (codex.2). */
+  const setupOpener = useRef<HTMLElement | null>(null);
+  const showSetup = useCallback(
+    (view: SetupFor, from: SetupFrom) => {
+      if (view === 'claude') dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);
+      if (!useApp.getState().setupOpen) {
+        setupOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      }
+      openSetupScreen(view, from);
+    },
+    [openSetupScreen, dismissNotificationsByKey]
+  );
 
-  /* The Setup screen, from the launch card, the status bar, Settings or the
-     review dialog's warning (setup.7). The launch card has done its job once
-     Setup is open, which says the same at length, so it goes. */
-  const openSetup = useCallback(() => {
-    setReviewDialogOpen(false);
-    setSettingsOpen(false);
-    dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);
-    setSetupFor('claude');
-    setSetupOpen(true);
-  }, [setReviewDialogOpen, setSettingsOpen, setSetupFor, setSetupOpen, dismissNotificationsByKey]);
+  /* Claude's view, from the launch card, the status bar, Settings, the
+     Review menu or a review that failed (setup.7). */
+  const openSetup = useCallback(() => showSetup('claude', 'elsewhere'), [showSetup]);
 
-  /* The Setup screen's ChatGPT view (codex.2), from Settings' ChatGPT account
-     row: the sign-in and the training warning. Claude's launch card says
-     nothing it says, so it stays. */
-  const openChatGptSetup = useCallback(() => {
-    setReviewDialogOpen(false);
-    setSettingsOpen(false);
-    setSetupFor('chatgpt');
-    setSetupOpen(true);
-  }, [setReviewDialogOpen, setSettingsOpen, setSetupFor, setSetupOpen]);
+  /* ChatGPT's view (codex.2), from Settings' ChatGPT account row, the status
+     bar, the Review menu or a review that failed (codex.3): the sign-in and
+     the training warning. */
+  const openChatGptSetup = useCallback(() => showSetup('chatgpt', 'elsewhere'), [showSetup]);
+
+  /* Open Setup in Review with AI, Claude's warning or ChatGPT's account row:
+     leaving Setup opens the dialog again (setup.19). */
+  const openSetupFromDialog = useCallback(() => showSetup('claude', 'review-dialog'), [showSetup]);
+  const openChatGptSetupFromDialog = useCallback(() => showSetup('chatgpt', 'review-dialog'), [showSetup]);
+
+  /* The welcome guide's Set up Claude and Set up ChatGPT: leaving Setup
+     shows the guide again, under it all along (setup.11, setup.19). */
+  const openSetupFromWelcome = useCallback(() => showSetup('claude', 'welcome'), [showSetup]);
+  const openChatGptSetupFromWelcome = useCallback(() => showSetup('chatgpt', 'welcome'), [showSetup]);
+
+  /* The guide's Sign in with ChatGPT (setup.18): the ChatGPT view over the
+     guide, as Set up ChatGPT opens it, with its sign-in started, as the
+     view's own button starts it, so the wait, the training warning and,
+     once signed in, OpenAI's welcome and Done are on screen. */
+  const { signIn: signInChatGpt } = chatgpt;
+  const signInChatGptFromWelcome = useCallback(() => {
+    showSetup('chatgpt', 'welcome');
+    signInChatGpt(false);
+  }, [showSetup, signInChatGpt]);
+
+  /* Where leaving Setup landed (setup.19). Review with AI and the welcome
+     guide have taken what they need of it as they were drawn again, the
+     focus on Start or on the step's button; a return to the chapter hands
+     the focus back where it was when Setup opened, when that is still on the
+     page, such as the status bar's label. Then it is cleared, so a guide
+     shown again later takes no focus from it. */
+  useEffect(() => {
+    if (setupLanding === null) return;
+    if (setupLanding.to === 'chapter') {
+      focusReturnTarget(setupOpener.current, document.body, null)?.focus({ preventScroll: true });
+    }
+    setupOpener.current = null;
+    setSetupLanding(null);
+  }, [setupLanding, setSetupLanding]);
 
   /* Test the connection, on the Setup screen (setup.8): one very small
      request. A test that fails for a reason Setup can fix checks again, as a
@@ -861,7 +937,7 @@ export function App(): React.JSX.Element {
     void closeWelcome(WELCOME_IO).catch((err: unknown) => notify('error', welcomeNotKept(errorMessage(err))));
   }, [notify]);
 
-  /* Use OpenAI instead, and Use Claude instead, in the guide's first step:
+  /* Use ChatGPT instead, and Use Claude instead, in the guide's first step:
      the provider Review with AI starts with. */
   const chooseProvider = useCallback(
     (provider: Provider) => {
@@ -909,8 +985,6 @@ export function App(): React.JSX.Element {
    * Code opens the dialog with a warning (`reviewGate`, setup.7, 11.3 f).
    * ChatGPT's view stands in front of it when no ChatGPT sign-in is kept,
    * and the dialog itself asks for the data settings box (5.7 item 7).
-   * OpenAI's only prerequisite is a key, which the dialog itself shows, and a
-   * card points at Settings when there is none (Phase 5c).
    */
   const openReviewFor = useCallback(
     (provider: Provider) => {
@@ -926,22 +1000,17 @@ export function App(): React.JSX.Element {
         openChatGptSetup();
         return;
       }
-      if (provider === 'openai' && ai.keyStatus && !ai.keyStatus.configured) {
-        notify(
-          'warn',
-          'OpenAI needs an API key before it can review. Paste one into Settings, or switch the provider back to Claude.',
-          'openai-key',
-          'open-settings'
-        );
-      }
+      /* Opened from the Review menu over the Setup screen, the dialog is not
+         the one Setup's Open Setup came from: leaving Setup later goes to the
+         chapter (setup.19). */
+      setSetupFrom('elsewhere');
       setReviewDialogOpen(true);
     },
     [
       claudeRuntime,
       chatgpt.status,
-      ai.keyStatus,
-      notify,
       setReviewDialogOpen,
+      setSetupFrom,
       refuseWhileEditing,
       openSetup,
       openChatGptSetup
@@ -1053,11 +1122,6 @@ export function App(): React.JSX.Element {
           );
           return;
         }
-        if (err instanceof ApiError && (err.code === 'openai-invalid-key' || err.code === 'openai-no-key')) {
-          ai.refreshKeyStatus();
-          notify('error', err.message, 'openai-key', 'open-settings');
-          return;
-        }
         fail(err);
       })
       .finally(() => useApp.getState().setAiBusy(null));
@@ -1137,9 +1201,6 @@ export function App(): React.JSX.Element {
   const onCardAction = useCallback(
     (action: NotificationAction, arg?: string) => {
       switch (action) {
-        case 'open-settings':
-          openSettings();
-          break;
         case 'open-setup':
           openSetup();
           break;
@@ -1170,24 +1231,19 @@ export function App(): React.JSX.Element {
           break;
       }
     },
-    [openSettings, openSetup, fail, revealBackups, setDiagnosticsOpen, onUpdateAction]
+    [openSetup, fail, revealBackups, setDiagnosticsOpen, onUpdateAction]
   );
 
   /* The status bar's runtime label is a button: Setup for Claude, its
-     ChatGPT view for ChatGPT (codex.3), Settings for OpenAI (setup.7). */
+     ChatGPT view for ChatGPT (setup.7, codex.3). */
   const statusRuntime = {
     ...(runtimeLabel ? { runtimeLabel } : {}),
-    onRuntime:
-      activeProvider === 'claude'
-        ? openSetup
-        : activeProvider === 'chatgpt'
-          ? openChatGptSetup
-          : openSettings,
-    runtimeTitle: runtimeButtonTitle(activeProvider)
+    onRuntime: activeProvider === 'chatgpt' ? openChatGptSetup : openSetup,
+    runtimeTitle: RUNTIME_BUTTON_TITLE
   };
   /* Claude's usage, in the status bar while Claude is in use: the notice is
-     about the Claude plan, and beside OpenAI's status it would read as
-     OpenAI's (setup.9). The ChatGPT plan's in its place while ChatGPT is in
+     about the Claude plan, and beside ChatGPT's status it would read as
+     ChatGPT's (setup.9). The ChatGPT plan's in its place while ChatGPT is in
      use (codex.3). */
   const usageNotice = chatGptInUse ? ai.chatGptRateLimit : claudeInUse ? ai.rateLimit : null;
 
@@ -1233,7 +1289,6 @@ export function App(): React.JSX.Element {
         modelsLoading={ai.modelsLoading}
         modelsError={ai.modelsError}
         runtimes={ai.runtimes}
-        keyStatus={ai.keyStatus}
         history={history}
         reviewPath={reviewPath}
         unsavedDecisions={unsavedDecisionCount(review.hunks)}
@@ -1243,19 +1298,18 @@ export function App(): React.JSX.Element {
         onApplySettings={setSettings}
         onNeedModels={ai.ensureModels}
         onRetryModels={ai.retryModels}
-        onOpenSettings={openSettings}
         onCheckClaude={() => ai.check('claude')}
         checking={ai.checking}
         claudeLastFailure={ai.lastFailure}
-        onOpenSetup={openSetup}
+        onOpenSetup={openSetupFromDialog}
         chatgpt={chatgpt.status}
         chatgptWaiting={chatgpt.waiting}
-        onOpenChatGptSetup={openChatGptSetup}
+        onOpenChatGptSetup={openChatGptSetupFromDialog}
         onConfirmDataSettings={chatgpt.setDataSettingsConfirmed}
         onOpenDataControls={chatgpt.openDataControls}
-        onManageUsage={chatgpt.openUsage}
         onStart={startReview}
         onClose={() => setReviewDialogOpen(false)}
+        focusStart={setupLanding?.to === 'review-dialog'}
       />
     ) : null;
   const settingsDialog =
@@ -1264,14 +1318,9 @@ export function App(): React.JSX.Element {
         settings={settings}
         models={ai.models.claude ?? []}
         runtime={claudeRuntime}
-        keyStatus={ai.keyStatus}
         chatgpt={chatgpt.status}
         chatgptWaiting={chatgpt.waiting}
-        onKeyChanged={ai.keyChanged}
-        onApply={(next) => {
-          setSettings(next);
-          refreshFiles();
-        }}
+        onApply={applySavedSettings}
         onClose={() => setSettingsOpen(false)}
         onOpenSetup={openSetup}
         onOpenChatGptSetup={openChatGptSetup}
@@ -1389,7 +1438,7 @@ export function App(): React.JSX.Element {
                 welcome={planWelcomeShown(chatgpt.status, settings?.dismissedHints)}
                 onManageUsage={chatgpt.openUsage}
                 onWelcomeDone={() => void dismissHint(PLAN_WELCOME_HINT, HINT_IO)}
-                onClose={() => setSetupOpen(false)}
+                onClose={leaveSetup}
                 version={updateStatus?.current ?? null}
               />
             ) : setupOpen ? (
@@ -1398,7 +1447,7 @@ export function App(): React.JSX.Element {
                 lastFailure={ai.lastFailure}
                 checking={ai.checking}
                 onCheckAgain={() => ai.check('claude')}
-                onClose={() => setSetupOpen(false)}
+                onClose={leaveSetup}
                 {...(review?.sourcePath && canTryReviewAnyway(claudeRuntime, ai.lastFailure)
                   ? { onTryAnyway: tryReviewAnyway }
                   : {})}
@@ -1414,15 +1463,17 @@ export function App(): React.JSX.Element {
                 settings={settings}
                 claude={claudeRuntime}
                 claudeLastFailure={ai.lastFailure}
-                openai={ai.runtimes.openai ?? null}
                 chatgpt={chatgpt.status}
-                onSetUpClaude={openSetup}
-                onSetUpChatGpt={openChatGptSetup}
+                chatgptWaiting={chatgpt.waiting}
+                onSetUpClaude={openSetupFromWelcome}
+                onSetUpChatGpt={openChatGptSetupFromWelcome}
+                onSignInChatGpt={signInChatGptFromWelcome}
                 onUseProvider={chooseProvider}
-                onOpenSettings={openSettings}
                 onChooseFolder={chooseManuscriptFolder}
+                onApply={applySavedSettings}
                 onStart={finishWelcome}
                 onSkip={finishWelcome}
+                landOn={setupLanding?.to === 'welcome' ? setupLanding.view : null}
               />
             ) : null}
           </div>
@@ -1524,8 +1575,8 @@ export function App(): React.JSX.Element {
                     <h1>Nothing open</h1>
                     <p>
                       Pick a chapter on the left, or start one with the + beside Chapters. In the Review menu,
-                      Claude, ChatGPT or OpenAI asks for suggestions, and Manual turns a corrected copy into
-                      the same kind of list. You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
+                      Claude or ChatGPT asks for suggestions, and Manual turns a corrected copy into the same
+                      kind of list. You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
                     </p>
                   </div>
                 )}

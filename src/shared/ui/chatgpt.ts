@@ -7,8 +7,8 @@
  * plans may train on what is sent unless the user turns that off, the app
  * cannot check it, and the box "I have confirmed my data settings" is kept for
  * each account. Since codex.3 also what a review on the plan says (PLAN 5.8):
- * Review with AI's account line and gate, OpenAI's "Using ChatGPT plan",
- * Manage usage and welcome, a sign-in that is not there or has ended, the
+ * Review with AI's account line and gate, OpenAI's welcome, "Using ChatGPT
+ * plan" and Manage usage, a sign-in that is not there or has ended, the
  * usage limit's card and the plan's other failures. Pure (CLAUDE.md rule 4).
  */
 
@@ -133,6 +133,16 @@ export function chatGptSetupStatus(status: ChatGptStatus | null, waiting: boolea
     };
   }
   return { tone: 'pending', title: 'Not signed in to ChatGPT', lines: [SIGNED_OUT_TEXT, ...dev] };
+}
+
+/**
+ * Whether the sign-in has just succeeded (setup.19): main said there was
+ * none, and now says there is one. The view then hands the focus to Done. A
+ * status read for the first time that finds a sign-in kept (`null` before)
+ * is not one, nor is a sign-in that stays.
+ */
+export function signInSucceeded(before: boolean | null, after: boolean | null): boolean {
+  return before === false && after === true;
 }
 
 /**
@@ -301,15 +311,26 @@ export function callbackFailedPage(message: string): CallbackPageWords {
 /* Reviews on the plan (codex.3, PLAN 5.8)                             */
 /* ------------------------------------------------------------------ */
 
-/** OpenAI's label for the plan in use, by the model choice (UI guidelines, Appendix A). */
+/**
+ * OpenAI's label for the plan in use (UI guidelines, Appendix A), on the
+ * ChatGPT view's status card while signed in, once the welcome has gone. The
+ * guidelines put it by the model choice, where Review with AI had it until
+ * codex.5 left it out of the dialog at the author's word; the view has kept it
+ * since the codex.5 review.
+ */
 export const USING_CHATGPT_PLAN = 'Using ChatGPT plan';
 
-/** OpenAI's link to ChatGPT's usage settings (UI guidelines): `shell:open-external` with `chatgpt-usage`. */
-export const MANAGE_USAGE_BUTTON = 'Manage usage';
-
-/** What the review dialog says after "Using ChatGPT plan". */
+/** What the view's status card says after "Using ChatGPT plan", before Manage usage. */
 export const CHATGPT_PLAN_NOTE =
-  "Reviews count against your ChatGPT plan's usage limits, with no API key and nothing billed per token.";
+  "Reviews count against your ChatGPT plan's usage limits, and nothing is billed per token.";
+
+/**
+ * OpenAI's link to ChatGPT's usage settings (UI guidelines): `shell:open-external`
+ * with `chatgpt-usage`, on the ChatGPT view, in the welcome and then after
+ * "Using ChatGPT plan", and on the usage limit's card. Review with AI had it
+ * too until codex.5.
+ */
+export const MANAGE_USAGE_BUTTON = 'Manage usage';
 
 /** The first sign-in's welcome, in OpenAI's words (UI guidelines), on the ChatGPT view until Got it. */
 export const PLAN_WELCOME_TITLE = "You're using your ChatGPT plan";
@@ -386,8 +407,8 @@ export const CHATGPT_REVIEW_FAILURES = {
   usageLimitDuring: `ChatGPT's usage limit was reached during the review, so it stopped and no suggestions came back. It may be your ChatGPT plan's limit or one OpenAI sets for ${APP_NAME}: review your plan or this app's limit in ChatGPT's settings.`,
   usageUnavailable:
     'ChatGPT plan usage is not available just now, so the review did not run. Your sign-in is kept: try again in a few minutes.',
-  notEligible: `OpenAI says this ChatGPT account cannot use its plan in ${APP_NAME}, so the review did not run. Signing in again will not change that; Claude, or an OpenAI API key, can review instead.`,
-  structuredOutput: `OpenAI refused structured output (text.format) for a review on a ChatGPT plan, and ${APP_NAME} needs it to read the suggestions, so the review did not run. Claude, or an OpenAI API key, can review instead.`,
+  notEligible: `OpenAI says this ChatGPT account cannot use its plan in ${APP_NAME}, so the review did not run. Signing in again will not change that; Claude can review instead.`,
+  structuredOutput: `OpenAI refused structured output (text.format) for a review on a ChatGPT plan, and ${APP_NAME} needs it to read the suggestions, so the review did not run. Claude can review instead.`,
   routeNotSupported: `OpenAI did not accept the review's request on a ChatGPT plan (route not supported), so the review did not run. ${APP_NAME} may need an update.`,
   planUseRefused: `OpenAI did not let this sign-in use your ChatGPT plan here, so the review did not run. Sign out in Set up ChatGPT, then sign in again and allow ${APP_NAME} to use your plan.`,
   signInNotAccepted:

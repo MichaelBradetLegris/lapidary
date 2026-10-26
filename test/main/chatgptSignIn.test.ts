@@ -7,14 +7,7 @@ import { createChatGptAuth, type ChatGptAuth, type ChatGptAuthDeps } from '../..
 import { ensureHostId, readChatGpt, updateChatGpt } from '../../src/main/chatgpt/store';
 import { AppFailure } from '../../src/main/errors';
 import { abortAll, registerController } from '../../src/main/providers/controllers';
-import {
-  clearOpenAiKey,
-  openAiKey,
-  readSecrets,
-  secretsPath,
-  storeOpenAiKey,
-  type KeyVault
-} from '../../src/main/secrets';
+import { readSecrets, secretsPath, type KeyVault } from '../../src/main/secrets';
 import type { ShellApi } from '../../src/main/shellApi';
 import { APP_NAME } from '../../src/shared/branding';
 import type { ChatGptStatus } from '../../src/shared/ipc';
@@ -595,18 +588,32 @@ describe('the data settings box (codex.2)', () => {
   });
 });
 
-describe('secrets.json holds the key and the sign-in side by side (codex.2)', () => {
-  it('keeps each when the other is saved or removed', async () => {
-    const vault = fakeVault();
-    await storeOpenAiKey(vault, dir, 'sk-proj-THISISATESTKEY1234abcd', {}); // check-public: allow
+describe('a secrets.json from before codex.6 that holds an OpenAI key', () => {
+  /** The key's part as the #14 build saved it beside the sign-in's. */
+  const keyPart = {
+    ciphertext: Buffer.from('what safeStorage made of the key', 'utf8').toString('base64'),
+    last4: '7Qa2',
+    savedAt: '2026-10-24T09:00:00.000Z'
+  };
+
+  it('signs in on it, keeping its host id and registration, and drops the key with the first write', async () => {
     const one = auth();
     await one.signIn({ another: false });
-    expect(await openAiKey(vault, dir, {})).toBe('sk-proj-THISISATESTKEY1234abcd'); // check-public: allow
-    await clearOpenAiKey(vault, dir, {});
-    expect((await one.status()).signedIn).toBe(true);
-    await storeOpenAiKey(vault, dir, 'sk-proj-ANOTHERTESTKEY5678wxyz', {}); // check-public: allow
     await one.signOut();
-    expect(await openAiKey(vault, dir, {})).toBe('sk-proj-ANOTHERTESTKEY5678wxyz'); // check-public: allow
+    const before = await readChatGpt(dir);
+    const raw = JSON.parse(await fs.readFile(secretsPath(dir), 'utf8')) as Record<string, unknown>;
+    await fs.writeFile(secretsPath(dir), JSON.stringify({ ...raw, openai: keyPart }));
+
+    // Read as a file with a part this version does not know: the status is as it was.
+    expect(await one.status()).toMatchObject({ signedIn: false, registered: true });
+    expect(await readSecrets(dir)).not.toHaveProperty('openai');
+
+    expect((await one.signIn({ another: false })).signedIn).toBe(true);
+    const after = await readChatGpt(dir);
+    expect(after.hostId).toBe(before.hostId);
+    expect(after.lastClientId).toBe(before.lastClientId);
+    const onDisk = await fs.readFile(secretsPath(dir), 'utf8');
+    for (const trace of ['"openai"', keyPart.ciphertext, keyPart.last4]) expect(onDisk).not.toContain(trace);
     expect((await readSecrets(dir)).version).toBe(1);
   });
 });
@@ -624,9 +631,7 @@ describe('a secrets.json that cannot be read for a moment (codex.2 review)', () 
     });
   }
 
-  it('writes none of the sign-in over it, so the key, the registrations and the host id stay', async () => {
-    const vault = fakeVault();
-    await storeOpenAiKey(vault, dir, 'sk-proj-THISISATESTKEY1234abcd', {}); // check-public: allow
+  it('writes none of the sign-in over it, so the registrations and the host id stay', async () => {
     const one = auth();
     await one.signIn({ another: false });
     const kept = await readChatGpt(dir);
@@ -650,7 +655,6 @@ describe('a secrets.json that cannot be read for a moment (codex.2 review)', () 
     vi.restoreAllMocks();
 
     expect(await fs.readFile(secretsPath(dir))).toEqual(bytes);
-    expect(await openAiKey(vault, dir, {})).toBe('sk-proj-THISISATESTKEY1234abcd'); // check-public: allow
     expect(await readChatGpt(dir)).toEqual(kept);
   });
 

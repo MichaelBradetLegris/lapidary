@@ -25,7 +25,7 @@ import { isDefaultReviewsFolder, resolveReviewsFolder } from './reviews';
  * `diagnosticsReport` (src/shared/diagnostics/report.ts), which writes them
  * out and scrubs them.
  *
- * It never runs a check of Claude, ChatGPT or OpenAI: it reads what the last check
+ * It never runs a check of Claude or ChatGPT: it reads what the last check
  * found (`lastRuntime`, `lastFailure`), the Claude Code the last lookup found
  * (`installedCli`, through `info`) and Setup's own Claude lines
  * (`claudeDiagnostics`), so opening the report costs nothing and logs no
@@ -188,7 +188,7 @@ async function guidelinesFacts(settings: Settings, template: string): Promise<Gu
   };
 }
 
-/** Everything the report says, read now; no check of Claude or OpenAI is run. */
+/** Everything the report says, read now; no check of Claude or ChatGPT is run. */
 export async function collectDiagnostics(deps: DiagnosticsDeps): Promise<DiagnosticsData> {
   const settings = await deps.settings();
   const [info, folders, guidelines] = await Promise.all([
@@ -207,12 +207,10 @@ export async function collectDiagnostics(deps: DiagnosticsDeps): Promise<Diagnos
       provider: settings.provider,
       model: settings.model,
       chatgptModel: settings.chatgptModel,
-      openaiModel: settings.openaiModel,
       effort: settings.effort
     },
     claude: claudeDiagnostics(deps.lastRuntime('claude'), deps.lastFailure('claude')),
     chatgpt: { runtime: deps.lastRuntime('chatgpt'), lastFailure: deps.lastFailure('chatgpt') },
-    openai: { runtime: deps.lastRuntime('openai'), lastFailure: deps.lastFailure('openai') },
     folders,
     guidelines,
     warnings: deps.warnings(REPORT_WARNINGS)

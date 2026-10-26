@@ -1,24 +1,20 @@
-import { app, safeStorage } from 'electron';
 import type { ConnectionTestResult, RuntimeStatus } from '../../shared/ipc';
 import type { Provider } from '../../shared/types';
 import type { LastFailure } from '../../shared/ui/setup';
 import type { ChatGptAuth } from '../chatgpt';
 import { log } from '../log';
-import { openAiKey, openAiKeyStatus } from '../secrets';
 import { createChatGptProvider } from './chatgpt';
 import { claudeProvider } from './claude';
 import { registerController } from './controllers';
 import { withLogging, type LoggedProvider } from './logged';
-import { createOpenAiProvider } from './openai';
 import { createRegistry, type ProviderRegistry } from './registry';
 
 /**
- * The app's providers. The OpenAI one is handed functions that read the key
- * from the encrypted secrets file at call time, and the ChatGPT one (codex.3)
- * the sign-in, which gives it the access token at call time, so no provider
- * ever holds a credential between calls. Each is wrapped in `withLogging`
- * (logged.ts), which logs its calls as counts and remembers its last runtime
- * status and failure (hardening.3b).
+ * The app's providers: Claude, and ChatGPT (codex.3), which is handed the
+ * sign-in, which gives it the access token at call time, so no provider ever
+ * holds a credential between calls. The OpenAI API key's provider went in
+ * codex.6. Each is wrapped in `withLogging` (logged.ts), which logs its calls
+ * as counts and remembers its last runtime status and failure (hardening.3b).
  */
 
 let logged: readonly LoggedProvider[] | null = null;
@@ -38,14 +34,9 @@ function chatGptSession(): ChatGptAuth {
 }
 
 function loggedProviders(): readonly LoggedProvider[] {
-  logged ??= [
-    claudeProvider,
-    createChatGptProvider({ session: chatGptSession }),
-    createOpenAiProvider({
-      key: () => openAiKey(safeStorage, app.getPath('userData')),
-      status: () => openAiKeyStatus(safeStorage, app.getPath('userData'))
-    })
-  ].map((provider) => withLogging(provider, { log }));
+  logged ??= [claudeProvider, createChatGptProvider({ session: chatGptSession })].map((provider) =>
+    withLogging(provider, { log })
+  );
   return logged;
 }
 

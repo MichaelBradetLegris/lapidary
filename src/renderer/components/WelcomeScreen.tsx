@@ -2,16 +2,24 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatGptStatus, EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../../shared/ipc';
 import type { Provider, Settings } from '../../shared/types';
 import { openedGuidelinesNote } from '../../shared/ui/guidelines';
-import type { LastFailure } from '../../shared/ui/setup';
+import type { LastFailure, SetupFor } from '../../shared/ui/setup';
 import {
+  FOLDER_PICKER_TITLES,
+  FOLDER_SETTINGS,
+  OPTIONAL,
   WELCOME_INTRO,
   WELCOME_SKIP,
   WELCOME_SKIP_TITLE,
   WELCOME_START,
   WELCOME_TITLE,
+  welcomeLandingAction,
+  welcomeProviderFor,
   welcomeStart,
   welcomeSteps,
+  type WelcomeAction,
   type WelcomeActionId,
+  type WelcomeFolderId,
+  type WelcomeInput,
   type WelcomeStep
 } from '../../shared/ui/welcome';
 import { call, errorMessage } from '../state/client';
@@ -27,18 +35,60 @@ interface PageProps {
   steps: WelcomeStep[];
   /** under the style sheet's buttons */
   note?: WelcomeNote | null;
+  /** under a folder row: why its Change was refused, as main put it (setup.18) */
+  rowNotes?: Partial<Record<WelcomeFolderId, string>>;
   onAction: (id: WelcomeActionId) => void;
   onStart: () => void;
   onSkip: () => void;
 }
 
+/** "(optional)" after a title, read as part of it. */
+function Optional(): React.JSX.Element {
+  return <span className="welcome__optional"> ({OPTIONAL})</span>;
+}
+
+function Buttons({
+  actions,
+  onAction
+}: {
+  actions: WelcomeAction[];
+  onAction: (id: WelcomeActionId) => void;
+}): React.JSX.Element {
+  return (
+    <div className="welcome__actions">
+      {actions.map((action) => (
+        <button
+          key={action.id}
+          type="button"
+          data-action={action.id}
+          className={action.primary ? 'primary' : undefined}
+          disabled={action.disabled}
+          title={action.title}
+          onClick={() => onAction(action.id)}
+        >
+          {action.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /**
  * The welcome guide as it is drawn, from its steps (`welcomeSteps`): a title
- * with Skip, the three steps, each with where it stands and its buttons, and
- * Start under them. It uses the Setup screen's scroller and centred column
- * (`.setup`, `.setup__page`), so it scrolls across the window as Setup does.
+ * with Skip, the three steps, each with where it stands and its buttons, the
+ * first with its two folder rows and the second with its two sections
+ * (setup.18), and Start under them. It uses the Setup screen's scroller and
+ * centred column (`.setup`, `.setup__page`), so it scrolls across the window
+ * as Setup does.
  */
-export function WelcomePage({ steps, note = null, onAction, onStart, onSkip }: PageProps): React.JSX.Element {
+export function WelcomePage({
+  steps,
+  note = null,
+  rowNotes = {},
+  onAction,
+  onStart,
+  onSkip
+}: PageProps): React.JSX.Element {
   const start = welcomeStart(steps);
   return (
     <div className="setup welcome">
@@ -66,7 +116,10 @@ export function WelcomePage({ steps, note = null, onAction, onStart, onSkip }: P
                 {step.done ? <IconCheck size={14} /> : index + 1}
               </span>
               <div className="welcome__body">
-                <h2>{step.title}</h2>
+                <h2>
+                  {step.title}
+                  {step.optional ? <Optional /> : null}
+                </h2>
                 {/* Where the step stands follows what the app finds, such as
                     each check of Claude, so it is read out when it changes. */}
                 <p className="welcome__status" aria-live="polite">
@@ -82,20 +135,59 @@ export function WelcomePage({ steps, note = null, onAction, onStart, onSkip }: P
                     ))}
                   </ul>
                 ) : null}
-                <div className="welcome__actions">
-                  {step.actions.map((action) => (
-                    <button
-                      key={action.id}
-                      type="button"
-                      className={action.primary ? 'primary' : undefined}
-                      disabled={action.disabled}
-                      title={action.title}
-                      onClick={() => onAction(action.id)}
-                    >
-                      {action.label}
-                    </button>
-                  ))}
-                </div>
+                {step.actions.length > 0 ? <Buttons actions={step.actions} onAction={onAction} /> : null}
+                {/* Where reviews and backups are kept, each in the app's data
+                    folder unless Change chooses another (setup.18). */}
+                {step.rows.length > 0 ? (
+                  <div className="welcome__rows">
+                    {step.rows.map((row) => {
+                      const refused = rowNotes[row.id];
+                      return (
+                        <div key={row.id} className="welcome__row" data-row={row.id}>
+                          <div className="welcome__row-text">
+                            <h3>
+                              {row.label}
+                              <Optional />
+                            </h3>
+                            <p className="welcome__row-value" title={row.path ?? undefined}>
+                              {row.value}
+                            </p>
+                            <p className="welcome__row-note">{row.note}</p>
+                          </div>
+                          <Buttons actions={row.actions} onAction={onAction} />
+                          {refused ? (
+                            <p className="welcome__note welcome__note--error" role="alert">
+                              {refused}
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {/* Claude and ChatGPT, each with where it stands, in its Setup
+                    view's own words, read out as it changes (setup.18). */}
+                {step.sections.length > 0 ? (
+                  <div className="welcome__sections">
+                    {step.sections.map((section) => (
+                      <section
+                        key={section.id}
+                        className={`welcome__section welcome__section--${section.done ? 'done' : 'todo'}`}
+                        data-section={section.id}
+                        aria-label={section.title}
+                      >
+                        <h3>{section.title}</h3>
+                        <p className="welcome__section-status" aria-live="polite">
+                          {section.status}
+                        </p>
+                        {section.lines.map((line) => (
+                          <p key={line}>{line}</p>
+                        ))}
+                        <Buttons actions={section.actions} onAction={onAction} />
+                      </section>
+                    ))}
+                  </div>
+                ) : null}
                 {step.id === 'style-sheet' && note ? (
                   <p
                     className={`welcome__note welcome__note--${note.tone}`}
@@ -125,54 +217,70 @@ interface Props {
   /** Claude's last check, null until the first one answers */
   claude: RuntimeStatus | null;
   claudeLastFailure: LastFailure | null;
-  openai: RuntimeStatus | null;
-  /** the ChatGPT sign-in, for the first step while ChatGPT is the provider (codex.3) */
+  /** the ChatGPT sign-in, for its section (codex.3, setup.18) */
   chatgpt?: ChatGptStatus | null;
+  /** a ChatGPT sign-in waits for the browser, as the ChatGPT view shows it */
+  chatgptWaiting?: boolean;
   /** the Setup screen (setup.7), over the guide until it is closed */
   onSetUpClaude: () => void;
   /** the Setup screen's ChatGPT view (codex.3), over the guide in the same way */
   onSetUpChatGpt?: () => void;
-  /** Use OpenAI instead, and back: the provider setting */
+  /** the ChatGPT view, over the guide, with its sign-in started (setup.18) */
+  onSignInChatGpt?: () => void;
+  /** the provider setting, which a section's button may change (`welcomeProviderFor`, setup.18) */
   onUseProvider: (provider: Provider) => void;
-  onOpenSettings: () => void;
   /** the folder picker, which sets the manuscript folder and reads the chapter list */
   onChooseFolder: () => void;
+  /** the settings as main saved them, after a folder row's Change (setup.18) */
+  onApply?: (next: Settings) => void;
   /** Start and Skip both put the guide away for good (`onboardingDone`) */
   onStart: () => void;
   onSkip: () => void;
+  /**
+   * The view of the Setup screen the author has just left by Done, Close or
+   * Escape, when the guide's own button opened it (setup.19): that section's
+   * button takes the focus as the guide shows again. Read as the guide is
+   * drawn.
+   */
+  landOn?: SetupFor | null;
 }
 
 /**
  * The welcome guide for a fresh install (setup.11, PLAN section 7), in place
  * of the chapter list, the prose and the side panel while `onboardingDone` is
- * false. Claude's step follows App's checks; the folder and style-sheet steps
- * read where the app keeps things (`settings:effective`) and the guidelines
- * file's status (`guidelines:status`) as the guide opens, whenever the folder
- * or the guidelines file changes in the settings, after each of the style
- * sheet's buttons, and whenever the window gets the focus back, as when the
- * author returns from filling the style sheet in. The style sheet's buttons,
- * Open and Open folder, go through `guidelines:open` and `shell:reveal`, as
- * Settings' do (polish.3), each creating the file from the template first
- * when it is missing.
+ * false. The folder and style-sheet steps read where the app keeps things
+ * (`settings:effective`) and the guidelines file's status
+ * (`guidelines:status`) as the guide opens, whenever a folder or the
+ * guidelines file changes in the settings, after each of the style sheet's
+ * buttons, and whenever the window gets the focus back, as when the author
+ * returns from filling the style sheet in; the AI agents' sections follow
+ * App's checks of Claude and ChatGPT. The folder rows' Change picks a folder
+ * and saves it as Settings does, showing main's refusal under the row
+ * (setup.18). The style sheet's buttons, Open and Open folder, go through
+ * `guidelines:open` and `shell:reveal`, as Settings' do (polish.3), each
+ * creating the file from the template first when it is missing.
  */
 export function WelcomeScreen({
   settings,
   claude,
   claudeLastFailure,
-  openai,
   chatgpt = null,
+  chatgptWaiting = false,
   onSetUpClaude,
   onSetUpChatGpt,
+  onSignInChatGpt,
   onUseProvider,
-  onOpenSettings,
   onChooseFolder,
+  onApply,
   onStart,
-  onSkip
+  onSkip,
+  landOn = null
 }: Props): React.JSX.Element {
   const [paths, setPaths] = useState<EffectivePaths | null>(null);
   const [guidelines, setGuidelines] = useState<GuidelinesStatus | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [note, setNote] = useState<WelcomeNote | null>(null);
+  const [rowNotes, setRowNotes] = useState<Partial<Record<WelcomeFolderId, string>>>({});
   /* Only the newest answer of each read counts, so a slow one cannot put
      back what a later one, after the folder changed, has replaced. */
   const pathsSeq = useRef(0);
@@ -194,7 +302,7 @@ export function WelcomeScreen({
     );
   }, []);
 
-  const { manuscriptFolder, guidelinesPath, reviewsFolder } = settings;
+  const { manuscriptFolder, guidelinesPath, reviewsFolder, backupsFolder } = settings;
   useEffect(() => {
     const ticket = ++pathsSeq.current;
     call('settings:effective', undefined).then(
@@ -206,7 +314,7 @@ export function WelcomeScreen({
       }
     );
     readGuidelines();
-  }, [manuscriptFolder, guidelinesPath, reviewsFolder, readGuidelines]);
+  }, [manuscriptFolder, guidelinesPath, reviewsFolder, backupsFolder, readGuidelines]);
 
   /* Back from Obsidian or the editor where the style sheet was filled in. */
   useEffect(() => {
@@ -234,25 +342,70 @@ export function WelcomeScreen({
     );
   };
 
+  /* A folder row's Change (setup.18): the folder picker, then the setting, as
+     Settings' Change does. Main refuses a backups folder that is the
+     manuscript folder or inside it, and keeps the one chosen before; its words
+     stand under the row until the row's next Change. */
+  const changeFolder = (row: WelcomeFolderId): void => {
+    const key = FOLDER_SETTINGS[row];
+    setRowNotes((notes) => ({ ...notes, [row]: undefined }));
+    const current = settings[key];
+    call('dialog:pick-folder', {
+      title: FOLDER_PICKER_TITLES[row],
+      ...(current ? { defaultPath: current } : {})
+    })
+      .then((folder) => (folder ? call('settings:set', { [key]: folder }) : null))
+      .then((next) => {
+        if (next) onApply?.(next);
+      })
+      .catch((err: unknown) => setRowNotes((notes) => ({ ...notes, [row]: errorMessage(err) })));
+  };
+
+  const input: WelcomeInput = {
+    provider: settings.provider,
+    claude,
+    claudeLastFailure,
+    chatgpt,
+    chatgptWaiting,
+    manuscriptFolder,
+    reviewsSetting: reviewsFolder,
+    backupsSetting: backupsFolder,
+    guidelinesSetting: guidelinesPath,
+    paths,
+    guidelines,
+    guidelinesProblem: problem
+  };
+
+  /* A section's button makes its agent the provider Review with AI starts
+     with while the provider is the other one and cannot review
+     (`welcomeProviderFor`, setup.18), then opens its Setup view. */
+  const chooseFor = (section: SetupFor): void => {
+    const provider = welcomeProviderFor(section, input);
+    if (provider) onUseProvider(provider);
+  };
+
   const onAction = (id: WelcomeActionId): void => {
     switch (id) {
-      case 'set-up-claude':
-        onSetUpClaude();
-        break;
-      case 'set-up-chatgpt':
-        onSetUpChatGpt?.();
-        break;
-      case 'use-openai':
-        onUseProvider('openai');
-        break;
-      case 'use-claude':
-        onUseProvider('claude');
-        break;
-      case 'open-settings':
-        onOpenSettings();
-        break;
       case 'choose-folder':
         onChooseFolder();
+        break;
+      case 'change-reviews-folder':
+        changeFolder('reviews');
+        break;
+      case 'change-backups-folder':
+        changeFolder('backups');
+        break;
+      case 'set-up-claude':
+        chooseFor('claude');
+        onSetUpClaude();
+        break;
+      case 'sign-in-chatgpt':
+        chooseFor('chatgpt');
+        onSignInChatGpt?.();
+        break;
+      case 'set-up-chatgpt':
+        chooseFor('chatgpt');
+        onSetUpChatGpt?.();
         break;
       case 'open-guidelines':
         openGuidelines();
@@ -263,18 +416,27 @@ export function WelcomeScreen({
     }
   };
 
-  const steps = welcomeSteps({
-    provider: settings.provider,
-    claude,
-    claudeLastFailure,
-    openai,
-    chatgpt,
-    manuscriptFolder,
-    guidelinesSetting: guidelinesPath,
-    paths,
-    guidelines,
-    guidelinesProblem: problem
-  });
+  const steps = welcomeSteps(input);
 
-  return <WelcomePage steps={steps} note={note} onAction={onAction} onStart={onStart} onSkip={onSkip} />;
+  /* Back from the Setup screen a section's button opened (setup.19): the
+     focus goes to that section's button, Set up Claude, or Sign in with
+     ChatGPT or Set up ChatGPT, whichever it shows now (`welcomeLandingAction`),
+     so the keyboard carries on from the section. Read as the guide is drawn,
+     so a development run's second pretend drawing hands it over again. */
+  const [landing] = useState(() => (landOn ? welcomeLandingAction(landOn, steps) : null));
+  useEffect(() => {
+    if (landing === null) return;
+    document.querySelector<HTMLElement>(`.welcome [data-action="${landing}"]`)?.focus();
+  }, [landing]);
+
+  return (
+    <WelcomePage
+      steps={steps}
+      note={note}
+      rowNotes={rowNotes}
+      onAction={onAction}
+      onStart={onStart}
+      onSkip={onSkip}
+    />
+  );
 }

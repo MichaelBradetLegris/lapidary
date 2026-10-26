@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { openAiKeyLine, openAiKeyRowLabel } from '../../shared/ai/openai';
-import type {
-  ChatGptStatus,
-  EffectivePaths,
-  ModelInfo,
-  OpenAiKeyStatus,
-  RuntimeStatus
-} from '../../shared/ipc';
+import type { ChatGptStatus, EffectivePaths, ModelInfo, RuntimeStatus } from '../../shared/ipc';
 import { EFFORT_LEVELS, type EffortLevel, type Settings } from '../../shared/types';
 import { ABOUT_BUTTON } from '../../shared/ui/about';
 import { chatGptAccountLine } from '../../shared/ui/chatgpt';
@@ -15,22 +8,16 @@ import { openedGuidelinesNote } from '../../shared/ui/guidelines';
 import {
   ABOUT_BUTTON_NOTE,
   APPEARANCE_NOTE,
-  BACKUPS_ROW_NOTE,
   BACKUPS_TIP,
   CHATGPT_ACCOUNT_TIP,
   CLAUDE_ACCOUNT_TIP,
   DONE_NOTE,
   EFFORT_TIP,
   GUIDELINES_TIP,
-  KEY_CANNOT_ENCRYPT,
   MANUSCRIPT_TIP,
   MODEL_TIP,
-  OPENAI_KEY_NOTE,
-  OPENAI_KEY_TIP,
-  OPENAI_KEYS_LINK_TITLE,
-  OPENAI_KEYS_PAGE,
-  OPENAI_KEYS_URL,
   REVIEWS_FOLDER_TIP,
+  backupsFolderNote,
   reviewsFolderNote
 } from '../../shared/ui/settingsDialog';
 import { claudeAccountLine } from '../../shared/ui/setup';
@@ -51,13 +38,11 @@ interface Props {
   models: ModelInfo[];
   /** Claude's runtime */
   runtime: RuntimeStatus | null;
-  keyStatus: OpenAiKeyStatus | null;
   /** the ChatGPT sign-in's status (codex.2), null until main has answered */
   chatgpt: ChatGptStatus | null;
   /** a ChatGPT sign-in is waiting for the browser */
   chatgptWaiting: boolean;
   onApply: (next: Settings) => void;
-  onKeyChanged: (status: OpenAiKeyStatus) => void;
   onClose: () => void;
   onOpenSetup: () => void;
   /** the Setup screen's ChatGPT view (codex.2), in place of Settings */
@@ -77,14 +62,13 @@ interface Props {
  * it, and back where it was, the Settings button as a rule, when it closes.
  * The page behind it is inert meanwhile, so Tab stays inside it (ui.4).
  *
- * Three sections, Review, Folders and Accounts (Claude, ChatGPT since codex.2,
- * and the OpenAI key), and at the foot the welcome
- * guide, About and Done (polish.4). A row has at most one short note; the
- * longer explanations are the tooltips of the (?) in each row's last cell,
- * after its buttons, so that they stand in one line down the right of the
- * dialog (`HelpTip`, polish.15; Appearance and the key's field keep the cell
- * empty), whose words are in `src/shared/ui/settingsDialog.ts`. Each
- * control names its row's path, status line, note or tooltip as its
+ * Three sections, Review, Folders and Accounts (Claude, and ChatGPT since
+ * codex.2), and at the foot the welcome guide, About and Done (polish.4). A
+ * row has at most one short note; the longer explanations are the tooltips
+ * of the (?) in each row's last cell, after its buttons, so that they stand
+ * in one line down the right of the dialog (`HelpTip`, polish.15; Appearance
+ * keeps the cell empty), whose words are in `src/shared/ui/settingsDialog.ts`.
+ * Each control names its row's path, status line, note or tooltip as its
  * description. The box still scrolls when the window is too short for it,
  * with its title and any message at the top, and its buttons at the foot,
  * held in view, and a scroll padding of their measured height keeps a control
@@ -94,11 +78,9 @@ export function SettingsDialog({
   settings,
   models,
   runtime,
-  keyStatus,
   chatgpt,
   chatgptWaiting,
   onApply,
-  onKeyChanged,
   onClose,
   onOpenSetup,
   onOpenChatGptSetup,
@@ -108,10 +90,6 @@ export function SettingsDialog({
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [paths, setPaths] = useState<EffectivePaths | null>(null);
-  /* The key only lives in this field until Save key is pressed, then the field is
-     emptied before the request goes out. It is never read back from main. */
-  const [keyDraft, setKeyDraft] = useState('');
-  const [keyBusy, setKeyBusy] = useState(false);
   const uid = useId();
   const id = (part: string): string => `${uid}-${part}`;
   const boxRef = useRef<HTMLDivElement>(null);
@@ -143,36 +121,6 @@ export function SettingsDialog({
     return () => observer.disconnect();
   }, []);
 
-  const saveKey = (): void => {
-    const key = keyDraft;
-    setKeyDraft('');
-    setError(null);
-    setKeyBusy(true);
-    call('secrets:openai-set', { key })
-      .then((status) => {
-        onKeyChanged(status);
-        setNote(`OpenAI key saved, encrypted, ending ${status.last4}.`);
-      })
-      .catch((err: unknown) => setError(errorMessage(err)))
-      .finally(() => setKeyBusy(false));
-  };
-
-  const removeKey = (): void => {
-    setError(null);
-    setKeyBusy(true);
-    call('secrets:openai-clear', undefined)
-      .then((status) => {
-        onKeyChanged(status);
-        setNote(
-          status.source === 'environment'
-            ? 'Saved key removed. OPENAI_API_KEY from the environment is still in use.'
-            : 'Saved key removed.'
-        );
-      })
-      .catch((err: unknown) => setError(errorMessage(err)))
-      .finally(() => setKeyBusy(false));
-  };
-
   const refreshPaths = useCallback(() => {
     call('settings:effective', undefined)
       .then(setPaths)
@@ -194,7 +142,10 @@ export function SettingsDialog({
       .catch((err: unknown) => setError(errorMessage(err)));
   };
 
-  const pickFolder = (key: 'manuscriptFolder' | 'reviewsFolder', title: string): void => {
+  /* A backups folder in the manuscript folder, or a manuscript folder that
+     holds the backups folder, is refused by main in words this dialog shows,
+     keeping what was chosen before (setup.18). */
+  const pickFolder = (key: 'manuscriptFolder' | 'reviewsFolder' | 'backupsFolder', title: string): void => {
     call('dialog:pick-folder', { title, ...(settings[key] ? { defaultPath: settings[key] } : {}) })
       .then((folder) => {
         if (folder) update({ [key]: folder });
@@ -229,8 +180,6 @@ export function SettingsDialog({
       .then(() => setNote(null))
       .catch((err: unknown) => setError(errorMessage(err)));
   };
-
-  const cannotEncrypt = keyStatus?.encryptionAvailable === false;
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Settings">
@@ -352,15 +301,23 @@ export function SettingsDialog({
             {reviewsFolderNote(paths?.reviewsFolderIsDefault ?? false)}
           </p>
 
-          {/* Where Save to chapter copies what it replaces (apply.11, PLAN 6.5).
+          {/* Where Save to chapter copies what it replaces (apply.11, PLAN 6.5),
+              the data folder's unless another is chosen with Change (setup.18).
               Each chapter has a folder of its own inside; Show backups, in the
               toolbar's Actions menu, opens the open chapter's. */}
           <div className="modal__row">
             <span>Backups</span>
             <span className="modal__path" id={id('backups-path')} title={paths?.backupsFolder}>
-              {paths?.backupsFolder ?? '…'}
+              {paths?.backupsFolder ?? settings.backupsFolder ?? '…'}
             </span>
             <span className="modal__buttons">
+              <button
+                type="button"
+                aria-describedby={`${id('backups-path')} ${id('backups-note')}`}
+                onClick={() => pickFolder('backupsFolder', 'Choose the backups folder')}
+              >
+                Change
+              </button>
               <button
                 type="button"
                 aria-describedby={`${id('backups-path')} ${id('backups-note')}`}
@@ -372,7 +329,7 @@ export function SettingsDialog({
             <HelpTip id={id('backups-tip')} topic="backups" text={BACKUPS_TIP} />
           </div>
           <p className="modal__note" id={id('backups-note')}>
-            {BACKUPS_ROW_NOTE}
+            {backupsFolderNote(paths?.backupsFolderIsDefault ?? false)}
           </p>
 
           {/* Change, then Open, the system's app for the file, and Open
@@ -431,70 +388,6 @@ export function SettingsDialog({
             </span>
             <HelpTip id={id('chatgpt-tip')} topic="the ChatGPT account" text={CHATGPT_ACCOUNT_TIP} />
           </div>
-
-          <div className="modal__row">
-            <span>{openAiKeyRowLabel()}</span>
-            <span
-              className={`modal__path ${keyStatus?.configured ? '' : 'modal__path--warn'}`}
-              id={id('key-line')}
-              data-testid="settings-key-line"
-            >
-              {openAiKeyLine(keyStatus)}
-            </span>
-            <span className="modal__buttons">
-              <button
-                type="button"
-                disabled={keyBusy || keyStatus?.source !== 'stored'}
-                aria-describedby={id('key-line')}
-                onClick={removeKey}
-              >
-                Remove key
-              </button>
-            </span>
-            <HelpTip id={id('key-tip')} topic="the OpenAI API key" text={OPENAI_KEY_TIP} />
-          </div>
-          <div className="modal__row">
-            <span />
-            <input
-              type="password"
-              className="modal__key-input"
-              aria-label="OpenAI API key"
-              aria-describedby={id('key-note')}
-              placeholder="Paste a key from platform.openai.com/api-keys"
-              autoComplete="off"
-              spellCheck={false}
-              value={keyDraft}
-              disabled={keyBusy || cannotEncrypt}
-              onChange={(e) => setKeyDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && keyDraft.trim()) saveKey();
-              }}
-            />
-            <span className="modal__buttons">
-              <button
-                type="button"
-                disabled={keyBusy || keyDraft.trim().length === 0 || cannotEncrypt}
-                aria-describedby={id('key-tip')}
-                onClick={saveKey}
-              >
-                Save key
-              </button>
-            </span>
-            <span className="modal__help" />
-          </div>
-          {cannotEncrypt ? (
-            <p className="modal__note modal__note--error" id={id('key-note')}>
-              {KEY_CANNOT_ENCRYPT}
-            </p>
-          ) : (
-            <p className="modal__note" id={id('key-note')}>
-              {OPENAI_KEY_NOTE}{' '}
-              <a href={OPENAI_KEYS_URL} target="_blank" rel="noreferrer" title={OPENAI_KEYS_LINK_TITLE}>
-                {OPENAI_KEYS_PAGE}
-              </a>
-              .
-            </p>
-          )}
         </section>
 
         {/* The guide comes back in place of the main view, and Settings closes

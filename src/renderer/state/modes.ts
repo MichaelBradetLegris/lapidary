@@ -6,25 +6,27 @@ import {
   boxesBeforePreviewPrompt,
   discardFullEditPrompt,
   fullEditAppliedText,
+  fullEditOtherReviewPrompt,
   leaveFullEditPrompt,
   type Mode
 } from '../../shared/ui/modes';
 import { hoverCancel } from './hover';
-import { changedParagraphCount, currentMode, fullEditDraft, isLocked, useApp } from './store';
+import { FULL_EDIT_CARD, changedParagraphCount, currentMode, fullEditDraft, isLocked, useApp } from './store';
 
 /*
  * The Mode select (rr.2, PLAN section 7): Main, Full edit and Preview, the
- * window's own and never kept in the settings, a chapter opening in Main.
- * Full edit is open while its box is (`fullEditDraft`); Main and Preview are
- * the store's `viewMode`. Switching with something typed and not applied asks
- * first, as leaving the chapter does (`shared/ui/modes.ts` has the
- * questions): nothing typed is ever thrown away unasked.
+ * window's own and never kept in the settings. The window starts in Main,
+ * and another chapter or review opens in the mode in use (rr.5, the store's
+ * `setReview`), or in Main when paragraph boxes with typed text come back
+ * with it (`reopenDrafts`, `openPendingFullEdit`). Full edit is open while
+ * its box is (`fullEditDraft`); Main and Preview are the store's `viewMode`.
+ * Switching with something typed and not applied asks first, as leaving the
+ * chapter does (`shared/ui/modes.ts` has the questions): nothing typed is
+ * ever thrown away unasked.
  *
- * It reaches nothing but the store, so it is tested in node.
+ * It reaches nothing but the store, so it is tested in node. The cards it
+ * shows when Full edit could not go ahead share the store's `FULL_EDIT_CARD`.
  */
-
-/** The card when Full edit's Done or a switch could not go ahead. */
-export const FULL_EDIT_CARD = 'full-edit';
 
 /**
  * Apply the open paragraph boxes, closing those left as they opened, as Save
@@ -78,6 +80,36 @@ export async function cancelFullEdit(): Promise<boolean> {
   return true;
 }
 
+/**
+ * Before another review of the chapter, from History or the review selector,
+ * replaces the one on screen while Full edit is open (rr.5). The other review
+ * opens in Full edit too (the mode is the window's), afresh: the box holds
+ * the body as this review composes it, so it goes with this review, and with
+ * nothing typed it goes without a question. With typed text it asks as a
+ * switch out of Full edit does (`fullEditOtherReviewPrompt`): Apply first,
+ * which does what Done does in this review, where the changes stay; Discard;
+ * or Cancel. True to go on, the window held in Full edit with no box while
+ * the other review loads (`holdFullEdit`); false to stay, after Cancel or a
+ * Done that could not apply, whose card says why. The answer counts only for
+ * the box as it still is, since a save may have applied it while the
+ * question was open.
+ */
+export async function settleFullEditForReview(): Promise<boolean> {
+  const state = useApp.getState();
+  const draft = fullEditDraft(state.drafts);
+  if (!draft || draft.text === draft.initial) return true;
+  const choice = await state.askChoice(fullEditOtherReviewPrompt());
+  if (choice === 'cancel') return false;
+  const now = fullEditDraft(useApp.getState().drafts);
+  if (now && now.initial !== draft.initial) return false;
+  if (now && choice === 'confirm' && !finishFullEdit()) return false;
+  if (now && choice === 'alt') useApp.getState().cancelDraft(WHOLE_DRAFT_KEY);
+  // The window stays in Full edit, with no box, until the other review is on
+  // screen, rather than show Main for the moments it takes to load.
+  useApp.getState().holdFullEdit();
+  return true;
+}
+
 /** Why Full edit could not open now, in a card; true when it can. */
 function fullEditCanOpen(): boolean {
   const state = useApp.getState();
@@ -119,9 +151,11 @@ export async function chooseMode(target: Mode): Promise<boolean> {
           useApp.getState().cancelDraft(WHOLE_DRAFT_KEY);
         }
       }
-    } else {
+    } else if (draft) {
       useApp.getState().cancelDraft(WHOLE_DRAFT_KEY);
     }
+    // With no box, the window was waiting to open Full edit on a chapter just
+    // opened (rr.5): choosing Main or Preview ends the wait (`setViewMode`).
     if (target !== 'edit') useApp.getState().setViewMode(target);
     return true;
   }

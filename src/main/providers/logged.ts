@@ -22,7 +22,7 @@ import type { ProviderHooks, ProviderResult, ReviewProvider } from './types';
  *
  * - `ai.runtime`: what the check found, the fields Copy diagnostics shows
  *   (`runtimeFields`, setup.4's `claudeDiagnostics`), never the account
- *   email, the key's last four characters or the status message;
+ *   email or the status message;
  * - `ai.models`: how many models were listed;
  * - `ai.review.start`, `ai.review.done`, `ai.review.failed`: the provider,
  *   model and effort, the chapter's size in words, characters and
@@ -67,9 +67,8 @@ export interface LoggingDeps {
 
 /**
  * What `ai.runtime` logs of a runtime status: the fields Copy diagnostics
- * shows (`claudeDiagnostics`), and for OpenAI where the key came from. Never
- * `email`, `keyLast4`, `message` (it can carry what a probe said) or
- * `checkedAt` (the line has its own time).
+ * shows (`claudeDiagnostics`), and ChatGPT's plan. Never `email`, `message`
+ * (it can carry what a probe said) or `checkedAt` (the line has its own time).
  */
 export function runtimeFields(status: RuntimeStatus): Record<string, FieldValue> {
   return {
@@ -84,8 +83,7 @@ export function runtimeFields(status: RuntimeStatus): Record<string, FieldValue>
     // ChatGPT's plan, as the sign-in named it (codex.3); never the account.
     ...(status.plan ? { plan: status.plan } : {}),
     ...(status.planWarning ? { planWarning: true } : {}),
-    ...(status.apiKeySource ? { apiKeySource: status.apiKeySource } : {}),
-    ...(status.keySource ? { keySource: status.keySource } : {})
+    ...(status.apiKeySource ? { apiKeySource: status.apiKeySource } : {})
   };
 }
 
@@ -111,11 +109,12 @@ export function reviewRequestFields(request: ReviewRequest): Record<string, Fiel
 const CLAUDE_INPUT_FIELDS = ['inputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens'] as const;
 
 /**
- * Token counts from a reply's usage, in either provider's shape: OpenAI's
- * `input_tokens` and `output_tokens`, or Claude Code's `modelUsage`, whose
- * figures per model are added up. `inputTokens` is the whole prompt, cached
- * or not, for both: OpenAI's `input_tokens` already holds its cached tokens,
- * and Claude Code's cached ones are added in. Nothing when neither is there.
+ * Token counts from a reply's usage, in either provider's shape: the
+ * Responses API's `input_tokens` and `output_tokens` (ChatGPT's), or Claude
+ * Code's `modelUsage`, whose figures per model are added up. `inputTokens` is
+ * the whole prompt, cached or not, for both: `input_tokens` already holds its
+ * cached tokens, and Claude Code's cached ones are added in. Nothing when
+ * neither is there.
  */
 export function tokenFields(usage: unknown): Record<string, number> {
   if (typeof usage !== 'object' || usage === null) return {};
@@ -152,7 +151,6 @@ export function reviewResultFields(result: ProviderResult): Record<string, Field
     comments: result.output.comments.length,
     ...tokenFields(result.usage),
     ...(result.costUsd === undefined ? {} : { costUsd: Math.round(result.costUsd * 10_000) / 10_000 }),
-    ...(result.costEstimated ? { costEstimated: true } : {}),
     ...(result.fallbackNote ? { fallback: true } : {})
   };
 }

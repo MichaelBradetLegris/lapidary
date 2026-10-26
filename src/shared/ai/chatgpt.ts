@@ -35,9 +35,9 @@ export interface ChatGptModel {
  * inference (Appendix A, read 2026-10-24) gives a `models` array whose
  * entries hold `slug`, `display_name` and `visibility`, and says to show
  * those whose visibility is `list`; any other entry, or one without a slug,
- * is left out. An answer in an API key's shape, a `data` array of `id`s,
- * is read too, each id as its own name, should the route ever answer that
- * way. Null when the answer holds neither array.
+ * is left out. An answer in the shape the endpoint gives an API key, a `data`
+ * array of `id`s, is read too, each id as its own name, should the route ever
+ * answer that way. Null when the answer holds neither array.
  */
 export function readChatGptModels(json: unknown): ChatGptModel[] | null {
   if (!isRecord(json)) return null;
@@ -68,15 +68,15 @@ export function readChatGptModels(json: unknown): ChatGptModel[] | null {
 /**
  * The model a review uses when the author has chosen none: the first the
  * list gives that `NOT_DEFAULT_MODEL` does not name (a -pro, -codex,
- * -deep-research or -chat model, as for an API key, hardening.10), else the
- * first; null for an empty list. The list's own order is OpenAI's, so it is
- * kept rather than sorted by name.
+ * -deep-research or -chat model, hardening.10), else the first; null for an
+ * empty list. The list's own order is OpenAI's, so it is kept rather than
+ * sorted by name.
  */
 export function defaultChatGptModel(models: readonly ChatGptModel[]): string | null {
   return (models.find((model) => !NOT_DEFAULT_MODEL.test(model.slug)) ?? models[0])?.slug ?? null;
 }
 
-/** The list as the review dialog shows it: each model by its name, the default marked as the API key's is. */
+/** The list as the review dialog shows it: each model by its name, the default marked "(default)". */
 export function chatGptModelOptions(models: readonly ChatGptModel[]): ModelInfo[] {
   const fallback = defaultChatGptModel(models);
   return models.map((model) => ({

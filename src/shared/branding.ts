@@ -46,7 +46,7 @@ export const APP_TAGLINE = 'Review suggested copyedits one change at a time.';
  * 9 risk 8). `test/branding.test.ts` checks that README.md carries it word for
  * word.
  */
-export const DISCLAIMER = `${APP_NAME} is an independent open-source project. It runs Claude Code, made by Anthropic, which each user installs and signs in to themselves. It can also use OpenAI's API. ${APP_NAME} is not made, endorsed or sponsored by Anthropic or OpenAI, and it includes no Anthropic software.`;
+export const DISCLAIMER = `${APP_NAME} is an independent open-source project. It runs Claude Code, made by Anthropic, which each user installs and signs in to themselves. It can also review with ChatGPT, on each user's own ChatGPT plan, through OpenAI's Sign in with ChatGPT. ${APP_NAME} is not made, endorsed or sponsored by Anthropic or OpenAI, and it includes no Anthropic software.`;
 
 /**
  * The caution that goes with every review, for the README, the About dialog and

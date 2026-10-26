@@ -1,42 +1,30 @@
-import { APIConnectionError, APIError, APIUserAbortError, OpenAI, type ClientOptions } from 'openai';
-import type { ModelInfo, ReviewRequest, RuntimeStatus } from '../../shared/ipc';
+import type { ClientOptions, OpenAI } from 'openai';
+import type { ReviewRequest } from '../../shared/ipc';
 import type { ReviewOutput } from '../../shared/prompt/schema';
 import type { ErrorCode } from '../../shared/types';
-import {
-  defaultOpenAiModel,
-  estimateTokens,
-  openAiModelToSend,
-  toOpenAiEffort,
-  usableModels,
-  type OpenAiModel
-} from '../../shared/ai/openai';
+import { estimateTokens, toOpenAiEffort } from '../../shared/ai/openai';
 import { parseOpenAiText, toStrictJsonSchema } from '../../shared/ai/openaiReply';
-import { estimateCostUsd } from '../../shared/ai/pricing';
 import { replyLimitMessage, type ReplyLimitFacts } from '../../shared/ai/replyLimit';
 import { renderChapter } from '../../shared/prompt/chapter';
 import { reviewOutputJsonSchema } from '../../shared/prompt/schema';
 import { buildSystemPrompt } from '../../shared/prompt/system';
 import { chapterName } from '../../shared/review';
-import { chapterStats } from '../../shared/text/stats';
 import { getDevSwitches } from '../devSwitches';
 import { fail, type AppFailure } from '../errors';
-import { CONNECTION_TEST_PROMPT, CONNECTION_TEST_SYSTEM_PROMPT } from './connectionTest';
-import type {
-  ProviderHooks,
-  ProviderResult,
-  ProviderTestHooks,
-  ProviderTestResult,
-  ReviewProvider
-} from './types';
+import type { ProviderHooks } from './types';
 
 /**
- * The OpenAI provider: the Responses API with strict structured outputs, on an
- * API key the author pastes into Settings.
+ * A review's request to OpenAI's Responses API, and the reading of its
+ * streamed answer: the official `openai` package, the strict structured
+ * output, `store: false` and `stream: true` (PLAN 5.0). The ChatGPT provider
+ * (chatgpt.ts, codex.3) sends it with the Sign in with ChatGPT access token
+ * as the bearer; it is OpenAI's one route since codex.6 took out the
+ * provider that sent it on an OpenAI API key.
  *
- * The key is read from `src/main/secrets.ts` at call time and never kept here.
- * Everything else in this file is shape: the same system prompt and the same
- * numbered chapter Claude gets, the same zod schema on the way back, so the
- * anchoring, hunks and comments downstream cannot tell the two apart.
+ * Everything here is shape: the same system prompt and the same numbered
+ * chapter Claude gets, the same zod schema on the way back, so the anchoring,
+ * hunks and comments downstream cannot tell the providers apart. No
+ * credential is kept here: the bearer comes with each call.
  */
 
 /** The name the API requires for a json_schema format. Letters, digits, dashes. */
@@ -44,211 +32,48 @@ const SCHEMA_NAME = 'manuscript_review';
 
 const STRICT_SCHEMA = toStrictJsonSchema(reviewOutputJsonSchema);
 
-/** How the key reaches this module, so nothing here caches a credential. */
-export interface OpenAiDeps {
-  /** the key for this call, or null when there is none */
-  key: () => Promise<string | null>;
-  /** where the key came from, for the runtime status */
-  status: () => Promise<{ configured: boolean; source: 'stored' | 'environment' | 'none'; last4: string }>;
-  /** tests point the provider at a local mock; the app leaves it to the dev switch */
+/** What the client is built with besides the bearer. */
+export interface ClientDeps {
+  /** tests point the client at a local mock; the app leaves it to the dev switch */
   baseUrl?: () => string | undefined;
-  /** SDK retries on 429, 5xx and dropped connections; tests set 0 to stay fast */
-  maxRetries?: number;
+  /** the SDK's retries on 429, 5xx and dropped connections; OpenAI's example for the ChatGPT route sets none */
+  maxRetries: number;
 }
 
-/** Where the key goes, always, unless a development build points it at the mock. */
+/** Where a request goes, always, unless a development build points it at the mock. */
 export const OPENAI_BASE_URL = 'https://api.openai.com/v1';
 
 /**
- * The client's options, every one that could move the key stated outright.
+ * The client's options, every one that could move the bearer stated outright.
  *
  * Left out, the SDK fills `baseURL`, `organization` and `project` from
  * OPENAI_BASE_URL, OPENAI_ORG_ID and OPENAI_PROJECT_ID, and an admin key from
  * OPENAI_ADMIN_KEY. A variable left in someone's shell would then send the
- * stored key to another server or bill another project. Only the development
- * switch `MANUSCRIPT_REVIEW_OPENAI_BASE_URL` (src/main/devSwitches.ts), which a
+ * sign-in's token to another server. Only the development switch
+ * `MANUSCRIPT_REVIEW_OPENAI_BASE_URL` (src/main/devSwitches.ts), which a
  * packaged build ignores, or a test's injected URL may change the address. A
  * packaged build also turns the SDK's own console logging off.
  */
-export function clientOptions(deps: Pick<OpenAiDeps, 'baseUrl' | 'maxRetries'>, key: string): ClientOptions {
+export function clientOptions(deps: ClientDeps, bearer: string): ClientOptions {
   const switches = getDevSwitches();
   return {
-    apiKey: key,
+    apiKey: bearer,
     baseURL: deps.baseUrl?.() ?? switches.openAiBaseUrl ?? OPENAI_BASE_URL,
     organization: null,
     project: null,
     adminAPIKey: null,
-    // One retry: a copyedit is a long call and the author is watching it.
-    maxRetries: deps.maxRetries ?? 1,
+    maxRetries: deps.maxRetries,
     timeout: 10 * 60 * 1000,
     ...(switches.packaged ? { logLevel: 'off' as const } : {})
   };
 }
 
-export function createOpenAiProvider(deps: OpenAiDeps): ReviewProvider {
-  async function client(): Promise<OpenAI> {
-    const key = await deps.key();
-    if (!key) {
-      throw fail(
-        'openai-no-key',
-        'No OpenAI API key. Paste one into Settings, or set OPENAI_API_KEY before starting the app.'
-      );
-    }
-    return new OpenAI(clientOptions(deps, key));
-  }
-
-  async function runtime(): Promise<RuntimeStatus> {
-    const status = await deps.status();
-    const base = deps.baseUrl?.() ?? getDevSwitches().openAiBaseUrl;
-    if (!status.configured) {
-      return {
-        provider: 'openai',
-        state: 'not-signed-in',
-        keySource: 'none',
-        message: 'No OpenAI API key yet. Add one in Settings.'
-      };
-    }
-    return {
-      provider: 'openai',
-      state: 'ready',
-      keySource: status.source,
-      keyLast4: status.last4,
-      apiKeySource: status.source === 'environment' ? 'OPENAI_API_KEY' : 'Settings',
-      ...(base ? { message: `Using a development endpoint: ${base}` } : {})
-    };
-  }
-
-  async function models(): Promise<ModelInfo[]> {
-    const api = await client();
-    const listed: OpenAiModel[] = [];
-    try {
-      for await (const model of api.models.list()) {
-        listed.push({ id: model.id, created: model.created });
-      }
-    } catch (err) {
-      throw mapOpenAiError(err, 'list the models');
-    }
-    const usable = usableModels(listed);
-    const fallback = defaultOpenAiModel(listed);
-    return usable.map((model) => ({
-      value: model.id,
-      label: model.id === fallback ? `${model.id} (default)` : model.id,
-      ...(model.id === fallback ? { isDefault: true } : {}),
-      ...(model.created ? { description: new Date(model.created * 1000).toISOString().slice(0, 10) } : {})
-    }));
-  }
-
-  /** The model to send: the author's choice, or what the list's default resolves to (`openAiModelToSend`). */
-  async function resolveModel(api: OpenAI, requested: string, signal?: AbortSignal): Promise<string> {
-    if (requested.trim().length > 0) return requested.trim();
-    const listed: OpenAiModel[] = [];
-    try {
-      for await (const model of api.models.list(signal ? { signal } : undefined)) {
-        listed.push({ id: model.id, created: model.created });
-      }
-    } catch {
-      // A key that cannot list models can often still answer, so guess rather than fail.
-      return openAiModelToSend(requested, null);
-    }
-    return openAiModelToSend(requested, listed);
-  }
-
-  /** One streamed call, reduced to what the review needs. Throws mapped errors. */
-  async function streamReply(
-    api: OpenAI,
-    model: string,
-    request: ReviewRequest,
-    hooks: ProviderHooks,
-    onTokens: (tokens: number) => void,
-    facts: ChapterFacts
-  ): Promise<StreamedReply> {
-    const stream = await api.responses.create(reviewRequestBody(request, model), { signal: hooks.signal });
-    hooks.onProgress('thinking');
-    return readReplyStream(stream, model, onTokens, facts, OPENAI_STREAM_CODES);
-  }
-
-  async function review(request: ReviewRequest, hooks: ProviderHooks): Promise<ProviderResult> {
-    const api = await client();
-    const started = Date.now();
-    let tokens = 0;
-    const onTokens = (count: number): void => {
-      tokens = count;
-      hooks.onProgress('streaming', tokens);
-    };
-
-    hooks.onProgress('starting');
-    // The count Review with AI showed, and the effort, for a reply that runs out of room (files.10).
-    const facts: ChapterFacts = { words: chapterStats(request.text).words, effort: request.effort };
-    try {
-      const model = await resolveModel(api, request.model);
-
-      let reply: StreamedReply;
-      try {
-        reply = await streamReply(api, model, request, hooks, onTokens, facts);
-      } catch (err) {
-        if (hooks.signal.aborted || err instanceof APIUserAbortError) {
-          throw fail('cancelled', 'Review cancelled.');
-        }
-        throw mapOpenAiError(err, 'review the chapter', { ...facts, who: model });
-      }
-
-      const parsed = checkedReply(reply, hooks, tokens, OPENAI_REPLY_CODES);
-      const counts = tokenCounts(reply.usage);
-      const cost = counts ? estimateCostUsd(reply.model, counts) : null;
-      return {
-        output: parsed.output,
-        raw: parsed.raw,
-        model: reply.model,
-        ...(reply.usage === undefined ? {} : { usage: reply.usage }),
-        ...(cost === null ? {} : { costUsd: cost, costEstimated: true }),
-        durationMs: Date.now() - started
-      };
-    } finally {
-      hooks.onProgress('done', tokens);
-    }
-  }
-
-  /**
-   * Test the connection (setup.8): one plain, unstreamed request with the
-   * test's system prompt, to the model a review would use when none is
-   * chosen. Any answer counts; a refused key, a rate limit or a dead server
-   * throws as it would for a review. The time limit belongs to the caller.
-   */
-  async function test(hooks: ProviderTestHooks): Promise<ProviderTestResult> {
-    const api = await client();
-    try {
-      const model = await resolveModel(api, '', hooks.signal);
-      const response = await api.responses.create(
-        {
-          model,
-          instructions: CONNECTION_TEST_SYSTEM_PROMPT,
-          input: CONNECTION_TEST_PROMPT,
-          store: false
-        },
-        { signal: hooks.signal }
-      );
-      return { model: response.model || model };
-    } catch (err) {
-      if (hooks.signal.aborted || err instanceof APIUserAbortError)
-        throw fail('cancelled', 'Test cancelled.');
-      throw mapOpenAiError(err, 'answer the test');
-    }
-  }
-
-  return { id: 'openai', label: 'OpenAI', runtime, models, review, test };
-}
-
-/* ------------------------------------------------------------------ */
-/* The request and the stream, shared with ChatGPT's (codex.3)         */
-/* ------------------------------------------------------------------ */
-
 /**
- * The review's request (5.0): the system prompt as `instructions`, the
+ * The review's request (5.0, 5.8): the system prompt as `instructions`, the
  * numbered chapter as `input`, the strict schema as `text.format`, the
  * effort as `reasoning.effort`, `store: false` and `stream: true`. A ChatGPT
- * review sends the same (codex.3), but for `input`, which OpenAI's page on
- * this route asks for as a list of messages (`inputAsMessages`): the chapter
- * as the one user message.
+ * review sends `input` as a list of messages (`inputAsMessages`), as OpenAI's
+ * page on that route asks: the chapter as the one user message.
  */
 export function reviewRequestBody(
   request: ReviewRequest,
@@ -270,23 +95,13 @@ export function reviewRequestBody(
   };
 }
 
-/** What a stream's own failures are called: the API key's, or ChatGPT's (codex.3). */
+/** What a stream's own failures are called, in the codes of the provider that sent it. */
 export interface StreamCodes {
   /** the failure a `response.failed` event stands for */
   failed: (error: { code?: string | null; message?: string | null } | null | undefined) => AppFailure;
   /** the code of a reply that ended `incomplete` */
   incomplete: ErrorCode;
 }
-
-const OPENAI_STREAM_CODES: StreamCodes = {
-  failed: (error) =>
-    fail(
-      'openai-failed',
-      `OpenAI could not finish the review: ${error?.message ?? 'the model failed to answer'}`,
-      error?.code ?? undefined
-    ),
-  incomplete: 'openai-failed'
-};
 
 /**
  * Read a review's stream to its end: the text as it comes, which drives the
@@ -342,8 +157,6 @@ export interface ReplyCodes {
   invalidOutput: ErrorCode;
 }
 
-const OPENAI_REPLY_CODES: ReplyCodes = { closed: 'openai-server', invalidOutput: 'openai-invalid-output' };
-
 /**
  * A drained stream, checked and parsed: cancelled when the review was, the
  * stream's own failure, a stream that closed before `response.completed`,
@@ -391,18 +204,18 @@ interface IncompleteResponse {
 }
 
 /**
- * A response that ended `incomplete` (files.10). At `max_output_tokens` the
- * reply was cut off at the model's output limit, which the app never sets, so
- * the limit is the model's own and the tokens the reply had used when it
- * stopped are that limit; the words are `replyLimitMessage`'s. A content
- * filter, or any other reason, says what stopped it. OpenAI's reason stays in
- * `detail`. `code` is ChatGPT's own for a review on the plan (codex.3).
+ * A response that ended `incomplete` (files.10), under the provider's `code`.
+ * At `max_output_tokens` the reply was cut off at the model's output limit,
+ * which the app never sets, so the limit is the model's own and the tokens
+ * the reply had used when it stopped are that limit; the words are
+ * `replyLimitMessage`'s. A content filter, or any other reason, says what
+ * stopped it. OpenAI's reason stays in `detail`.
  */
 export function incompleteFailure(
   response: IncompleteResponse,
   model: string,
   facts: ChapterFacts,
-  code: ErrorCode = 'openai-failed'
+  code: ErrorCode
 ): AppFailure {
   const who = response.model || model;
   const reason = response.incomplete_details?.reason;
@@ -431,32 +244,12 @@ export function incompleteFailure(
 export interface StreamedReply {
   text: string;
   usage: unknown;
-  /** the model that answered, which the API reports as a dated snapshot */
+  /** the model that answered, as the answer names it */
   model: string;
   /** true once response.completed arrived; a stream that just stops is not an answer */
   completed: boolean;
   /** a failure the stream reported in-band, thrown once the stream is drained */
   problem: Error | null;
-}
-
-interface UsageShape {
-  input_tokens?: number;
-  output_tokens?: number;
-  input_tokens_details?: { cached_tokens?: number };
-}
-
-function tokenCounts(
-  usage: unknown
-): { inputTokens: number; outputTokens: number; cachedInputTokens?: number } | null {
-  if (typeof usage !== 'object' || usage === null) return null;
-  const shape = usage as UsageShape;
-  if (typeof shape.input_tokens !== 'number' || typeof shape.output_tokens !== 'number') return null;
-  const cached = shape.input_tokens_details?.cached_tokens;
-  return {
-    inputTokens: shape.input_tokens,
-    outputTokens: shape.output_tokens,
-    ...(typeof cached === 'number' ? { cachedInputTokens: cached } : {})
-  };
 }
 
 /**
@@ -478,111 +271,4 @@ export function outputTextOf(response: unknown): string {
     }
   }
   return text;
-}
-
-/** OpenAI's 400 for a request longer than the model's context window. */
-const CONTEXT_EXCEEDED = /context[ _](window|length)/i;
-
-/** Where an organisation is verified, as OpenAI's own refusal names it. */
-export const OPENAI_VERIFY_URL = 'https://platform.openai.com/settings/organization/general';
-
-/** The words of OpenAI's refusals to an unverified organisation: to stream a model, or to use it at all. */
-const UNVERIFIED_ORGANISATION = /organi[sz]ation must be verified to (stream|use)/i;
-
-/**
- * OpenAI's refusal of a model to an organisation that has not verified its
- * identity (hardening.10). Streaming gpt-5 or o3 is refused with a 400, "Your
- * organization must be verified to stream this model", with `param` `stream`
- * and code `unsupported_value`; either the words, or a mention of verifying on
- * a 400 that refuses `stream`, is enough. A request that does not stream, as
- * the connection test's, is not refused that way. Some models are refused to
- * such an organisation outright, streamed or not, with "must be verified to
- * use the model", reported as a 403 (C.82); those words on a 400 or a 403
- * count too, so the author is not sent to replace a key that works.
- */
-export function isStreamingVerificationError(err: unknown): boolean {
-  if (!(err instanceof APIError)) return false;
-  if (err.status === 400 && err.param === 'stream' && /verif/i.test(err.message)) return true;
-  return (err.status === 400 || err.status === 403) && UNVERIFIED_ORGANISATION.test(err.message);
-}
-
-/** The words for either refusal, with the fix (hardening.10). */
-export function unverifiedStreamMessage(doing: string, model?: string): string {
-  return (
-    `OpenAI needs this key's organisation to be verified before ${model ?? 'this model'} can ${doing}. ` +
-    `Verify it with Verify Organization at ${OPENAI_VERIFY_URL} and try again; a new verification can take up to 15 minutes to take effect. ` +
-    'Or choose another model, as not every model needs it.'
-  );
-}
-
-/**
- * HTTP status to something the author can act on. 401 points at Settings, 429
- * says the account is out of credit or too busy, 5xx and a dead network say to
- * try again. A review's chapter too long for the model to read is said so
- * plainly (`chapter`, files.10), and a model refused to an unverified
- * organisation, a 403 among them, says how to verify it (hardening.10).
- */
-export function mapOpenAiError(err: unknown, doing: string, chapter?: ReplyLimitFacts): Error {
-  if (err instanceof APIUserAbortError) return fail('cancelled', 'Review cancelled.');
-
-  if (err instanceof APIError) {
-    const detail = err.message;
-    const status = typeof err.status === 'number' ? err.status : undefined;
-    if (
-      chapter &&
-      status === 400 &&
-      (err.code === 'context_length_exceeded' || CONTEXT_EXCEEDED.test(detail))
-    ) {
-      return fail('openai-failed', replyLimitMessage('input', chapter), detail);
-    }
-    if (isStreamingVerificationError(err)) {
-      return fail('openai-failed', unverifiedStreamMessage(doing, chapter?.who), detail);
-    }
-    if (status === 401 || status === 403) {
-      return fail(
-        'openai-invalid-key',
-        'OpenAI rejected the API key. Check it in Settings, or paste a new one.',
-        detail
-      );
-    }
-    if (status === 429) {
-      return fail(
-        'openai-rate-limit',
-        'OpenAI is rate limiting this key, or the account is out of credit. Check your usage and try again.',
-        detail
-      );
-    }
-    if (status === 400 || status === 404 || status === 422) {
-      return fail(
-        'openai-failed',
-        `OpenAI refused the request to ${doing}: ${detail}. The model or the effort level may not be available on this account.`
-      );
-    }
-    if (status !== undefined && status >= 500) {
-      return fail(
-        'openai-server',
-        `OpenAI had a server error (${status}). Wait a moment and try again.`,
-        detail
-      );
-    }
-    if (err instanceof APIConnectionError) {
-      // Includes timeouts: APIConnectionTimeoutError extends it.
-      return fail(
-        'openai-server',
-        `Could not reach OpenAI to ${doing}. Check your connection and try again.`,
-        detail
-      );
-    }
-    if (status === undefined) {
-      // An `error` event inside an otherwise healthy stream arrives this way.
-      return fail('openai-failed', `OpenAI stopped with an error while trying to ${doing}: ${detail}`);
-    }
-    return fail('openai-failed', `OpenAI refused the request (${status}): ${detail}`);
-  }
-
-  const message = err instanceof Error ? err.message : String(err);
-  if (err instanceof SyntaxError) {
-    return fail('openai-server', `The connection to OpenAI returned garbled data. Try again.`, message);
-  }
-  return fail('openai-failed', `OpenAI could not ${doing}: ${message}`);
 }

@@ -62,7 +62,7 @@ describe('every layout has the cards, the dialogs and the question (setup.7)', (
     expect(rule('.setup__page')).toContain('max-width: 720px;');
     expect(rule('.setup__page')).toContain('margin: 0 auto;');
     expect(read('components/SetupScreen.tsx')).toMatch(
-      /<div className="setup" data-view=\{view\}>\s*<div className="setup__page">/
+      /<div ref=\{pageRef\} className="setup" data-view=\{view\}>\s*<div className="setup__page">/
     );
   });
 
@@ -108,37 +108,42 @@ describe('gating and entry points (setup.7)', () => {
   });
 
   it('opens Setup from the card, the status bar, Settings and the dialog, and withdraws the launch card', () => {
-    const openSetup = APP.slice(
-      APP.indexOf('const openSetup = '),
-      APP.indexOf('const refuseWhileEditing = ')
+    const showSetup = APP.slice(APP.indexOf('const showSetup = '), APP.indexOf('const openSetup = '));
+    expect(showSetup).toContain("if (view === 'claude') dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);");
+    // The store opens it, closing Review with AI and Settings (setup.19, test/renderer/setupLeave.test.ts).
+    expect(showSetup).toContain('openSetupScreen(view, from);');
+    expect(APP).toContain(
+      "const openSetup = useCallback(() => showSetup('claude', 'elsewhere'), [showSetup]);"
     );
-    expect(openSetup).toContain('dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);');
-    expect(openSetup).toContain('setSetupOpen(true);');
     expect(APP).toMatch(/case 'open-setup':\s*openSetup\(\);/);
-    // codex.3: ChatGPT's label opens its own view.
-    expect(APP).toMatch(
-      /onRuntime:\s*activeProvider === 'claude'\s*\?\s*openSetup\s*:\s*activeProvider === 'chatgpt'\s*\?\s*openChatGptSetup\s*:\s*openSettings,/
-    );
-    expect(APP).toContain('runtimeTitle: runtimeButtonTitle(activeProvider)');
-    expect(APP.match(/onOpenSetup=\{openSetup\}/g)).toHaveLength(2);
+    // codex.3: ChatGPT's label opens its own view; since codex.6 no label opens Settings.
+    expect(APP).toMatch(/onRuntime:\s*activeProvider === 'chatgpt'\s*\?\s*openChatGptSetup\s*:\s*openSetup,/);
+    expect(APP).toContain('runtimeTitle: RUNTIME_BUTTON_TITLE');
+    expect(APP).not.toContain('openSettings');
+    // Settings' Setup; the dialog's Open Setup goes back to the dialog (setup.19).
+    expect(APP.match(/onOpenSetup=\{openSetup\}/g)).toHaveLength(1);
+    expect(APP.match(/onOpenSetup=\{openSetupFromDialog\}/g)).toHaveLength(1);
   });
 
   it("opens the ChatGPT view from Settings' ChatGPT account row, leaving Claude's launch card (codex.2)", () => {
-    const openSetup = APP.slice(APP.indexOf('const openSetup = '), APP.indexOf('const openChatGptSetup = '));
-    expect(openSetup).toMatch(/setSetupFor\('claude'\);\s*setSetupOpen\(true\);/);
-    const openChatGpt = APP.slice(
-      APP.indexOf('const openChatGptSetup = '),
-      APP.indexOf('const refuseWhileEditing = ')
+    const showSetup = APP.slice(APP.indexOf('const showSetup = '), APP.indexOf('const openSetup = '));
+    // The launch card goes for Claude's view only.
+    expect(showSetup).toContain("if (view === 'claude') dismissNotificationsByKey(CLAUDE_RUNTIME_CARD);");
+    expect(showSetup.match(/CLAUDE_RUNTIME_CARD/g)).toHaveLength(1);
+    expect(APP).toContain(
+      "const openChatGptSetup = useCallback(() => showSetup('chatgpt', 'elsewhere'), [showSetup]);"
     );
-    expect(openChatGpt).toMatch(/setSetupFor\('chatgpt'\);\s*setSetupOpen\(true\);/);
-    expect(openChatGpt).not.toContain('CLAUDE_RUNTIME_CARD');
-    // Settings' row and, since codex.3, Review with AI's account row; and the welcome guide's step.
-    expect(APP.match(/onOpenChatGptSetup=\{openChatGptSetup\}/g)).toHaveLength(2);
-    expect(APP.match(/onSetUpChatGpt=\{openChatGptSetup\}/g)).toHaveLength(1);
+    // Settings' row; since codex.3, Review with AI's account row, which goes back to
+    // the dialog (setup.19); and the welcome guide's step, which goes back to the guide.
+    expect(APP.match(/onOpenChatGptSetup=\{openChatGptSetup\}/g)).toHaveLength(1);
+    expect(APP.match(/onOpenChatGptSetup=\{openChatGptSetupFromDialog\}/g)).toHaveLength(1);
+    expect(APP.match(/onSetUpChatGpt=\{openChatGptSetupFromWelcome\}/g)).toHaveLength(1);
     expect(SETUP).toMatch(
       /<ChatGptSetup\s+status=\{chatgpt\.status\}\s+waiting=\{chatgpt\.waiting\}\s+busy=\{chatgpt\.busy\}\s+outcome=\{chatgpt\.outcome\}/
     );
-    expect(SETUP).toContain('onClose={() => setSetupOpen(false)}');
+    // Done, Close and Escape leave for where Setup was opened from (setup.19).
+    expect(SETUP.match(/onClose=\{leaveSetup\}/g)).toHaveLength(2);
+    expect(SETUP).not.toContain('onClose={() => setSetupOpen(false)}');
   });
 
   it('raises the launch card under its key with Open Setup, and withdraws it by the key', () => {
@@ -161,7 +166,7 @@ describe('gating and entry points (setup.7)', () => {
     expect(card).toMatch(
       /if \(action === 'withdraw'\) \{\s*dismissNotificationsByKey\(CLAUDE_RUNTIME_CARD\);\s*\} else if \(card && \(action === 'raise' \|\| action === 'update'\)\) \{\s*upsertNotification\(CLAUDE_RUNTIME_CARD, card\.tone, card\.text, 'open-setup'\);/
     );
-    // A switch to OpenAI, and Setup or the welcome guide opening, run the decision again.
+    // A switch to ChatGPT, and Setup or the welcome guide opening, run the decision again.
     expect(card).toMatch(
       /\}, \[\s*claudeRuntime,\s*claudeView,\s*settingsLoaded,\s*activeProvider,\s*claudeSetupOpen,\s*welcomeOpen,\s*upsertNotification,\s*dismissNotificationsByKey\s*\]\);/
     );
@@ -174,7 +179,10 @@ describe('gating and entry points (setup.7)', () => {
     expect(APP).toContain("const claudeSetupOpen = setupOpen && setupFor === 'claude';");
     expect(APP).toContain("const claudeInUse = activeProvider === 'claude' || claudeSetupOpen;");
     const ai = read('state/useAi.ts');
-    const recheck = ai.slice(ai.indexOf('const recheckOnFocus = '), ai.indexOf('const refreshKeyStatus = '));
+    const recheck = ai.slice(
+      ai.indexOf('const recheckOnFocus = '),
+      ai.indexOf('const chatGptAccountChanged = ')
+    );
     expect(recheck).toContain('inFlight: claudeChecking.current > 0,');
     expect(recheck).toContain('lastCheckAt: claudeCheckAt.current,');
     expect(recheck).toContain("if (due) check('claude');");
@@ -185,9 +193,9 @@ describe('gating and entry points (setup.7)', () => {
   });
 
   it('tells the review dialog the last failure, for its warning, and how to open Setup', () => {
-    expect(APP).toMatch(/claudeLastFailure=\{ai\.lastFailure\}\s*onOpenSetup=\{openSetup\}/);
+    expect(APP).toMatch(/claudeLastFailure=\{ai\.lastFailure\}\s*onOpenSetup=\{openSetupFromDialog\}/);
     const dialog = read('components/ReviewDialog.tsx');
-    // Claude's alone since codex.3: ChatGPT and OpenAI have none.
+    // Claude's alone since codex.3: ChatGPT has none.
     expect(dialog).toContain("const isClaude = provider === 'claude';");
     expect(dialog).toContain(
       'const claudeWarning = isClaude ? reviewDialogWarning(runtime, claudeLastFailure) : null;'

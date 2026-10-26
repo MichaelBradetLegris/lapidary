@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RateLimitInfo, RuntimeStatus } from '../../shared/ipc';
 import {
   CONNECTION_TEST_RUNNING,
   FULL_PATH_TEXT,
   OTHER_INSTALLS_NOTE,
   PRIVACY_FOOTER,
+  SETUP_DONE,
   advancedRows,
   canTestConnection,
+  claudeSetupSucceeded,
   connectionTestLine,
   connectionTestNote,
   needsSetup,
@@ -25,6 +27,8 @@ import {
 import { setupFooterText } from '../../shared/ui/about';
 import { COPY_DIAGNOSTICS, SETUP_DIAGNOSTICS_TEXT } from '../../shared/ui/diagnostics';
 import { heldButton } from '../state/heldButton';
+import { focusInView } from '../state/scroll';
+import { useSetupEscape } from '../state/setupEscape';
 import { Command } from './Command';
 import { UpdateNote } from './UpdateNote';
 
@@ -42,6 +46,10 @@ interface Props {
    */
   host?: SetupOs;
   onCheckAgain: () => void;
+  /**
+   * Done, Close and Escape: leave Setup for where it was opened from, Review
+   * with AI, the welcome guide or the chapter (setup.19, `setupLeave`)
+   */
   onClose: () => void;
   /** given when a chapter is open and nothing the check found stops a review (`canTryReviewAnyway`) */
   onTryAnyway?: () => void;
@@ -74,8 +82,10 @@ const SETUP_DOCS = 'https://code.claude.com/docs/en/setup';
  * very small request and says under the buttons how it went (setup.8); then,
  * for the view, the steps on the chosen system, each command with a Copy
  * that says when it fails; troubleshooting; Advanced, with the Claude Code
- * path and version; Copy diagnostics (hardening.5); the privacy footer; and
- * the app's name and version (release.9).
+ * path and version; Copy diagnostics (hardening.5); Done, the blue button
+ * at the foot, which leaves as Close and Escape do and takes the focus once a
+ * check finds Claude ready after something to do (setup.19); the privacy
+ * footer; and the app's name and version (release.9).
  * Everything it says comes from `src/shared/ui/setup.ts`, and the
  * diagnostics line from `src/shared/ui/diagnostics.ts`.
  *
@@ -113,10 +123,26 @@ export function SetupScreen({
   const advice = view === 'outdated' || view === 'not-installed' ? null : updateAdvice(runtime, os, host);
   const trouble = setupTroubleshooting(view, runtime, os, host);
 
+  /* Done, Close and Escape leave alike (setup.19). Once a check finds Claude
+     ready after there was something to do, as when the author comes back
+     from signing in in a terminal, the focus goes to Done. The page keeps
+     still while Done is in view, so the status card, which says so, stays
+     where it was; when Done is below the fold, as under the long steps of a
+     view that had something to do, the page comes up just far enough to
+     show it (`focusInView`, setup.19 review). */
+  useSetupEscape(onClose);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const doneRef = useRef<HTMLButtonElement>(null);
+  const lastView = useRef(view);
+  useEffect(() => {
+    if (claudeSetupSucceeded(lastView.current, view)) focusInView(doneRef.current, pageRef.current);
+    lastView.current = view;
+  }, [view]);
+
   // The whole width scrolls, so the wheel works over the margins and the
   // scrollbar sits at the window's edge; the page inside is a centred column.
   return (
-    <div className="setup" data-view={view}>
+    <div ref={pageRef} className="setup" data-view={view}>
       <div className="setup__page">
         <div className="setup__head">
           <h1>Set up Claude</h1>
@@ -253,6 +279,12 @@ export function SetupScreen({
             {SETUP_DIAGNOSTICS_TEXT}
           </p>
         ) : null}
+
+        <div className="setup__foot">
+          <button type="button" ref={doneRef} className="primary" onClick={onClose}>
+            {SETUP_DONE}
+          </button>
+        </div>
 
         <p className="setup__footer">
           {PRIVACY_FOOTER}{' '}

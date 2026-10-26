@@ -117,3 +117,30 @@ describe("the ChatGPT view's welcome (codex.3)", () => {
     );
   });
 });
+
+describe("Review with AI's account row (codex.5)", () => {
+  const DIALOG = readFileSync(path.join(__dirname, '../../src/renderer/components/ReviewDialog.tsx'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|\s)\/\/.*$/gm, '$1');
+
+  it('gives a focus left on Open Setup to the dialog box when a sign-in takes the button away', () => {
+    expect(DIALOG).toContain(
+      'const accountSetup = isChatGpt && chatgpt?.signedIn !== true && onOpenChatGptSetup !== undefined;'
+    );
+    expect(DIALOG).toMatch(
+      /const hadAccountSetup = useRef\(accountSetup\);\s*useEffect\(\(\) => \{\s*if \(hadAccountSetup\.current && !accountSetup && document\.activeElement === document\.body\) \{\s*boxRef\.current\?\.focus\(\);\s*\}\s*hadAccountSetup\.current = accountSetup;\s*\}, \[accountSetup\]\);/
+    );
+  });
+});
+
+describe("the account row's height (codex.5)", () => {
+  it('keeps the height of a row with a button, with Open Setup or without', () => {
+    const css = readFileSync(path.join(__dirname, '../../src/renderer/styles/app.css'), 'utf8');
+    expect(css).toMatch(/\n\.modal__row--account \{\n {2}min-height: calc\(1lh \+ 10px\);\n\}/);
+    const dialog = readFileSync(
+      path.join(__dirname, '../../src/renderer/components/ReviewDialog.tsx'),
+      'utf8'
+    );
+    expect(dialog).toContain('<div className="modal__row modal__row--account">');
+  });
+});

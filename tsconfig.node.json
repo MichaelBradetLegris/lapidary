@@ -24,6 +24,7 @@
     "src/renderer/state/settingWrites.ts",
     "src/renderer/state/columnWidths.ts",
     "src/renderer/state/welcome.ts",
+    "src/renderer/state/manuscriptFolder.ts",
     "src/renderer/state/settingsRead.ts",
     "src/renderer/state/hover.ts",
     "src/renderer/state/mergeMarkers.ts",

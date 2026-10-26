@@ -1,25 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { openAiKeyLine, openAiMaturityNote, toOpenAiEffort } from '../../shared/ai/openai';
 import type {
   ChatGptStatus,
   EffectivePaths,
   GuidelinesStatus,
   ModelInfo,
-  OpenAiKeyStatus,
   ReviewSummary,
   RuntimeStatus
 } from '../../shared/ipc';
 import { defaultIsOpus, proPlanNote } from '../../shared/ai/claudeModels';
 import { AI_OUTPUT_NOTICE } from '../../shared/branding';
 import { claudeUpdateAdvice } from '../../shared/ai/claudeStatus';
-import {
-  CHATGPT_EMPTY_MODEL_LIST,
-  CHATGPT_PLAN_NOTE,
-  MANAGE_USAGE_BUTTON,
-  USING_CHATGPT_PLAN,
-  chatGptAccountLine,
-  chatGptStartBlocker
-} from '../../shared/ui/chatgpt';
+import { CHATGPT_EMPTY_MODEL_LIST, chatGptAccountLine, chatGptStartBlocker } from '../../shared/ui/chatgpt';
 import { LIST_MODELS_AGAIN, NO_MODEL_BLOCKER, modelListFailedText } from '../../shared/ui/models';
 import { reviewDialogWarning, type LastFailure } from '../../shared/ui/setup';
 import { chapterStats, reviewSizeAdvice } from '../../shared/text/stats';
@@ -53,7 +44,6 @@ interface Props {
   /** main's words for a model list that could not be fetched, by provider (codex.3 review) */
   modelsError?: Partial<Record<Provider, string>>;
   runtimes: Partial<Record<Provider, RuntimeStatus>>;
-  keyStatus: OpenAiKeyStatus | null;
   /** newest first; used for the "last reviewed" line */
   history: ReviewSummary[];
   /** the file the review on screen is kept in, so that line counts it from the page (apply.5) */
@@ -75,7 +65,6 @@ interface Props {
   onNeedModels: (provider: Provider) => void;
   /** fetch a provider's model list again after it failed: Try again, and once as the dialog opens */
   onRetryModels?: (provider: Provider) => void;
-  onOpenSettings: () => void;
   /** run the Claude runtime check again, after the author updated Claude Code */
   onCheckClaude: () => void;
   /** true while a runtime check is running */
@@ -94,24 +83,30 @@ interface Props {
   onConfirmDataSettings?: (confirmed: boolean) => void;
   /** ChatGPT's Data controls in the browser */
   onOpenDataControls?: () => void;
-  /** ChatGPT's usage settings in the browser, OpenAI's Manage usage */
-  onManageUsage?: () => void;
   onStart: () => void;
   onClose: () => void;
+  /**
+   * Opened again by leaving the Setup screen its Open Setup led to
+   * (setup.19): the focus goes to Start, once it can be pressed, rather than
+   * to the dialog's box. Read as the dialog opens.
+   */
+  focusStart?: boolean;
 }
 
 /**
  * Everything a review run needs, asked once, where it is being decided (item 6).
  *
  * Model and effort are settings, so they persist. The provider select swaps the
- * model list, and for OpenAI shows where the key comes from and keeps Start
- * disabled until there is one (Phase 5c). For ChatGPT (codex.3) it shows the
- * account with Open Setup, OpenAI's "Using ChatGPT plan" with Manage usage,
- * and, while the account's data settings box is not ticked, the training
- * warning with the box, which the first review needs: Start stays disabled
- * until there is a sign-in and the box is ticked. A model list that could
- * not be fetched says why under the Model row, with Try again, and is asked
- * for again as the dialog next opens (codex.3 review).
+ * model list (Phase 5c). For ChatGPT (codex.3) the rows are Claude's with the
+ * account added, with Open Setup while not signed in, and, while the account's
+ * data settings box is not ticked, the training warning with the box, which
+ * the first review needs: Start stays disabled until there is a sign-in and
+ * the box is ticked. No other words of ChatGPT's own: OpenAI's "Using ChatGPT
+ * plan" with Manage usage and the note on how the effort is sent went in
+ * codex.5, at the author's word, the first to the ChatGPT view's status card
+ * (ChatGptSetup). A model list that could not be fetched says why under the
+ * Model row, with Try again, and is asked for again as the dialog next opens
+ * (codex.3 review).
  */
 export function ReviewDialog({
   review,
@@ -120,7 +115,6 @@ export function ReviewDialog({
   modelsLoading,
   modelsError = {},
   runtimes,
-  keyStatus,
   history,
   reviewPath,
   unsavedDecisions,
@@ -130,7 +124,6 @@ export function ReviewDialog({
   onApplySettings,
   onNeedModels,
   onRetryModels,
-  onOpenSettings,
   onCheckClaude,
   checking,
   claudeLastFailure,
@@ -140,9 +133,9 @@ export function ReviewDialog({
   onOpenChatGptSetup,
   onConfirmDataSettings,
   onOpenDataControls,
-  onManageUsage,
   onStart,
-  onClose
+  onClose,
+  focusStart = false
 }: Props): React.JSX.Element {
   const [paths, setPaths] = useState<EffectivePaths | null>(null);
   const [guidelines, setGuidelines] = useState<GuidelinesStatus | null>(null);
@@ -156,7 +149,6 @@ export function ReviewDialog({
   const previous = history[0];
   const previousCounts = previous ? historyCounts(previous, reviewPath, review) : null;
   const provider = settings.provider;
-  const isOpenAi = provider === 'openai';
   const isChatGpt = provider === 'chatgpt';
   /* The training warning and the box, before the first ChatGPT review (5.7
      item 7): shown while the account's box is not ticked, and kept for the
@@ -169,18 +161,17 @@ export function ReviewDialog({
     setTickedHere(true);
     onConfirmDataSettings?.(confirmed);
   };
+  /* Open Setup stands beside the account only while there is no sign-in
+     (codex.5): signed in, the row says so and nothing more, as Claude's
+     rows do. */
+  const accountSetup = isChatGpt && chatgpt?.signedIn !== true && onOpenChatGptSetup !== undefined;
   const chatGptBlocker = isChatGpt ? chatGptStartBlocker(chatgpt) : null;
   const list = models[provider] ?? [];
   const loading = modelsLoading[provider] === true;
   const stored = modelFor(settings, provider);
   const current = selectedModel(list, stored);
-  const hasKey = keyStatus?.configured === true;
   const runtime = runtimes[provider];
-  const canStart = isOpenAi
-    ? hasKey && current !== ''
-    : isChatGpt
-      ? chatGptBlocker === null && current !== ''
-      : true;
+  const canStart = isChatGpt ? chatGptBlocker === null && current !== '' : true;
   /* A list that could not be fetched says why under the Model row, with Try
      again, and so does a ChatGPT list that came back empty; Start, which
      waits for a model, then says so beside it (codex.3 review). Both stay
@@ -195,9 +186,7 @@ export function ReviewDialog({
         ? CHATGPT_EMPTY_MODEL_LIST
         : null;
   const modelBlocker =
-    !loading && current === '' && (isOpenAi ? hasKey : isChatGpt && chatGptBlocker === null)
-      ? NO_MODEL_BLOCKER
-      : null;
+    !loading && current === '' && isChatGpt && chatGptBlocker === null ? NO_MODEL_BLOCKER : null;
   const labels = reviewStartLabels(unsavedDecisions);
   const note = reviewStartNote(unsavedDecisions);
   const showNotSaved = notSaved.length > 0 && unsavedDecisions > 0;
@@ -205,7 +194,6 @@ export function ReviewDialog({
     setNotSaved([]);
     onSaveThenStart(setNotSaved);
   };
-  const maturityNote = isOpenAi ? openAiMaturityNote() : null;
   const isClaude = provider === 'claude';
   const planNote = isClaude ? proPlanNote(runtime?.subscriptionType, current, defaultIsOpus(list)) : null;
   const claudeWarning = isClaude ? reviewDialogWarning(runtime, claudeLastFailure) : null;
@@ -249,6 +237,17 @@ export function ReviewDialog({
     hadListNote.current = listNote !== null;
   }, [listNote]);
 
+  /* A sign-in that ends its wait while the dialog is open, one started on
+     the Setup screen before it, takes Open Setup away: a focus left on it
+     goes to the dialog's box, so the keyboard carries on inside it. */
+  const hadAccountSetup = useRef(accountSetup);
+  useEffect(() => {
+    if (hadAccountSetup.current && !accountSetup && document.activeElement === document.body) {
+      boxRef.current?.focus();
+    }
+    hadAccountSetup.current = accountSetup;
+  }, [accountSetup]);
+
   /* Escape closes it, as in Settings (ui.1). A question asked over it, such
      as "Review without them", takes Escape for itself. The focus goes into
      its box as it opens and back to the toolbar's Review menu when it closes,
@@ -256,6 +255,26 @@ export function ReviewDialog({
      `polish.7`). */
   useDialogEscape(boxRef, onClose);
   useDialogFocus(boxRef, REVIEW_BUTTON_SELECTOR);
+
+  /* Back from the Setup screen its Open Setup led to (setup.19): the focus
+     goes to Start, the blue button, as soon as it can be pressed, which for
+     ChatGPT after a sign-in is once the model list has come. Until then it is
+     on the dialog's box, where it goes as any dialog opens, and the author
+     who moves it elsewhere keeps it there. Read as the dialog opens, so a
+     development run's second pretend opening hands it to Start again. */
+  const startRef = useRef<HTMLButtonElement>(null);
+  const wantsStart = useRef(focusStart);
+  const startDisabled = !canStart || saving;
+  useEffect(() => {
+    if (!wantsStart.current) return;
+    const active = document.activeElement;
+    const start = startRef.current;
+    if (active !== boxRef.current && active !== document.body && active !== start) {
+      wantsStart.current = false;
+      return;
+    }
+    if (!startDisabled) start?.focus();
+  }, [startDisabled]);
 
   const update = (patch: Partial<Settings>): void => {
     call('settings:set', patch)
@@ -296,13 +315,7 @@ export function ReviewDialog({
   };
 
   const modelPlaceholder =
-    isOpenAi && !hasKey
-      ? 'add a key first'
-      : isChatGpt && chatgpt?.signedIn !== true
-        ? 'sign in first'
-        : loading
-          ? 'loading models…'
-          : 'no models';
+    isChatGpt && chatgpt?.signedIn !== true ? 'sign in first' : loading ? 'loading models…' : 'no models';
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Review with AI">
@@ -341,41 +354,13 @@ export function ReviewDialog({
           </select>
           <span />
         </div>
-        {/* OpenAI has met only the mock server so far: its option says so,
-            and this note says what that means (hardening.11). */}
-        {maturityNote ? (
-          <p className="modal__note" data-testid="openai-maturity-note">
-            {maturityNote}
-          </p>
-        ) : null}
-
-        {isOpenAi ? (
-          <>
-            <div className="modal__row">
-              <span>API key</span>
-              <span
-                className={`modal__path ${hasKey ? '' : 'modal__path--warn'}`}
-                data-testid="openai-key-line"
-              >
-                {openAiKeyLine(keyStatus)}
-              </span>
-              <span className="modal__buttons">
-                <button type="button" onClick={onOpenSettings}>
-                  Open Settings
-                </button>
-              </span>
-            </div>
-            <p className="modal__note">
-              Billed per token to the OpenAI account the key belongs to, not to a ChatGPT subscription.
-            </p>
-          </>
-        ) : null}
 
         {/* ChatGPT, on the plan (codex.3): the account, with the way to its
-            Setup view, and OpenAI's "Using ChatGPT plan" with Manage usage. */}
+            Setup view while not signed in, and the training warning before
+            the first review. Nothing else of ChatGPT's own (codex.5). */}
         {isChatGpt ? (
           <>
-            <div className="modal__row">
+            <div className="modal__row modal__row--account">
               <span>Account</span>
               <span
                 className={`modal__path ${chatgpt?.signedIn ? '' : 'modal__path--warn'}`}
@@ -384,21 +369,13 @@ export function ReviewDialog({
                 {chatGptAccountLine(chatgpt, chatgptWaiting)}
               </span>
               <span className="modal__buttons">
-                {onOpenChatGptSetup ? (
+                {accountSetup ? (
                   <button type="button" onClick={onOpenChatGptSetup}>
                     Open Setup
                   </button>
                 ) : null}
               </span>
             </div>
-            <p className="modal__note" data-testid="chatgpt-plan-note">
-              <b>{USING_CHATGPT_PLAN}.</b> {CHATGPT_PLAN_NOTE}{' '}
-              {onManageUsage ? (
-                <button type="button" className="link" onClick={onManageUsage}>
-                  {MANAGE_USAGE_BUTTON}
-                </button>
-              ) : null}
-            </p>
             {showTrainingWarning && onConfirmDataSettings && onOpenDataControls ? (
               <DataSettingsWarning
                 status={chatgpt}
@@ -457,9 +434,6 @@ export function ReviewDialog({
         ) : updateAdvice ? (
           <UpdateNote advice={updateAdvice} checking={checking} onCheckAgain={onCheckClaude} />
         ) : null}
-        {runtime?.state === 'ready' && runtime.message && !isClaude ? (
-          <p className="modal__note">{runtime.message}</p>
-        ) : null}
 
         <div className="modal__row">
           <span>Effort</span>
@@ -476,13 +450,6 @@ export function ReviewDialog({
           </select>
           <span />
         </div>
-        {!isClaude ? (
-          <p className="modal__note" data-testid="openai-effort-note">
-            Sent as OpenAI reasoning effort &quot;{toOpenAiEffort(settings.effort)}&quot;. The API accepts all
-            five levels, so xhigh and max are passed through rather than lowered, but not every model supports
-            them; if the model refuses, the error says so and a lower effort will work.
-          </p>
-        ) : null}
 
         <GuidelinesRow
           path={paths?.guidelinesPath ?? null}
@@ -521,11 +488,7 @@ export function ReviewDialog({
         {/* Labels never break inside a button; zoomed in, the last buttons
             move to a second row, as in the confirm dialog. */}
         <div className="modal__actions modal__actions--confirm">
-          {isOpenAi && !hasKey ? (
-            <span className="modal__hint" style={{ margin: 0 }}>
-              The review cannot start until an OpenAI key is available.
-            </span>
-          ) : chatGptBlocker ? (
+          {chatGptBlocker ? (
             <span className="modal__hint" style={{ margin: 0 }} data-testid="chatgpt-start-blocker">
               {chatGptBlocker}
             </span>
@@ -544,9 +507,10 @@ export function ReviewDialog({
             </button>
           ) : null}
           <button
+            ref={startRef}
             type="button"
             className="primary"
-            disabled={!canStart || saving}
+            disabled={startDisabled}
             onClick={unsavedDecisions > 0 ? saveThenStart : onStart}
           >
             {saving ? 'Saving…' : labels.primary}

@@ -6,7 +6,9 @@ import { hasNul, isAbsolutePath } from '../shared/paths';
 import { droppedPathSetting, normalizeSettings, type PathSettingKey } from '../shared/settings';
 import type { Settings } from '../shared/types';
 import { atomicWriteFile } from './atomic';
+import { assertBackupsFolderSetting } from './backups';
 import { fail } from './errors';
+import { caseInsensitiveFs } from './files';
 import { assertGuidelinesFile } from './guidelines';
 import type { LogLevel } from './log';
 
@@ -37,7 +39,9 @@ import type { LogLevel } from './log';
  * A folder or guidelines file the normaliser cannot use is dropped to null
  * when settings.json is read, but a save that names one is refused before
  * anything is read or written (`refuseDroppedPath`), so what was chosen
- * before stays (hardening.8 review).
+ * before stays (hardening.8 review). So is a save that names the backups
+ * folder or the manuscript folder and would leave the backups folder the
+ * manuscript folder or inside it (`refuseBackupsInManuscript`, setup.18).
  *
  * No electron import: the folder, the reads and the clock are passed in.
  */
@@ -45,6 +49,8 @@ import type { LogLevel } from './log';
 export interface SettingsStoreDeps {
   /** the folder holding settings.json (userData) */
   dir: string;
+  /** whether the file system ignores case when it compares paths; the platform's by default */
+  ci?: boolean;
   logger?: (level: LogLevel, event: string, fields?: Record<string, unknown>) => void;
   readFile?: (file: string) => Promise<string>;
   writeFile?: (file: string, bytes: Buffer) => Promise<void>;
@@ -110,7 +116,8 @@ export function settingsAnswer(read: SettingsRead): SettingsAnswer {
 /** How the refusal names each folder setting, as the Settings rows do. */
 const FOLDER_NAMES: Record<Exclude<PathSettingKey, 'guidelinesPath'>, string> = {
   manuscriptFolder: 'manuscript folder',
-  reviewsFolder: 'reviews folder'
+  reviewsFolder: 'reviews folder',
+  backupsFolder: 'backups folder'
 };
 
 /**
@@ -137,8 +144,25 @@ function refuseDroppedPath(patch: Partial<Settings>): void {
   );
 }
 
+/**
+ * Throws an `invalid-input` failure, in `assertBackupsFolderSetting`'s words,
+ * when `patch` names a backups folder or a manuscript folder and `next`, the
+ * settings it would leave, has the backups folder the manuscript folder or
+ * inside it (setup.18, CLAUDE.md rule 1). A patch that names neither is not
+ * looked at, so a settings.json edited by hand to break the rule never stops
+ * the theme or a hint being saved; its Save to chapter refuses instead
+ * (`assertOutside`). Null, the usual folder, never is refused.
+ */
+function refuseBackupsInManuscript(patch: Partial<Settings>, next: Settings, ci: boolean): void {
+  const named = (key: 'backupsFolder' | 'manuscriptFolder'): boolean =>
+    patch[key] !== undefined && patch[key] !== null;
+  if (named('backupsFolder')) assertBackupsFolderSetting(next, 'backupsFolder', ci);
+  else if (named('manuscriptFolder')) assertBackupsFolderSetting(next, 'manuscriptFolder', ci);
+}
+
 export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
   const file = path.join(deps.dir, SETTINGS_FILE);
+  const ci = deps.ci ?? caseInsensitiveFs();
   const logger = deps.logger ?? ((): void => undefined);
   const readFile = deps.readFile ?? ((f: string): Promise<string> => fs.readFile(f, 'utf8'));
   const writeFile = deps.writeFile ?? atomicWriteFile;
@@ -246,6 +270,7 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
       current = outcome.kind === 'ok' ? outcome.settings : normalizeSettings({});
     }
     const next = normalizeSettings({ ...current, ...patch });
+    refuseBackupsInManuscript(patch, next, ci);
     await fs.mkdir(deps.dir, { recursive: true });
     await writeFile(file, Buffer.from(`${JSON.stringify(next, null, 2)}\n`, 'utf8'));
     cached = next;

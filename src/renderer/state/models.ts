@@ -5,7 +5,7 @@ import type { ModelInfo } from '../../shared/ipc';
  * `opus`. Keep it in the dropdown so the setting on screen is the setting in
  * use, rather than silently showing the first row instead.
  *
- * An empty stored value means "the provider's default" (the OpenAI model
+ * An empty stored value means "the provider's default" (the ChatGPT model
  * setting starts empty), so there is nothing to prepend.
  */
 export function modelOptions(models: readonly ModelInfo[], current: string): ModelInfo[] {

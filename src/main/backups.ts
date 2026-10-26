@@ -14,6 +14,12 @@ import { loggableErrorFields } from '../shared/diagnostics/redact';
 import type { SaveBackup } from '../shared/ipc';
 import { isInsidePath, pathKey, samePath } from '../shared/paths';
 import { chapterSlug } from '../shared/review';
+import type { Settings } from '../shared/types';
+import {
+  backupsFolderInManuscript,
+  backupsFolderMissing,
+  manuscriptHoldsBackups
+} from '../shared/ui/backups';
 import { AppFailure, fail, readFailure } from './errors';
 import type { WriteHooks } from './files';
 import { log as appLog, type LogLevel } from './log';
@@ -21,11 +27,14 @@ import { log as appLog, type LogLevel } from './log';
 /*
  * Backups before Save to chapter (`apply.10`, PLAN 6.5 and 11.3 h). Before a
  * save replaces a chapter file, the bytes it replaces are copied, exactly,
- * into `<userData>/backups/<chapter slug>-<8 hex>/`; no backup, no save. After
- * the write, that folder is pruned to the newest 20 plus the first backup of
- * each day for 30 days (`backupsToPrune`). Show backups opens that folder
- * (`chapterBackups`, apply.11). No electron import: main passes the userData
- * folder in, and the tests a temp folder.
+ * into `<backups folder>/<chapter slug>-<8 hex>/`; no backup, no save. The
+ * backups folder is `<userData>/backups` unless Settings names another
+ * (`backupsFolder`, setup.18), which may never be the manuscript folder or
+ * inside it (`assertBackupsFolderSetting`). After the write, that folder is
+ * pruned to the newest 20 plus the first backup of each day for 30 days
+ * (`backupsToPrune`). Show backups opens that folder (`chapterBackups`,
+ * apply.11). No electron import: main passes the userData folder in, and the
+ * tests a temp folder.
  */
 
 /** The backups root's name under userData. */
@@ -37,9 +46,58 @@ export const CHAPTER_INFO_FILE = 'chapter.json';
 /** More backups than this in one second means something is wrong; stop rather than loop. */
 const MAX_PER_SECOND = 999;
 
-/** `<userData>/backups`. */
+/** `<userData>/backups`, the backups folder when Settings names none. */
 export function backupsRootFor(userDataDir: string): string {
   return path.join(userDataDir, BACKUPS_DIRNAME);
+}
+
+/**
+ * The backups folder in use (setup.18): the one Settings names, or
+ * `<userData>/backups`, as `resolveReviewsFolder` does for reviews.
+ */
+export function resolveBackupsFolder(configured: string | null | undefined, userDataDir: string): string {
+  const trimmed = typeof configured === 'string' ? configured.trim() : '';
+  return trimmed.length > 0 ? trimmed : backupsRootFor(userDataDir);
+}
+
+/** True when the backups folder in use is the one in the app's data folder, not the author's choice. */
+export function isDefaultBackupsFolder(configured: string | null | undefined): boolean {
+  return typeof configured !== 'string' || configured.trim().length === 0;
+}
+
+/** How a message names the backups folder in use, for `writeFailure` and `readFailure` (setup.18). */
+export function backupsFolderName(folder: string): string {
+  return `the backups folder ${path.resolve(folder)}`;
+}
+
+/**
+ * Throws an `invalid-input` failure when the backups folder chosen in
+ * Settings would be the manuscript folder or a folder inside it (setup.18,
+ * CLAUDE.md rule 1): backups there would be listed as chapters, indexed by
+ * Obsidian and synced. Checked on the settings as a save would leave them,
+ * when that save names either folder: `changed` is the one it names, which
+ * decides the words. Null, the backups folder in the data folder, passes, as
+ * does any backups folder while no manuscript folder is chosen; the folders
+ * are resolved first, so `..` in either cannot hide one inside the other. A
+ * chapter's own folder lies in the manuscript folder; one opened from a
+ * folder chosen before is refused at the save (`assertOutside`).
+ */
+export function assertBackupsFolderSetting(
+  next: Pick<Settings, 'manuscriptFolder' | 'backupsFolder'>,
+  changed: 'manuscriptFolder' | 'backupsFolder',
+  ci: boolean
+): void {
+  if (!next.manuscriptFolder || !next.backupsFolder) return;
+  const manuscript = path.resolve(next.manuscriptFolder);
+  const backups = path.resolve(next.backupsFolder);
+  const same = samePath(manuscript, backups, ci);
+  if (!same && !isInsidePath(manuscript, backups, ci)) return;
+  throw fail(
+    'invalid-input',
+    changed === 'backupsFolder'
+      ? backupsFolderInManuscript(manuscript)
+      : manuscriptHoldsBackups(manuscript, backups, same)
+  );
 }
 
 /**
@@ -59,23 +117,31 @@ export function backupFolderFor(backupsRoot: string, sourcePath: string, ci: boo
  * Throws unless the backups root lies outside every folder given: the
  * manuscript folder, and the folder of the chapter being saved. A backup in
  * there would be listed as a chapter, indexed by Obsidian and synced, which
- * is what keeping them in the app's data folder avoids. It can only happen
- * when the manuscript folder contains the app's data folder, or a development
- * userData override points into the vault.
+ * is what keeping them outside avoids. With the data folder's root it can
+ * only happen when the manuscript folder contains the app's data folder, or a
+ * development userData override points into the vault; with a root chosen in
+ * Settings (`chosen`, setup.18), which main refuses there as well
+ * (`assertBackupsFolderSetting`), when settings.json was edited by hand, or a
+ * chapter opened from a manuscript folder chosen before is saved. The words
+ * say which folder to choose again.
  */
 export function assertOutside(
   backupsRoot: string,
   folders: readonly (string | null | undefined)[],
-  ci: boolean
+  ci: boolean,
+  chosen = false
 ): void {
   const root = path.resolve(backupsRoot);
   for (const folder of folders) {
     if (!folder) continue;
     const resolved = path.resolve(folder);
     if (samePath(root, resolved, ci) || isInsidePath(resolved, root, ci)) {
+      const way = chosen
+        ? 'Choose another backups folder in Settings.'
+        : `Choose a manuscript folder in Settings that does not contain ${APP_NAME}'s data folder.`;
       throw fail(
         'invalid-input',
-        `the backups folder, ${root}, lies inside ${resolved}, which holds your chapters, and backups never go where Obsidian or a sync tool would pick them up. Choose a manuscript folder in Settings that does not contain ${APP_NAME}'s data folder.`
+        `the backups folder, ${root}, lies inside ${resolved}, which holds your chapters, and backups never go where Obsidian or a sync tool would pick them up. ${way}`
       );
     }
   }
@@ -110,18 +176,22 @@ export interface ChapterBackups {
  * chapter, its folder or the vault was renamed or moved, since the folder is
  * named by the path and the backups made before stay in the old path's folder.
  * A folder the system will not let the app read is explained as a read
- * (`readFailure`, apply.24).
+ * (`readFailure`, apply.24). A backups folder chosen in Settings (`chosen`,
+ * setup.18) that is not there at all, as when its drive is not connected, is
+ * said to be missing, rather than to hold nothing for the chapter.
  */
 export async function chapterBackups(
   backupsRoot: string,
   sourcePath: string,
-  ci: boolean
+  ci: boolean,
+  options: { chosen?: boolean } = {}
 ): Promise<ChapterBackups | null> {
   if (typeof sourcePath !== 'string' || !path.isAbsolute(sourcePath)) {
     throw fail('invalid-input', 'Show backups needs the full path of a chapter.');
   }
   const folder = backupFolderFor(backupsRoot, sourcePath, ci);
   assertChapterBackupFolder(backupsRoot, folder, ci);
+  if (options.chosen === true) await assertRootThere(backupsRoot);
   const name = `the backup folder of ${path.basename(sourcePath)}`;
   try {
     if (!(await fs.stat(folder)).isDirectory()) return null;
@@ -135,6 +205,24 @@ export async function chapterBackups(
   } catch (err) {
     throw readFailure(err, name);
   }
+}
+
+/**
+ * Throws, in `backupsFolderMissing`'s words, when a backups folder chosen in
+ * Settings is not there, or is a file; a folder that cannot be looked at is
+ * explained as a read.
+ */
+async function assertRootThere(backupsRoot: string): Promise<void> {
+  const root = path.resolve(backupsRoot);
+  let isFolder: boolean;
+  try {
+    isFolder = (await fs.stat(root)).isDirectory();
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') throw readFailure(err, backupsFolderName(root));
+    isFolder = false;
+  }
+  if (!isFolder) throw fail('io', backupsFolderMissing(root));
 }
 
 /** A backup on disk, from `listBackups`. */
@@ -273,6 +361,14 @@ function backupFailure(err: unknown, folder: string): AppFailure {
     case 'ENOTDIR':
     case 'EEXIST':
       return fail('io', `${folder} cannot be made, because a file stands where a folder should be.`);
+    case 'ENOENT':
+      // A folder is made with everything on its path, so its drive, or the
+      // share it is on, is not there: a backups folder chosen on a USB,
+      // network or cloud drive that is not connected (setup.18).
+      return fail(
+        'io',
+        `${folder} cannot be made, because its drive, or the folder it goes in, is not there. If the backups folder is on a network, USB or cloud drive, check that the drive is connected, or choose another backups folder in Settings, then save again.`
+      );
     default:
       return fail('io', err instanceof Error ? err.message : String(err));
   }
@@ -300,8 +396,10 @@ export async function pruneBackups(folder: string, now: Date = new Date()): Prom
 }
 
 export interface ChapterBackupOptions {
-  /** `<userData>/backups` */
+  /** the backups folder in use: `<userData>/backups`, or the one Settings names (`resolveBackupsFolder`) */
   backupsRoot: string;
+  /** the backups folder is the one Settings names, not the data folder's (setup.18), for the words of a refusal */
+  chosen?: boolean;
   /** the manuscript folder from Settings, which the backups root must lie outside */
   manuscriptFolder: string | null;
   ci: boolean;
@@ -312,8 +410,9 @@ export interface ChapterBackupOptions {
 /**
  * The backup steps of a save, as `writeChapter` hooks (PLAN 11.3 h). Step 4,
  * `beforeReplace`: refuse a backups root inside the manuscript folder or the
- * chapter's own folder, then copy the bytes about to be replaced; a failure
- * stops the save before anything is written. Step 8, `afterWrite`: prune the
+ * chapter's own folder, then copy the bytes about to be replaced; a failure,
+ * a chosen backups folder that cannot be made or written among them, stops
+ * the save before anything is written. Step 8, `afterWrite`: prune the
  * chapter's backups, best effort, since the chapter is already saved by then;
  * a failure is logged and nothing else.
  */
@@ -328,7 +427,8 @@ export function chapterBackupHooks(
         assertOutside(
           options.backupsRoot,
           [options.manuscriptFolder, path.dirname(path.resolve(file))],
-          options.ci
+          options.ci,
+          options.chosen === true
         );
         const { name, created } = await writeBackup({
           backupsRoot: options.backupsRoot,

@@ -18,7 +18,7 @@ The app's own code, in particular:
 - the navigation guard in `src/main/navigation.ts`, which keeps the window on the app, sends web links to the browser and refuses file drops;
 - the IPC surface between the window and the main process (`src/shared/ipc.ts`, `src/main/ipc.ts`);
 - the Save path (`src/main/files.ts`, `src/main/atomic.ts`), which alone changes chapter files, and only `.md` and `.txt` chapters in the manuscript folder or opened from it, never the guidelines file;
-- the stored OpenAI key (`src/main/secrets.ts`): encrypted with Electron's `safeStorage`, decrypted only in the main process, never sent to the window, and sent only to api.openai.com;
+- the stored ChatGPT sign-in (`src/main/chatgpt`, `src/main/secrets.ts`): its tokens encrypted with Electron's `safeStorage`, decrypted only in the main process, never sent to the window, and sent only to OpenAI, at auth.openai.com and api.openai.com; and the sign-in itself, through the browser and a listener on 127.0.0.1;
 - how Claude Code is found and started (`src/main/providers/claudeBinary.ts`, `claudeOptions.ts`, `claudeCli.ts`): which executable runs, with which arguments and environment;
 - the development switches in `src/main/devSwitches.ts`, which a packaged build must ignore;
 - log scrubbing (`src/shared/diagnostics/redact.ts`, `src/main/log.ts`): the log must never hold chapter text, prompts, replies, keys or email addresses;

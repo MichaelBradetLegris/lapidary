@@ -1,36 +1,37 @@
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { APP_NAME } from '../shared/branding';
-import type { OpenAiKeyStatus } from '../shared/ipc';
 import { atomicWriteFile } from './atomic';
 import { fail, readFailure } from './errors';
 import { log } from './log';
 
 /**
- * The two credentials this app stores (CLAUDE.md rule 2 b): the author's
- * OpenAI API key, and since codex.2 the ChatGPT sign-in, whose part of the
- * file is `src/main/chatgpt/store.ts`'s.
+ * The one credential this app stores (CLAUDE.md rule 2 b): the ChatGPT
+ * sign-in (codex.2), whose part of the file is `src/main/chatgpt/store.ts`'s.
+ * The OpenAI API key it also held went with that provider (codex.6).
  *
- * They live in their own file beside settings.json, never inside it, encrypted
- * with Electron's safeStorage (DPAPI on Windows). Only the main process ever
- * holds the plaintext, and only for the length of one call; the renderer is told
- * nothing but whether a key exists and its last four characters, or whether a
- * sign-in exists and its plan. Claude's credentials are still never touched at
- * all.
+ * It lives in its own file beside settings.json, never inside it, its tokens
+ * encrypted with Electron's safeStorage (DPAPI on Windows). Only the main
+ * process ever holds the plaintext, and only for the length of one call; the
+ * renderer is told nothing but whether a sign-in exists and its plan. Claude's
+ * credentials are still never touched at all.
  *
- * Every write reads the file, changes its own part and writes the whole file
- * back, one write at a time per folder (`updateSecrets`), so saving the key
- * keeps the sign-in and signing in or out keeps the key. So a write never
- * takes a read that failed for an empty file: while the file is there but
- * cannot be read (a sync, backup or antivirus tool holding it), nothing is
- * written, and a damaged file (not JSON, not an object, another version) is
- * copied aside as `secrets.json.corrupt-<time>` before a new one is written
- * over it, or nothing is written when no copy can be made (the codex.2
- * review; settings.json's rule, hardening.15). A read for a status is
- * lenient: there, any failure reads as nothing stored.
+ * A read keeps only the parts of the file this version knows, `version` and
+ * `chatgpt` (`knownParts`): any other, such as the `openai` part, the OpenAI
+ * key a build before codex.6 saved, is read past, never used, and left out
+ * of the next write. Every write reads the file, changes the sign-in's part
+ * and writes the whole file back, one write at a time per folder
+ * (`updateSecrets`). So a write never takes a read that failed for an empty
+ * file: while the file is there but cannot be read (a sync, backup or
+ * antivirus tool holding it), nothing is written, and a damaged file (not
+ * JSON, not an object, another version) is copied aside as
+ * `secrets.json.corrupt-<time>` before a new one is written over it, or
+ * nothing is written when no copy can be made (the codex.2 review;
+ * settings.json's rule, hardening.15). A read for a status is lenient: there,
+ * any failure reads as nothing stored.
  *
- * safeStorage is passed in rather than imported so the rules here can be tested
- * without an Electron process.
+ * safeStorage is passed in (`KeyVault`) rather than imported, so the rules of
+ * the sign-in can be tested without an Electron process.
  */
 
 export interface KeyVault {
@@ -43,12 +44,6 @@ export const SECRETS_FILENAME = 'secrets.json';
 
 export interface SecretsFile {
   version: 1;
-  openai?: {
-    /** base64 of safeStorage.encryptString */
-    ciphertext: string;
-    last4: string;
-    savedAt: string;
-  };
   /** the ChatGPT sign-in, read and checked by `src/main/chatgpt/store.ts` */
   chatgpt?: unknown;
 }
@@ -57,8 +52,13 @@ export function secretsPath(userDataDir: string): string {
   return path.join(userDataDir, SECRETS_FILENAME);
 }
 
-function last4(key: string): string {
-  return key.slice(-4);
+/**
+ * The parts of a version 1 file this version knows. A part it does not know,
+ * such as the OpenAI key of a build before codex.6, is not carried into the
+ * next write.
+ */
+function knownParts(file: Record<string, unknown>): SecretsFile {
+  return { version: 1, ...(file['chatgpt'] === undefined ? {} : { chatgpt: file['chatgpt'] }) };
 }
 
 /** What one read of the file found. */
@@ -89,9 +89,9 @@ async function readOnce(userDataDir: string): Promise<SecretsRead> {
       typeof parsed === 'object' &&
       parsed !== null &&
       !Array.isArray(parsed) &&
-      (parsed as SecretsFile).version === 1
+      (parsed as { version?: unknown }).version === 1
     ) {
-      return { kind: 'ok', file: parsed as SecretsFile };
+      return { kind: 'ok', file: knownParts(parsed as Record<string, unknown>) };
     }
   } catch {
     // Not JSON: damaged, below.
@@ -160,7 +160,7 @@ async function setAside(userDataDir: string): Promise<void> {
   log('warn', 'secrets.unreadable', { kept: 'none', code });
   throw fail(
     'io',
-    `Nothing was saved, because ${SECRETS_FILENAME}, where ${APP_NAME} keeps the OpenAI key and the ChatGPT sign-in, is damaged and no copy of it could be made, so writing would lose what it holds. ${APP_NAME}'s log says why the copy failed.`
+    `Nothing was saved, because ${SECRETS_FILENAME}, where ${APP_NAME} keeps the ChatGPT sign-in, is damaged and no copy of it could be made, so writing would lose what it holds. ${APP_NAME}'s log says why the copy failed.`
   );
 }
 
@@ -203,100 +203,6 @@ export function updateSecrets(
   };
   run.then(done, done);
   return run;
-}
-
-/** The key from the environment, when one is set. Never stored, never shown. */
-function environmentKey(env: NodeJS.ProcessEnv = process.env): string | null {
-  const value = env['OPENAI_API_KEY'];
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
-
-/**
- * What the renderer is allowed to know. A stored key wins over the environment,
- * so pasting one into Settings has a visible effect even on a machine where
- * OPENAI_API_KEY happens to be set.
- */
-export async function openAiKeyStatus(
-  vault: KeyVault,
-  userDataDir: string,
-  env?: NodeJS.ProcessEnv
-): Promise<OpenAiKeyStatus> {
-  const encryptionAvailable = safely(() => vault.isEncryptionAvailable(), false);
-  const file = await readSecrets(userDataDir);
-  if (file.openai) {
-    return { configured: true, source: 'stored', last4: file.openai.last4, encryptionAvailable };
-  }
-  const fromEnv = environmentKey(env);
-  if (fromEnv) {
-    return { configured: true, source: 'environment', last4: last4(fromEnv), encryptionAvailable };
-  }
-  return { configured: false, source: 'none', last4: '', encryptionAvailable };
-}
-
-/**
- * The plaintext key, for one call, in the main process only. Returns null when
- * there is none, and throws only when a stored key exists but cannot be read
- * back, which the author needs to hear about rather than see as "no key".
- */
-export async function openAiKey(
-  vault: KeyVault,
-  userDataDir: string,
-  env?: NodeJS.ProcessEnv
-): Promise<string | null> {
-  const file = await readSecrets(userDataDir);
-  if (file.openai) {
-    try {
-      return vault.decryptString(Buffer.from(file.openai.ciphertext, 'base64'));
-    } catch (err) {
-      throw fail(
-        'openai-no-key',
-        'The saved OpenAI key could not be decrypted on this machine. Save it again in Settings.',
-        err instanceof Error ? err.message : String(err)
-      );
-    }
-  }
-  return environmentKey(env);
-}
-
-/** Encrypt and store a key. Refuses rather than writing plaintext. */
-export async function storeOpenAiKey(
-  vault: KeyVault,
-  userDataDir: string,
-  key: string,
-  env?: NodeJS.ProcessEnv
-): Promise<OpenAiKeyStatus> {
-  const trimmed = key.trim();
-  if (trimmed.length < 8) {
-    throw fail('invalid-input', 'That does not look like an API key. Paste the whole key.');
-  }
-  if (!safely(() => vault.isEncryptionAvailable(), false)) {
-    throw fail(
-      'not-configured',
-      'Windows cannot encrypt secrets for this app right now, so the key was not saved. ' +
-        'Set OPENAI_API_KEY in the environment instead.'
-    );
-  }
-
-  const ciphertext = vault.encryptString(trimmed).toString('base64');
-  await updateSecrets(userDataDir, (file) => ({
-    ...file,
-    version: 1,
-    openai: { ciphertext, last4: last4(trimmed), savedAt: new Date().toISOString() }
-  }));
-  return openAiKeyStatus(vault, userDataDir, env);
-}
-
-/** Forget a stored key. The environment variable, if any, is not this app's to remove. */
-export async function clearOpenAiKey(
-  vault: KeyVault,
-  userDataDir: string,
-  env?: NodeJS.ProcessEnv
-): Promise<OpenAiKeyStatus> {
-  await updateSecrets(userDataDir, (file) => {
-    const { openai: _removed, ...rest } = file;
-    return { ...rest, version: 1 };
-  });
-  return openAiKeyStatus(vault, userDataDir, env);
 }
 
 /** safeStorage can throw before the app is ready; a failure means "not available". */

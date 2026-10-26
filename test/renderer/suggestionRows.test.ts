@@ -121,6 +121,63 @@ describe("a decided row's buttons (polish.12)", () => {
   });
 });
 
+/* polish.20 (the author: "at a glance, it's not super easy to tell which rows
+   are complete and which are not"): both of his ways, a pending row's buttons
+   stronger and a decided row shaded, its words softer. The colours' pairs are
+   in themeContrast.test.ts. */
+describe('pending and decided rows told apart at a glance (polish.20)', () => {
+  /** Where a rule for exactly this selector list starts in the CSS, comments removed. */
+  const at = (selectors: string): number => {
+    const found = [...CSS.matchAll(/([^{}]+)\{/g)].find(
+      (m) => (m[1] ?? '').replace(/\s+/g, ' ').trim() === selectors
+    );
+    return found?.index ?? -1;
+  };
+
+  it("draws a pending row's three buttons in --ink-soft, and leaves the focused suggestion's pencil --ink-faint", () => {
+    expect([...declsFor('.row--pending .row__act')]).toEqual([['color', 'var(--ink-soft)']]);
+    // The base every row button and the focused box's pencil share is unchanged.
+    expect(declsFor('.row__act').get('color')).toBe('var(--ink-faint)');
+    expect(read('renderer/components/SidePanel.tsx')).toContain('className="row__act side__focus-edit"');
+    // Under the pointer a pending row's button is --ink on --border, as any row button: the
+    // hover's rule (a class and two pseudo-classes) outweighs the pending row's (two classes).
+    expect(declsFor('.row__act:hover:not(:disabled)').get('color')).toBe('var(--ink)');
+    expect(declsFor('.row--pending .row__act:hover:not(:disabled)').size).toBe(0);
+  });
+
+  it('shades a decided row, accepted or dismissed alike, and a step further under the pointer', () => {
+    expect([...declsFor('.row--accepted')]).toEqual([['background', 'var(--row-decided-bg)']]);
+    expect([...declsFor('.row--dismissed')]).toEqual([['background', 'var(--row-decided-bg)']]);
+    expect(at('.row--accepted, .row--dismissed')).toBeGreaterThan(-1);
+    expect([...declsFor('.row--accepted:hover')]).toEqual([['background', 'var(--row-decided-hover-bg)']]);
+    expect([...declsFor('.row--dismissed:hover')]).toEqual([['background', 'var(--row-decided-hover-bg)']]);
+    // The step and `.row:hover` weigh the same (a class and a pseudo-class), so the later wins:
+    // above it, a decided row under the pointer would stay on its shade, the hover's grey.
+    expect(at('.row--accepted:hover, .row--dismissed:hover')).toBeGreaterThan(at('.row:hover'));
+    // A pending row under the pointer is as before, and a pending row at rest has no shade.
+    expect(declsFor('.row:hover').get('background')).toBe('var(--panel-alt)');
+    expect(declsFor('.row--pending').has('background')).toBe(false);
+    expect(declsFor('.row').has('background')).toBe(false);
+  });
+
+  it('keeps the focused row --focus-bg, decided or not, by its rule coming after the shade', () => {
+    expect([...declsFor('.row--focused')]).toEqual([['background', 'var(--focus-bg)']]);
+    // The two rules weigh the same (one class), so the later wins.
+    expect(at('.row--focused')).toBeGreaterThan(at('.row--accepted, .row--dismissed'));
+    // Under the pointer a row takes the hover's step, focused or not, as it did before.
+    expect(at('.row--accepted:hover, .row--dismissed:hover')).toBeGreaterThan(-1);
+    expect(declsFor('.row--focused:hover').size).toBe(0);
+  });
+
+  it("writes a decided row's words in --ink-soft, a dismissed one struck through", () => {
+    expect([...declsFor('.row--accepted .row__text')]).toEqual([['color', 'var(--ink-soft)']]);
+    expect(declsFor('.row--dismissed .row__text').get('color')).toBe('var(--ink-soft)');
+    expect(declsFor('.row--dismissed .row__text').get('text-decoration')).toBe('line-through');
+    // --ink-faint, which a dismissed row's words were, is under 4.5:1 on the shade.
+    expect(CSS).not.toMatch(/\.row--dismissed \.row__text\s*\{[^}]*--ink-faint/);
+  });
+});
+
 /* polish.17: the heading had Show states beside it on a line of their own
    (`.side__list-head`) from polish.12, and in a narrow panel the box went
    under it; with the box gone the heading is the line again, as before
@@ -254,6 +311,7 @@ describe('the legend (polish.12)', () => {
       '<IconCheck />',
       '<b>The suggestions list.</b>',
       'a tag in its chip&apos;s colour',
+      'its row is shaded and its words turn grey',
       'a bold green if you accepted it',
       'its x red if you dismissed it',
       'other buttons fade',
