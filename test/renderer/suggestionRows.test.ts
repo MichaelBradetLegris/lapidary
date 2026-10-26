@@ -131,10 +131,11 @@ describe("a decided row's buttons (polish.12)", () => {
    and a decided row's words --ink-done. The colours' pairs, and the words'
    exception, are in themeContrast.test.ts. */
 describe('pending and decided rows told apart at a glance (polish.20, polish.24)', () => {
-  /** Every selector of every rule in the CSS, comments removed. */
-  const selectors = [...CSS.matchAll(/([^{}]+)\{/g)].flatMap((m) =>
-    (m[1] ?? '').split(',').map((s) => s.replace(/\s+/g, ' ').trim())
-  );
+  /** Every rule in the CSS, a media query's included, as its selector and its declarations. */
+  const rules = [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    selector: (m[1] ?? '').replace(/\s+/g, ' ').trim(),
+    body: m[2] ?? ''
+  }));
 
   it("draws a pending row's three buttons in --ink, its words' colour, and leaves the focused suggestion's pencil --ink-faint", () => {
     expect([...declsFor('.row--pending .row__act')]).toEqual([['color', 'var(--ink)']]);
@@ -156,8 +157,19 @@ describe('pending and decided rows told apart at a glance (polish.20, polish.24)
   it("keeps a decided row on the panel at rest and gives it the pointer's step as any row, with no shade of its own", () => {
     expect(declsFor('.row').has('background')).toBe(false);
     expect(declsFor('.row:hover').get('background')).toBe('var(--panel-alt)');
-    // No rule draws a row by its state, at rest or under the pointer: no background, no rule at all.
-    expect(selectors.filter((s) => /^\.row--(pending|accepted|dismissed)(:hover)?$/.test(s))).toEqual([]);
+    // No rule gives a row, or anything in it, a background by its state, at rest or under the
+    // pointer: a rule whose selector names a state anywhere (`.row--accepted`,
+    // `.row.row--accepted:hover`, `.row--accepted .row__main`), or holds a decided button in a
+    // `:has()`, sets no background and no background longhand. A state may still set inks, the
+    // dismissed words' strike and a pending chip's border.
+    const byState = /row--(pending|accepted|dismissed)\b|:has\([^)]*row__act--(accepted|dismissed)/;
+    const background = /(^|;)\s*background(-[a-z]+)*\s*:/;
+    const shaded = rules
+      .filter((r) => byState.test(r.selector) && background.test(r.body))
+      .map((r) => r.selector);
+    expect(shaded).toEqual([]);
+    // The four rules that do name a state are found, so the check has something to look at.
+    expect(rules.filter((r) => byState.test(r.selector)).length).toBeGreaterThanOrEqual(4);
     expect(CSS).not.toContain('--row-decided');
   });
 
