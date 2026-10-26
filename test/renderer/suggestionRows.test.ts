@@ -122,59 +122,61 @@ describe("a decided row's buttons (polish.12)", () => {
 });
 
 /* polish.20 (the author: "at a glance, it's not super easy to tell which rows
-   are complete and which are not"): both of his ways, a pending row's buttons
-   stronger and a decided row shaded, its words softer. The colours' pairs are
-   in themeContrast.test.ts. */
-describe('pending and decided rows told apart at a glance (polish.20)', () => {
-  /** Where a rule for exactly this selector list starts in the CSS, comments removed. */
-  const at = (selectors: string): number => {
-    const found = [...CSS.matchAll(/([^{}]+)\{/g)].find(
-      (m) => (m[1] ?? '').replace(/\s+/g, ' ').trim() === selectors
-    );
-    return found?.index ?? -1;
-  };
+   are complete and which are not") gave a pending row stronger buttons and a
+   decided row a shade and softer words. polish.24, the third pass (the author:
+   "I'm not a fan of the entire suggestion row getting grayed out ... the gray
+   icon color when nothing is selected looks kind of muddy now. Can we change
+   it to be the same color as the font? ... make the text more faded a
+   little"): the shade goes, a pending row's buttons take the words' --ink,
+   and a decided row's words --ink-done. The colours' pairs, and the words'
+   exception, are in themeContrast.test.ts. */
+describe('pending and decided rows told apart at a glance (polish.20, polish.24)', () => {
+  /** Every selector of every rule in the CSS, comments removed. */
+  const selectors = [...CSS.matchAll(/([^{}]+)\{/g)].flatMap((m) =>
+    (m[1] ?? '').split(',').map((s) => s.replace(/\s+/g, ' ').trim())
+  );
 
-  it("draws a pending row's three buttons in --ink-soft, and leaves the focused suggestion's pencil --ink-faint", () => {
-    expect([...declsFor('.row--pending .row__act')]).toEqual([['color', 'var(--ink-soft)']]);
+  it("draws a pending row's three buttons in --ink, its words' colour, and leaves the focused suggestion's pencil --ink-faint", () => {
+    expect([...declsFor('.row--pending .row__act')]).toEqual([['color', 'var(--ink)']]);
+    // The words' colour: a pending row's words are the list's own --ink, set on no row rule.
+    expect(declsFor('.row--pending .row__text').has('color')).toBe(false);
+    expect(declsFor('.row__text').has('color')).toBe(false);
     // The base every row button and the focused box's pencil share is unchanged.
     expect(declsFor('.row__act').get('color')).toBe('var(--ink-faint)');
     expect(read('renderer/components/SidePanel.tsx')).toContain('className="row__act side__focus-edit"');
     // Under the pointer a pending row's button is --ink on --border, as any row button: the
     // hover's rule (a class and two pseudo-classes) outweighs the pending row's (two classes).
     expect(declsFor('.row__act:hover:not(:disabled)').get('color')).toBe('var(--ink)');
+    expect(declsFor('.row__act:hover:not(:disabled)').get('background')).toBe('var(--border)');
     expect(declsFor('.row--pending .row__act:hover:not(:disabled)').size).toBe(0);
   });
 
-  it('shades a decided row, accepted or dismissed alike, and a step further under the pointer', () => {
-    expect([...declsFor('.row--accepted')]).toEqual([['background', 'var(--row-decided-bg)']]);
-    expect([...declsFor('.row--dismissed')]).toEqual([['background', 'var(--row-decided-bg)']]);
-    expect(at('.row--accepted, .row--dismissed')).toBeGreaterThan(-1);
-    expect([...declsFor('.row--accepted:hover')]).toEqual([['background', 'var(--row-decided-hover-bg)']]);
-    expect([...declsFor('.row--dismissed:hover')]).toEqual([['background', 'var(--row-decided-hover-bg)']]);
-    // The step and `.row:hover` weigh the same (a class and a pseudo-class), so the later wins:
-    // above it, a decided row under the pointer would stay on its shade, the hover's grey.
-    expect(at('.row--accepted:hover, .row--dismissed:hover')).toBeGreaterThan(at('.row:hover'));
-    // A pending row under the pointer is as before, and a pending row at rest has no shade.
-    expect(declsFor('.row:hover').get('background')).toBe('var(--panel-alt)');
-    expect(declsFor('.row--pending').has('background')).toBe(false);
+  /* polish.24: polish.20's shade, --row-decided-bg at rest and
+     --row-decided-hover-bg a step further under the pointer, went. */
+  it("keeps a decided row on the panel at rest and gives it the pointer's step as any row, with no shade of its own", () => {
     expect(declsFor('.row').has('background')).toBe(false);
+    expect(declsFor('.row:hover').get('background')).toBe('var(--panel-alt)');
+    // No rule draws a row by its state, at rest or under the pointer: no background, no rule at all.
+    expect(selectors.filter((s) => /^\.row--(pending|accepted|dismissed)(:hover)?$/.test(s))).toEqual([]);
+    expect(CSS).not.toContain('--row-decided');
   });
 
-  it('keeps the focused row --focus-bg, decided or not, by its rule coming after the shade', () => {
+  it("keeps the focused row --focus-bg, decided or not, and the pointer's step over it", () => {
     expect([...declsFor('.row--focused')]).toEqual([['background', 'var(--focus-bg)']]);
-    // The two rules weigh the same (one class), so the later wins.
-    expect(at('.row--focused')).toBeGreaterThan(at('.row--accepted, .row--dismissed'));
-    // Under the pointer a row takes the hover's step, focused or not, as it did before.
-    expect(at('.row--accepted:hover, .row--dismissed:hover')).toBeGreaterThan(-1);
+    // Under the pointer a row takes the hover's step, focused or not, as it did before:
+    // `.row:hover` (a class and a pseudo-class) outweighs `.row--focused` (a class).
     expect(declsFor('.row--focused:hover').size).toBe(0);
   });
 
-  it("writes a decided row's words in --ink-soft, a dismissed one struck through", () => {
-    expect([...declsFor('.row--accepted .row__text')]).toEqual([['color', 'var(--ink-soft)']]);
-    expect(declsFor('.row--dismissed .row__text').get('color')).toBe('var(--ink-soft)');
+  it("writes a decided row's words in --ink-done, accepted or dismissed, a dismissed one struck through", () => {
+    expect([...declsFor('.row--accepted .row__text')]).toEqual([['color', 'var(--ink-done)']]);
+    expect(declsFor('.row--dismissed .row__text').get('color')).toBe('var(--ink-done)');
     expect(declsFor('.row--dismissed .row__text').get('text-decoration')).toBe('line-through');
-    // --ink-faint, which a dismissed row's words were, is under 4.5:1 on the shade.
-    expect(CSS).not.toMatch(/\.row--dismissed \.row__text\s*\{[^}]*--ink-faint/);
+    // No other rule names the token: it is a decided row's words and nothing else.
+    const named = [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((m) => (m[2] ?? '').includes('var(--ink-done)'))
+      .map((m) => (m[1] ?? '').replace(/\s+/g, ' ').trim());
+    expect(named).toEqual(['.row--accepted .row__text, .row--dismissed .row__text']);
   });
 });
 
@@ -311,7 +313,7 @@ describe('the legend (polish.12)', () => {
       '<IconCheck />',
       '<b>The suggestions list.</b>',
       'a tag in its chip&apos;s colour',
-      'its row is shaded and its words turn grey',
+      'its words grow fainter',
       'a bold green if you accepted it',
       'its x red if you dismissed it',
       'other buttons fade',
