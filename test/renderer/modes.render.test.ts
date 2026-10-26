@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { FullEdit } from '../../src/renderer/components/FullEdit';
+import { FullEdit, FullEditFoot } from '../../src/renderer/components/FullEdit';
 import { ModeSelect, ModeSelectCopy } from '../../src/renderer/components/ModeSelect';
 import { PreviewPane } from '../../src/renderer/components/PreviewPane';
 import { SidePanel } from '../../src/renderer/components/SidePanel';
@@ -135,16 +135,26 @@ describe("Full edit's box", () => {
   it('holds the body as the page reads it, with the frontmatter above it and Cancel and Done below', () => {
     storeWith({ drafts: whole() });
     const html = renderToStaticMarkup(createElement(FullEdit, { review: REVIEW }));
+    // rr.7: the foot is drawn under the scroller, by App, not in the sheet's column.
+    const foot = renderToStaticMarkup(createElement(FullEditFoot));
+    expect(html).not.toContain('fulledit__foot');
     expect(html).toContain(
       '<pre class="frontmatter fulledit__frontmatter" title="Frontmatter, which Full edit leaves as it is">---\ntitle: The Flood\n---</pre>'
     );
     expect(html).toContain('aria-label="Full edit of Chapter 01 - The Flood"');
-    expect(html).toContain('class="fulledit__area"');
+    // rr.7: a plain text area, the sheet's only child, as Preview's page holds its text,
+    // and the frontmatter above the sheet.
+    expect(html).toMatch(
+      /<div class="fulledit__page"><textarea class="fulledit__area"[^>]*>[^<]*<\/textarea><\/div>/
+    );
+    expect(html.indexOf('class="frontmatter fulledit__frontmatter"')).toBeLessThan(
+      html.indexOf('class="fulledit__page"')
+    );
     expect(BODY).toContain('had begun to climb');
     expect(BODY.startsWith('# One')).toBe(true);
-    expect(html).toContain('<span class="fulledit__hint">Nothing changed yet. Esc closes.</span>');
-    expect(html).toMatch(
-      /<button type="button">Cancel<\/button><button type="button" class="primary">Done<\/button>/
+    expect(foot).toBe(
+      '<div class="fulledit__foot"><div class="fulledit__foot-row"><span class="fulledit__hint">Nothing changed yet. Esc closes.</span>' +
+        '<button type="button">Cancel</button><button type="button" class="primary">Done</button></div></div>'
     );
     // No suggestion marks: no hunk, ghost or rail.
     expect(html).not.toMatch(/class="(hunk|ghost|para__rail)/);
@@ -152,11 +162,12 @@ describe("Full edit's box", () => {
 
   it('says Ctrl+Enter applies once something is typed, and draws nothing with Full edit closed', () => {
     storeWith({ drafts: whole(`${BODY} More.`) });
-    expect(renderToStaticMarkup(createElement(FullEdit, { review: REVIEW }))).toContain(
+    expect(renderToStaticMarkup(createElement(FullEditFoot))).toContain(
       '<span class="fulledit__hint">Ctrl+Enter applies, Esc cancels</span>'
     );
     storeWith({ drafts: {} });
     expect(renderToStaticMarkup(createElement(FullEdit, { review: REVIEW }))).toBe('');
+    expect(renderToStaticMarkup(createElement(FullEditFoot))).toBe('');
   });
 });
 

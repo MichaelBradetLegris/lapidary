@@ -679,6 +679,14 @@ describe('the pieces in the page (source checks)', () => {
     );
     expect(app).toContain("{review && mode === 'main' ? <FindBar /> : null}");
     expect(app).toContain('const mode = useApp(currentMode);');
+    // rr.7: Full edit's foot right after the scroller, outside it, before the cards.
+    expect(app).toMatch(
+      /<\/main>\s*\{\/\*[^}]*\*\/\}\s*\{review && mode === 'edit' \? <FullEditFoot \/> : null\}\s*<NotificationCards/
+    );
+    // Ctrl+S from Done or Cancel says what it says from inside the text, as from a paragraph box's.
+    expect(read('renderer/state/keyboard.ts')).toContain(
+      "target?.closest('.fulledit, .fulledit__foot') != null"
+    );
   });
 
   it('goes through chooseMode from the select, holding back the keys that would switch at every press', () => {
@@ -774,61 +782,154 @@ describe('the CSS of the three modes', () => {
     expect(rule('.mode-select__label')).toContain('color: var(--ink-soft);');
   });
 
-  it("gives Full edit's box the column's height, the prose's typeface and an opaque background", () => {
-    expect(rule('.fulledit')).toContain('flex: 1 1 auto;');
-    expect(rule('.fulledit')).toContain('font-family: var(--font-prose);');
-    expect(rule('.fulledit__area')).toContain('flex: 1 1 auto;');
-    expect(rule('.fulledit__area')).toContain('background: var(--editor-bg);');
-    expect(rule('.fulledit__area')).toContain('resize: none;');
-    // The browser's own focus ring: no outline rule of its own.
-    expect(CSS).not.toMatch(/\.fulledit__area:focus/);
-  });
+  /** A rule's own declarations, by property, its comments left out. */
+  const decls = (selector: string): Map<string, string> => {
+    const body = rule(selector);
+    return new Map(
+      body
+        .slice(body.indexOf('{') + 1)
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split(';')
+        .map((decl) => decl.split(':').map((part) => part.trim()))
+        .filter((parts) => parts.length >= 2 && parts[0] !== '')
+        .map(([property = '', ...value]): [string, string] => [property, value.join(':')])
+    );
+  };
+
+  /** A rule's padding as [top, right, bottom, left], from its shorthand. */
+  const padding = (selector: string): string[] => {
+    const found = decls(selector).get('padding');
+    if (found === undefined) throw new Error(`no padding in ${selector}`);
+    const [top = '', right = top, bottom = top, left = right] = found.split(' ');
+    return [top, right, bottom, left];
+  };
 
   /* rr.4: Full edit's box and Preview's page sat to the left, as the rr.2
      review had them keep Main's 344 px margin for the notes free on the
      right, though neither has margin notes. Both are centred in the column
      now, with the same margin on each side, their text at the prose's 66ch
-     at most. */
-  it("centres Full edit's box and Preview's page in the column, at the prose's measure at most", () => {
-    /** A rule's padding as [top, right, bottom, left], from its shorthand. */
-    const padding = (selector: string): string[] => {
-      const found = /\n {2}padding: ([^;]+);/.exec(rule(selector))?.[1];
-      if (found === undefined) throw new Error(`no padding in ${selector}`);
-      const [top = '', right = top, bottom = top, left = right] = found.split(' ');
-      return [top, right, bottom, left];
-    };
+     at most. rr.7 made Full edit's box Preview's sheet (below). */
+  it("centres Full edit's sheet and Preview's page in the column, at the prose's measure at most", () => {
     // The same padding on each side, and the rest shared out by the auto margins.
-    expect(padding('.fulledit')).toEqual(['12px', '40px', '16px', '40px']);
-    expect(rule('.fulledit')).toContain('margin: 0 auto;');
     expect(padding('.preview')).toEqual(['16px', '40px', '120px', '40px']);
-    expect(rule('.preview__page')).toContain('margin: 0 auto;');
+    expect(decls('.preview__page').get('margin')).toBe('0 auto');
     expect(padding('.preview__page')).toEqual(['32px', '40px', '32px', '40px']);
-    // 66ch of text: the box's 26 px of padding and border and the 80 px of side
-    // padding; the page's 80 px of padding and 2 px of frame.
-    expect(rule('.fulledit')).toContain('max-width: calc(66ch + 106px);');
-    expect(rule('.fulledit__area')).toContain('padding: 10px 12px;');
-    expect(rule('.fulledit__area')).toContain('border: 1px solid var(--accent);');
-    expect(rule('.preview__page')).toContain('max-width: calc(66ch + 82px);');
-    expect(rule('.preview__page')).toContain('border: 1px solid var(--border);');
+    expect(padding('.fulledit')).toEqual(['16px', '40px', '16px', '40px']);
+    expect(decls('.fulledit').get('margin')).toBe('0 auto');
+    // 66ch of text: the page's 80 px of padding and 2 px of frame; Full edit's
+    // column, which holds the sheet, counts in its own padding beside it, 40
+    // px on each side or 16 in a narrow window, so the two sheets match.
+    expect(decls('.preview__page').get('max-width')).toBe('calc(66ch + 82px)');
+    expect(decls('.fulledit').get('max-width')).toBe(`calc(66ch + ${82 + 2 * 40}px)`);
+    expect(decls('.body--narrow .fulledit').get('max-width')).toBe(`calc(66ch + ${82 + 2 * 16}px)`);
     // The measure is counted in the prose's typeface at the prose's size, as Main's is.
     for (const selector of ['.fulledit', '.preview__page']) {
-      expect(rule(selector)).toContain('font-family: var(--font-prose);');
-      expect(rule(selector)).toContain('font-size: 17px;');
+      expect(decls(selector).get('font-family')).toBe('var(--font-prose)');
+      expect(decls(selector).get('font-size')).toBe('17px');
     }
-    expect(rule('.prose')).toContain('max-width: calc(66ch + 50px);');
+    expect(decls('.prose').get('max-width')).toBe('calc(66ch + 50px)');
     // None of Main's room for the margin notes is kept, at any width.
     for (const selector of ['.fulledit', '.preview', '.preview__page']) {
       expect(rule(selector)).not.toMatch(/344px|819px|clamp\(/);
     }
     // The narrow window's padding stays the same on each side too.
     for (const selector of ['.body--narrow .fulledit', '.body--narrow .preview']) {
-      expect(rule(selector)).toContain('padding-left: 16px;');
-      expect(rule(selector)).toContain('padding-right: 16px;');
+      expect(decls(selector).get('padding-left')).toBe('16px');
+      expect(decls(selector).get('padding-right')).toBe('16px');
     }
   });
 
+  /* rr.7: Full edit is Preview's page, editable. Until rr.7 its text was a
+     box with an --accent border on --editor-bg, the height of the column,
+     which scrolled itself; the author found it "bland and out of place" and
+     did not like its border. The sheet is Preview's now, and the text area in
+     it has no box of its own: it fills the sheet, carries the sheet's margins
+     as its padding and grows with the text, so the column scrolls, as
+     Preview's does. The window measured the two sheets at the same place and
+     size (PLAN rr.7's tick). */
+  it("draws Full edit as Preview's sheet, editable, its text area with no box of its own (rr.7)", () => {
+    const sheet = decls('.fulledit__page');
+    const page = decls('.preview__page');
+    // The same frame and paper as Preview's page.
+    expect(sheet.get('border')).toBe('1px solid var(--border)');
+    expect(sheet.get('border')).toBe(page.get('border'));
+    expect(sheet.get('background')).toBe('var(--panel)');
+    expect(sheet.get('background')).toBe(page.get('background'));
+    // The page's margins round the text, and its line height.
+    const area = decls('.fulledit__area');
+    expect(padding('.fulledit__area')).toEqual(padding('.preview__page'));
+    expect(area.get('font')).toBe('inherit');
+    expect(area.get('line-height')).toBe(page.get('line-height'));
+    expect(area.get('line-height')).toBe('1.6');
+    // No box inside the sheet: no border, corner or glow of the area's own, on the sheet's paper.
+    expect(area.get('border')).toBe('0');
+    expect(area.get('border-radius')).toBe('0');
+    expect(area.get('background')).toBe(sheet.get('background'));
+    expect(area.has('box-shadow')).toBe(false);
+    expect(area.get('resize')).toBe('none');
+    expect(CSS).not.toMatch(/fulledit__area[^{]*\{[^}]*(editor-bg|--accent)/);
+    // It fills the sheet, the sheet the column, and both grow with the text,
+    // so the area has nothing to scroll and its bar's rounded corners went.
+    // It stays a scroller, as a text area is by default: Chromium moves the
+    // caret at Page Down only in one, and with `overflow: hidden` the key
+    // scrolled the column and left the caret behind (the window found it).
+    expect(area.get('flex')).toBe('1 0 auto');
+    expect(area.get('field-sizing')).toBe('content');
+    expect(area.get('overflow')).toBe('auto');
+    expect(sheet.get('flex')).toBe('1 0 auto');
+    expect(decls('.fulledit').get('min-height')).toBe('100%');
+    // The scroller is a block here, so the sheet's column is at least its
+    // height and grows past it (a stretched flex item stops at it).
+    expect(decls('.center--edit').get('display')).toBe('block');
+    expect(CSS).not.toMatch(/\.fulledit__area::-webkit-scrollbar/);
+  });
+
+  it("shows Full edit's focus as the caret and the sheet's edge, never a ring round the text (rr.7)", () => {
+    // CLAUDE.md's fourth exception to the browser's ring; themeContrast.test.ts holds the edge to 3:1.
+    expect([...decls('.fulledit__area:focus')]).toEqual([['outline', 'none']]);
+    expect([...decls('.fulledit__page:focus-within')]).toEqual([['border-color', 'var(--sheet-focus)']]);
+  });
+
+  /* The foot is under the scroller, not in it (FullEditFoot, drawn by App
+     after the scroller): a foot held at the scroller's foot by `position:
+     sticky` made Chromium scroll the column to the foot's own place, at the
+     chapter's end, when Tab reached Cancel. Its row lines up with the sheet:
+     the same width counted in the same typeface, the same padding beside it,
+     and the scroller's gutter kept on both. */
+  it('draws the foot under the scroller, its row as wide as the sheet and under it (rr.7)', () => {
+    const foot = decls('.fulledit__foot');
+    expect(foot.has('position')).toBe(false);
+    // A little room round the caret's line as it runs past the column's edges, and no more:
+    // nothing stands over the scroller to keep the caret clear of.
+    expect([...decls('.center--edit')]).toEqual([
+      ['display', 'block'],
+      ['scrollbar-gutter', 'stable'],
+      ['scroll-padding-block', '16px']
+    ]);
+    expect(foot.get('flex')).toBe('0 0 auto');
+    expect(foot.get('background')).toBe('var(--bg)');
+    // The row: Preview's page's width at most, in the prose's typeface as the sheet's is counted.
+    expect(foot.get('grid-template-columns')).toBe(
+      `minmax(0, ${decls('.preview__page').get('max-width') ?? ''})`
+    );
+    expect(foot.get('justify-content')).toBe('center');
+    expect(foot.get('font-family')).toBe(decls('.fulledit').get('font-family'));
+    expect(foot.get('font-size')).toBe(decls('.fulledit').get('font-size'));
+    // The column's padding beside it, 40 px or 16 in a narrow window, as beside the sheet.
+    expect(padding('.fulledit__foot').filter((_, i) => i % 2 === 1)).toEqual(['40px', '40px']);
+    expect(decls('.body--narrow .fulledit__foot').get('padding-left')).toBe('16px');
+    expect(decls('.body--narrow .fulledit__foot').get('padding-right')).toBe('16px');
+    // The gutter of the scroller's bar on both, kept whether the column scrolls or not.
+    expect(foot.get('scrollbar-gutter')).toBe('stable');
+    expect(foot.get('overflow')).toBe('hidden');
+    expect(decls('.center--edit').get('scrollbar-gutter')).toBe('stable');
+    // The words in the app's own typeface, the hint, then Cancel and Done on the right.
+    expect(decls('.fulledit__foot-row').get('font-family')).toBe('var(--font-ui)');
+    expect(decls('.fulledit__foot-row > button:first-of-type').get('margin-left')).toBe('auto');
+  });
+
   it("draws Preview's paragraphs apart, a tight block's lines together, in the prose's serif", () => {
-    expect(rule('.preview__page')).toContain('font-family: var(--font-prose);');
+    expect(decls('.preview__page').get('font-family')).toBe('var(--font-prose)');
     expect(rule('.preview__page p')).toContain('margin: 0 0 1.2em;');
     expect(rule('.preview__page p.rr-tight')).toContain('margin-bottom: 0;');
   });

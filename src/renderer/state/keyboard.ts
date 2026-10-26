@@ -50,7 +50,7 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
           saveShortcutContext(
             state,
             target?.closest('.para-editor') != null,
-            target?.closest('.fulledit') != null
+            target?.closest('.fulledit, .fulledit__foot') != null
           )
         );
         if (shortcut.kind !== 'pass') {

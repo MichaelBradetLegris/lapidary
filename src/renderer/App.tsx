@@ -46,7 +46,7 @@ import { EditPopover } from './components/EditPopover';
 import { FileList } from './components/FileList';
 import { FindBar } from './components/FindBar';
 import { FocusOverlay } from './components/FocusOverlay';
-import { FullEdit } from './components/FullEdit';
+import { FullEdit, FullEditFoot } from './components/FullEdit';
 import { HunkTooltip } from './components/HunkTooltip';
 import { LockCard } from './components/LockCard';
 import { ManualReviewDialog } from './components/ManualReviewDialog';
@@ -1611,6 +1611,10 @@ export function App(): React.JSX.Element {
                   </div>
                 )}
               </main>
+              {/* Full edit's hint, Cancel and Done, under the scroller rather
+                  than in it, so they never scroll away and taking the focus
+                  scrolls nothing (rr.7). */}
+              {review && mode === 'edit' ? <FullEditFoot /> : null}
               <NotificationCards onAction={onCardAction} />
               <LockCard label={progressLabel} onCancel={ai.cancel} />
             </div>

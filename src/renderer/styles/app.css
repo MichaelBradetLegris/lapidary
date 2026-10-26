@@ -67,6 +67,10 @@
   --warn-border: #e5d49a;
   --danger-bg: #fdeceb;
   --editor-bg: #fbfaff;
+  /* Full edit's sheet while its text has the focus (rr.7): the edge in a
+     faint blue, --accent three quarters of the way from the sheet, 3:1 on the
+     column and on the sheet, where Preview's sheet keeps --border. */
+  --sheet-focus: #6c84e3;
 
   /* Selected text (polish.1): a turquoise laid over whatever the text sits
      on, translucent, so what lies under the text shows through it. Two
@@ -189,6 +193,8 @@
     --warn-border: #5c4a22;
     --danger-bg: #3a1f1c;
     --editor-bg: #20222b;
+    /* --accent a little over halfway from the sheet, 3:1 on the column and the sheet */
+    --sheet-focus: #67719a;
 
     /* deep turquoises of the icon's dots' hue: #0d4e51 over the page, and the
        prose's faint band #162725 */
@@ -454,19 +460,6 @@ button.primary ::selection,
 
 .diagnostics__text::-webkit-scrollbar-button:single-button:vertical:increment {
   border-bottom-right-radius: 3px;
-}
-
-/* Full edit's box (rr.2), a field that scrolls and cannot be made taller. */
-.fulledit__area::-webkit-scrollbar {
-  border-radius: 0 4px 4px 0;
-}
-
-.fulledit__area::-webkit-scrollbar-button:single-button:vertical:decrement {
-  border-top-right-radius: 4px;
-}
-
-.fulledit__area::-webkit-scrollbar-button:single-button:vertical:increment {
-  border-bottom-right-radius: 4px;
 }
 
 .paste-field textarea::-webkit-scrollbar,
@@ -4226,58 +4219,130 @@ button.help {
    the filter chips); from rr.2 it stood on a strip of its own at the top
    right of the prose column, above the prose. */
 
-/* Full edit: the whole chapter in one box, the height of the column. The box
-   takes what the frontmatter above it and the foot under it leave and
-   scrolls itself; where the column is too short for 12em of it, the column
-   scrolls instead. The measure is the prose's, 66 characters of the prose's
-   typeface; the font size set here is what the measure is counted in.
+/* Full edit (rr.7): Preview's page, editable. The sheet is Preview's
+   (.preview__page, below): its paper and frame, its measure, 66 characters of
+   the prose's typeface at most, and its margins, 32 px above and below the
+   text and 40 px beside it, centred in the column with 40 px of padding on
+   each side, as Preview's page is (rr.4). The text area has no border of its
+   own and is on the sheet's paper: it fills the sheet, carries the sheet's
+   margins as its padding, so a click anywhere on the sheet puts the caret
+   there, and grows with the text (`field-sizing: content`), so the column
+   scrolls, as Preview's does, rather than the area. The frontmatter stands
+   above the sheet, as before, and the foot, with Done, under the scroller
+   (FullEditFoot), so it never scrolls away. Until rr.7 the text was a
+   bordered box the height of the column that scrolled itself.
 
-   The box is centred in the column, with the same margin on each side
-   (rr.4): Full edit has no margin notes, so it keeps none of Main's room
-   for them. At most 66ch of text, 26 px of the box's padding and border and
-   40 px of padding on each side; `margin: 0 auto` shares out the rest. */
+   The column is a block here, so the sheet's column is at least the
+   scroller's height and grows with the text. The scroller keeps its bar's
+   gutter whether it scrolls or not, as the foot does, so the foot's row
+   stands exactly under the sheet at every zoom (scrollbar-gutter); a short
+   chapter's sheet is half a gutter, 8 px at 100%, left of where Preview's
+   page would be. */
+.center--edit {
+  display: block;
+  scrollbar-gutter: stable;
+  /* As the caret runs past the column's top or foot, the column brings its
+     whole line into view with a little room beside it, where Chromium would
+     stop with the caret itself at the edge and its line cut. */
+  scroll-padding-block: 16px;
+}
+
+/* The frontmatter and the sheet: Preview's page's width, at most 66ch of the
+   prose's typeface and its 82 px of margins and frame, with the column's
+   padding beside it. */
 .fulledit {
-  flex: 1 1 auto;
-  min-width: 0;
   width: 100%;
-  max-width: calc(66ch + 106px);
+  max-width: calc(66ch + 162px);
+  min-height: 100%;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 40px 16px;
+  padding: 16px 40px;
   font-family: var(--font-prose);
   font-size: 17px;
 }
 
 .body--narrow .fulledit {
+  max-width: calc(66ch + 114px);
   padding-left: 16px;
   padding-right: 16px;
 }
 
 .fulledit__frontmatter {
   flex: 0 0 auto;
-  margin: 0;
+  margin: 0 0 12px;
 }
 
-/* The paragraph box's look, with the browser's own focus ring. Its background
-   is opaque for LCD text while it scrolls (C.48). */
+/* At least the column's height less the frontmatter, so a short chapter
+   still has a page, and taller with a longer one. */
+.fulledit__page {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+/* The focus is the caret and the sheet's edge, a faint blue at 3:1 on the
+   column and on the sheet, rather than the browser's ring, which round a
+   field that fills the sheet would be the bordered box rr.7 took away
+   (CLAUDE.md's exceptions to the ring; themeContrast.test.ts). */
+.fulledit__page:focus-within {
+  border-color: var(--sheet-focus);
+}
+
+/* The sheet's paper, so no box shows inside it. It grows with the text and
+   never has anything to scroll, but it stays a scroller as a text area is
+   by default: Chromium moves the caret a page at Page Down and Page Up only
+   in a text area that can scroll, and with `overflow: hidden` the keys
+   scrolled the column and left the caret where it was. Its background is
+   opaque, as every scroller's is (C.48). */
 .fulledit__area {
-  flex: 1 1 auto;
-  min-height: 12em;
+  flex: 1 0 auto;
+  display: block;
   width: 100%;
-  font: inherit;
-  line-height: 1.75;
-  padding: 10px 12px;
-  border: 1px solid var(--accent);
-  border-radius: 5px;
-  background: var(--editor-bg);
+  min-height: 12em;
+  margin: 0;
+  padding: 32px 40px;
+  border: 0;
+  border-radius: 0;
+  background: var(--panel);
   color: var(--ink);
+  font: inherit;
+  line-height: 1.6;
   resize: none;
+  overflow: auto;
+  field-sizing: content;
 }
 
+.fulledit__area:focus {
+  outline: none;
+}
+
+/* Under the scroller, on the column's colour: its row as wide as the sheet
+   and under it, the sheet's width counted in the prose's typeface, as the
+   sheet's is, and the scroller's gutter kept on the right, as the scroller
+   keeps it, so the two line up whether the column scrolls or not. */
 .fulledit__foot {
   flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, calc(66ch + 82px));
+  justify-content: center;
+  padding: 8px 40px 12px;
+  overflow: hidden;
+  scrollbar-gutter: stable;
+  background: var(--bg);
+  font-family: var(--font-prose);
+  font-size: 17px;
+}
+
+.body--narrow .fulledit__foot {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+/* The hint, then Cancel and Done on the right. */
+.fulledit__foot-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -4293,7 +4358,7 @@ button.help {
   font-size: 11px;
 }
 
-.fulledit__foot > button:first-of-type {
+.fulledit__foot-row > button:first-of-type {
   margin-left: auto;
 }
 
@@ -4301,8 +4366,9 @@ button.help {
    judge it by, with nothing of theirs fetched: a sheet with its paragraphs a
    line and a fifth apart and a tight block's lines together, in the prose's
    serif, as the author's own converter previewed it. The sheet is centred in
-   the column as Full edit's box is (above, rr.4), its text at the prose's
-   measure at most: 66ch, with 80 px of padding and 2 px of frame. */
+   the column (rr.4), its text at the prose's measure at most: 66ch, with 80
+   px of padding and 2 px of frame. Full edit draws the same sheet, editable
+   (above, rr.7). */
 .preview {
   flex: 1 1 auto;
   min-width: 0;
