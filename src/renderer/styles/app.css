@@ -891,6 +891,77 @@ input[type='text'] {
   background: var(--border);
 }
 
+/* The caret at the top of each handle (polish.26): a button the band's own
+   width and 24 px tall, 8 px from the column's top, beside the first row of
+   the list and the panel, with a chevron pointing at the window's edge that
+   folds the column away. Like the band, it lies over the column's border and
+   the 6 px beside it with no scrollbar, the prose's top left for the chapter
+   list and the side panel's padding for the panel, and draws its chevron in
+   those 6 px in the faint grey of the grip. Under the pointer the line
+   darkens as the band's does, beside a shade of the hovered button's. Above
+   the band (1), so it takes the press, and under the drawers (10). */
+.column-caret {
+  position: absolute;
+  top: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 7px;
+  height: 24px;
+  padding: 0 0 0 1px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--ink-faint);
+}
+
+.column-caret--files {
+  left: calc(var(--files-col) - 1px);
+}
+
+.column-caret--side {
+  right: calc(var(--side-col) - 7px);
+}
+
+button.column-caret:hover {
+  border-left: 1px solid var(--border-strong);
+  padding-left: 0;
+  background: var(--panel-alt);
+  color: var(--ink-soft);
+}
+
+/* A column folded away (polish.26): the edge strip, one button the height of
+   the column and as wide as the handle, in the column's own colours with its
+   border on the inner side, and the caret at the top where the handle had
+   it, pointing in. The whole strip brings the column back. */
+.column-edge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 15px 0 0;
+  overflow: hidden;
+  border: none;
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--ink-faint);
+}
+
+.column-edge--files {
+  border-right: 1px solid var(--border);
+}
+
+.column-edge--side {
+  border-left: 1px solid var(--border);
+}
+
+button.column-edge:hover {
+  background: var(--panel-alt);
+  color: var(--ink-soft);
+}
+
 /* While a handle is dragged, the pointer keeps its col-resize shape over
    whatever it crosses, and nothing is selected. */
 :root.column-resizing,

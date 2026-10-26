@@ -3,6 +3,7 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { defaultSettings, normalizeSettings } from '../../src/shared/settings';
 import type { ColumnShares, Settings } from '../../src/shared/types';
+import { USUAL_COLUMN_WIDTHS } from '../../src/shared/ui/columns';
 import { createColumnWrites, type ColumnIo } from '../../src/renderer/state/columnWidths';
 import { useApp } from '../../src/renderer/state/store';
 
@@ -69,8 +70,10 @@ function mainSettings(initial: Settings, options: { fail?: boolean } = {}) {
   };
 }
 
+/** The `columnWidths` setting with these widths, neither column folded away unless named. */
+const set = (patch: Partial<ColumnShares>): ColumnShares => ({ ...USUAL_COLUMN_WIDTHS, ...patch });
 const withWidths = (columnWidths: ColumnShares): Settings => ({ ...defaultSettings(), columnWidths });
-const USUAL: ColumnShares = { files: null, side: null };
+const USUAL: ColumnShares = USUAL_COLUMN_WIDTHS;
 
 beforeEach(() => {
   useApp.setState({ settings: withWidths(USUAL) });
@@ -78,13 +81,13 @@ beforeEach(() => {
 
 describe('keeping the widths (polish.5, 11.3 d)', () => {
   it("writes a column's share through settings:set, the other column's as it was", async () => {
-    useApp.setState({ settings: withWidths({ files: null, side: 0.3 }) });
+    useApp.setState({ settings: withWidths(set({ files: null, side: 0.3 })) });
     // Main holds a setting the page has not heard of yet, as after a zoom key.
-    const main = mainSettings({ ...withWidths({ files: null, side: 0.3 }), zoom: 1.5 });
+    const main = mainSettings({ ...withWidths(set({ files: null, side: 0.3 })), zoom: 1.5 });
     const writes = createColumnWrites();
     await writes.save('files', 0.105337, main.io);
-    expect(main.patches).toEqual([{ columnWidths: { files: 0.105337, side: 0.3 } }]);
-    expect(main.disk().columnWidths).toEqual({ files: 0.105337, side: 0.3 });
+    expect(main.patches).toEqual([{ columnWidths: set({ files: 0.105337, side: 0.3 }) }]);
+    expect(main.disk().columnWidths).toEqual(set({ files: 0.105337, side: 0.3 }));
     expect(useApp.getState().settings).toEqual(main.disk());
   });
 
@@ -93,7 +96,7 @@ describe('keeping the widths (polish.5, 11.3 d)', () => {
     main.hold();
     const writes = createColumnWrites();
     const done = writes.save('side', 0.4, main.io);
-    expect(useApp.getState().settings?.columnWidths).toEqual({ files: null, side: 0.4 });
+    expect(useApp.getState().settings?.columnWidths).toEqual(set({ files: null, side: 0.4 }));
     let flushed = false;
     void writes.flush().then(() => {
       flushed = true;
@@ -103,7 +106,7 @@ describe('keeping the widths (polish.5, 11.3 d)', () => {
     main.letGo();
     await done;
     expect(flushed).toBe(true);
-    expect(main.disk().columnWidths).toEqual({ files: null, side: 0.4 });
+    expect(main.disk().columnWidths).toEqual(set({ files: null, side: 0.4 }));
   });
 
   it('writes a run of presses on both handles as the last, and an older answer never moves a handle back', async () => {
@@ -115,37 +118,37 @@ describe('keeping the widths (polish.5, 11.3 d)', () => {
     void writes.save('files', 0.17, main.io);
     void writes.save('side', 0.3, main.io);
     void writes.save('files', 0.19, main.io);
-    expect(useApp.getState().settings?.columnWidths).toEqual({ files: 0.19, side: 0.3 });
+    expect(useApp.getState().settings?.columnWidths).toEqual(set({ files: 0.19, side: 0.3 }));
     main.letGo();
     main.hold();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(useApp.getState().settings?.columnWidths).toEqual({ files: 0.19, side: 0.3 });
+    expect(useApp.getState().settings?.columnWidths).toEqual(set({ files: 0.19, side: 0.3 }));
     main.letGo();
     await writes.flush();
     expect(main.patches).toEqual([
-      { columnWidths: { files: 0.15, side: null } },
-      { columnWidths: { files: 0.19, side: 0.3 } }
+      { columnWidths: set({ files: 0.15, side: null }) },
+      { columnWidths: set({ files: 0.19, side: 0.3 }) }
     ]);
-    expect(main.disk().columnWidths).toEqual({ files: 0.19, side: 0.3 });
-    expect(useApp.getState().settings?.columnWidths).toEqual({ files: 0.19, side: 0.3 });
+    expect(main.disk().columnWidths).toEqual(set({ files: 0.19, side: 0.3 }));
+    expect(useApp.getState().settings?.columnWidths).toEqual(set({ files: 0.19, side: 0.3 }));
   });
 
   it('writes the usual width as null, and nothing for the widths on screen', async () => {
-    useApp.setState({ settings: withWidths({ files: 0.2, side: 0.3 }) });
-    const main = mainSettings(withWidths({ files: 0.2, side: 0.3 }));
+    useApp.setState({ settings: withWidths(set({ files: 0.2, side: 0.3 })) });
+    const main = mainSettings(withWidths(set({ files: 0.2, side: 0.3 })));
     const writes = createColumnWrites();
     await writes.save('files', 0.2, main.io);
     expect(main.patches).toEqual([]);
     await writes.save('side', null, main.io);
-    expect(main.patches).toEqual([{ columnWidths: { files: 0.2, side: null } }]);
-    expect(main.disk().columnWidths).toEqual({ files: 0.2, side: null });
+    expect(main.patches).toEqual([{ columnWidths: set({ files: 0.2, side: null }) }]);
+    expect(main.disk().columnWidths).toEqual(set({ files: 0.2, side: null }));
   });
 
   it('keeps the width on screen for the session when the write fails, and never rejects', async () => {
     const main = mainSettings(withWidths(USUAL), { fail: true });
     const writes = createColumnWrites();
     await expect(writes.save('files', 0.2, main.io)).resolves.toBeUndefined();
-    expect(useApp.getState().settings?.columnWidths).toEqual({ files: 0.2, side: null });
+    expect(useApp.getState().settings?.columnWidths).toEqual(set({ files: 0.2, side: null }));
     await expect(writes.flush()).resolves.toBeUndefined();
   });
 

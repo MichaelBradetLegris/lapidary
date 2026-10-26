@@ -242,13 +242,19 @@ export const PROVIDER_NAMES: Record<GeneratorProvider, string> = {
 /**
  * The side columns' widths the author set by moving their inner edges
  * (polish.5): each a share of the window's width, strictly between 0 and 1,
- * or null for the column's usual width (shared/ui/columns.ts).
+ * or null for the column's usual width (shared/ui/columns.ts). And whether
+ * the author folded either away with the caret at the top of its edge
+ * (polish.26), which keeps its width for when it comes back.
  */
 export interface ColumnShares {
   /** the chapter list */
   files: number | null;
   /** the side panel */
   side: number | null;
+  /** the chapter list is folded away to the strip at the window's left edge */
+  filesHidden: boolean;
+  /** the side panel is folded away to the strip at the window's right edge */
+  sideHidden: boolean;
 }
 
 export interface Settings {
@@ -304,7 +310,10 @@ export interface Settings {
    * is the usual split (shared/ui/split.ts)
    */
   sideSplit: number | null;
-  /** the chapter list's and the side panel's widths (polish.5); null for either is its usual width */
+  /**
+   * the chapter list's and the side panel's widths (polish.5), null for either
+   * its usual width, and whether either is folded away (polish.26)
+   */
   columnWidths: ColumnShares;
 }
 
@@ -331,7 +340,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   checkForUpdates: true,
   updateDownloadConsent: null,
   sideSplit: null,
-  columnWidths: Object.freeze({ files: null, side: null })
+  columnWidths: Object.freeze({ files: null, side: null, filesHidden: false, sideHidden: false })
 });
 
 /** The model setting that belongs to a provider. */

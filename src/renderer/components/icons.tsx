@@ -140,6 +140,30 @@ export function IconChevronLeft({ size = 12 }: IconProps = {}): React.JSX.Elemen
   );
 }
 
+/**
+ * The caret that folds a side column away and brings it back (polish.26):
+ * a chevron narrow enough for the 6 px beside a column's edge, where its
+ * handle and its edge strip are 7 px wide.
+ */
+export function IconColumnCaret({ points }: { points: 'left' | 'right' }): React.JSX.Element {
+  return (
+    <svg
+      width={6}
+      height={10}
+      viewBox="0 0 6 10"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      focusable="false"
+    >
+      <path d={points === 'left' ? 'M4.5 1 1.5 5l3 4' : 'M1.5 1 4.5 5l-3 4'} />
+    </svg>
+  );
+}
+
 /** The review selector's mark when the review on screen is not the newest (apply.26). */
 export function IconWarning({ size = 14 }: IconProps = {}): React.JSX.Element {
   return (

@@ -16,9 +16,11 @@ import { useApp } from './store';
 /**
  * The side columns at narrow widths (ui.3, PLAN 7 "Narrow windows"): the page's
  * width measured, the layout `columnLayout` gives for it with the widths the
- * author set (polish.5, PLAN 7 "Column widths"), and the one drawer the author
- * has open. The rules are in `src/shared/ui/columns.ts`; the handles that set
- * the widths are `useColumnHandle` (state/columnHandles.ts).
+ * author set and the columns they folded away (polish.5 and polish.26, PLAN 7
+ * "Column widths"), and the one drawer the author has open. The rules are in
+ * `src/shared/ui/columns.ts`; the handles that set the widths are
+ * `useColumnHandle`, and the carets that fold a column away and back press
+ * `setColumnHidden` (state/columnHandles.ts).
  */
 
 interface DrawerState {

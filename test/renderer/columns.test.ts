@@ -88,10 +88,14 @@ describe('each column is in place, or a strip and a drawer (ui.3)', () => {
     for (const column of ['files', 'side']) {
       expect(APP).toMatch(
         new RegExp(
-          `<div\\s+id=\\{drawerId\\('${column}'\\)\\}\\s+className=\\{columnClassName\\('${column}', layout, shown\\)\\}\\s+inert=\\{layout\\.${column} === 'strip' && shown !== '${column}'\\}\\s*>`
+          `<div\\s+id=\\{drawerId\\('${column}'\\)\\}\\s+className=\\{columnClassName\\('${column}', layout, shown\\)\\}\\s+inert=\\{columnInert\\('${column}', layout, shown\\)\\}\\s*>`
         )
       );
     }
+    // Inert while folded with its drawer closed, and always while folded away (polish.26).
+    expect(read('../shared/ui/columns.ts')).toMatch(
+      /if \(layout\[column\] === 'hidden'\) return true;\s*return layout\[column\] === 'strip' && shown !== column;/
+    );
     // The strips come before their drawers, so Tab goes from a strip into its drawer.
     const order = [
       '<ColumnStrip column="files"',
@@ -269,7 +273,8 @@ describe('the first-use hint gives way to the prose with the side panel folded (
   it('knows the panel is folded, on the main layout only', () => {
     // Neither the Setup screen nor the welcome guide (setup.11) has a side panel.
     expect(APP).toContain('const singleScreen = setupOpen || welcomeOpen;');
-    expect(APP).toContain("const sideFolded = layout.side === 'strip' && !singleScreen;");
+    // Folded to a strip (ui.3) or folded away by its caret (polish.26).
+    expect(APP).toContain("const sideFolded = layout.side !== 'full' && !singleScreen;");
     expect(APP).toContain('sideFolded={sideFolded}');
   });
 
