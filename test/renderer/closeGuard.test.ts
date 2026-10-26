@@ -1154,9 +1154,10 @@ describe('the wiring (apply.9)', () => {
     // The Setup screen can show with a review still open, and a close can ask
     // from there (apply.9 review): a layout without the dialog left the
     // question in the store and nothing on screen.
-    const layouts = [...app.matchAll(/return \(\s*<div className="app-shell">([\s\S]*?)\r?\n {2,4}\);/g)].map(
-      (m) => m[1] ?? ''
-    );
+    // The shell's class says full screen too since polish.23 (`shellClass`).
+    const layouts = [
+      ...app.matchAll(/return \(\s*<div className=\{shellClass\}>([\s\S]*?)\r?\n {2,4}\);/g)
+    ].map((m) => m[1] ?? '');
     // The main layout, the Setup screen's and the card of a settings.json
     // that could not be read (hardening.15).
     expect(layouts).toHaveLength(3);

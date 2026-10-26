@@ -39,6 +39,7 @@ import { collectAppInfo, openAiPackageVersion } from './appInfo';
 import { createRendererLog } from './crash';
 import { collectDiagnostics } from './diagnostics';
 import { fail, writeFailure } from './errors';
+import { createFullScreen } from './fullScreen';
 import {
   beginRequest,
   cancelRequest,
@@ -146,6 +147,17 @@ export const closeGuard = createCloseGuard<BrowserWindow>({
 });
 
 /**
+ * The window's full screen (polish.23, src/main/fullScreen.ts): F11, the
+ * toolbar's button and Escape ask for it through `window:full-screen`, and
+ * `createWindow` attaches the window. A quiet test window keeps the state
+ * here and is never put in full screen (C.61).
+ */
+export const fullScreen = createFullScreen<BrowserWindow>({
+  quietWindow: () => getDevSwitches().quietWindow,
+  log
+});
+
+/**
  * Wire the accumulated handlers into ipcMain. Call once, after all modules
  * registered. A file system error that reaches here unexplained is worded as
  * a write that replaces a file; every read path explains its own first
@@ -189,6 +201,8 @@ export function registerCoreHandlers(): void {
   });
 
   handle('view:zoom', async ({ action }) => ({ zoom: await changeZoom(action) }));
+
+  handle('window:full-screen', ({ action }) => Promise.resolve({ fullScreen: fullScreen.act(action) }));
 
   handle('settings:effective', async () => {
     const settings = await loadSettings();

@@ -11,6 +11,7 @@ import {
   planWelcomeShown
 } from '../shared/ui/chatgpt';
 import { copiedHtmlNote } from '../shared/ui/copy';
+import { FULL_SCREEN_CLASS } from '../shared/ui/fullScreen';
 import { FINISH_FULL_EDIT_FIRST } from '../shared/ui/modes';
 import { chapterNotOpenedText, unwrittenReviewText } from '../shared/ui/open';
 import { mergeReloadRun, rebaseCardText, rebaseCardTone, type ReloadRun } from '../shared/ui/rebase';
@@ -68,6 +69,7 @@ import { installCloseGuard, prepareToLeaveApp, type CloseGuardDeps } from './sta
 import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state/drafts';
 import { useColumnHandle } from './state/columnHandles';
 import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
+import { installFullScreen, useFullScreen } from './state/fullScreen';
 import { dismissHint, type HintIo } from './state/hints';
 import { CLOSE_GUARD_IO, PAGE_WRITES } from './state/pageIo';
 import { chooseProvider as chooseReviewProvider } from './state/providerChoice';
@@ -436,6 +438,13 @@ export function App(): React.JSX.Element {
   const saveChapter = useCallback(() => void save({ applyDrafts: 'ask' }), [save]);
 
   useKeyboardBindings(save);
+
+  /* Full screen is the window's (polish.23): main says where it stands as
+     the page loads and whenever it changes, and the shell carries a class
+     while it is on. Nothing in the layout changes with it. */
+  useEffect(() => installFullScreen(), []);
+  const fullScreen = useFullScreen((s) => s.on);
+  const shellClass = fullScreen ? `app-shell ${FULL_SCREEN_CLASS}` : 'app-shell';
 
   /* The side columns give way to the prose in a narrow window, which is what
      zooming in makes: they shrink, then fold to strips that open them as
@@ -1383,7 +1392,7 @@ export function App(): React.JSX.Element {
       overlay: updateOverlay !== null
     });
     return (
-      <div className="app-shell">
+      <div className={shellClass}>
         <div className="app-shell__page" inert={cardInert.page}>
           <div className="body body--single">
             <NotificationCards onAction={onCardAction} />
@@ -1419,7 +1428,7 @@ export function App(): React.JSX.Element {
      the store and come back with it (`EditorRequest.text`). */
   if (singleScreen) {
     return (
-      <div className="app-shell">
+      <div className={shellClass}>
         <div className="app-shell__page" inert={inert.page}>
           {toolbar}
           <div className="body body--single">
@@ -1499,7 +1508,7 @@ export function App(): React.JSX.Element {
   }
 
   return (
-    <div className="app-shell">
+    <div className={shellClass}>
       {/* Everything but the dialogs and the question. While either is open
           this is inert, so Tab, a click or a screen reader cannot reach the
           page behind it (apply.7 review for the question, ui.4 for the

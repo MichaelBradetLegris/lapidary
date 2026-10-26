@@ -30,8 +30,9 @@ interface Props {
  * from apply.4) and the chapter list (apply.5), what the chips count and do,
  * You and the eye included (polish.11) and the comments' (polish.13), and how
  * the suggestions list shows a decision, by the row's buttons, and the
- * heading's count (polish.12; Show states went in polish.17), and what each
- * row's three-letter tag stands for (polish.14). Exported for its render test.
+ * heading's count (polish.12; Show states went in polish.17), what each
+ * row's three-letter tag stands for (polish.14), and F11 and Escape for full
+ * screen (polish.23). Exported for its render test.
  */
 export function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -138,6 +139,11 @@ export function Legend({ onClose }: { onClose: () => void }): React.JSX.Element 
         Click a suggestion to accept or undo it. The x beside the floating text, or the d key, dismisses. The
         pencil on a suggestion, or the e key, lets you rewrite it, and the pen beside a paragraph lets you
         edit the paragraph itself. Nothing reaches the chapter until you press Save to chapter or Ctrl+S.
+      </p>
+      <p className="legend__foot">
+        F11, or the two arrows before Settings, puts the window in full screen and back. Escape leaves full
+        screen too, unless something else is open, such as a dialog, a menu, the find bar or a box you are
+        typing in.
       </p>
     </div>
   );

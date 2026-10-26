@@ -177,3 +177,24 @@ export function IconEyeClosed({ size = 16 }: IconProps = {}): React.JSX.Element 
     </svg>
   );
 }
+
+/**
+ * Full screen (polish.23): two arrows out to opposite corners, the system's
+ * sign for it.
+ */
+export function IconFullScreen({ size = 16 }: IconProps = {}): React.JSX.Element {
+  return (
+    <svg {...svgProps(size)}>
+      <path d="M9.5 2.5h4v4M13.5 2.5 9.3 6.7M6.5 13.5h-4v-4M2.5 13.5l4.2-4.2" />
+    </svg>
+  );
+}
+
+/** Leave full screen (polish.23): the same two arrows, pointing back in from the corners. */
+export function IconLeaveFullScreen({ size = 16 }: IconProps = {}): React.JSX.Element {
+  return (
+    <svg {...svgProps(size)}>
+      <path d="M13.5 2.5 9.5 6.5M9.5 2.5v4h4M2.5 13.5l4-4M2.5 9.5h4v4" />
+    </svg>
+  );
+}

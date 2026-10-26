@@ -72,12 +72,16 @@ function render(review: Review | null, running = false, saving = false, singleSc
   );
 }
 
-/** The toolbar's buttons, each with its text and the attributes the tests read. */
+/**
+ * The toolbar's buttons, each with its text and the attributes the tests read;
+ * an icon button, the eye or full screen (polish.23), by its accessible name.
+ */
 function buttons(html: string): { text: string; attrs: string }[] {
-  return [...html.matchAll(/<button([^>]*)>([\s\S]*?)<\/button>/g)].map((m) => ({
-    attrs: m[1] ?? '',
-    text: (m[2] ?? '').replace(/<[^>]*>/g, '').trim()
-  }));
+  return [...html.matchAll(/<button([^>]*)>([\s\S]*?)<\/button>/g)].map((m) => {
+    const attrs = m[1] ?? '';
+    const text = (m[2] ?? '').replace(/<[^>]*>/g, '').trim();
+    return { attrs, text: text || (/aria-label="([^"]*)"/.exec(attrs)?.[1] ?? '') };
+  });
 }
 
 const byText = (html: string, text: string): string => {
@@ -86,11 +90,17 @@ const byText = (html: string, text: string): string => {
   return found?.attrs ?? '';
 };
 
-describe('the toolbar holds Review, Actions, Save to chapter and Settings (polish.7)', () => {
+describe('the toolbar holds Review, Actions, Save to chapter, Full screen and Settings (polish.7, polish.23)', () => {
   it('in that order, with no button of the old names', () => {
     storeWith({ review: REVIEW });
     const html = render(REVIEW);
-    expect(buttons(html).map((b) => b.text)).toEqual(['Review', 'Actions', 'Save to chapter', 'Settings']);
+    expect(buttons(html).map((b) => b.text)).toEqual([
+      'Review',
+      'Actions',
+      'Save to chapter',
+      'Full screen',
+      'Settings'
+    ]);
     for (const gone of [
       'Review with AI',
       'Submit manual review',
@@ -145,6 +155,7 @@ describe('the toolbar holds Review, Actions, Save to chapter and Settings (polis
       'Review',
       'Actions',
       'Save to chapter',
+      'Full screen',
       'Settings'
     ]);
     expect(html).toContain('<span class="progress" aria-live="polite">Waiting for the model (12s)</span>');
@@ -287,12 +298,13 @@ describe('the category chips lead the toolbar (polish.10, polish.11)', () => {
     storeWith({ review: CHIPPED });
     const html = render(CHIPPED);
     expect(buttons(html).map((b) => b.text)).toEqual([
-      '',
+      'Hide all categories',
       'grammar 2',
       'punctuation 1',
       'Review',
       'Actions',
       'Save to chapter',
+      'Full screen',
       'Settings'
     ]);
     expect(html).toContain('role="group" aria-label="Filter suggestions by category"');
@@ -337,13 +349,14 @@ describe('the category chips lead the toolbar (polish.10, polish.11)', () => {
     storeWith({ review: EDITED });
     const html = render(EDITED);
     expect(buttons(html).map((b) => b.text)).toEqual([
-      '',
+      'Hide all categories',
       'grammar 1',
       'punctuation 1',
       'You 1',
       'Review',
       'Actions',
       'Save 1 change to chapter',
+      'Full screen',
       'Settings'
     ]);
     expect(html).toContain('class="chip cat-you"');

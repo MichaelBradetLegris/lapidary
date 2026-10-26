@@ -605,6 +605,21 @@ input[type='text'] {
   white-space: nowrap;
 }
 
+/* Full screen, before Settings (polish.23): an icon button the eye's size,
+   round a 16 px pair of arrows, 30 by 26 CSS px at 100%. */
+.toolbar__full-screen {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  color: var(--ink-soft);
+}
+
+.toolbar__full-screen svg {
+  display: block;
+}
+
 /* Changes not saved to the chapter, before each such chapter's name in the
    chapter list (apply.5). The open chapter's is a dot in the window's title
    since polish.10, where it was one of these before the name in the toolbar

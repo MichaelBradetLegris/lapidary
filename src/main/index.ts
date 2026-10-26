@@ -6,7 +6,14 @@ import { APP_DATA_DIR, APP_ID, APP_NAME } from '../shared/branding';
 import { createRendererGoneHandler, installCrashHandlers } from './crash';
 import { readDevSwitches, setDevSwitches } from './devSwitches';
 import { backgroundThrottling, bringForward, chromiumSwitches, showWindow } from './foreground';
-import { closeGuard, installIpcBridge, registerCoreHandlers, stopWatching, systemShell } from './ipc';
+import {
+  closeGuard,
+  fullScreen,
+  installIpcBridge,
+  registerCoreHandlers,
+  stopWatching,
+  systemShell
+} from './ipc';
 import { flushLog, initLog, log } from './log';
 import { navigationAction } from './navigation';
 import { sendNotice } from './notice';
@@ -161,6 +168,10 @@ function createWindow(): BrowserWindow {
      risk asks the page first, a page that does not answer gets a native box
      with Close anyway, and a window whose page has said nothing closes at once. */
   closeGuard.attach(win);
+
+  /* Full screen (polish.23): F11, the toolbar's button and Escape ask main
+     for it; the window is created without it, so a start never is. */
+  fullScreen.attach(win);
 
   /* The one render-process-gone handler (11.3 a). A page that is gone holds
      nothing more that could be saved, so no close waits for it: the close
