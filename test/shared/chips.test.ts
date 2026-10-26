@@ -618,22 +618,40 @@ describe('the Mode select beside the chips (rr.6)', () => {
   });
 
   it('decides the same whatever step the select is drawn at, and as without it when it is as wide at every step', () => {
+    /* Whole pixels at the widths the window has, so that (both - drawn) +
+       drawn is both exactly. Doubles drew mostly values near 0, which never put
+       the room near a step's threshold, and the property passed with the
+       select ignored (the review of rr.6). Half the runs put the room within
+       3 px of the point at which a step's chips and select just fit. */
     fc.assert(
       fc.property(
         fc.array(fc.double({ min: 10, max: 160, noNaN: true }), { minLength: 1, maxLength: 15 }),
-        fc.array(fc.double({ min: 0, max: 200, noNaN: true }), {
+        fc.array(fc.integer({ min: 80, max: 200 }), {
           minLength: CHIP_STEPS.length,
           maxLength: CHIP_STEPS.length
         }),
-        fc.double({ min: 0, max: 3000, noNaN: true }),
-        (words, select, both) => {
+        fc.integer({ min: 0, max: 3000 }),
+        fc.option(
+          fc.record({
+            step: fc.integer({ min: 0, max: CHIP_STEPS.length - 2 }),
+            by: fc.integer({ min: -3, max: 3 })
+          }),
+          { freq: 2 }
+        ),
+        (words, select, anywhere, near) => {
           const natural = widthsAt(words);
           const steps = [...select].sort((a, b) => b - a);
+          const both = near
+            ? Math.max(
+                0,
+                Math.floor(total(near.step, natural[near.step] ?? []) + (steps[near.step] ?? 0)) + near.by
+              )
+            : anywhere;
           const decided = steps.map((drawn) => chipsStep(both - drawn, natural, { drawn, steps }));
           expect(new Set(decided).size).toBe(1);
           // The first step at which the chips and the select fit together, else the last.
           const first = natural.findIndex(
-            (widths, at) => at < CHIP_STEPS.length - 1 && total(at, widths) + (steps[at] ?? 0) <= both
+            (widths, at) => at < CHIP_STEPS.length - 1 && total(at, widths) <= both - (steps[at] ?? 0)
           );
           expect(decided[0]).toBe(first === -1 ? CHIP_STEPS.length - 1 : first);
           // A select as wide at every step changes nothing.
