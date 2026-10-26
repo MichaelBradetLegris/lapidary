@@ -191,23 +191,54 @@ describe('focusReturnTarget (ui.1)', () => {
    status bar's Zoom in. */
 describe('shellInert (ui.4)', () => {
   it('leaves everything live with nothing open', () => {
-    expect(shellInert({ dialog: false, question: false })).toEqual({ page: false, dialogs: false });
+    expect(shellInert({ dialog: false, question: false })).toEqual({
+      page: false,
+      dialogs: false,
+      over: false
+    });
   });
 
   it('makes the page inert under a dialog, and leaves the dialogs live', () => {
-    expect(shellInert({ dialog: true, question: false })).toEqual({ page: true, dialogs: false });
+    expect(shellInert({ dialog: true, question: false })).toEqual({
+      page: true,
+      dialogs: false,
+      over: false
+    });
   });
 
   it('makes the page and the dialogs inert under a question, with or without a dialog open', () => {
-    expect(shellInert({ dialog: false, question: true })).toEqual({ page: true, dialogs: true });
-    expect(shellInert({ dialog: true, question: true })).toEqual({ page: true, dialogs: true });
+    expect(shellInert({ dialog: false, question: true })).toEqual({ page: true, dialogs: true, over: false });
+    expect(shellInert({ dialog: true, question: true })).toEqual({ page: true, dialogs: true, over: false });
   });
 
-  it("makes the page and the dialogs inert under Restart now's overlay (release.9)", () => {
+  it("makes the page and the dialogs inert under Restart now's overlay (release.9), and not the question", () => {
     for (const dialog of [false, true]) {
       for (const question of [false, true]) {
-        expect(shellInert({ dialog, question, overlay: true })).toEqual({ page: true, dialogs: true });
+        expect(shellInert({ dialog, question, overlay: true })).toEqual({
+          page: true,
+          dialogs: true,
+          over: false
+        });
         expect(shellInert({ dialog, question, overlay: false })).toEqual(shellInert({ dialog, question }));
+      }
+    }
+  });
+
+  /* focus.1 review: the overlay showed over a question, but a screen reader's
+     cursor could still reach and press the question's buttons under it. */
+  it("makes everything inert under focus mode's overlay, the question and Restart now's overlay included (focus.1)", () => {
+    for (const dialog of [false, true]) {
+      for (const question of [false, true]) {
+        for (const overlay of [false, true]) {
+          expect(shellInert({ dialog, question, overlay, focus: true })).toEqual({
+            page: true,
+            dialogs: true,
+            over: true
+          });
+          expect(shellInert({ dialog, question, overlay, focus: false })).toEqual(
+            shellInert({ dialog, question, overlay })
+          );
+        }
       }
     }
   });
@@ -218,6 +249,8 @@ describe('shellInert (ui.4)', () => {
         const inert = shellInert({ dialog, question });
         expect(inert.page, `dialog ${dialog}, question ${question}`).toBe(dialog || question);
         expect(inert.dialogs, `dialog ${dialog}, question ${question}`).toBe(question);
+        // The question is never inert under anything but focus mode's overlay.
+        expect(inert.over, `dialog ${dialog}, question ${question}`).toBe(false);
       }
     }
   });

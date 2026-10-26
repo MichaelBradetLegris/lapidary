@@ -1,9 +1,13 @@
-import { createElement } from 'react';
+import { createElement, Fragment } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ConfirmDialog } from '../../src/renderer/components/ConfirmDialog';
 import { FocusOverlay, FocusOverlayView } from '../../src/renderer/components/FocusOverlay';
+import { UpdateOverlay } from '../../src/renderer/components/UpdateOverlay';
 import { FOCUS_OVERLAY_CLOSED, useFocusOverlay, useFullScreen } from '../../src/renderer/state/fullScreen';
-import { FOCUS_OVERLAY_FOCUS_FALLBACK } from '../../src/shared/ui/dialog';
+import { useApp } from '../../src/renderer/state/store';
+import type { ConfirmSpec } from '../../src/shared/ui/confirm';
+import { FOCUS_OVERLAY_FOCUS_FALLBACK, shellInert } from '../../src/shared/ui/dialog';
 import type { FocusHoldSeconds, FocusModeState } from '../../src/shared/ui/focusMode';
 
 /* focus.1: focus mode's overlay, rendered with react-dom/server: the count in
@@ -128,5 +132,85 @@ describe('the overlay (focus.1)', () => {
 
   it('hands the focus back to a dialog open under it, or to nothing', () => {
     expect(FOCUS_OVERLAY_FOCUS_FALLBACK).toEqual(['.app-shell__dialogs .modal']);
+  });
+});
+
+/* focus.1 review: with a question open ("Leave Chapter 01 - The Flood?"), a
+   hold of F11 showed the overlay over it, but nothing made the question
+   inert, so a screen reader's cursor could reach and press "Keep for later"
+   under the hold. App works out what is inert with `shellInert` and gives the
+   question and Restart now's overlay `over` (its wiring is checked in
+   focusMode.test.ts); these draw the window's top layers in App's order. */
+describe('what the overlay covers is inert (focus.1 review)', () => {
+  const LEAVE: ConfirmSpec = {
+    title: 'Leave Chapter 01 - The Flood?',
+    body: '8 changes are not saved to the chapter yet.',
+    confirmLabel: 'Save to chapter first',
+    altLabel: 'Keep for later',
+    defaultButton: 'alt'
+  };
+  const QUESTION_OPENING =
+    '<div class="modal-backdrop modal-backdrop--confirm" role="dialog" aria-modal="true" aria-label="Leave Chapter 01 - The Flood?"';
+  const initialSpec = useApp.getInitialState().confirmSpec;
+  afterEach(() => {
+    useApp.getInitialState().confirmSpec = initialSpec;
+  });
+
+  /** The question, Restart now's overlay when it shows, and focus mode's, as App draws them last. */
+  function top(updating = false): string {
+    const inert = shellInert({
+      dialog: false,
+      question: useApp.getInitialState().confirmSpec !== null,
+      overlay: updating,
+      focus: useFocusOverlay.getInitialState().open
+    });
+    return renderToStaticMarkup(
+      createElement(
+        Fragment,
+        null,
+        updating ? createElement(UpdateOverlay, { update: null, inert: inert.over }) : null,
+        createElement(ConfirmDialog, { inert: inert.over }),
+        createElement(FocusOverlay)
+      )
+    );
+  }
+  /** The opening tag of the element whose tag starts with `start`. */
+  const tagOf = (html: string, start: string): string => {
+    const at = html.indexOf(start);
+    expect(at, start).toBeGreaterThanOrEqual(0);
+    return html.slice(at, html.indexOf('>', at) + 1);
+  };
+
+  it('leaves a question live with nothing over it', () => {
+    useApp.getInitialState().confirmSpec = LEAVE;
+    const html = top();
+    expect(tagOf(html, QUESTION_OPENING)).toBe(`${QUESTION_OPENING}>`);
+    expect(html).not.toContain('inert');
+    expect(text(html)).toContain('Keep for later');
+  });
+
+  it('makes a question opened before the hold inert under the overlay, which stays live over it', () => {
+    useApp.getInitialState().confirmSpec = LEAVE;
+    drawn({ open: true, holding: 'F11', heldCode: 'F11', since: 0 });
+    const html = top();
+    expect(tagOf(html, QUESTION_OPENING)).toBe(`${QUESTION_OPENING} inert="">`);
+    expect(tagOf(html, '<div class="modal-backdrop modal-backdrop--focus"')).not.toContain('inert');
+    expect(html.indexOf('modal-backdrop--focus')).toBeGreaterThan(html.indexOf('modal-backdrop--confirm'));
+    expect(html.match(/inert=""/g)).toHaveLength(1);
+  });
+
+  it("makes Restart now's overlay inert under it as well, and only under it", () => {
+    const opening = '<div class="modal-backdrop modal-backdrop--overlay"';
+    expect(tagOf(top(true), opening)).not.toContain('inert');
+    drawn({ open: true });
+    expect(tagOf(top(true), opening)).toContain(' inert=""');
+    expect(tagOf(top(true), '<div class="modal-backdrop modal-backdrop--focus"')).not.toContain('inert');
+  });
+
+  it('never makes the question inert where it is drawn without the overlay, as on the crash page', () => {
+    useApp.getInitialState().confirmSpec = LEAVE;
+    drawn({ open: true });
+    // CrashFallback draws `<ConfirmDialog />` and no overlay: the question there is never inert.
+    expect(renderToStaticMarkup(createElement(ConfirmDialog))).not.toContain('inert');
   });
 });

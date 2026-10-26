@@ -33,8 +33,8 @@ describe('every layout has the cards, the dialogs and the question (setup.7)', (
       expect(layout).toContain('<NotificationCards onAction={onCardAction} />');
       expect(layout).toContain('<div className="app-shell__page" inert={inert.page}>');
       expect(layout).toMatch(
-        // (each `{}` is a JSX comment with its text taken out; focus.1's overlay covers even the question)
-        /<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*\{diagnosticsDialog\}\s*\{aboutDialog\}\s*<\/div>\s*\{updateOverlay\}\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*(\{\s*\}\s*)?<FocusOverlay \/>\s*<\/div>\s*\);/
+        // (each `{}` is a JSX comment with its text taken out; focus.1's overlay covers even the question, inert under it)
+        /<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*\{diagnosticsDialog\}\s*\{aboutDialog\}\s*<\/div>\s*\{updateOverlay\}\s*(\{\s*\}\s*)?<ConfirmDialog inert=\{inert\.over\} \/>\s*(\{\s*\}\s*)?<FocusOverlay \/>\s*<\/div>\s*\);/
       );
       expect(layout).toMatch(
         /<StatusBar\s+review=\{review\}\s+\{\.\.\.statusRuntime\}\s+rateLimit=\{usageNotice\}\s+plan=\{claudeRuntime\?\.subscriptionType\}\s*\/>/

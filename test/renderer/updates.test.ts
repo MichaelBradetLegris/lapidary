@@ -430,10 +430,11 @@ describe("App's wiring (release.9)", () => {
   it('opens About in place of Settings, and draws the overlay over every layout, under the question', () => {
     expect(APP).toMatch(/onAbout=\{\(\) => \{\s*setSettingsOpen\(false\);\s*setAboutOpen\(true\);\s*\}\}/);
     expect(APP).toMatch(/const aboutDialog =\s*aboutOpen && settings \? \(\s*<AboutDialog/);
-    expect(APP).toContain(
-      'const updateOverlay = updateOverlayShown ? <UpdateOverlay update={updateStatus} /> : null;'
+    // Inert only under focus mode's overlay (focus.1 review).
+    expect(APP).toMatch(
+      /const updateOverlay = updateOverlayShown \? \(?\s*<UpdateOverlay update=\{updateStatus\} inert=\{inert\.over\} \/>\s*\)? : null;/
     );
-    const layouts = APP.split('<ConfirmDialog />').slice(0, -1);
+    const layouts = APP.split(/<ConfirmDialog inert=\{(?:inert|cardInert)\.over\} \/>/).slice(0, -1);
     expect(layouts).toHaveLength(3);
     // (a `{}` is a JSX comment with its text taken out)
     for (const layout of layouts) expect(layout).toMatch(/\{updateOverlay\}\s*(\{\s*\}\s*)?$/);

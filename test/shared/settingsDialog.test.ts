@@ -76,11 +76,13 @@ describe('the notes under the rows', () => {
     for (const tip of TIPS) expect(tip.length, tip).toBeGreaterThan(longest);
   });
 
-  /* focus.1: the one line that says what focus mode does about Alt+Tab, and the words either side of the hold time. */
+  /* focus.1: the one line that says what focus mode does about Alt+Tab, and the words either side of the hold time.
+     The review fix: only what is certain, that the window asks for the focus back, which Windows may refuse (C.121). */
   it('say in one line what focus mode does about Alt+Tab, and name the hold', () => {
     expect(FOCUS_MODE_NOTE).toBe(
-      'Full screen stays in front: Alt+Tab or a click elsewhere brings you straight back.'
+      'Full screen stays on top of other windows and asks for the focus back after Alt+Tab.'
     );
+    expect(FOCUS_MODE_NOTE).not.toMatch(/straight back|brings you/);
     expect(FOCUS_MODE_LABEL).toBe('Focus mode');
     expect(`${FOCUS_HOLD_BEFORE} 30 seconds ${FOCUS_HOLD_AFTER}`).toBe(
       'Hold F11 or Esc for 30 seconds to leave'

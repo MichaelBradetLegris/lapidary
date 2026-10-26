@@ -1295,9 +1295,14 @@ describe('the wiring (apply.9)', () => {
       expect(layout).toMatch(
         /<div className="app-shell__page" inert=\{(questionOpen|inert\.page|cardInert\.page)\}>/
       );
-      expect(layout.match(/<ConfirmDialog \/>/g)).toHaveLength(1);
+      // Inert only under focus mode's hold (the focus.1 review).
+      const question = /<ConfirmDialog inert=\{(inert|cardInert)\.over\} \/>/g;
+      expect(layout.match(question)).toHaveLength(1);
+      expect(layout.match(/<ConfirmDialog\b/g)).toHaveLength(1);
       // Last but for focus mode's hold, which covers even the question (focus.1).
-      expect(layout).toMatch(/<ConfirmDialog \/>\s*(\{\/\*[^*]*\*\/\}\s*)?<FocusOverlay \/>\s*<\/div>\s*$/);
+      expect(layout).toMatch(
+        /<ConfirmDialog inert=\{(inert|cardInert)\.over\} \/>\s*(\{\/\*[^*]*\*\/\}\s*)?<FocusOverlay \/>\s*<\/div>\s*$/
+      );
     }
     expect(layouts.some((layout) => layout.includes('<SetupScreen'))).toBe(true);
     expect(layouts.some((layout) => layout.includes('<SettingsUnreadable'))).toBe(true);

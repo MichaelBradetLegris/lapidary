@@ -56,12 +56,14 @@ export function firstFound<T>(
   return null;
 }
 
-/** Which of the window's two layers under a question are inert. */
+/** Which of the window's layers are inert. */
 export interface ShellInert {
   /** everything but the dialogs and the question */
   page: boolean;
   /** Settings, New chapter, Review with AI, Submit manual review, Diagnostics and About */
   dialogs: boolean;
+  /** the question and Restart now's overlay: inert only under focus mode's overlay (focus.1) */
+  over: boolean;
 }
 
 /**
@@ -70,14 +72,23 @@ export interface ShellInert {
  * a screen reader, and Tab and Shift+Tab, finding nothing else in the window,
  * go round the open dialog's controls, from the last to the first and back.
  * A question is asked over everything, a dialog included, so the dialogs are
- * inert under it too (apply.7 review). The question itself never is. Restart
- * now's overlay (`overlay`, release.9) covers the page and the dialogs while
- * the app is about to close for the installer, so both are inert under it,
- * and so does focus mode's overlay while it shows (focus.1).
+ * inert under it too (apply.7 review). Restart now's overlay (`overlay`,
+ * release.9) covers the page and the dialogs while the app is about to close
+ * for the installer, so both are inert under it. Focus mode's overlay
+ * (`focus`, focus.1) covers everything, a question and Restart now's overlay
+ * included, so all of them are inert under it (`over`; the focus.1 review
+ * found a screen reader's cursor could still press a question's buttons under
+ * the hold). Nothing else makes the question or Restart now's overlay inert.
  */
-export function shellInert(open: { dialog: boolean; question: boolean; overlay?: boolean }): ShellInert {
-  const overlay = open.overlay ?? false;
-  return { page: open.dialog || open.question || overlay, dialogs: open.question || overlay };
+export function shellInert(open: {
+  dialog: boolean;
+  question: boolean;
+  overlay?: boolean;
+  focus?: boolean;
+}): ShellInert {
+  const over = open.focus ?? false;
+  const covered = (open.overlay ?? false) || over;
+  return { page: open.dialog || open.question || covered, dialogs: open.question || covered, over };
 }
 
 /** The parts of a keydown event the Escape rule reads. */

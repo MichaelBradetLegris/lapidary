@@ -451,8 +451,8 @@ export function App(): React.JSX.Element {
   /* Focus mode (focus.1, state/focusMode.ts): with Settings' box ticked, full
      screen is only left by holding F11 or Escape, over an overlay that shows
      the count and keeps every key from the page while it is up. Its keys are
-     caught on the window before anything else's, and the page and the
-     dialogs are inert under it. */
+     caught on the window before anything else's, and everything under it is
+     inert, the question and Restart now's overlay included. */
   useEffect(() => installFocusMode(), []);
   const focusOverlayOpen = useFocusOverlay((s) => s.open);
 
@@ -1370,12 +1370,10 @@ export function App(): React.JSX.Element {
         onClose={() => setAboutOpen(false)}
       />
     ) : null;
-  /* Restart now's overlay (release.9), over the page and the dialogs from the
-     moment the page has agreed to go until the app closes for the installer. */
-  const updateOverlay = updateOverlayShown ? <UpdateOverlay update={updateStatus} /> : null;
-  /* Focus mode's overlay (focus.1) covers everything, a question included,
-     and the page and the dialogs are inert under it as under Restart now's. */
-  const overlayShown = updateOverlay !== null || focusOverlayOpen;
+  /* Restart now's overlay (release.9) covers the page and the dialogs, and
+     focus mode's (focus.1) covers everything, the question and Restart now's
+     overlay included: what each covers is inert under it (`over` for the
+     question and Restart now's overlay, given to both below). */
   const inert = shellInert({
     dialog: [
       newChapterDialog,
@@ -1386,8 +1384,14 @@ export function App(): React.JSX.Element {
       aboutDialog
     ].some((d) => d !== null),
     question: questionOpen,
-    overlay: overlayShown
+    overlay: updateOverlayShown,
+    focus: focusOverlayOpen
   });
+  /* Restart now's overlay, from the moment the page has agreed to go until
+     the app closes for the installer. */
+  const updateOverlay = updateOverlayShown ? (
+    <UpdateOverlay update={updateStatus} inert={inert.over} />
+  ) : null;
 
   /* settings.json could not be read (hardening.15, C.86): one card says so,
      in the words for the reason main gave, with Try again, in place of
@@ -1404,7 +1408,8 @@ export function App(): React.JSX.Element {
     const cardInert = shellInert({
       dialog: diagnosticsDialog !== null,
       question: questionOpen,
-      overlay: overlayShown
+      overlay: updateOverlayShown,
+      focus: focusOverlayOpen
     });
     return (
       <div className={shellClass}>
@@ -1425,7 +1430,7 @@ export function App(): React.JSX.Element {
           {diagnosticsDialog}
         </div>
         {updateOverlay}
-        <ConfirmDialog />
+        <ConfirmDialog inert={cardInert.over} />
         <FocusOverlay />
       </div>
     );
@@ -1518,7 +1523,7 @@ export function App(): React.JSX.Element {
           {aboutDialog}
         </div>
         {updateOverlay}
-        <ConfirmDialog />
+        <ConfirmDialog inert={inert.over} />
         <FocusOverlay />
       </div>
     );
@@ -1661,8 +1666,8 @@ export function App(): React.JSX.Element {
       </div>
       {updateOverlay}
       {/* Above everything: a question can be asked from any dialog above. */}
-      <ConfirmDialog />
-      {/* Focus mode's hold (focus.1) covers even a question. */}
+      <ConfirmDialog inert={inert.over} />
+      {/* Focus mode's hold (focus.1) covers even a question, inert under it. */}
       <FocusOverlay />
     </div>
   );

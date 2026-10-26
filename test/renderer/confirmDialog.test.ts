@@ -81,8 +81,9 @@ describe('confirm dialog layer (apply.6 review)', () => {
       const names = [...layout.matchAll(/<([A-Z]\w*)/g)].map((m) => m[1]);
       expect(names.slice(-2)).toEqual(['ConfirmDialog', 'FocusOverlay']);
       expect(names.filter((name) => name === 'ConfirmDialog')).toHaveLength(1);
-      expect(layout.indexOf('{settingsDialog}')).toBeLessThan(layout.indexOf('<ConfirmDialog />'));
-      expect(layout.indexOf('{diagnosticsDialog}')).toBeLessThan(layout.indexOf('<ConfirmDialog />'));
+      const question = '<ConfirmDialog inert={inert.over} />';
+      expect(layout.indexOf('{settingsDialog}')).toBeLessThan(layout.indexOf(question));
+      expect(layout.indexOf('{diagnosticsDialog}')).toBeLessThan(layout.indexOf(question));
     }
     const main = made.slice(mainStart);
     expect(main.indexOf('<EditPopover')).toBeLessThan(main.indexOf('{newChapterDialog}'));
@@ -110,7 +111,7 @@ describe('the question holds the keyboard (apply.7 review), and so does every di
     expect(APP).toContain('const questionOpen = useApp((s) => s.confirmSpec !== null);');
     // What is open is what is drawn, so the page is never inert under nothing.
     expect(APP).toMatch(
-      /const inert = shellInert\(\{\s*dialog: \[\s*newChapterDialog,\s*manualReviewDialog,\s*reviewDialog,\s*settingsDialog,\s*diagnosticsDialog,\s*aboutDialog\s*\]\.some\(\(d\) => d !== null\),\s*question: questionOpen,\s*overlay: overlayShown\s*\}\);/
+      /const inert = shellInert\(\{\s*dialog: \[\s*newChapterDialog,\s*manualReviewDialog,\s*reviewDialog,\s*settingsDialog,\s*diagnosticsDialog,\s*aboutDialog\s*\]\.some\(\(d\) => d !== null\),\s*question: questionOpen,\s*overlay: updateOverlayShown,\s*focus: focusOverlayOpen\s*\}\);/
     );
     expect(main.indexOf(page)).toBeGreaterThan(main.indexOf('<div className="app-shell">'));
     const inside = main.slice(main.indexOf(page), main.indexOf(dialogs));
@@ -129,10 +130,11 @@ describe('the question holds the keyboard (apply.7 review), and so does every di
     }
     // The page closes just before the dialogs' wrapper, which holds the four
     // dialogs and closes just before the question, which stays outside both,
-    // with only focus mode's overlay after it (focus.1; each `{}` is a JSX
-    // comment with its text taken out).
+    // with only focus mode's overlay after it, which makes it inert too
+    // (focus.1 and its review; each `{}` is a JSX comment with its text taken
+    // out).
     expect(main).toMatch(
-      /<\/div>\s*(\{\s*\}\s*)?<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*\{diagnosticsDialog\}\s*\{aboutDialog\}\s*<\/div>\s*\{updateOverlay\}\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*(\{\s*\}\s*)?<FocusOverlay \/>\s*<\/div>\s*\);\s*\}\s*$/
+      /<\/div>\s*(\{\s*\}\s*)?<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*\{diagnosticsDialog\}\s*\{aboutDialog\}\s*<\/div>\s*\{updateOverlay\}\s*(\{\s*\}\s*)?<ConfirmDialog inert=\{inert\.over\} \/>\s*(\{\s*\}\s*)?<FocusOverlay \/>\s*<\/div>\s*\);\s*\}\s*$/
     );
     for (const name of ['<NewChapterDialog', '<ManualReviewDialog', '<ReviewDialog', '<SettingsDialog']) {
       expect(main, name).not.toContain(name);
@@ -165,5 +167,17 @@ describe('the question holds the keyboard (apply.7 review), and so does every di
       /useLayoutEffect\(\(\) => \{\s*if \(open\) returnTo\.current = document\.activeElement;/
     );
     expect(CONFIRM).toMatch(/if \(back instanceof HTMLElement && back\.isConnected\) back\.focus\(/);
+  });
+
+  /* focus.1 review: the question is inert under focus mode's overlay, so one
+     asked while the overlay shows cannot take the focus then. In the window
+     check its default had the focus once a click closed the overlay, and a
+     question open before the hold had its focus back where it was. */
+  it("gives its default the focus as focus mode's overlay goes, unless the focus is already in it", () => {
+    expect(CONFIRM).toContain('export function ConfirmDialog({ inert = false }: { inert?: boolean })');
+    expect(CONFIRM).toMatch(
+      /useEffect\(\(\) => \{\s*if \(!spec \|\| inert \|\| boxRef\.current\?\.contains\(document\.activeElement\)\) return;\s*buttonRefs\.current\[focusedChoice\(spec\)\]\?\.focus\(FOCUS_WITH_RING\);\s*\}, \[spec, inert\]\);/
+    );
+    expect(CONFIRM).toMatch(/className=\{spec\.altLabel \? [^}]*\}\s*ref=\{boxRef\}/);
   });
 });

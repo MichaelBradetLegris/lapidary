@@ -76,9 +76,10 @@ export function FocusOverlayView({ seconds, elapsedMs, titleId, textId }: ViewPr
  * Focus mode's overlay (focus.1, PLAN section 7, Focus mode): over the whole
  * window, dialogs and a question included, while the author holds F11 or
  * Escape to leave focus mode, or while it waits for one, opened by the
- * toolbar's button, a close request or Restart now. App makes the page and
- * the dialogs inert under it (`shellInert`'s `overlay`), and
- * `state/focusMode.ts` keeps every key from the page while it shows. A click
+ * toolbar's button, a close request or Restart now. App makes everything
+ * under it inert, the page, the dialogs, the question and Restart now's
+ * overlay (`shellInert`'s `focus`), and `state/focusMode.ts` keeps every key
+ * from the page while it shows. A click
  * anywhere on it closes it (`resumeFocus`): the whole press lands on it, so
  * nothing under it is clicked. It takes the focus on its box as it shows, so
  * a screen reader reads it, and hands it back to where it was when it goes

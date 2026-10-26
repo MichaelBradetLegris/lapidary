@@ -43,10 +43,13 @@ export const FOCUS_HOLD_AFTER = 'to leave';
 
 /**
  * The note under Focus mode (focus.1): the one line that says what it does to
- * Alt+Tab, which is all the app can do about it (PLAN C.121).
+ * Alt+Tab, which is all the app can do about it (PLAN C.121). It says only
+ * that the window asks for the focus back, which Windows may refuse: until
+ * the author's check on the packaged build says it comes back, it promises
+ * nothing more (focus.1 review).
  */
 export const FOCUS_MODE_NOTE =
-  'Full screen stays in front: Alt+Tab or a click elsewhere brings you straight back.';
+  'Full screen stays on top of other windows and asks for the focus back after Alt+Tab.';
 
 /** Focus mode's (?): how it is entered and left, what it cannot stop, and when a change applies. */
 export const FOCUS_MODE_TIP = `With focus mode on, going full screen (F11, or the arrows before Settings) keeps ${APP_NAME} in front. Leaving full screen, or closing the window, then takes holding F11 or Esc for the time set; any other key or a click goes back to your chapter. Focus mode cannot stop the Windows key or Ctrl+Alt+Del, and it ends by itself if ${APP_NAME} stops responding. A change here applies the next time you go full screen.`;

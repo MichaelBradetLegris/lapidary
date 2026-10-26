@@ -44,14 +44,30 @@ describe('App and focus mode (focus.1)', () => {
   it('draws the overlay last in each of the three layouts, over the question', () => {
     expect(app.match(/<FocusOverlay \/>/g)).toHaveLength(3);
     // The comments are taken out first, so a JSX comment between them is left as {}.
-    expect(app.match(/<ConfirmDialog \/>\s*(\{\}\s*)?<FocusOverlay \/>\s*<\/div>/g)).toHaveLength(3);
+    expect(
+      app.match(
+        /<ConfirmDialog inert=\{(inert|cardInert)\.over\} \/>\s*(\{\}\s*)?<FocusOverlay \/>\s*<\/div>/g
+      )
+    ).toHaveLength(3);
   });
 
   it('makes the page and the dialogs inert under it, in every layout', () => {
     expect(app).toContain('const focusOverlayOpen = useFocusOverlay((s) => s.open);');
-    expect(app).toContain('const overlayShown = updateOverlay !== null || focusOverlayOpen;');
-    expect(app.match(/overlay: overlayShown/g)).toHaveLength(2);
-    expect(app).not.toContain('overlay: updateOverlay !== null');
+    expect(app.match(/overlay: updateOverlayShown,\s*focus: focusOverlayOpen\s*\}\)/g)).toHaveLength(2);
+  });
+
+  /* focus.1 review: with a question open, the overlay showed over it, but
+     nothing made the question inert, so a screen reader's cursor could reach
+     and press "Keep for later" under the hold. */
+  it("makes the question and Restart now's overlay inert under it too, in every layout", () => {
+    expect(app.match(/<ConfirmDialog inert=\{inert\.over\} \/>/g)).toHaveLength(2);
+    expect(app.match(/<ConfirmDialog inert=\{cardInert\.over\} \/>/g)).toHaveLength(1);
+    expect(app.match(/<ConfirmDialog\b/g)).toHaveLength(3);
+    expect(app).toMatch(
+      /const updateOverlay = updateOverlayShown \? \(?\s*<UpdateOverlay update=\{updateStatus\} inert=\{inert\.over\} \/>\s*\)? : null;/
+    );
+    expect(app.match(/<UpdateOverlay\b/g)).toHaveLength(1);
+    expect(app.match(/\{updateOverlay\}/g)).toHaveLength(3);
   });
 
   it('has a close and Restart now wait on the hold, through the close guard', () => {

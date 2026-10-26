@@ -6,6 +6,12 @@ import { useDialogFocus } from '../state/dialog';
 
 interface Props {
   update: UpdateStatus | null;
+  /**
+   * True while focus mode's overlay covers this one (focus.1, `shellInert`'s
+   * `over`), so nothing under the hold can be reached, a screen reader's
+   * cursor included.
+   */
+  inert?: boolean;
 }
 
 /**
@@ -13,7 +19,8 @@ interface Props {
  * from the moment the page has agreed to go, after the close question, until
  * the installer closes the app, so nothing more can be decided or typed that
  * the install would lose. App makes the page and the dialogs inert under it
- * (`shellInert`), and the page's keys do nothing (`isModalOpen`); it has no
+ * (`shellInert`; the overlay itself is inert only under focus mode's,
+ * `inert`, focus.1), and the page's keys do nothing (`isModalOpen`); it has no
  * button, and Escape does nothing, About's included (`dialogTakesEscape`'s
  * `overlay`). It takes the focus as it shows, so a screen reader reads it. An
  * install that fails takes it away, and the update card says why; the focus
@@ -21,7 +28,7 @@ interface Props {
  * or else to `UPDATE_OVERLAY_FOCUS_FALLBACK` (`useDialogFocus`, release.9
  * review), so the keyboard is where it was.
  */
-export function UpdateOverlay({ update }: Props): React.JSX.Element {
+export function UpdateOverlay({ update, inert = false }: Props): React.JSX.Element {
   const boxRef = useRef<HTMLDivElement>(null);
   const { title, body } = updateOverlayText(update);
   useDialogFocus(boxRef, UPDATE_OVERLAY_FOCUS_FALLBACK);
@@ -32,6 +39,7 @@ export function UpdateOverlay({ update }: Props): React.JSX.Element {
       role="alertdialog"
       aria-modal="true"
       aria-label={title}
+      inert={inert}
     >
       <div className="modal modal--narrow update-overlay" ref={boxRef} tabIndex={-1} aria-busy="true">
         <div className="update-overlay__head">
