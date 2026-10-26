@@ -13,20 +13,27 @@ import {
  * window in focus mode: main makes it a kiosk window kept on top and brings it
  * back to the front when it loses the focus, which is all the app can do about
  * Alt+Tab. Leaving full screen, or closing the window, then takes holding F11
- * or Escape for the time set (15, 30 or 60 seconds). The page shows the hold:
- * an overlay above everything with a count in a filling ring, and the words
- * below; letting go early, any other key or a click closes it, and the count
- * starts over next time. While it shows, no key reaches the page.
+ * or Escape for the time set (5, 10, 15, 30 or 60 seconds since focus.2,
+ * 10 by default). The page shows the hold: an overlay above everything with a
+ * count in a filling ring, and the words below; letting go early, any other
+ * key or a click closes it, and the count starts over next time. While it
+ * shows, no key reaches the page.
  *
  * Pure (CLAUDE.md rule 4).
  */
 
-/** The hold times Settings offers, in seconds. */
-export const FOCUS_HOLD_SECONDS = [15, 30, 60] as const;
+/**
+ * The hold times Settings offers, in seconds, shortest first. 5 and 10 came
+ * in focus.2, at the author's word that 10 is "plenty to make you second
+ * think"; 15, 30 and 60 stay, so a time a settings.json kept from focus.1
+ * stays what it was.
+ */
+export const FOCUS_HOLD_SECONDS = [5, 10, 15, 30, 60] as const;
 
 export type FocusHoldSeconds = (typeof FOCUS_HOLD_SECONDS)[number];
 
-export const DEFAULT_FOCUS_HOLD_SECONDS: FocusHoldSeconds = 30;
+/** 10 seconds since focus.2 (30 until then). */
+export const DEFAULT_FOCUS_HOLD_SECONDS: FocusHoldSeconds = 10;
 
 /** A hold time a settings.json names, or the default for anything else. */
 export function normalizeFocusHold(value: unknown): FocusHoldSeconds {
@@ -35,7 +42,7 @@ export function normalizeFocusHold(value: unknown): FocusHoldSeconds {
     : DEFAULT_FOCUS_HOLD_SECONDS;
 }
 
-/** The hold time as the Settings list names it: "30 seconds". */
+/** The hold time as the Settings list names it: "10 seconds". */
 export function focusHoldLabel(seconds: FocusHoldSeconds): string {
   return `${seconds} seconds`;
 }
@@ -61,8 +68,8 @@ export const FOCUS_OVERLAY_TITLE = "You're in focus mode.";
 /**
  * The overlay's lines under the heading, in the task's words (focus.1): with
  * the heading they read "You're in focus mode. Are you sure you want to exit?
- * Hold F11 or Esc for 30 seconds to exit. Press any other key or click to
- * resume."
+ * Hold F11 or Esc for 10 seconds to exit. Press any other key or click to
+ * resume.", the time set in the hold line.
  */
 export function focusOverlayLines(seconds: FocusHoldSeconds): string[] {
   return [

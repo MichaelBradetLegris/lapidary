@@ -3,6 +3,12 @@ import { APP_NAME } from '../../src/shared/branding';
 import { ABOUT_BUTTON } from '../../src/shared/ui/about';
 import { BACKUPS_NOTE } from '../../src/shared/ui/backups';
 import {
+  DEFAULT_FOCUS_HOLD_SECONDS,
+  FOCUS_HOLD_SECONDS,
+  focusHoldLabel,
+  type FocusHoldSeconds
+} from '../../src/shared/ui/focusMode';
+import {
   ABOUT_BUTTON_NOTE,
   APPEARANCE_NOTE,
   BACKUPS_TIP,
@@ -87,6 +93,20 @@ describe('the notes under the rows', () => {
     expect(`${FOCUS_HOLD_BEFORE} 30 seconds ${FOCUS_HOLD_AFTER}`).toBe(
       'Hold F11 or Esc for 30 seconds to leave'
     );
+  });
+
+  /* focus.2: the row reads as one sentence for every time the list offers, 10 seconds, the default, first seen. */
+  it('read as one sentence around each hold time, the default 10 seconds', () => {
+    const row = (seconds: FocusHoldSeconds): string =>
+      `${FOCUS_HOLD_BEFORE} ${focusHoldLabel(seconds)} ${FOCUS_HOLD_AFTER}`;
+    expect(row(DEFAULT_FOCUS_HOLD_SECONDS)).toBe('Hold F11 or Esc for 10 seconds to leave');
+    expect(FOCUS_HOLD_SECONDS.map(row)).toEqual([
+      'Hold F11 or Esc for 5 seconds to leave',
+      'Hold F11 or Esc for 10 seconds to leave',
+      'Hold F11 or Esc for 15 seconds to leave',
+      'Hold F11 or Esc for 30 seconds to leave',
+      'Hold F11 or Esc for 60 seconds to leave'
+    ]);
   });
 
   it('keep the Appearance note theme.7 gave', () => {

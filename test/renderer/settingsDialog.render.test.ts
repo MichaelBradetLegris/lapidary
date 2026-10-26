@@ -195,15 +195,42 @@ describe('the sections and rows (polish.4)', () => {
     expect(names('Accounts')).toEqual(['Claude account', 'ChatGPT account']);
   });
 
-  /* focus.1: the box, off by default, and the hold time beside it, 30 seconds by default. */
+  /* focus.1: the box, off by default, and the hold time beside it; 10 seconds by default since focus.2 (30 before). */
   it('shows focus mode as the settings have it: the box, and the hold time beside it', () => {
     const off = decode(render());
     expect(off).toMatch(/<input id="[^"]+" type="checkbox" aria-describedby="[^"]+"\/>/);
-    expect(off).toContain('<option value="30" selected="">30 seconds</option>');
+    expect(off).toContain('<option value="10" selected="">10 seconds</option>');
+    expect(off).toContain('<option value="30">30 seconds</option>');
     const on = decode(render({ settings: { focusMode: true, focusHoldSeconds: 60 } }));
     expect(on).toMatch(/<input id="[^"]+" type="checkbox" aria-describedby="[^"]+" checked=""\/>/);
     expect(on).toContain('<option value="60" selected="">60 seconds</option>');
     expect(on).toContain('<option value="15">15 seconds</option>');
+    expect(on).toContain('<option value="10">10 seconds</option>');
+  });
+
+  /* focus.2: five hold times, shortest first, in one list, the row's words either side; a time kept from focus.1 shows as chosen. */
+  it('offers 5, 10, 15, 30 and 60 seconds, shortest first, and shows the time the settings hold', () => {
+    const options = (html: string): string[] =>
+      [...html.matchAll(/<option value="(\d+)"( selected="")?>([^<]*)<\/option>/g)]
+        .filter(([, value]) => ['5', '10', '15', '30', '60'].includes(value ?? ''))
+        .map(([, value, selected, label]) => `${value ?? ''}${selected ? '*' : ''} ${label ?? ''}`);
+    expect(options(decode(render()))).toEqual([
+      '5 5 seconds',
+      '10* 10 seconds',
+      '15 15 seconds',
+      '30 30 seconds',
+      '60 60 seconds'
+    ]);
+    expect(options(decode(render({ settings: { focusHoldSeconds: 5 } })))[0]).toBe('5* 5 seconds');
+    expect(options(decode(render({ settings: { focusHoldSeconds: 30 } })))).toContain('30* 30 seconds');
+    const row =
+      /<span class="settings__focus">([\s\S]*?)<\/span>\s*<span><\/span>/.exec(decode(render()))?.[1] ?? '';
+    expect(
+      row
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    ).toBe(`${FOCUS_HOLD_BEFORE} 5 seconds 10 seconds 15 seconds 30 seconds 60 seconds to leave`);
   });
 
   it('puts appearance first, then model and effort, then the folders, then the accounts, then the foot', () => {
@@ -215,6 +242,8 @@ describe('the sections and rows (polish.4)', () => {
       `>${APPEARANCE_NOTE}</p>`,
       '>Focus mode</label>',
       '>Hold F11 or Esc for</label>',
+      '>5 seconds</option>',
+      '>10 seconds</option>',
       '>15 seconds</option>',
       '>30 seconds</option>',
       '>60 seconds</option>',
