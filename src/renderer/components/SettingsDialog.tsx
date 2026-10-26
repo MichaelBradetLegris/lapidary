@@ -62,8 +62,10 @@ interface Props {
  * it, and back where it was, the Settings button as a rule, when it closes.
  * The page behind it is inert meanwhile, so Tab stays inside it (ui.4).
  *
- * Three sections, Review, Folders and Accounts (Claude, and ChatGPT since
- * codex.2), and at the foot the welcome guide, About and Done (polish.4). A
+ * Four sections, App (Appearance, first since polish.22), Review (Claude
+ * model and Effort), Folders and Accounts (Claude, and ChatGPT since
+ * codex.2), and at the foot the welcome guide, About and Done (polish.4). The
+ * keyboard follows the markup, so Tab reaches Appearance first. A
  * row has at most one short note; the longer explanations are the tooltips
  * of the (?) in each row's last cell, after its buttons, so that they stand
  * in one line down the right of the dialog (`HelpTip`, polish.15; Appearance
@@ -191,6 +193,35 @@ export function SettingsDialog({
           {note ? <p className="modal__hint">{note}</p> : null}
         </div>
 
+        {/* The settings of the app itself, first (polish.22): Appearance for
+            now, and what the app gets later. Saved like every other setting;
+            main switches the window as soon as settings:set returns (theme.7,
+            PLAN 11.3 e). */}
+        <section className="settings__section" aria-labelledby={id('app')}>
+          <h3 id={id('app')}>App</h3>
+
+          <div className="modal__row">
+            <label htmlFor={id('appearance')}>Appearance</label>
+            <select
+              id={id('appearance')}
+              value={settings.theme}
+              aria-describedby={id('appearance-note')}
+              onChange={(e) => update({ theme: normalizeTheme(e.target.value) })}
+            >
+              {THEMES.map((theme) => (
+                <option key={theme} value={theme}>
+                  {THEME_LABELS[theme]}
+                </option>
+              ))}
+            </select>
+            <span />
+            <span className="modal__help" />
+          </div>
+          <p className="modal__note" id={id('appearance-note')}>
+            {APPEARANCE_NOTE}
+          </p>
+        </section>
+
         <section className="settings__section" aria-labelledby={id('review')}>
           <h3 id={id('review')}>Review</h3>
 
@@ -229,29 +260,6 @@ export function SettingsDialog({
             <span />
             <HelpTip id={id('effort-tip')} topic="Effort" text={EFFORT_TIP} />
           </div>
-
-          {/* Saved like every other setting; main switches the window as soon as
-              settings:set returns (theme.7, PLAN 11.3 e). */}
-          <div className="modal__row">
-            <label htmlFor={id('appearance')}>Appearance</label>
-            <select
-              id={id('appearance')}
-              value={settings.theme}
-              aria-describedby={id('appearance-note')}
-              onChange={(e) => update({ theme: normalizeTheme(e.target.value) })}
-            >
-              {THEMES.map((theme) => (
-                <option key={theme} value={theme}>
-                  {THEME_LABELS[theme]}
-                </option>
-              ))}
-            </select>
-            <span />
-            <span className="modal__help" />
-          </div>
-          <p className="modal__note" id={id('appearance-note')}>
-            {APPEARANCE_NOTE}
-          </p>
         </section>
 
         <section className="settings__section" aria-labelledby={id('folders')}>

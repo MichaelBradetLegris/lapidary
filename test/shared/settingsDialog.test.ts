@@ -49,8 +49,9 @@ const TIPS = [
 ];
 
 describe('the sections', () => {
-  it('are Review, Folders and Accounts, in that order', () => {
-    expect(SETTINGS_SECTIONS).toEqual(['Review', 'Folders', 'Accounts']);
+  /* polish.22: App, the settings of the app itself, at the top. */
+  it('are App, Review, Folders and Accounts, in that order', () => {
+    expect(SETTINGS_SECTIONS).toEqual(['App', 'Review', 'Folders', 'Accounts']);
   });
 });
 

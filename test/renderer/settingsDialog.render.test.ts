@@ -15,6 +15,7 @@ import {
   MODEL_TIP,
   REVIEWS_FOLDER_TIP,
   SETTINGS_NOTE_MAX,
+  SETTINGS_SECTIONS,
   backupsFolderNote,
   helpButtonLabel,
   reviewsFolderNote
@@ -157,23 +158,48 @@ function controls(html: string): Control[] {
 }
 
 describe('the sections and rows (polish.4)', () => {
-  it('has Review, Folders and Accounts in order, each a section named by its heading', () => {
+  /* polish.22: App, the settings of the app itself, went above Review, taking
+     Appearance, which was Review's third row. */
+  it('has App, Review, Folders and Accounts in order, each a section named by its heading', () => {
     const html = render();
     const headings = [...html.matchAll(/<h3 id="([^"]+)">([^<]+)<\/h3>/g)];
-    expect(headings.map((h) => h[2])).toEqual(['Review', 'Folders', 'Accounts']);
+    expect(headings.map((h) => h[2])).toEqual([...SETTINGS_SECTIONS]);
+    expect(headings.map((h) => h[2])).toEqual(['App', 'Review', 'Folders', 'Accounts']);
     for (const [, id = ''] of headings) {
       expect(html).toContain(`<section class="settings__section" aria-labelledby="${id}"><h3 id="${id}">`);
     }
   });
 
-  it('puts model, effort and appearance first, then the folders, then the accounts, then the foot', () => {
+  it('holds Appearance and its note alone in App, and Claude model and Effort alone in Review', () => {
+    const html = decode(render());
+    const sections = new Map(
+      [...html.matchAll(/<section [^>]*><h3 [^>]*>([^<]+)<\/h3>([\s\S]*?)<\/section>/g)].map(
+        ([, heading = '', inner = '']) => [heading, inner]
+      )
+    );
+    const names = (heading: string): string[] =>
+      [
+        ...(sections.get(heading) ?? '').matchAll(/<div class="modal__row"><(?:label|span)[^>]*>([^<]*)</g)
+      ].map(([, name = '']) => name);
+    expect(names('App')).toEqual(['Appearance']);
+    expect(sections.get('App')).toContain(`<p class="modal__note"`);
+    expect(sections.get('App')).toContain(`>${APPEARANCE_NOTE}</p>`);
+    expect(names('Review')).toEqual(['Claude model', 'Effort']);
+    expect(sections.get('Review')).not.toContain('modal__note');
+    expect(names('Folders')).toEqual(['Manuscript folder', 'Reviews folder', 'Backups', 'Guidelines file']);
+    expect(names('Accounts')).toEqual(['Claude account', 'ChatGPT account']);
+  });
+
+  it('puts appearance first, then model and effort, then the folders, then the accounts, then the foot', () => {
     const html = decode(render());
     const order = [
       '<h2>Settings</h2>',
+      '>App</h3>',
+      '>Appearance</label>',
+      `>${APPEARANCE_NOTE}</p>`,
       '>Review</h3>',
       '>Claude model</label>',
       '>Effort</label>',
-      '>Appearance</label>',
       '>Folders</h3>',
       '<span>Manuscript folder</span>',
       '<span>Reviews folder</span>',
@@ -248,9 +274,9 @@ describe('the (?) of a row (polish.4)', () => {
       expect(row[0]).toMatch(/^<(span|label)[^>]*>[^<]*<\/(span|label)>$/);
     }
     expect(rows.map((row) => text(row[0] ?? ''))).toEqual([
+      'Appearance',
       'Claude model',
       'Effort',
-      'Appearance',
       'Manuscript folder',
       'Reviews folder',
       'Backups',
@@ -258,14 +284,50 @@ describe('the (?) of a row (polish.4)', () => {
       'Claude account',
       'ChatGPT account'
     ]);
+    // Appearance, first since polish.22, has no (?); every row after it has one.
     expect(rows.map((row) => /aria-label="More about ([^"]+)"/.exec(row[3] ?? '')?.[1] ?? null)).toEqual([
-      ...TIPS.slice(0, 2).map(([topic]) => topic),
       null,
-      ...TIPS.slice(2).map(([topic]) => topic)
+      ...TIPS.map(([topic]) => topic)
     ]);
-    expect(rows[2]?.[3]).toBe('<span class="modal__help"></span>');
+    expect(rows[0]?.[3]).toBe('<span class="modal__help"></span>');
     expect(html.match(/class="help"/g)).toHaveLength(TIPS.length);
     expect(html).not.toContain('modal__name');
+  });
+
+  /* The keyboard follows the markup (polish.22): Appearance first, then each
+     row's controls and its (?) down the dialog, then the foot. The guidelines
+     file's Open and Open folder are disabled here, where effects do not run
+     and main has given no path, so Tab passes them by. */
+  it('is reached by Tab after its row, in the order of the rows, Appearance first and Done last', () => {
+    const html = render({ runtime: READY });
+    const reached = controls(html)
+      .filter((control) => !/\sdisabled=""/.test(control.attrs))
+      .map((control) => control.name);
+    expect(reached).toEqual([
+      'Appearance',
+      'Claude model',
+      helpButtonLabel('Claude model'),
+      'Effort',
+      helpButtonLabel('Effort'),
+      'Change',
+      helpButtonLabel('the manuscript folder'),
+      'Change',
+      'Show in folder',
+      helpButtonLabel('the reviews folder'),
+      'Change',
+      'Show in folder',
+      helpButtonLabel('backups'),
+      'Change',
+      helpButtonLabel('the guidelines file'),
+      'Setup',
+      helpButtonLabel('the Claude account'),
+      'Setup',
+      helpButtonLabel('the ChatGPT account'),
+      SHOW_WELCOME_AGAIN,
+      'About',
+      'Done'
+    ]);
+    expect(html).not.toMatch(/tabindex="[1-9]/);
   });
 
   it("comes after the row's own controls, so Tab reaches it after them", () => {

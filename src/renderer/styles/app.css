@@ -2666,7 +2666,8 @@ input[type='text'] {
   color: var(--danger);
 }
 
-/* Settings (polish.4): three sections under hairlines, as About's are. The
+/* Settings (polish.4): four sections under hairlines, as About's are (App,
+   above Review since polish.22, Review, Folders and Accounts). The
    box still scrolls in a short window, between its head (the title and any
    message) and its foot (the welcome guide, About and Done), which stay in
    view, each with a hairline on its inner side; the scroll padding keeps a

@@ -130,7 +130,7 @@ If your Claude plan is Pro, the guide sets the review model to Sonnet the first 
 
 **Text size.** Ctrl+plus and Ctrl+minus zoom the whole window from 80% to 200%, Ctrl+0 goes back to 100%, and Ctrl+wheel works too. The same control sits at the right of the status bar. The level is remembered.
 
-**Dark mode.** Lapidary follows Windows' light or dark mode, and its title bar follows with it. To choose for yourself, set **Appearance** in Settings to **Light** or **Dark**; **Match system** follows Windows again. The window switches as soon as you choose.
+**Dark mode.** Lapidary follows Windows' light or dark mode, and its title bar follows with it. To choose for yourself, set **Appearance**, in the App section at the top of Settings, to **Light** or **Dark**; **Match system** follows Windows again. The window switches as soon as you choose.
 
 ![The same chapter in dark mode.](docs/images/review-dark.png)
 

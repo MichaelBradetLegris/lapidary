@@ -1,6 +1,8 @@
 /**
- * The Settings dialog's words (`polish.4`). The dialog has three sections,
- * Review, Folders and Accounts, with the welcome guide and About at its foot.
+ * The Settings dialog's words (`polish.4`). The dialog has four sections,
+ * App, Review, Folders and Accounts, with the welcome guide and About at its
+ * foot. App holds the settings of the app itself, Appearance for now; it went
+ * above Review in `polish.22`, which until then held Appearance under Effort.
  * A row has at most one note under it, one short line. What a note used to
  * say at length is now the tooltip of the small (?) at the right end of the
  * row (`HelpTip`, polish.15), which is also what a screen reader gives as the
@@ -15,7 +17,7 @@ import { APP_NAME } from '../branding';
 import { BACKUPS_NOTE } from './backups';
 
 /** The section headings, in the order the dialog shows them. */
-export const SETTINGS_SECTIONS = ['Review', 'Folders', 'Accounts'] as const;
+export const SETTINGS_SECTIONS = ['App', 'Review', 'Folders', 'Accounts'] as const;
 
 /**
  * The most characters a note under a row may have, so that it stays on one
@@ -28,6 +30,11 @@ export function helpButtonLabel(topic: string): string {
   return `More about ${topic}`;
 }
 
+/* ---------- App ---------- */
+
+/** The note under Appearance (theme.7), unchanged. */
+export const APPEARANCE_NOTE = "Match system follows your computer's light or dark setting.";
+
 /* ---------- Review ---------- */
 
 export const MODEL_TIP =
@@ -35,9 +42,6 @@ export const MODEL_TIP =
 
 export const EFFORT_TIP =
   "How much the model reasons before it answers, for Claude and ChatGPT alike. A higher effort takes longer and uses more of your plan's limits or your API credit.";
-
-/** The note under Appearance (theme.7), unchanged. */
-export const APPEARANCE_NOTE = "Match system follows your computer's light or dark setting.";
 
 /* ---------- Folders ---------- */
 
