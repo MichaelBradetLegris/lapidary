@@ -8,6 +8,7 @@ import {
 } from './types';
 import { extensionOf, hasNul, isAbsolutePath } from './paths';
 import { normalizeColumnWidths } from './ui/columns';
+import { normalizeFocusHold } from './ui/focusMode';
 import { normalizeSplit } from './ui/split';
 import { normalizeTheme } from './ui/theme';
 import { normalizeZoom } from './ui/zoom';
@@ -114,6 +115,9 @@ export function normalizeSettings(input: unknown): Settings {
     effort: isEffort(raw['effort']) ? raw['effort'] : DEFAULT_SETTINGS.effort,
     zoom: normalizeZoom(raw['zoom']),
     theme: normalizeTheme(raw['theme']),
+    // Off unless the file says true, and a hold time Settings does not offer is the default (focus.1).
+    focusMode: raw['focusMode'] === true,
+    focusHoldSeconds: normalizeFocusHold(raw['focusHoldSeconds']),
     // A settings file from before 1.0 has no such key: someone who already chose
     // a folder has been through setup and should not see the welcome guide.
     onboardingDone:

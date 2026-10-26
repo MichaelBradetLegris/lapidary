@@ -10,6 +10,11 @@ import {
   CLAUDE_ACCOUNT_TIP,
   DONE_NOTE,
   EFFORT_TIP,
+  FOCUS_HOLD_AFTER,
+  FOCUS_HOLD_BEFORE,
+  FOCUS_MODE_LABEL,
+  FOCUS_MODE_NOTE,
+  FOCUS_MODE_TIP,
   GUIDELINES_TIP,
   MANUSCRIPT_TIP,
   MODEL_TIP,
@@ -31,6 +36,7 @@ import { WELCOME_GUIDE_NOTE } from '../../src/shared/ui/welcome';
 
 const NOTES = [
   APPEARANCE_NOTE,
+  FOCUS_MODE_NOTE,
   reviewsFolderNote(false),
   reviewsFolderNote(true),
   backupsFolderNote(false),
@@ -38,6 +44,7 @@ const NOTES = [
 ];
 
 const TIPS = [
+  FOCUS_MODE_TIP,
   MODEL_TIP,
   EFFORT_TIP,
   MANUSCRIPT_TIP,
@@ -67,6 +74,17 @@ describe('the notes under the rows', () => {
   it('are shorter than the tooltips that hold the rest', () => {
     const longest = Math.max(...NOTES.map((n) => n.length));
     for (const tip of TIPS) expect(tip.length, tip).toBeGreaterThan(longest);
+  });
+
+  /* focus.1: the one line that says what focus mode does about Alt+Tab, and the words either side of the hold time. */
+  it('say in one line what focus mode does about Alt+Tab, and name the hold', () => {
+    expect(FOCUS_MODE_NOTE).toBe(
+      'Full screen stays in front: Alt+Tab or a click elsewhere brings you straight back.'
+    );
+    expect(FOCUS_MODE_LABEL).toBe('Focus mode');
+    expect(`${FOCUS_HOLD_BEFORE} 30 seconds ${FOCUS_HOLD_AFTER}`).toBe(
+      'Hold F11 or Esc for 30 seconds to leave'
+    );
   });
 
   it('keep the Appearance note theme.7 gave', () => {
@@ -132,6 +150,18 @@ describe('the tooltips keep what the long notes said', () => {
   it('says a chapter changes only on Save to chapter, and that the app never sees the Claude sign-in', () => {
     expect(MANUSCRIPT_TIP).toMatch(/A chapter changes only when you press Save to chapter/);
     expect(CLAUDE_ACCOUNT_TIP).toContain(`${APP_NAME} never sees your Claude password or sign-in token`);
+  });
+
+  /* focus.1: how focus mode is entered and left, what it cannot stop, that it
+     ends by itself when the app stops responding, and when a change applies. */
+  it('says how focus mode is entered and left, what it cannot stop, and when a change applies', () => {
+    expect(FOCUS_MODE_TIP).toContain('going full screen (F11, or the arrows before Settings)');
+    expect(FOCUS_MODE_TIP).toContain(`keeps ${APP_NAME} in front`);
+    expect(FOCUS_MODE_TIP).toContain('takes holding F11 or Esc for the time set');
+    expect(FOCUS_MODE_TIP).toContain('any other key or a click goes back to your chapter');
+    expect(FOCUS_MODE_TIP).toContain('cannot stop the Windows key or Ctrl+Alt+Del');
+    expect(FOCUS_MODE_TIP).toContain(`ends by itself if ${APP_NAME} stops responding`);
+    expect(FOCUS_MODE_TIP).toContain('the next time you go full screen');
   });
 
   it('says what Default and the effort do, and where the ChatGPT model is chosen', () => {

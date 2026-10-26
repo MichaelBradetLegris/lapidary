@@ -15,7 +15,7 @@ import type {
   Settings
 } from './types';
 import type { ZoomAction } from './ui/zoom';
-import type { FullScreenAction } from './ui/fullScreen';
+import type { FullScreenAction, FullScreenChange, FullScreenState } from './ui/fullScreen';
 import type { StyleSheetStatus } from './prompt/guidelines';
 import type { ClaudeCredential } from './ai/claudeStatus';
 import type { UpdateStatus } from './updates';
@@ -676,11 +676,13 @@ export interface ApiRequestMap {
   'view:zoom': { request: { action: ZoomAction }; response: { zoom: number } };
   /**
    * the window's full screen (polish.23): `toggle` for F11 and the toolbar's
-   * button, `leave` for Escape, `current` to read it; answers with where the
-   * window is asked to stand, and every change also comes as
+   * button, `leave` for Escape, `current` to read it, and `release` once F11
+   * or Escape has been held through focus mode's time (focus.1), the one
+   * word that leaves focus mode; answers with where the window is asked to
+   * stand and whether it is in focus mode, and every change also comes as
    * `window:full-screen-changed`. Main never starts in it.
    */
-  'window:full-screen': { request: { action: FullScreenAction }; response: { fullScreen: boolean } };
+  'window:full-screen': { request: { action: FullScreenAction }; response: FullScreenState };
   /* The close guard (apply.8, PLAN 7.7 and 11.3 i): the page tells main what a
      close would put at risk, how far it has got with a close request, and what
      the author decided. */
@@ -813,8 +815,12 @@ export interface ApiEventMap {
   'ai:rate-limit': RateLimitInfo;
   /** the zoom changed from outside the renderer's own controls: Ctrl+wheel or a shortcut */
   'view:zoom-changed': { zoom: number };
-  /** the window entered or left full screen, by F11, the button, Escape or the system (polish.23) */
-  'window:full-screen-changed': { fullScreen: boolean };
+  /**
+   * the window entered or left full screen, by F11, the button, Escape or the
+   * system (polish.23), or focus mode (focus.1); `kept` when main put it back
+   * in full screen in focus mode, for the page to show the hold
+   */
+  'window:full-screen-changed': FullScreenChange;
   /** a card main wants shown: a crash it survived, an update, a backup problem */
   'app:notice': AppNotice;
   /**

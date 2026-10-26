@@ -176,8 +176,10 @@ function createWindow(): BrowserWindow {
   /* The one render-process-gone handler (11.3 a). A page that is gone holds
      nothing more that could be saved, so no close waits for it: the close
      guard hears first, and a close under way goes ahead. Otherwise the author
-     is offered Reload window or Quit (hardening.4, PLAN 7.7). */
+     is offered Reload window or Quit (hardening.4, PLAN 7.7). Focus mode goes
+     before either, so the window is an ordinary one again (focus.1). */
   win.webContents.on('render-process-gone', (_e, details) => {
+    fullScreen.leaveFocus('renderer-gone');
     const closing = closeGuard.onRendererGone();
     void afterRendererGone(win, details, closing);
   });
@@ -271,6 +273,8 @@ function start(): void {
       return;
     }
     closeGuard.onBeforeQuit();
+    // The app is going: the window leaves focus mode first (focus.1).
+    fullScreen.leaveFocus('quit');
   });
 
   // Synchronous on purpose: nothing may be awaited once the app is quitting.
@@ -290,6 +294,8 @@ function start(): void {
     const settings = await loadSettings();
     applyTheme(settings.theme);
     installTheme();
+    // Read as the window goes full screen (focus.1); settings:get and settings:set keep it current.
+    fullScreen.setFocusSettings(settings);
     createWindow();
     // The first check 15 s from now, then daily; nothing in a development run (11.3 a and n).
     startUpdates();

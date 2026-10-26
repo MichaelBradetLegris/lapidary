@@ -33,7 +33,12 @@ function zIndices(css: string): { selector: string; z: number }[] {
 describe('confirm dialog layer (apply.6 review)', () => {
   const layers = zIndices(CSS);
   const confirm = layers.filter((l) => l.selector === '.modal-backdrop--confirm');
-  const others = layers.filter((l) => l.selector !== '.modal-backdrop--confirm');
+  /* focus.1: focus mode's overlay covers even a question, as the hold must
+     cover everything; nothing else does. */
+  const focus = layers.filter((l) => l.selector === '.modal-backdrop--focus');
+  const others = layers.filter(
+    (l) => l.selector !== '.modal-backdrop--confirm' && l.selector !== '.modal-backdrop--focus'
+  );
 
   it('reads the layers it compares against, the editor and the tooltip among them', () => {
     expect(others.map((l) => l.selector)).toEqual(
@@ -41,18 +46,20 @@ describe('confirm dialog layer (apply.6 review)', () => {
     );
   });
 
-  it('puts the confirm backdrop above every other layer in app.css', () => {
+  it("puts the confirm backdrop above every other layer in app.css but focus mode's overlay", () => {
     expect(confirm).toHaveLength(1);
     for (const other of others) {
       expect(confirm[0]?.z, `${other.selector} is at ${other.z}`).toBeGreaterThan(other.z);
     }
+    expect(focus).toHaveLength(1);
+    expect(focus[0]?.z).toBeGreaterThan(confirm[0]?.z ?? Infinity);
   });
 
   it('gives the confirm dialog that backdrop', () => {
     expect(CONFIRM).toContain('className="modal-backdrop modal-backdrop--confirm"');
   });
 
-  it('renders the confirm dialog last in each layout, after every dialog and the editor', () => {
+  it("renders the confirm dialog last in each layout but focus mode's overlay, after every dialog and the editor", () => {
     // The four dialogs are made just before the two returns (ui.4): the
     // Setup screen's and the welcome guide's (setup.7, setup.11) and the main
     // view's.
@@ -72,7 +79,7 @@ describe('confirm dialog layer (apply.6 review)', () => {
     expect(setupStart).toBeGreaterThan(0);
     for (const layout of [made.slice(setupStart, mainStart), made.slice(mainStart)]) {
       const names = [...layout.matchAll(/<([A-Z]\w*)/g)].map((m) => m[1]);
-      expect(names.at(-1)).toBe('ConfirmDialog');
+      expect(names.slice(-2)).toEqual(['ConfirmDialog', 'FocusOverlay']);
       expect(names.filter((name) => name === 'ConfirmDialog')).toHaveLength(1);
       expect(layout.indexOf('{settingsDialog}')).toBeLessThan(layout.indexOf('<ConfirmDialog />'));
       expect(layout.indexOf('{diagnosticsDialog}')).toBeLessThan(layout.indexOf('<ConfirmDialog />'));
@@ -103,7 +110,7 @@ describe('the question holds the keyboard (apply.7 review), and so does every di
     expect(APP).toContain('const questionOpen = useApp((s) => s.confirmSpec !== null);');
     // What is open is what is drawn, so the page is never inert under nothing.
     expect(APP).toMatch(
-      /const inert = shellInert\(\{\s*dialog: \[\s*newChapterDialog,\s*manualReviewDialog,\s*reviewDialog,\s*settingsDialog,\s*diagnosticsDialog,\s*aboutDialog\s*\]\.some\(\(d\) => d !== null\),\s*question: questionOpen,\s*overlay: updateOverlay !== null\s*\}\);/
+      /const inert = shellInert\(\{\s*dialog: \[\s*newChapterDialog,\s*manualReviewDialog,\s*reviewDialog,\s*settingsDialog,\s*diagnosticsDialog,\s*aboutDialog\s*\]\.some\(\(d\) => d !== null\),\s*question: questionOpen,\s*overlay: overlayShown\s*\}\);/
     );
     expect(main.indexOf(page)).toBeGreaterThan(main.indexOf('<div className="app-shell">'));
     const inside = main.slice(main.indexOf(page), main.indexOf(dialogs));
@@ -121,10 +128,11 @@ describe('the question holds the keyboard (apply.7 review), and so does every di
       expect(inside.indexOf(name), name).toBeGreaterThan(0);
     }
     // The page closes just before the dialogs' wrapper, which holds the four
-    // dialogs and closes just before the question, which stays outside both
-    // (each `{}` is a JSX comment with its text taken out).
+    // dialogs and closes just before the question, which stays outside both,
+    // with only focus mode's overlay after it (focus.1; each `{}` is a JSX
+    // comment with its text taken out).
     expect(main).toMatch(
-      /<\/div>\s*(\{\s*\}\s*)?<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*\{diagnosticsDialog\}\s*\{aboutDialog\}\s*<\/div>\s*\{updateOverlay\}\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*<\/div>\s*\);\s*\}\s*$/
+      /<\/div>\s*(\{\s*\}\s*)?<div className="app-shell__dialogs" inert=\{inert\.dialogs\}>\s*\{newChapterDialog\}\s*\{manualReviewDialog\}\s*\{reviewDialog\}\s*\{settingsDialog\}\s*\{diagnosticsDialog\}\s*\{aboutDialog\}\s*<\/div>\s*\{updateOverlay\}\s*(\{\s*\}\s*)?<ConfirmDialog \/>\s*(\{\s*\}\s*)?<FocusOverlay \/>\s*<\/div>\s*\);\s*\}\s*$/
     );
     for (const name of ['<NewChapterDialog', '<ManualReviewDialog', '<ReviewDialog', '<SettingsDialog']) {
       expect(main, name).not.toContain(name);

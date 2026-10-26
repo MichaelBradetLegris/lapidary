@@ -149,9 +149,16 @@ interface Logged {
   fields: Readonly<Record<string, unknown>>;
 }
 
+/** Focus mode as main's full screen would answer it (focus.1): on or not, and each time it was left. */
+interface FocusStub {
+  on: boolean;
+  /** how many boxes had been shown each time the guard left focus mode */
+  leftAtBoxes: number[];
+}
+
 function setup(
   showBox?: (box: UnresponsiveBox, signal: AbortSignal) => Promise<BoxAnswer>,
-  { quiet = false }: { quiet?: boolean } = {}
+  { quiet = false, focus }: { quiet?: boolean; focus?: FocusStub } = {}
 ) {
   const boxes: ShownBox[] = [];
   const logged: Logged[] = [];
@@ -169,7 +176,16 @@ function setup(
       quits += 1;
     },
     log: (level, event, fields = {}) => void logged.push({ level, event, fields }),
-    quietWindow: () => quiet
+    quietWindow: () => quiet,
+    ...(focus
+      ? {
+          focusMode: () => focus.on,
+          leaveFocusMode: () => {
+            focus.leftAtBoxes.push(boxes.length);
+            focus.on = false;
+          }
+        }
+      : {})
   });
   const win = new FakeWindow();
   guard.attach(win);
@@ -246,6 +262,103 @@ describe('a close with nothing at risk goes through at once, with no IPC (apply.
     expect(win.userCloses()).toBe(true);
     await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS + FINISHING_TIMEOUT_MS);
     expect(boxes).toEqual([]);
+  });
+});
+
+/* focus.1: in focus mode only a held F11 or Escape leaves, so the page is
+   asked about every close and shows the hold first; a page that cannot show
+   it never keeps the window, and focus mode goes before the native box. */
+describe('a close in focus mode (focus.1)', () => {
+  const inFocus = (): FocusStub => ({ on: true, leftAtBoxes: [] });
+
+  it('asks the page, with nothing at risk, so it can show the hold', () => {
+    const { guard, win, logged } = setup(undefined, { focus: inFocus() });
+    guard.setState(CLEAN);
+    expect(win.userCloses()).toBe(false);
+    expect(win.requests()).toEqual([{ quitting: false }]);
+    expect(logged.filter((l) => l.event === 'close.asked')).toHaveLength(1);
+  });
+
+  it('goes through at once outside focus mode, as before', () => {
+    const { guard, win } = setup(undefined, { focus: { on: false, leftAtBoxes: [] } });
+    guard.setState(CLEAN);
+    expect(win.userCloses()).toBe(true);
+    expect(win.sent).toEqual([]);
+  });
+
+  it('goes through at once while the page has pushed nothing, which could not show the hold', () => {
+    const { win } = setup(undefined, { focus: inFocus() });
+    expect(win.userCloses()).toBe(true);
+    expect(win.sent).toEqual([]);
+  });
+
+  it('goes through at once once the session is ending, or the page has gone', () => {
+    const ending = setup(undefined, { focus: inFocus() });
+    ending.guard.setState(CLEAN);
+    ending.win.emit('session-end');
+    expect(ending.win.userCloses()).toBe(true);
+
+    const gone = setup(undefined, { focus: inFocus() });
+    gone.guard.setState(CLEAN);
+    gone.guard.onRendererGone();
+    expect(gone.win.userCloses()).toBe(true);
+  });
+
+  it('shows no box while the page shows the hold, however long it is held, and keeps the window on a false', async () => {
+    const focus = inFocus();
+    const { guard, win, boxes } = setup(undefined, { focus });
+    guard.setState(CLEAN);
+    win.userCloses();
+    guard.onStatus('received');
+    guard.onStatus('prompting');
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(boxes).toEqual([]);
+    expect(focus.leftAtBoxes).toEqual([]);
+    guard.onDecision(false);
+    await tick();
+    expect(win.isDestroyed()).toBe(false);
+    // The next close is asked again.
+    expect(win.userCloses()).toBe(false);
+    expect(win.requests()).toHaveLength(2);
+  });
+
+  it('closes on the page true, once the hold has left focus mode and the close flow has run', async () => {
+    const focus = inFocus();
+    const { guard, win } = setup(undefined, { focus });
+    guard.setState(CLEAN);
+    win.userCloses();
+    guard.onStatus('received');
+    guard.onStatus('prompting');
+    // The hold took the window out of focus mode, then the page's own close flow answered.
+    focus.on = false;
+    guard.onDecision(true);
+    await tick();
+    expect(win.isDestroyed()).toBe(true);
+  });
+
+  it('leaves focus mode before its native box, for a page that does not answer', async () => {
+    const focus = inFocus();
+    const { guard, win, boxes } = setup(undefined, { focus });
+    guard.setState(CLEAN);
+    win.userCloses();
+    await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS);
+    expect(boxes).toHaveLength(1);
+    expect(focus.leftAtBoxes).toEqual([0]);
+    expect(focus.on).toBe(false);
+    // Close anyway still closes.
+    lastBox(boxes).press('close');
+    await tick();
+    expect(win.isDestroyed()).toBe(true);
+  });
+
+  it('leaves focus mode before the box a second close opens at once', () => {
+    const focus = inFocus();
+    const { guard, win, boxes } = setup(undefined, { focus });
+    guard.setState(AT_RISK);
+    win.userCloses();
+    win.userCloses();
+    expect(boxes).toHaveLength(1);
+    expect(focus.leftAtBoxes).toEqual([0]);
   });
 });
 

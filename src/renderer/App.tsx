@@ -45,6 +45,7 @@ import { DiagnosticsDialog } from './components/DiagnosticsDialog';
 import { EditPopover } from './components/EditPopover';
 import { FileList } from './components/FileList';
 import { FindBar } from './components/FindBar';
+import { FocusOverlay } from './components/FocusOverlay';
 import { FullEdit } from './components/FullEdit';
 import { HunkTooltip } from './components/HunkTooltip';
 import { LockCard } from './components/LockCard';
@@ -69,7 +70,8 @@ import { installCloseGuard, prepareToLeaveApp, type CloseGuardDeps } from './sta
 import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state/drafts';
 import { useColumnHandle } from './state/columnHandles';
 import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
-import { installFullScreen, useFullScreen } from './state/fullScreen';
+import { holdToLeave, installFocusMode } from './state/focusMode';
+import { installFullScreen, useFocusOverlay, useFullScreen } from './state/fullScreen';
 import { dismissHint, type HintIo } from './state/hints';
 import { CLOSE_GUARD_IO, PAGE_WRITES } from './state/pageIo';
 import { chooseProvider as chooseReviewProvider } from './state/providerChoice';
@@ -446,6 +448,14 @@ export function App(): React.JSX.Element {
   const fullScreen = useFullScreen((s) => s.on);
   const shellClass = fullScreen ? `app-shell ${FULL_SCREEN_CLASS}` : 'app-shell';
 
+  /* Focus mode (focus.1, state/focusMode.ts): with Settings' box ticked, full
+     screen is only left by holding F11 or Escape, over an overlay that shows
+     the count and keeps every key from the page while it is up. Its keys are
+     caught on the window before anything else's, and the page and the
+     dialogs are inert under it. */
+  useEffect(() => installFocusMode(), []);
+  const focusOverlayOpen = useFocusOverlay((s) => s.open);
+
   /* The side columns give way to the prose in a narrow window, which is what
      zooming in makes: they shrink, then fold to strips that open them as
      drawers over the edge of the prose (ui.3, state/columns.ts). Each has a
@@ -735,7 +745,9 @@ export function App(): React.JSX.Element {
       io: CLOSE_GUARD_IO,
       writes: PAGE_WRITES,
       save,
-      cancelReview
+      cancelReview,
+      // In focus mode a close, or Restart now, waits on the hold (focus.1).
+      focusHold: holdToLeave
     }),
     [save, cancelReview]
   );
@@ -1361,6 +1373,9 @@ export function App(): React.JSX.Element {
   /* Restart now's overlay (release.9), over the page and the dialogs from the
      moment the page has agreed to go until the app closes for the installer. */
   const updateOverlay = updateOverlayShown ? <UpdateOverlay update={updateStatus} /> : null;
+  /* Focus mode's overlay (focus.1) covers everything, a question included,
+     and the page and the dialogs are inert under it as under Restart now's. */
+  const overlayShown = updateOverlay !== null || focusOverlayOpen;
   const inert = shellInert({
     dialog: [
       newChapterDialog,
@@ -1371,7 +1386,7 @@ export function App(): React.JSX.Element {
       aboutDialog
     ].some((d) => d !== null),
     question: questionOpen,
-    overlay: updateOverlay !== null
+    overlay: overlayShown
   });
 
   /* settings.json could not be read (hardening.15, C.86): one card says so,
@@ -1389,7 +1404,7 @@ export function App(): React.JSX.Element {
     const cardInert = shellInert({
       dialog: diagnosticsDialog !== null,
       question: questionOpen,
-      overlay: updateOverlay !== null
+      overlay: overlayShown
     });
     return (
       <div className={shellClass}>
@@ -1411,6 +1426,7 @@ export function App(): React.JSX.Element {
         </div>
         {updateOverlay}
         <ConfirmDialog />
+        <FocusOverlay />
       </div>
     );
   }
@@ -1503,6 +1519,7 @@ export function App(): React.JSX.Element {
         </div>
         {updateOverlay}
         <ConfirmDialog />
+        <FocusOverlay />
       </div>
     );
   }
@@ -1643,8 +1660,10 @@ export function App(): React.JSX.Element {
         {aboutDialog}
       </div>
       {updateOverlay}
-      {/* Last, above everything: a question can be asked from any dialog above. */}
+      {/* Above everything: a question can be asked from any dialog above. */}
       <ConfirmDialog />
+      {/* Focus mode's hold (focus.1) covers even a question. */}
+      <FocusOverlay />
     </div>
   );
 }

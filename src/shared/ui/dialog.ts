@@ -34,6 +34,14 @@ export const UPDATE_OVERLAY_FOCUS_FALLBACK: readonly string[] = [
 ];
 
 /**
+ * Where the focus goes when focus mode's overlay goes, should where it was
+ * have gone (focus.1): the box of a dialog open under it, and else nowhere,
+ * so that a press of F11 on the chapter, with the focus on nothing, leaves it
+ * on nothing, and Space or Enter after it cannot press a button.
+ */
+export const FOCUS_OVERLAY_FOCUS_FALLBACK: readonly string[] = ['.app-shell__dialogs .modal'];
+
+/**
  * The first of `selectors`, in their order, that `find` finds, or null: a
  * dialog's fallback for the focus (`useDialogFocus`), one selector or several.
  */
@@ -64,7 +72,8 @@ export interface ShellInert {
  * A question is asked over everything, a dialog included, so the dialogs are
  * inert under it too (apply.7 review). The question itself never is. Restart
  * now's overlay (`overlay`, release.9) covers the page and the dialogs while
- * the app is about to close for the installer, so both are inert under it.
+ * the app is about to close for the installer, so both are inert under it,
+ * and so does focus mode's overlay while it shows (focus.1).
  */
 export function shellInert(open: { dialog: boolean; question: boolean; overlay?: boolean }): ShellInert {
   const overlay = open.overlay ?? false;

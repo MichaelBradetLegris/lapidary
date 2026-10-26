@@ -81,7 +81,8 @@ interface Props {
  * (`ToolbarMenu`). Since `polish.23` an icon button before Settings puts the
  * window in full screen and back, as F11 does: two arrows out to the corners,
  * or back in from them in full screen, its name and tooltip saying which
- * (`fullScreenButton`).
+ * (`fullScreenButton`). In focus mode (focus.1) it shows the hold instead,
+ * and its tooltip says to hold F11 or Esc.
  * While a review runs, its progress and Cancel come before Review, whose
  * providers' items wait until it ends.
  *
@@ -122,7 +123,8 @@ export function Toolbar({
   const fullEdit = useApp((s) => fullEditDraft(s.drafts) !== null);
   const runBulk = useBulkAction();
   const fullScreen = useFullScreen((s) => s.on);
-  const fullScreenWords = fullScreenButton(fullScreen);
+  const focusMode = useFullScreen((s) => s.focus !== null);
+  const fullScreenWords = fullScreenButton(fullScreen, focusMode);
 
   const input = saveButtonInput({ review, changedParagraphs, fullEdit, saving, locked });
   const save = saveButtonState(input);

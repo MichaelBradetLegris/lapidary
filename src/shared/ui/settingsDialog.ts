@@ -1,8 +1,9 @@
 /**
  * The Settings dialog's words (`polish.4`). The dialog has four sections,
  * App, Review, Folders and Accounts, with the welcome guide and About at its
- * foot. App holds the settings of the app itself, Appearance for now; it went
- * above Review in `polish.22`, which until then held Appearance under Effort.
+ * foot. App holds the settings of the app itself, Appearance and, since
+ * `focus.1`, Focus mode; it went above Review in `polish.22`, which until
+ * then held Appearance under Effort.
  * A row has at most one note under it, one short line. What a note used to
  * say at length is now the tooltip of the small (?) at the right end of the
  * row (`HelpTip`, polish.15), which is also what a screen reader gives as the
@@ -34,6 +35,21 @@ export function helpButtonLabel(topic: string): string {
 
 /** The note under Appearance (theme.7), unchanged. */
 export const APPEARANCE_NOTE = "Match system follows your computer's light or dark setting.";
+
+/** Focus mode's row (focus.1): its name, and the words either side of the hold time's list. */
+export const FOCUS_MODE_LABEL = 'Focus mode';
+export const FOCUS_HOLD_BEFORE = 'Hold F11 or Esc for';
+export const FOCUS_HOLD_AFTER = 'to leave';
+
+/**
+ * The note under Focus mode (focus.1): the one line that says what it does to
+ * Alt+Tab, which is all the app can do about it (PLAN C.121).
+ */
+export const FOCUS_MODE_NOTE =
+  'Full screen stays in front: Alt+Tab or a click elsewhere brings you straight back.';
+
+/** Focus mode's (?): how it is entered and left, what it cannot stop, and when a change applies. */
+export const FOCUS_MODE_TIP = `With focus mode on, going full screen (F11, or the arrows before Settings) keeps ${APP_NAME} in front. Leaving full screen, or closing the window, then takes holding F11 or Esc for the time set; any other key or a click goes back to your chapter. Focus mode cannot stop the Windows key or Ctrl+Alt+Del, and it ends by itself if ${APP_NAME} stops responding. A change here applies the next time you go full screen.`;
 
 /* ---------- Review ---------- */
 

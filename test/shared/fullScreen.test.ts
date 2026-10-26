@@ -45,6 +45,12 @@ describe('the words', () => {
   it('names the button by what it does, with F11 in the tooltip', () => {
     expect(fullScreenButton(false)).toEqual({ label: 'Full screen', title: 'Full screen (F11)' });
     expect(fullScreenButton(true)).toEqual({ label: 'Leave full screen', title: 'Leave full screen (F11)' });
+    // focus.1: in focus mode the button shows the hold, and its tooltip says what leaves.
+    expect(fullScreenButton(true, true)).toEqual({
+      label: 'Leave full screen',
+      title: 'Leave full screen (hold F11 or Esc)'
+    });
+    expect(fullScreenButton(false, true)).toEqual({ label: 'Full screen', title: 'Full screen (F11)' });
     expect(FULL_SCREEN_KEY).toBe('F11');
   });
 
@@ -54,10 +60,24 @@ describe('the words', () => {
 });
 
 describe('what the page may ask of main', () => {
-  it('is toggle, leave or current, and nothing else', () => {
-    expect(FULL_SCREEN_ACTIONS).toEqual(['toggle', 'leave', 'current']);
+  it('is toggle, leave, current or release, and nothing else', () => {
+    // release (focus.1): the one word that leaves focus mode, sent once the hold is done.
+    expect(FULL_SCREEN_ACTIONS).toEqual(['toggle', 'leave', 'current', 'release']);
     for (const action of FULL_SCREEN_ACTIONS) expect(isFullScreenAction(action), action).toBe(true);
-    for (const other of ['enter', 'Toggle', '', ' toggle', null, undefined, 1, true, {}, ['toggle']]) {
+    for (const other of [
+      'enter',
+      'Toggle',
+      'Release',
+      'hold',
+      '',
+      ' toggle',
+      null,
+      undefined,
+      1,
+      true,
+      {},
+      ['toggle']
+    ]) {
       expect(isFullScreenAction(other), JSON.stringify(other)).toBe(false);
     }
   });

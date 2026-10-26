@@ -125,7 +125,15 @@ function setup(focus: 'body' | 'elsewhere' = 'body') {
   const close = fakeWrites('close', calls);
   const crash = fakeWrites('crash', calls);
   const v = fakeView(focus);
-  const page = createCrashPage({ io: main.io, closeWrites: close.writes, writes: crash.writes }, v.view);
+  const page = createCrashPage(
+    {
+      io: main.io,
+      closeWrites: close.writes,
+      writes: crash.writes,
+      leaveFocusMode: () => void calls.push('leave focus mode')
+    },
+    v.view
+  );
   return { calls, main, close, crash, v, page };
 }
 
@@ -155,10 +163,21 @@ afterEach(async () => {
 });
 
 describe('createCrashPage, as the page opens', () => {
+  /* focus.1: it has no overlay to hold F11 or Escape with, so focus mode goes as it opens, once. */
+  it('takes the window out of focus mode first, once, and never again on Try again', async () => {
+    const s = setup();
+    undo = s.page.open();
+    expect(s.calls[0]).toBe('leave focus mode');
+    await settle();
+    s.page.tryAgain();
+    await settle();
+    expect(s.calls.filter((c) => c === 'leave focus mode')).toHaveLength(1);
+  });
+
   it('writes both writers, failed writes queued again first, and shows them written', async () => {
     const s = setup();
     undo = s.page.open();
-    expect(s.calls).toEqual(['crash.retry', 'crash.flush']);
+    expect(s.calls).toEqual(['leave focus mode', 'crash.retry', 'crash.flush']);
     expect(s.v.shown).toEqual([]);
     await settle();
     expect(s.v.shown).toEqual([{ writing: false, failures: [] }]);

@@ -24,7 +24,9 @@ import type { LogLevel } from './log';
  *   now's `allowNextClose`, or a close the page has agreed to), when the page
  *   is gone, once the session is ending, or when nothing is at risk
  *   (`needsAttention`), which includes a page that has pushed nothing since it
- *   loaded.
+ *   loaded. In focus mode (focus.1) a page that has pushed a state is asked
+ *   whatever is at risk, since it shows the hold of F11 or Escape first, and
+ *   focus mode is left before the native box shows.
  * - A reload is a new page. When a new document replaces the page in the same
  *   window (the main frame's `did-navigate`: the dev server's reload, Ctrl+R
  *   in development, Reload window after a crash), the guard forgets what the
@@ -118,6 +120,19 @@ export interface CloseGuardDeps<W extends GuardWindow> {
    * flashes. The native box (`showBox`) is outside the switch.
    */
   quietWindow(): boolean;
+  /**
+   * The window is in focus mode (focus.1, src/main/fullScreen.ts): a close is
+   * asked of a page that has pushed a state whatever is at risk, since only
+   * a hold of F11 or Escape leaves focus mode, and the page shows it first.
+   * Absent is never.
+   */
+  focusMode?(): boolean;
+  /**
+   * Leave focus mode before the native box shows: a page that has not
+   * answered may never show the hold, and the window must not keep the
+   * screen over a page that is not there (focus.1).
+   */
+  leaveFocusMode?(): void;
 }
 
 export interface CloseGuard<W extends GuardWindow> {
@@ -293,6 +308,7 @@ export function createCloseGuard<W extends GuardWindow>(deps: CloseGuardDeps<W>)
     const target = liveWindow();
     if (!target || box) return;
     clearTimer();
+    deps.leaveFocusMode?.();
     reveal(target);
     const controller = new AbortController();
     box = controller;
@@ -356,7 +372,9 @@ export function createCloseGuard<W extends GuardWindow>(deps: CloseGuardDeps<W>)
       settle();
       return;
     }
-    if (gone || sessionEnding || !needsAttention(state)) {
+    // In focus mode the page shows the hold first, so a page that has pushed a state is asked.
+    const focusMode = state !== null && (deps.focusMode?.() ?? false);
+    if (gone || sessionEnding || !(needsAttention(state) || focusMode)) {
       settle();
       return;
     }

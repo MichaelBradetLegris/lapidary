@@ -312,12 +312,12 @@ describe("App's and main's wiring (hardening.15)", () => {
     const card = APP.indexOf('if (settingsReadFailed && settings === null) {');
     const layout = APP.slice(card, APP.indexOf('if (singleScreen) {'));
     expect(layout).toMatch(
-      /const cardInert = shellInert\(\{\s*dialog: diagnosticsDialog !== null,\s*question: questionOpen,\s*overlay: updateOverlay !== null\s*\}\);/
+      /const cardInert = shellInert\(\{\s*dialog: diagnosticsDialog !== null,\s*question: questionOpen,\s*overlay: overlayShown\s*\}\);/
     );
     expect(layout).toContain('<div className="app-shell__page" inert={cardInert.page}>');
     expect(layout).not.toContain('inert.page');
     expect(layout).toMatch(
-      /<\/div>\s*<div className="app-shell__dialogs" inert=\{cardInert\.dialogs\}>\s*\{diagnosticsDialog\}\s*<\/div>\s*\{updateOverlay\}\s*<ConfirmDialog \/>\s*<\/div>\s*\);\s*\}\s*$/
+      /<\/div>\s*<div className="app-shell__dialogs" inert=\{cardInert\.dialogs\}>\s*\{diagnosticsDialog\}\s*<\/div>\s*\{updateOverlay\}\s*<ConfirmDialog \/>\s*<FocusOverlay \/>\s*<\/div>\s*\);\s*\}\s*$/
     );
     // The card's own buttons: the file in its folder, and Diagnostics.
     expect(layout).toContain(
@@ -340,7 +340,7 @@ describe("App's and main's wiring (hardening.15)", () => {
   it("main answers settings:get with settingsAnswer, starting the watcher and the author's theme and zoom only after a read that worked", () => {
     const handler = IPC.slice(IPC.indexOf("handle('settings:get'"), IPC.indexOf("handle('settings:set'"));
     expect(handler).toMatch(
-      /const read = await loadSettingsChecked\(\);\s*if \(!read\.readFailed\) \{\s*startWatching\(read\.settings\.manuscriptFolder\);\s*applyTheme\(read\.settings\.theme\);\s*applyZoom\(read\.settings\.zoom\);\s*\}\s*return settingsAnswer\(read\);/
+      /const read = await loadSettingsChecked\(\);\s*if \(!read\.readFailed\) \{\s*startWatching\(read\.settings\.manuscriptFolder\);\s*applyTheme\(read\.settings\.theme\);\s*applyZoom\(read\.settings\.zoom\);\s*fullScreen\.setFocusSettings\(read\.settings\);\s*\}\s*return settingsAnswer\(read\);/
     );
   });
 });

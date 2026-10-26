@@ -8,7 +8,9 @@ import { installCrashedPageGuard, writeAfterCrash, type CloseGuardIo, type PageW
  * - As it opens it takes the close guard over (`installCrashedPageGuard`),
  *   which ends a close the failed page had under way and answers its open
  *   question Cancel, and writes what the review and paragraph writers hold
- *   (`writeAfterCrash`).
+ *   (`writeAfterCrash`). It also takes the window out of focus mode (focus.1,
+ *   `leaveFocusMode`): it has no overlay to hold F11 or Escape with, and a
+ *   window that cannot show the chapter has nothing to keep the author in.
  * - Reload window has the focus whenever no question is open and the focus is
  *   on nothing: as the page opens, and once the failed page's question has
  *   gone. While that question is still in the store on the page's first
@@ -28,6 +30,12 @@ export interface CrashPageDeps {
   closeWrites: PageWrites;
   /** what the page writes as it opens and on Try again (`CRASH_WRITES`) */
   writes: PageWrites;
+  /**
+   * take the window out of focus mode, and full screen with it, as it opens,
+   * when it is in focus mode (focus.1): `window:full-screen` with `release`,
+   * the word a hold sends
+   */
+  leaveFocusMode: () => void;
 }
 
 /** The parts of the page `CrashFallback` draws. */
@@ -68,6 +76,8 @@ export function createCrashPage(deps: CrashPageDeps, view: CrashPageView): Crash
       live = true;
       // The close guard is this page's now, its questions drawn by the page.
       const uninstall = installCrashedPageGuard(deps.io, deps.closeWrites, { questions: true });
+      // No hold can be shown here, so focus mode goes (focus.1).
+      deps.leaveFocusMode();
       write();
       return () => {
         live = false;

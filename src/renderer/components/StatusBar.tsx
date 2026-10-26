@@ -32,7 +32,8 @@ interface Props {
  * the suggestions list shows a decision, by the row's buttons, and the
  * heading's count (polish.12; Show states went in polish.17), what each
  * row's three-letter tag stands for (polish.14), and F11 and Escape for full
- * screen (polish.23). Exported for its render test.
+ * screen (polish.23), held in focus mode (focus.1). Exported for its render
+ * test.
  */
 export function Legend({ onClose }: { onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -143,7 +144,7 @@ export function Legend({ onClose }: { onClose: () => void }): React.JSX.Element 
       <p className="legend__foot">
         F11, or the two arrows before Settings, puts the window in full screen and back. Escape leaves full
         screen too, unless something else is open, such as a dialog, a menu, the find bar or a box you are
-        typing in.
+        typing in. With focus mode on in Settings, leaving full screen takes holding F11 or Escape.
       </p>
     </div>
   );

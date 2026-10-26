@@ -5,16 +5,19 @@ import { Legend } from '../../src/renderer/components/StatusBar';
 import { Toolbar } from '../../src/renderer/components/Toolbar';
 import { useDrawer } from '../../src/renderer/state/columns';
 import {
+  FOCUS_OVERLAY_CLOSED,
   FULL_SCREEN_CARD,
   escapeTakers,
   installFullScreen,
   leaveFullScreen,
   toggleFullScreen,
+  useFocusOverlay,
   useFullScreen
 } from '../../src/renderer/state/fullScreen';
 import { useApp, type AppState } from '../../src/renderer/state/store';
 import { normalizeSettings } from '../../src/shared/settings';
 import type { ApiEventMap, IpcResult } from '../../src/shared/ipc';
+import type { FullScreenState } from '../../src/shared/ui/fullScreen';
 import { WHOLE_DRAFT_KEY } from '../../src/shared/ui/drafts';
 import type { Review } from '../../src/shared/types';
 
@@ -73,7 +76,9 @@ const keptReview = appInitial.review;
 
 afterEach(() => {
   useFullScreen.getInitialState().on = false;
-  useFullScreen.setState({ on: false });
+  useFullScreen.getInitialState().focus = null;
+  useFullScreen.setState({ on: false, focus: null });
+  useFocusOverlay.setState(FOCUS_OVERLAY_CLOSED);
   appInitial.review = keptReview;
   vi.unstubAllGlobals();
 });
@@ -133,6 +138,17 @@ describe("the toolbar's full-screen button (polish.23)", () => {
     expect(inner).not.toContain(ENTER_ICON);
   });
 
+  /* focus.1: in focus mode the button shows the hold, and its tooltip says what leaves. */
+  it('says to hold F11 or Esc in focus mode, keeping its name and its key', () => {
+    drawnFullScreen(true);
+    useFullScreen.getInitialState().focus = { holdSeconds: 30 };
+    const { attrs, inner } = fullScreenButton(renderToolbar(REVIEW));
+    expect(attrs).toContain('aria-label="Leave full screen"');
+    expect(attrs).toContain('title="Leave full screen (hold F11 or Esc)"');
+    expect(attrs).toContain('aria-keyshortcuts="F11"');
+    expect(inner).toContain(`d="${LEAVE_ICON}"`);
+  });
+
   it('is there with no chapter open, and over the Setup screen and the welcome guide', () => {
     for (const [review, single] of [
       [null, false],
@@ -147,12 +163,12 @@ describe("the toolbar's full-screen button (polish.23)", () => {
   });
 });
 
-describe('the legend names F11 and Escape (polish.23)', () => {
+describe('the legend names F11 and Escape (polish.23), held in focus mode (focus.1)', () => {
   it('in a paragraph at its foot', () => {
     const html = renderToStaticMarkup(createElement(Legend, { onClose: noop }));
     const text = html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ');
     expect(text).toContain(
-      'F11, or the two arrows before Settings, puts the window in full screen and back. Escape leaves full screen too, unless something else is open, such as a dialog, a menu, the find bar or a box you are typing in.'
+      'F11, or the two arrows before Settings, puts the window in full screen and back. Escape leaves full screen too, unless something else is open, such as a dialog, a menu, the find bar or a box you are typing in. With focus mode on in Settings, leaving full screen takes holding F11 or Escape.'
     );
     expect(html.match(/class="legend__foot"/g)).toHaveLength(2);
   });
@@ -289,13 +305,13 @@ describe('what takes Escape before full screen (polish.23)', () => {
 describe("the page's store asks main and follows it (polish.23)", () => {
   type Invoked = { channel: string; payload: unknown };
   let invoked: Invoked[];
-  let answer: IpcResult<{ fullScreen: boolean }>;
+  let answer: IpcResult<FullScreenState>;
   let listener: ((payload: ApiEventMap['window:full-screen-changed']) => void) | null;
   let removed: number;
 
   beforeEach(() => {
     invoked = [];
-    answer = { ok: true, value: { fullScreen: true } };
+    answer = { ok: true, value: { fullScreen: true, focus: null } };
     listener = null;
     removed = 0;
     useApp.setState({ notifications: [] });
@@ -323,7 +339,7 @@ describe("the page's store asks main and follows it (polish.23)", () => {
     await settle();
     expect(invoked).toEqual([{ channel: 'window:full-screen', payload: { action: 'toggle' } }]);
     expect(useFullScreen.getState().on).toBe(true);
-    answer = { ok: true, value: { fullScreen: false } };
+    answer = { ok: true, value: { fullScreen: false, focus: null } };
     leaveFullScreen();
     await settle();
     expect(invoked[1]).toEqual({ channel: 'window:full-screen', payload: { action: 'leave' } });
@@ -335,9 +351,9 @@ describe("the page's store asks main and follows it (polish.23)", () => {
     await settle();
     expect(invoked).toEqual([{ channel: 'window:full-screen', payload: { action: 'current' } }]);
     expect(useFullScreen.getState().on).toBe(true);
-    listener?.({ fullScreen: false });
+    listener?.({ fullScreen: false, focus: null });
     expect(useFullScreen.getState().on).toBe(false);
-    listener?.({ fullScreen: true });
+    listener?.({ fullScreen: true, focus: null });
     expect(useFullScreen.getState().on).toBe(true);
     off();
     expect(removed).toBe(1);
@@ -369,5 +385,63 @@ describe("the page's store asks main and follows it (polish.23)", () => {
     const off = installFullScreen();
     expect(invoked).toEqual([]);
     off();
+  });
+
+  /* focus.1: in focus mode the button, F11 and Escape reaching the bindings
+     show the hold, and only the hold's `release` leaves. */
+  const HOLD = { holdSeconds: 30 } as const;
+  const overlay = (): ReturnType<typeof useFocusOverlay.getState> => useFocusOverlay.getState();
+
+  it('follows focus mode as main reports it, from an answer and from an event', async () => {
+    answer = { ok: true, value: { fullScreen: true, focus: HOLD } };
+    installFullScreen();
+    await settle();
+    expect(useFullScreen.getState()).toEqual({ on: true, focus: HOLD });
+    listener?.({ fullScreen: false, focus: null });
+    expect(useFullScreen.getState()).toEqual({ on: false, focus: null });
+  });
+
+  it('in focus mode, shows the hold for the button, F11 and Escape, and asks main nothing', async () => {
+    useFullScreen.setState({ on: true, focus: HOLD });
+    toggleFullScreen();
+    await settle();
+    expect(invoked).toEqual([]);
+    expect(overlay()).toEqual({ ...FOCUS_OVERLAY_CLOSED, open: true });
+    useFocusOverlay.setState(FOCUS_OVERLAY_CLOSED);
+    leaveFullScreen();
+    await settle();
+    expect(invoked).toEqual([]);
+    expect(overlay().open).toBe(true);
+  });
+
+  it('shows no hold on entering focus mode with F11', async () => {
+    answer = { ok: true, value: { fullScreen: true, focus: HOLD } };
+    toggleFullScreen();
+    await settle();
+    expect(useFullScreen.getState()).toEqual({ on: true, focus: HOLD });
+    expect(overlay().open).toBe(false);
+  });
+
+  it('shows the hold when main kept the window in focus mode the page had not heard of', async () => {
+    useFullScreen.setState({ on: true, focus: null });
+    answer = { ok: true, value: { fullScreen: true, focus: HOLD } };
+    leaveFullScreen();
+    await settle();
+    expect(overlay().open).toBe(true);
+    useFocusOverlay.setState(FOCUS_OVERLAY_CLOSED);
+    toggleFullScreen();
+    await settle();
+    expect(invoked.map((i) => i.payload)).toEqual([{ action: 'leave' }]);
+    expect(overlay().open).toBe(true);
+  });
+
+  it('shows the hold when main put the window back in full screen in focus mode (kept)', async () => {
+    answer = { ok: true, value: { fullScreen: true, focus: HOLD } };
+    installFullScreen();
+    await settle();
+    listener?.({ fullScreen: true, focus: HOLD });
+    expect(overlay().open).toBe(false);
+    listener?.({ fullScreen: true, focus: HOLD, kept: true });
+    expect(overlay().open).toBe(true);
   });
 });

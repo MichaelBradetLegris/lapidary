@@ -132,29 +132,34 @@ const forgetHash = (file: string): void => watcher.forgetHash(file);
 export const stopWatching = (): void => watcher.stop();
 
 /**
+ * The window's full screen (polish.23, src/main/fullScreen.ts): F11, the
+ * toolbar's button and Escape ask for it through `window:full-screen`, and
+ * `createWindow` attaches the window. A quiet test window keeps the state
+ * here and is never put in full screen (C.61). Focus mode (focus.1) is
+ * entered from the settings as they are loaded and saved (`setFocusSettings`),
+ * and left by the page's hold or by main on its own.
+ */
+export const fullScreen = createFullScreen<BrowserWindow>({
+  quietWindow: () => getDevSwitches().quietWindow,
+  log
+});
+
+/**
  * The app's one close guard (apply.8, PLAN 7.7 and 11.3 i). `createWindow`
  * attaches the window, `before-quit` and `render-process-gone` tell it so, and
  * the three `app:` requests below carry what the page says. Its native box is
  * `dialog.showMessageBox` over the window, taken away through the signal when
- * the page answers late.
+ * the page answers late. In focus mode it asks the page about every close,
+ * which shows the hold first, and leaves focus mode before its box (focus.1).
  */
 export const closeGuard = createCloseGuard<BrowserWindow>({
   showBox: async (win, box, signal) =>
     boxAnswer((await dialog.showMessageBox(win, { ...messageBoxOptions(box), signal })).response),
   quit: () => app.quit(),
   log,
-  quietWindow: () => getDevSwitches().quietWindow
-});
-
-/**
- * The window's full screen (polish.23, src/main/fullScreen.ts): F11, the
- * toolbar's button and Escape ask for it through `window:full-screen`, and
- * `createWindow` attaches the window. A quiet test window keeps the state
- * here and is never put in full screen (C.61).
- */
-export const fullScreen = createFullScreen<BrowserWindow>({
   quietWindow: () => getDevSwitches().quietWindow,
-  log
+  focusMode: () => fullScreen.focusMode(),
+  leaveFocusMode: () => fullScreen.leaveFocus('close-box')
 });
 
 /**
@@ -187,6 +192,7 @@ export function registerCoreHandlers(): void {
       startWatching(read.settings.manuscriptFolder);
       applyTheme(read.settings.theme);
       applyZoom(read.settings.zoom);
+      fullScreen.setFocusSettings(read.settings);
     }
     return settingsAnswer(read);
   });
@@ -197,12 +203,14 @@ export function registerCoreHandlers(): void {
     // A changed Appearance setting takes effect at once, title bar and all
     // (theme.5); applyTheme does nothing when the theme is already in effect.
     applyTheme(settings.theme);
+    // Focus mode is read as the window goes full screen: a change takes effect the next time (focus.1).
+    fullScreen.setFocusSettings(settings);
     return settings;
   });
 
   handle('view:zoom', async ({ action }) => ({ zoom: await changeZoom(action) }));
 
-  handle('window:full-screen', ({ action }) => Promise.resolve({ fullScreen: fullScreen.act(action) }));
+  handle('window:full-screen', ({ action }) => Promise.resolve(fullScreen.act(action)));
 
   handle('settings:effective', async () => {
     const settings = await loadSettings();

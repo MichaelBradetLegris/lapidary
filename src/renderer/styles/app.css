@@ -4908,6 +4908,86 @@ button.help {
   margin: 0;
 }
 
+/* Focus mode's overlay (focus.1) covers everything, a question (45) and
+   Restart now's overlay (44) included, the window darkened under it as under
+   a dialog. Its box holds the count in a ring that fills while F11 or Escape
+   is held, in the lock card's spinner's colours, then the words, centred. */
+.modal-backdrop--focus {
+  z-index: 50;
+}
+
+.focus-overlay {
+  width: 360px;
+  padding: 22px 24px 20px;
+  text-align: center;
+}
+
+.focus-overlay__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.focus-overlay__ring {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin-bottom: 14px;
+}
+
+.focus-overlay__ring svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.focus-overlay__track,
+.focus-overlay__arc {
+  stroke-width: 8;
+}
+
+.focus-overlay__track {
+  stroke: var(--border);
+}
+
+.focus-overlay__arc {
+  stroke: var(--accent);
+}
+
+.focus-overlay__count {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.focus-overlay h2 {
+  margin: 0 0 6px;
+}
+
+.focus-overlay__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+/* Settings' Focus mode row (focus.1): the box, then the hold time in the
+   words of the hold, wrapping in a narrow box rather than overflowing. */
+.settings__focus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+
 /* The Setup screen's last line: the app's name and version. */
 .setup__version {
   color: var(--ink-faint);

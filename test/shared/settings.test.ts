@@ -44,6 +44,22 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings({ updateDownloadConsent: '' }).updateDownloadConsent).toBeNull();
   });
 
+  /* focus.1: off unless the file says true, with a hold time Settings offers. */
+  it('keeps focus mode off unless the file says true, and a hold time of 15, 30 or 60 seconds', () => {
+    expect(defaultSettings().focusMode).toBe(false);
+    expect(defaultSettings().focusHoldSeconds).toBe(30);
+    expect(normalizeSettings({ focusMode: true }).focusMode).toBe(true);
+    for (const other of [false, 'true', 1, 'yes', null, {}]) {
+      expect(normalizeSettings({ focusMode: other }).focusMode, JSON.stringify(other)).toBe(false);
+    }
+    for (const seconds of [15, 30, 60]) {
+      expect(normalizeSettings({ focusHoldSeconds: seconds }).focusHoldSeconds).toBe(seconds);
+    }
+    for (const other of [10, 45, 120, '15', null, -15]) {
+      expect(normalizeSettings({ focusHoldSeconds: other }).focusHoldSeconds, JSON.stringify(other)).toBe(30);
+    }
+  });
+
   it('keeps the side panel split as a share, and the usual split as null (ui.6)', () => {
     expect(defaultSettings().sideSplit).toBeNull();
     expect(normalizeSettings({ sideSplit: 0.3125 }).sideSplit).toBe(0.3125);

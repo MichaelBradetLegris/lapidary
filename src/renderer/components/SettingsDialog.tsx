@@ -4,6 +4,7 @@ import { EFFORT_LEVELS, type EffortLevel, type Settings } from '../../shared/typ
 import { ABOUT_BUTTON } from '../../shared/ui/about';
 import { chatGptAccountLine } from '../../shared/ui/chatgpt';
 import { SETTINGS_BUTTON_SELECTOR } from '../../shared/ui/dialog';
+import { FOCUS_HOLD_SECONDS, focusHoldLabel, normalizeFocusHold } from '../../shared/ui/focusMode';
 import { openedGuidelinesNote } from '../../shared/ui/guidelines';
 import {
   ABOUT_BUTTON_NOTE,
@@ -13,6 +14,11 @@ import {
   CLAUDE_ACCOUNT_TIP,
   DONE_NOTE,
   EFFORT_TIP,
+  FOCUS_HOLD_AFTER,
+  FOCUS_HOLD_BEFORE,
+  FOCUS_MODE_LABEL,
+  FOCUS_MODE_NOTE,
+  FOCUS_MODE_TIP,
   GUIDELINES_TIP,
   MANUSCRIPT_TIP,
   MODEL_TIP,
@@ -62,11 +68,11 @@ interface Props {
  * it, and back where it was, the Settings button as a rule, when it closes.
  * The page behind it is inert meanwhile, so Tab stays inside it (ui.4).
  *
- * Four sections, App (Appearance, first since polish.22), Review (Claude
- * model and Effort), Folders and Accounts (Claude, and ChatGPT since
- * codex.2), and at the foot the welcome guide, About and Done (polish.4). The
- * keyboard follows the markup, so Tab reaches Appearance first. A
- * row has at most one short note; the longer explanations are the tooltips
+ * Four sections, App (Appearance, first since polish.22, and Focus mode since
+ * focus.1), Review (Claude model and Effort), Folders and Accounts (Claude,
+ * and ChatGPT since codex.2), and at the foot the welcome guide, About and
+ * Done (polish.4). The keyboard follows the markup, so Tab reaches Appearance
+ * first. A row has at most one short note; the longer explanations are the tooltips
  * of the (?) in each row's last cell, after its buttons, so that they stand
  * in one line down the right of the dialog (`HelpTip`, polish.15; Appearance
  * keeps the cell empty), whose words are in `src/shared/ui/settingsDialog.ts`.
@@ -219,6 +225,41 @@ export function SettingsDialog({
           </div>
           <p className="modal__note" id={id('appearance-note')}>
             {APPEARANCE_NOTE}
+          </p>
+
+          {/* Focus mode (focus.1): the box, and the hold time beside it in
+              the words of the hold. Main reads both as the window goes full
+              screen, so a change applies the next time. */}
+          <div className="modal__row">
+            <label htmlFor={id('focus')}>{FOCUS_MODE_LABEL}</label>
+            <span className="settings__focus">
+              <input
+                id={id('focus')}
+                type="checkbox"
+                checked={settings.focusMode}
+                aria-describedby={`${id('focus-note')} ${id('focus-tip')}`}
+                onChange={(e) => update({ focusMode: e.target.checked })}
+              />
+              <label htmlFor={id('focus-hold')}>{FOCUS_HOLD_BEFORE}</label>
+              <select
+                id={id('focus-hold')}
+                value={settings.focusHoldSeconds}
+                aria-describedby={id('focus-tip')}
+                onChange={(e) => update({ focusHoldSeconds: normalizeFocusHold(Number(e.target.value)) })}
+              >
+                {FOCUS_HOLD_SECONDS.map((seconds) => (
+                  <option key={seconds} value={seconds}>
+                    {focusHoldLabel(seconds)}
+                  </option>
+                ))}
+              </select>
+              <span>{FOCUS_HOLD_AFTER}</span>
+            </span>
+            <span />
+            <HelpTip id={id('focus-tip')} topic="focus mode" text={FOCUS_MODE_TIP} />
+          </div>
+          <p className="modal__note" id={id('focus-note')}>
+            {FOCUS_MODE_NOTE}
           </p>
         </section>
 

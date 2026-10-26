@@ -10,6 +10,9 @@ import {
   CHATGPT_ACCOUNT_TIP,
   CLAUDE_ACCOUNT_TIP,
   EFFORT_TIP,
+  FOCUS_HOLD_BEFORE,
+  FOCUS_MODE_NOTE,
+  FOCUS_MODE_TIP,
   GUIDELINES_TIP,
   MANUSCRIPT_TIP,
   MODEL_TIP,
@@ -170,7 +173,7 @@ describe('the sections and rows (polish.4)', () => {
     }
   });
 
-  it('holds Appearance and its note alone in App, and Claude model and Effort alone in Review', () => {
+  it('holds Appearance and Focus mode with their notes in App, and Claude model and Effort alone in Review', () => {
     const html = decode(render());
     const sections = new Map(
       [...html.matchAll(/<section [^>]*><h3 [^>]*>([^<]+)<\/h3>([\s\S]*?)<\/section>/g)].map(
@@ -181,13 +184,26 @@ describe('the sections and rows (polish.4)', () => {
       [
         ...(sections.get(heading) ?? '').matchAll(/<div class="modal__row"><(?:label|span)[^>]*>([^<]*)</g)
       ].map(([, name = '']) => name);
-    expect(names('App')).toEqual(['Appearance']);
+    expect(names('App')).toEqual(['Appearance', 'Focus mode']);
     expect(sections.get('App')).toContain(`<p class="modal__note"`);
     expect(sections.get('App')).toContain(`>${APPEARANCE_NOTE}</p>`);
+    // focus.1: the box and the hold time, with the note on what it does to Alt+Tab.
+    expect(sections.get('App')).toContain(`>${FOCUS_MODE_NOTE}</p>`);
     expect(names('Review')).toEqual(['Claude model', 'Effort']);
     expect(sections.get('Review')).not.toContain('modal__note');
     expect(names('Folders')).toEqual(['Manuscript folder', 'Reviews folder', 'Backups', 'Guidelines file']);
     expect(names('Accounts')).toEqual(['Claude account', 'ChatGPT account']);
+  });
+
+  /* focus.1: the box, off by default, and the hold time beside it, 30 seconds by default. */
+  it('shows focus mode as the settings have it: the box, and the hold time beside it', () => {
+    const off = decode(render());
+    expect(off).toMatch(/<input id="[^"]+" type="checkbox" aria-describedby="[^"]+"\/>/);
+    expect(off).toContain('<option value="30" selected="">30 seconds</option>');
+    const on = decode(render({ settings: { focusMode: true, focusHoldSeconds: 60 } }));
+    expect(on).toMatch(/<input id="[^"]+" type="checkbox" aria-describedby="[^"]+" checked=""\/>/);
+    expect(on).toContain('<option value="60" selected="">60 seconds</option>');
+    expect(on).toContain('<option value="15">15 seconds</option>');
   });
 
   it('puts appearance first, then model and effort, then the folders, then the accounts, then the foot', () => {
@@ -197,6 +213,13 @@ describe('the sections and rows (polish.4)', () => {
       '>App</h3>',
       '>Appearance</label>',
       `>${APPEARANCE_NOTE}</p>`,
+      '>Focus mode</label>',
+      '>Hold F11 or Esc for</label>',
+      '>15 seconds</option>',
+      '>30 seconds</option>',
+      '>60 seconds</option>',
+      '<span>to leave</span>',
+      `>${FOCUS_MODE_NOTE}</p>`,
       '>Review</h3>',
       '>Claude model</label>',
       '>Effort</label>',
@@ -235,6 +258,7 @@ describe('the sections and rows (polish.4)', () => {
 
 describe('the (?) of a row (polish.4)', () => {
   const TIPS: Array<[string, string]> = [
+    ['focus mode', FOCUS_MODE_TIP],
     ['Claude model', MODEL_TIP],
     ['Effort', EFFORT_TIP],
     ['the manuscript folder', MANUSCRIPT_TIP],
@@ -266,7 +290,7 @@ describe('the (?) of a row (polish.4)', () => {
     const rows = [...html.matchAll(/<div class="modal__row">([\s\S]*?)<\/div>/g)].map(([, inner = '']) =>
       cells(inner)
     );
-    expect(rows).toHaveLength(9);
+    expect(rows).toHaveLength(10);
     for (const row of rows) {
       expect(row, row.join('')).toHaveLength(4);
       expect(row[3]).toMatch(/^<span class="modal__help">/);
@@ -275,6 +299,7 @@ describe('the (?) of a row (polish.4)', () => {
     }
     expect(rows.map((row) => text(row[0] ?? ''))).toEqual([
       'Appearance',
+      'Focus mode',
       'Claude model',
       'Effort',
       'Manuscript folder',
@@ -306,6 +331,9 @@ describe('the (?) of a row (polish.4)', () => {
       .map((control) => control.name);
     expect(reached).toEqual([
       'Appearance',
+      'Focus mode',
+      FOCUS_HOLD_BEFORE,
+      helpButtonLabel('focus mode'),
       'Claude model',
       helpButtonLabel('Claude model'),
       'Effort',
@@ -372,15 +400,21 @@ describe('the notes under the rows (polish.4)', () => {
       text(inner)
     );
 
-  it('are the short ones, one line each, under Appearance, the reviews folder and the backups', () => {
+  it('are the short ones, one line each, under Appearance, Focus mode, the reviews folder and the backups', () => {
     const shown = notes(render());
-    expect(shown).toEqual([APPEARANCE_NOTE, reviewsFolderNote(false), backupsFolderNote(false)]);
+    expect(shown).toEqual([
+      APPEARANCE_NOTE,
+      FOCUS_MODE_NOTE,
+      reviewsFolderNote(false),
+      backupsFolderNote(false)
+    ]);
     for (const note of shown) expect(note.length, note).toBeLessThanOrEqual(SETTINGS_NOTE_MAX);
   });
 
   it('has no row, field or link for an OpenAI API key, which codex.6 took out', () => {
     const html = decode(render({ runtime: READY }));
-    expect(html).not.toContain('<input');
+    // The one field is focus mode's box (focus.1); the key's field went in codex.6.
+    expect(html.match(/<input [^>]*>/g)).toEqual([expect.stringContaining('type="checkbox"')]);
     expect(html).not.toContain('<a ');
     expect(html).not.toMatch(/OpenAI API key|Save key|Remove key|platform\.openai\.com|OPENAI_API_KEY/);
     // The one API key Settings names is the one ChatGPT needs none of.
@@ -451,6 +485,8 @@ describe('every control has a name and a description (polish.4)', () => {
     expect(find('Claude model').description).toBe(MODEL_TIP);
     expect(find('Effort').description).toBe(EFFORT_TIP);
     expect(find('Appearance').description).toBe(APPEARANCE_NOTE);
+    expect(find('Focus mode').description).toBe(`${FOCUS_MODE_NOTE} ${FOCUS_MODE_TIP}`);
+    expect(find(FOCUS_HOLD_BEFORE).description).toBe(FOCUS_MODE_TIP);
     expect(find('Change', 0).description).toBe('C:\\Novel'); // check-public: allow
     expect(find('Change', 1).description).toBe(`… ${reviewsFolderNote(false)}`);
     // The backups folder's Change (setup.18), then its Show in folder.

@@ -4,6 +4,7 @@
  */
 
 import type { SyntaxKind } from './text/obsidian';
+import type { FocusHoldSeconds } from './ui/focusMode';
 import type { Theme } from './ui/theme';
 
 export const CHANGE_CATEGORIES = [
@@ -281,6 +282,14 @@ export interface Settings {
   zoom: number;
   /** Appearance: follow the computer, or pin light or dark (PLAN 11.3 d) */
   theme: Theme;
+  /**
+   * Focus mode (focus.1, PLAN 11.3 d): going full screen enters it, and only
+   * holding F11 or Escape for `focusHoldSeconds` leaves it. Read by main as
+   * the window goes full screen, so a change takes effect the next time.
+   */
+  focusMode: boolean;
+  /** how long F11 or Escape must be held to leave focus mode: 15, 30 or 60 seconds */
+  focusHoldSeconds: FocusHoldSeconds;
   /** the welcome guide has been finished or skipped; settings from before 1.0 count as done when a folder is set */
   onboardingDone: boolean;
   /** one-time hints the author has dismissed, by id */
@@ -315,6 +324,8 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   effort: 'high',
   zoom: 1,
   theme: 'system',
+  focusMode: false,
+  focusHoldSeconds: 30,
   onboardingDone: false,
   dismissedHints: Object.freeze([]) as unknown as string[],
   checkForUpdates: true,
