@@ -3,9 +3,10 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FULL_SCREEN_CLASS } from '../../src/shared/ui/fullScreen';
 
-/* polish.23: F11 and Escape in the keyboard bindings, and the page's class
-   for full screen, checked in their source since the tests run without a DOM.
-   The button, the legend, what takes Escape first and the page's store are in
+/* polish.23: F11 and Escape in the keyboard bindings, what the toolbar's
+   button does when clicked, and the page's class for full screen, checked in
+   their source since the tests run without a DOM. The button's place, words
+   and icon, the legend, what takes Escape first and the page's store are in
    fullScreen.render.test.ts; main's half is test/main/fullScreen.test.ts. */
 
 describe('the keys, in the keyboard bindings (polish.23)', () => {
@@ -50,6 +51,20 @@ describe('the keys, in the keyboard bindings (polish.23)', () => {
     expect(rule).toContain('!isModalOpen(state)');
     expect(rule).toContain('!event.defaultPrevented');
     expect(rule).toContain('!popupTakesEscape()');
+  });
+});
+
+describe("the toolbar's button toggles full screen (polish.23)", () => {
+  const source = readFileSync(path.join(__dirname, '../../src/renderer/components/Toolbar.tsx'), 'utf8');
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
+
+  it('asks main to toggle when clicked, as F11 does', () => {
+    expect(code).toMatch(/import \{[^}]*\btoggleFullScreen\b[^}]*\} from '\.\.\/state\/fullScreen';/);
+    const buttons = [...code.matchAll(/<button\b[\s\S]*?<\/button>/g)].map((m) => m[0]);
+    const button = buttons.filter((b) => b.includes('className="toolbar__full-screen"'));
+    expect(button).toHaveLength(1);
+    expect(button[0]).toContain('onClick={toggleFullScreen}');
+    expect(button[0]?.match(/onClick=/g)).toHaveLength(1);
   });
 });
 

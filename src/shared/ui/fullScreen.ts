@@ -69,7 +69,10 @@ export interface EscapeTakers {
   find: boolean;
   /** the suggestion editor */
   editor: boolean;
-  /** a paragraph box, or Full edit's box, open or waiting to open */
+  /**
+   * a paragraph box open in Main (one kept behind Preview is not drawn, and
+   * takes nothing), or Full edit's box, open or waiting to open
+   */
   boxes: boolean;
   /** a drawer open from a folded column */
   drawer: boolean;

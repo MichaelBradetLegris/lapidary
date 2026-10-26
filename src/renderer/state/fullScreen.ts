@@ -59,18 +59,20 @@ export function installFullScreen(): () => void {
  * a dialog, a question, Settings, the Setup screen, the welcome guide or
  * Restart now's overlay; a toolbar menu, a chip's menu or the legend; a
  * suggestion's hover card; the find bar; the suggestion editor; a paragraph
- * box, or Full edit open or waiting to open; a drawer open from a folded
- * column. Read as the key comes, with the page's own menus and legend found
- * in the page, as `popupTakesEscape` finds them.
+ * box open in Main, or Full edit open or waiting to open; a drawer open from
+ * a folded column. A paragraph box kept behind Preview is not drawn, so it
+ * takes nothing there. Read as the key comes, with the page's own menus and
+ * legend found in the page, as `popupTakesEscape` finds them.
  */
 export function escapeTakers(state: AppState): EscapeTakers {
+  const mode = currentMode(state);
   return {
     modal: isModalOpen(state),
     popup: popupTakesEscape(),
     hoverCard: state.hoveredHunkId !== null,
     find: state.find.open,
     editor: state.editor !== null,
-    boxes: Object.keys(state.drafts).length > 0 || currentMode(state) === 'edit',
+    boxes: mode === 'edit' || (mode === 'main' && Object.keys(state.drafts).length > 0),
     drawer: useDrawer.getState().open !== null
   };
 }

@@ -20,8 +20,9 @@ import type { Review } from '../../src/shared/types';
 
 /* polish.23: the page's half of full screen. The toolbar's button before
    Settings, its words, icon and key; the legend's words; F11 and Escape in the
-   keyboard bindings and the page's class, checked in their source in
-   fullScreen.test.ts since the tests run without a DOM; what takes Escape
+   keyboard bindings, what the button does when clicked and the page's class,
+   checked in their source in fullScreen.test.ts since the tests run without a
+   DOM; what takes Escape
    first, read from the store and the page; and the page's store, which asks
    main through a stubbed bridge and follows what it says. Main's half is
    test/main/fullScreen.test.ts. */
@@ -250,12 +251,30 @@ describe('what takes Escape before full screen (polish.23)', () => {
     expect(takers()).toEqual({ ...nothing, editor: true });
   });
 
-  it('counts a paragraph box, Full edit and Full edit waiting to open as boxes', () => {
+  it('counts a paragraph box in Main, Full edit and Full edit waiting to open as boxes', () => {
     const box = { key: 0, paragraphs: [0], initial: 'One.', text: 'One.' };
     useApp.setState({ drafts: { 0: box } });
     expect(takers()).toEqual({ ...nothing, boxes: true });
     const whole = { key: WHOLE_DRAFT_KEY, paragraphs: [], initial: 'x', text: 'x', whole: true };
     useApp.setState({ drafts: { [WHOLE_DRAFT_KEY]: whole } as AppState['drafts'] });
+    expect(takers()).toEqual({ ...nothing, boxes: true });
+    useApp.setState({ drafts: {}, fullEditPending: REVIEW.id });
+    expect(takers()).toEqual({ ...nothing, boxes: true });
+  });
+
+  it('counts a paragraph box only in Main: one kept behind Preview is not drawn, and takes nothing', () => {
+    const left = { key: 0, paragraphs: [0], initial: 'One.', text: 'One.' };
+    const typed = { key: 1, paragraphs: [1], initial: 'Two.', text: 'Two, typed.' };
+    const kept: AppState['drafts'][] = [{ 0: left }, { 1: typed }, { 0: left, 1: typed }];
+    for (const drafts of kept) {
+      useApp.setState({ drafts, viewMode: 'preview' });
+      expect(takers(), JSON.stringify(drafts)).toEqual(nothing);
+      useApp.setState({ viewMode: 'main' });
+      expect(takers(), JSON.stringify(drafts)).toEqual({ ...nothing, boxes: true });
+    }
+    // Full edit is the mode whatever `viewMode` last said (`currentMode`), so its box counts either way.
+    const whole = { key: WHOLE_DRAFT_KEY, paragraphs: [], initial: 'x', text: 'x', whole: true };
+    useApp.setState({ drafts: { [WHOLE_DRAFT_KEY]: whole } as AppState['drafts'], viewMode: 'preview' });
     expect(takers()).toEqual({ ...nothing, boxes: true });
     useApp.setState({ drafts: {}, fullEditPending: REVIEW.id });
     expect(takers()).toEqual({ ...nothing, boxes: true });

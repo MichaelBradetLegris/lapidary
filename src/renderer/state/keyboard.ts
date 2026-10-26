@@ -148,9 +148,10 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
          question, Settings, the Setup screen or the welcome guide, which
          take it in listeners of their own or have no use for it here; a
          toolbar menu, a chip's menu or the legend, which close on it in
-         listeners that run after this one; a paragraph box or Full edit's
-         box, which close on it when the focus is in them and are left open
-         by it otherwise, so a box is never left by surprise. */
+         listeners that run after this one; a paragraph box open in Main or
+         Full edit's box, which close on it when the focus is in them and are
+         left open by it otherwise, so a box is never left by surprise. A
+         paragraph box kept behind Preview is not drawn, and takes nothing. */
       const inFullScreen = useFullScreen.getState().on;
       if (
         event.key === 'Escape' &&
