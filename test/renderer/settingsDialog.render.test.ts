@@ -297,11 +297,12 @@ describe('the (?) of a row (polish.4)', () => {
   /* The keyboard follows the markup (polish.22): Appearance first, then each
      row's controls and its (?) down the dialog, then the foot. The guidelines
      file's Open and Open folder are disabled here, where effects do not run
-     and main has given no path, so Tab passes them by. */
+     and main has given no path, so Tab passes them by, as it passes a control
+     with a negative tabindex: neither counts as reached. */
   it('is reached by Tab after its row, in the order of the rows, Appearance first and Done last', () => {
     const html = render({ runtime: READY });
     const reached = controls(html)
-      .filter((control) => !/\sdisabled=""/.test(control.attrs))
+      .filter((control) => !/\sdisabled=""|\stabindex="-/.test(control.attrs))
       .map((control) => control.name);
     expect(reached).toEqual([
       'Appearance',
