@@ -58,18 +58,22 @@ export function caretSelector(column: Column, hidden: boolean): string {
  * columns out again before this returns, so the focus can follow: when it was
  * on the caret pressed, from the keyboard, it goes to the caret that takes its
  * place, the edge strip's or the handle's; and when it was inside the column
- * folded away, which a press by the pointer leaves where it was, to the edge
- * strip, as a drawer closing hands it to its strip (`closeDrawer`), rather
- * than being lost with the column.
+ * folded away or on its handle, which a press by the pointer leaves where it
+ * was, to the edge strip, as a drawer closing hands it to its strip
+ * (`closeDrawer`), rather than being lost with the column. The handle goes
+ * with the column, so the test after the layout is whether the focus was on
+ * something the layout took away; the column's wrapper stays, out of sight.
  */
 export function setColumnHidden(column: Column, hidden: boolean, pressed: Element): void {
   const active = document.activeElement;
-  const follow =
-    active === pressed || (hidden && Boolean(document.getElementById(drawerId(column))?.contains(active)));
+  const inColumn = hidden && Boolean(active && document.getElementById(drawerId(column))?.contains(active));
   flushSync(() => {
     void saveColumnHidden(column, hidden, COLUMN_IO);
   });
-  if (follow) document.querySelector<HTMLElement>(caretSelector(column, hidden))?.focus();
+  const takenAway = active !== null && !active.isConnected;
+  if (active === pressed || takenAway || inColumn) {
+    document.querySelector<HTMLElement>(caretSelector(column, hidden))?.focus();
+  }
 }
 
 export type ColumnHandleProps = HTMLAttributes<HTMLDivElement> & { 'aria-orientation': 'vertical' };

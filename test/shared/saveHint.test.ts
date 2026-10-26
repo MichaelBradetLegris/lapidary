@@ -4,6 +4,7 @@ import {
   NOTHING_UNTIL_SAVE,
   SAVE_HINT_ARROW_CLEAR,
   SAVE_HINT_ARROW_INSET,
+  SAVE_HINT_CARD_GAP,
   SAVE_HINT_GOT_IT,
   SAVE_HINT_ID,
   SAVE_HINT_MARGIN,
@@ -347,6 +348,96 @@ describe('where it sits (apply.12)', () => {
     expect(narrow.width).toBe(280 - 2 * SAVE_HINT_MARGIN);
     expect(narrow.left).toBe(SAVE_HINT_MARGIN);
     expect(narrow.left + (narrow.arrow ?? NaN)).toBe(95);
+  });
+
+  /* The polish.26 review: with the side panel folded away, the hint hung
+     over the prose's top right under the notification card there, which
+     covered its first three lines. Measured in a dev:clean window, 1424 by
+     901 at 100%: Save to chapter from 1135 to 1300, the panel's wrapper, a
+     closed drawer, from 1097 to 1417 beside its edge strip, and the card
+     "Claude Code is not installed..." from 981 to 1401, its foot 110 px down. */
+  const FOLDED_AWAY = {
+    barWidth: 1424,
+    buttonLeft: 1135,
+    buttonWidth: 165,
+    column: { left: 1097, right: 1417 },
+    below: []
+  };
+
+  it('hangs below the notification cards where it would meet them, with the side panel folded away', () => {
+    // No card: from the toolbar's foot, the arrow on Save's middle, as before.
+    expect(saveHintPlacement(FOLDED_AWAY)).toEqual({ left: 1109, width: 300, arrow: 108.5, top: null });
+    expect(saveHintPlacement({ ...FOLDED_AWAY, cards: null })).toEqual(saveHintPlacement(FOLDED_AWAY));
+    // A card: below it, the cards' gap under the stack, lined up with the column, no arrow.
+    expect(saveHintPlacement({ ...FOLDED_AWAY, cards: { left: 981, right: 1401, bottom: 110 } })).toEqual({
+      left: 1109,
+      width: 300,
+      arrow: null,
+      top: 110 + SAVE_HINT_CARD_GAP
+    });
+    // 700 by 650 with both folded to strips (ui.3): two cards from 232 to 652, their foot at 155.
+    expect(
+      saveHintPlacement({
+        barWidth: 700,
+        buttonLeft: 411,
+        buttonWidth: 165,
+        column: { left: 428, right: 668 },
+        below: [],
+        cards: { left: 232, right: 652, bottom: 155 }
+      })
+    ).toEqual({ left: 436, width: 224, arrow: null, top: 163 });
+  });
+
+  it('leaves the cards beside the side panel drawn in place alone', () => {
+    // The same window with the panel in place: the cards end 16 px short of the centre column's edge.
+    const placed = saveHintPlacement({
+      ...DEFAULT,
+      buttonLeft: 1135,
+      cards: { left: 668, right: 1088, bottom: 155 }
+    });
+    expect(placed).toEqual({ left: 1116, width: 300, arrow: 1135 + 165 / 2 - 1116, top: null });
+  });
+
+  it('meets no card: hangs below the cards exactly where it would otherwise meet them', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 300, max: 2600 }),
+        fc.option(fc.integer({ min: 40, max: 700 })),
+        fc.integer({ min: 60, max: 260 }),
+        fc.double({ min: 0, max: 1, noNaN: true }),
+        fc.integer({ min: 0, max: 2600 }),
+        fc.integer({ min: 20, max: 420 }),
+        fc.integer({ min: 50, max: 600 }),
+        (barWidth, columnWidth, buttonWidth, at, cardsRight, cardsWidth, cardsBottom) => {
+          fc.pre(buttonWidth <= barWidth && (columnWidth ?? 0) <= barWidth);
+          const measure = {
+            barWidth,
+            buttonLeft: Math.round(at * (barWidth - buttonWidth)),
+            buttonWidth,
+            column: columnWidth === null ? null : { left: barWidth - columnWidth, right: barWidth },
+            below: []
+          };
+          const cards = { left: cardsRight - cardsWidth, right: cardsRight, bottom: cardsBottom };
+          const free = saveHintPlacement(measure);
+          const placed = saveHintPlacement({ ...measure, cards });
+          expect(free.top).toBeNull();
+          if (free.left < cards.right && free.left + free.width > cards.left) {
+            const area = measure.column ?? { left: 0, right: barWidth };
+            const rightmost =
+              Math.max(area.left + SAVE_HINT_MARGIN, area.right - SAVE_HINT_MARGIN) - free.width;
+            expect(placed).toEqual({
+              left: rightmost,
+              width: free.width,
+              arrow: null,
+              top: cardsBottom + SAVE_HINT_CARD_GAP
+            });
+          } else {
+            expect(placed).toEqual(free);
+          }
+        }
+      ),
+      { numRuns: 1000 }
+    );
   });
 
   it('stays in its column, and points only at a part of the button with nothing under it, whenever there is one', () => {

@@ -537,15 +537,41 @@ describe('a column folded away (polish.26)', () => {
     );
   });
 
-  it('never narrows the prose or the other column by folding one away', () => {
+  it('never narrows the other column by folding one away, nor the prose under PROSE_MIN or by more than a pixel', () => {
+    // Step 2 rounds both columns down, which can leave the prose a pixel more
+    // than its 480 with both shown; with one folded away, step 1 can leave it
+    // just its 480. The columns' widths are whole either way, so the prose has
+    // the window's fraction in both, and that pixel is the most a fold takes.
     fc.assert(
       fc.property(width, shares, (w, kept) => {
         const l = columnLayout(w, kept);
         const open = columnLayout(w, shown(kept));
-        expect(l.centre).toBeGreaterThanOrEqual(open.centre);
+        expect(l.centre).toBeGreaterThanOrEqual(Math.min(open.centre, PROSE_MIN));
+        expect(l.centre).toBeGreaterThanOrEqual(open.centre - 1);
         if (l.files === open.files) expect(l.filesWidth).toBeGreaterThanOrEqual(open.filesWidth);
         if (l.side === open.side) expect(l.sideWidth).toBeGreaterThanOrEqual(open.sideWidth);
-      })
+      }),
+      {
+        // Found by earlier runs: the rounding pixel step 2 gave the prose, which a fold takes back.
+        examples: [
+          [891, set({ side: 0.45286195286195285, filesHidden: true })],
+          [831, set({ files: 0.41335740072202165, sideHidden: true })],
+          [943, set({ side: 0.48303287380699894, filesHidden: true })]
+        ]
+      }
     );
+  });
+
+  it('takes back the rounding pixel step 2 gave the prose, and no more', () => {
+    // 891 px: the list 170 and the panel set to 404 give way to 155 and 255,
+    // floored, leaving the prose 481; with the list folded away the panel has
+    // its 404 again, which leaves exactly 480.
+    const side = set({ side: 0.45286195286195285 });
+    expect(summary(columnLayout(891, side))).toBe('full 155 | 481 | full 255');
+    expect(summary(columnLayout(891, { ...side, filesHidden: true }))).toBe('hidden 7 | 480 | full 404');
+    // 831 px: the list set to 344 gives way to its floor beside the panel's, the same way.
+    const files = set({ files: 0.41335740072202165 });
+    expect(summary(columnLayout(831, files))).toBe('full 150 | 481 | full 200');
+    expect(summary(columnLayout(831, { ...files, sideHidden: true }))).toBe('full 344 | 480 | hidden 7');
   });
 });

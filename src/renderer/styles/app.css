@@ -632,9 +632,13 @@ input[type='text'] {
    to the side panel's column, so it never meets the notification cards or the
    find bar beside it; it may cover the top of the side panel, and the find
    bar's last buttons where a narrow centre column lets them spill into the
-   side panel's (PLAN 7). Got it is the way out.
-   SaveHint.tsx sets `left`, `width` and the arrow's place from
-   `saveHintPlacement`, and it stays hidden until then, like the hover card.
+   side panel's (PLAN 7). Got it is the way out. With the side panel folded
+   or folded away it hangs over the prose's top right, where the cards are
+   pinned, and where it would meet them it hangs below them, 8 px under the
+   stack (the cards' own gap), without its arrow.
+   SaveHint.tsx sets `left`, `width`, the arrow's place, and `top` below the
+   cards, from `saveHintPlacement`, and it stays hidden until then, like the
+   hover card.
    Under the notification cards (12), so a card wins should the two ever meet,
    above the page's unpositioned content, and under the menus (30), every
    dialog's backdrop (39) and the hover card (40). */

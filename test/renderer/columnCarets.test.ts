@@ -168,9 +168,15 @@ describe('the carets on the page', () => {
   });
 
   it('lays the columns out again before the focus follows, to the caret taking its place or out of the column folded away', () => {
+    // From the caret pressed, from inside the column's wrapper, which stays,
+    // and from anything the layout took away: the column's handle, which a
+    // press by the pointer on the caret leaves the focus on (the review).
     expect(HANDLES).toMatch(
-      /const active = document\.activeElement;\s*const follow =\s*active === pressed \|\| \(hidden && Boolean\(document\.getElementById\(drawerId\(column\)\)\?\.contains\(active\)\)\);\s*flushSync\(\(\) => \{\s*void saveColumnHidden\(column, hidden, COLUMN_IO\);\s*\}\);\s*if \(follow\) document\.querySelector<HTMLElement>\(caretSelector\(column, hidden\)\)\?\.focus\(\);/
+      /const active = document\.activeElement;\s*const inColumn = hidden && Boolean\(active && document\.getElementById\(drawerId\(column\)\)\?\.contains\(active\)\);\s*flushSync\(\(\) => \{\s*void saveColumnHidden\(column, hidden, COLUMN_IO\);\s*\}\);\s*const takenAway = active !== null && !active\.isConnected;\s*if \(active === pressed \|\| takenAway \|\| inColumn\) \{\s*document\.querySelector<HTMLElement>\(caretSelector\(column, hidden\)\)\?\.focus\(\);\s*\}/
     );
+    // The handle is drawn only while its column is in place, so a fold takes it away.
+    expect(APP).toContain('{filesHandle ? <div {...filesHandle} /> : null}');
+    expect(APP).toContain('{sideHandle ? <div {...sideHandle} /> : null}');
     expect(HANDLES).toMatch(
       /return hidden \? `button\.column-edge--\$\{column\}` : `button\.column-caret--\$\{column\}`;/
     );

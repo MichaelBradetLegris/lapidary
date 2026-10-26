@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { SAVE_HINT_CARD_GAP } from '../../src/shared/ui/saveHint';
 
 /* apply.12: the first-use hint's wiring, the empty page and the CSS that keeps
    it off the toolbar's buttons, the notification cards and the find bar.
@@ -148,9 +149,10 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
     // hangs below the toolbar's last row; the find bar and the cards are in
     // `.center-wrap`, and never reach out of it: the find bar is a strip in its
     // flow, and the cards are pinned inside it.
-    // With the side panel folded to a strip (ui.3), its drawer's column lies
-    // over the prose's edge, so there the hint may meet them: see
-    // test/renderer/columns.test.ts.
+    // With the side panel folded to a strip (ui.3) or folded away
+    // (polish.26), its drawer's column lies over the prose's edge, so there
+    // the hint would meet the cards, and hangs below them (the next test, and
+    // test/shared/saveHint.test.ts).
     // The main layout, the last App returns: the Setup screen's has its
     // cards in its own column (setup.7, below).
     const main = APP.slice(APP.lastIndexOf('return ('));
@@ -174,6 +176,32 @@ describe('the CSS keeps it off the toolbar, the cards and the find bar (apply.12
     expect(declsFor('.notes').get('position')).toBe('absolute');
     expect(parseFloat(declsFor('.notes').get('right') ?? '')).toBeGreaterThanOrEqual(0);
     expect(declsFor('.findbar').get('position')).toBeUndefined();
+  });
+
+  /* The polish.26 review: with the side panel folded away the hint hung over
+     the prose's top right under the card there. The placement is
+     `saveHintPlacement`'s `cards` (test/shared/saveHint.test.ts). */
+  it('hangs it below the cards where it would meet them, placed again as they come, go, change size or move', () => {
+    expect(read('components/NotificationCards.tsx')).toContain('<div className="notes" role="status"');
+    expect(HINT).toContain(
+      "const notes = document.querySelector('.body .center-wrap > .notes')?.getBoundingClientRect();"
+    );
+    expect(HINT).toContain(
+      'cards: notes && notes.width > 0 ? { ...span(notes), bottom: notes.bottom - b.top } : null'
+    );
+    expect(HINT).toContain("hint.style.top = placed.top === null ? '' : `${placed.top}px`;");
+    // The stack comes and goes in the wrapper, and the find bar's class moves it down.
+    expect(HINT).toContain("const wrap = document.querySelector('.body .center-wrap');");
+    expect(HINT).toMatch(
+      /const observeCards = \(\): void => \{\s*const notes = wrap\?\.querySelector\(':scope > \.notes'\);\s*if \(notes\) observer\.observe\(notes\);\s*\};/
+    );
+    expect(HINT).toMatch(
+      /const cards = new MutationObserver\(\(\) => \{\s*observeCards\(\);\s*place\(\);\s*\}\);\s*if \(wrap\) cards\.observe\(wrap, \{ childList: true, attributes: true, attributeFilter: \['class'\] \}\);\s*observeCards\(\);/
+    );
+    expect(HINT).toMatch(/observer\.disconnect\(\);\s*cards\.disconnect\(\);/);
+    expect(declsFor('.center-wrap--find .notes').get('top')).toBeDefined();
+    // The gap under the stack is the cards' own.
+    expect(declsFor('.notes').get('gap')).toBe(`${SAVE_HINT_CARD_GAP}px`);
   });
 
   /* setup.11 review: the hint hung over the welcome guide and the Setup

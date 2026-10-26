@@ -24,7 +24,10 @@ interface Props {
  * cards, the find bar and the chapter's text, all in the column beside it, stay
  * in the clear. In a narrow window, with the panel folded to a strip, that is
  * where the panel's drawer opens, beside the strip, over the edge of the prose
- * (ui.3), so the strip stays in the clear. What it may cover is the top of the
+ * (ui.3), so the strip stays in the clear, and so too with the panel folded
+ * away to its edge strip (polish.26). The notification cards are pinned to the
+ * prose's top right, where the hint then hangs, so where it would meet them it
+ * hangs below them, without its arrow. What it may cover is the top of the
  * side panel, and the find bar's last buttons when a centre column too narrow
  * for the bar lets them spill into the side panel's; with the panel folded, the
  * right end of the chips and the top right of the prose and of the find bar
@@ -35,8 +38,9 @@ interface Props {
  * It is measured where it stands and moved by writing its style, as the hover
  * card is, and measured again whenever the toolbar, the button or the columns
  * change size: zoom, a review's progress label, a longer count on the button,
- * the side panel folding or unfolding. It takes no focus, so j, k and the
- * other keys go on working while it shows.
+ * the side panel folding or unfolding; and whenever a notification card comes,
+ * goes or changes size, or the find bar moves the cards down. It takes no
+ * focus, so j, k and the other keys go on working while it shows.
  */
 export function SaveHint({ anchor, text, overProse, onGotIt }: Props): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -82,15 +86,20 @@ export function SaveHint({ anchor, text, overProse, onGotIt }: Props): React.JSX
         .map((item) => item.getBoundingClientRect())
         .filter((r) => r.top >= s.bottom - 1)
         .map(span);
+      // The notification cards, which the hint hangs below where it would
+      // meet them, over the prose with the side panel folded or folded away.
+      const notes = document.querySelector('.body .center-wrap > .notes')?.getBoundingClientRect();
       const placed = saveHintPlacement({
         barWidth: b.width,
         buttonLeft: s.left - b.left,
         buttonWidth: s.width,
         column: side && side.width > 0 ? span(side) : null,
-        below
+        below,
+        cards: notes && notes.width > 0 ? { ...span(notes), bottom: notes.bottom - b.top } : null
       });
       hint.style.left = `${placed.left}px`;
       hint.style.width = `${placed.width}px`;
+      hint.style.top = placed.top === null ? '' : `${placed.top}px`;
       if (placed.arrow === null) {
         hint.dataset.arrow = 'none';
       } else {
@@ -113,9 +122,26 @@ export function SaveHint({ anchor, text, overProse, onGotIt }: Props): React.JSX
     for (const column of document.querySelectorAll('.body .side, .body > .center-col')) {
       observer.observe(column);
     }
+    /* The notification cards come and go, change size with their words, and
+       move down when the find bar opens, none of which changes the toolbar or
+       the columns: the wrapper they are pinned to is watched for their stack
+       coming or going and for its class (`center-wrap--find`), and the stack
+       for its size. */
+    const wrap = document.querySelector('.body .center-wrap');
+    const observeCards = (): void => {
+      const notes = wrap?.querySelector(':scope > .notes');
+      if (notes) observer.observe(notes);
+    };
+    const cards = new MutationObserver(() => {
+      observeCards();
+      place();
+    });
+    if (wrap) cards.observe(wrap, { childList: true, attributes: true, attributeFilter: ['class'] });
+    observeCards();
     window.addEventListener('resize', place);
     return () => {
       observer.disconnect();
+      cards.disconnect();
       window.removeEventListener('resize', place);
     };
   }, [anchor, text]);

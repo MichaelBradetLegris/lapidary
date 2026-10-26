@@ -123,6 +123,11 @@ export interface Span {
   right: number;
 }
 
+/** The notification cards' stack: its stretch across the toolbar, and its foot, from the toolbar's top edge. */
+export interface CardsBox extends Span {
+  bottom: number;
+}
+
 /** What the hint's placement is worked out from, in CSS pixels, relative to the toolbar. */
 export interface SaveHintMeasure {
   /** the toolbar's width */
@@ -140,6 +145,14 @@ export interface SaveHintMeasure {
   column: Span | null;
   /** the toolbar's items on rows below Save to chapter's, which the arrow must not point at */
   below: readonly Span[];
+  /**
+   * The notification cards' stack (`.notes`) while a card shows; null or left
+   * out while none does. The cards are pinned to the top right of the centre
+   * column, beside the side panel drawn in place, so the hint meets them only
+   * where it hangs over the prose: with the panel folded to a strip (ui.3) or
+   * folded away (polish.26).
+   */
+  cards?: CardsBox | null;
 }
 
 export interface SaveHintPlacement {
@@ -150,9 +163,16 @@ export interface SaveHintPlacement {
    * Where its arrow points, from the hint's left edge. Null when every part of
    * Save to chapter the hint can reach has a toolbar item under it: an arrow
    * there would point at that item, so the hint has none and its words name the
-   * button.
+   * button. Null too when it hangs below the notification cards, where an arrow
+   * would point at a card.
    */
   arrow: number | null;
+  /**
+   * Its top edge, from the toolbar's top edge, when it hangs below the
+   * notification cards; null when it hangs from the toolbar's foot, as
+   * `.save-hint`'s `top` has it.
+   */
+  top: number | null;
 }
 
 /** The hint's width when its column has room for it. */
@@ -168,6 +188,8 @@ export const SAVE_HINT_ARROW_INSET = 16;
  * between two buttons.
  */
 export const SAVE_HINT_ARROW_CLEAR = 12;
+/** Below the notification cards, the hint keeps the cards' own gap between them (`.notes`' `gap`). */
+export const SAVE_HINT_CARD_GAP = 8;
 
 /**
  * `span` less the inside of every stretch in `cuts`, as the pieces left over;
@@ -200,6 +222,14 @@ function subtract(span: Span, cuts: readonly Span[]): Span[] {
  * it, since the hint hangs below the last row and an arrow under Settings
  * would point at Settings; when no such part is in reach, the hint has no
  * arrow.
+ *
+ * With the side panel folded or folded away, the panel's column is where its
+ * drawer lies, over the prose's right-hand side, and the notification cards
+ * pinned to the prose's top right lie there too. Where the hint would meet
+ * them it hangs below them instead, `SAVE_HINT_CARD_GAP` under the stack,
+ * lined up with the column's right edge and without its arrow, which would
+ * point at a card, so neither covers the other and the cards stay where the
+ * author has seen them (the `polish.26` review).
  */
 export function saveHintPlacement(m: SaveHintMeasure): SaveHintPlacement {
   const area = m.column ?? { left: 0, right: m.barWidth };
@@ -207,7 +237,26 @@ export function saveHintPlacement(m: SaveHintMeasure): SaveHintPlacement {
   const hi = Math.max(lo, area.right - SAVE_HINT_MARGIN);
   const width = Math.min(SAVE_HINT_WIDTH, hi - lo);
   const rightmost = hi - width;
-  if (width < 2 * SAVE_HINT_ARROW_INSET) return { left: rightmost, width, arrow: null };
+  const placed = { width, ...arrowPlacement(m, lo, hi, width, rightmost) };
+  const cards = m.cards;
+  if (cards && placed.left < cards.right && placed.left + width > cards.left) {
+    return { left: rightmost, width, arrow: null, top: cards.bottom + SAVE_HINT_CARD_GAP };
+  }
+  return { ...placed, top: null };
+}
+
+/**
+ * Where the hint hangs from the toolbar's foot (`saveHintPlacement`): its left
+ * edge, between `lo` and `rightmost`, and where its arrow points, if anywhere.
+ */
+function arrowPlacement(
+  m: SaveHintMeasure,
+  lo: number,
+  hi: number,
+  width: number,
+  rightmost: number
+): { left: number; arrow: number | null } {
+  if (width < 2 * SAVE_HINT_ARROW_INSET) return { left: rightmost, arrow: null };
 
   // Where the tip may go: on the button, clear of its ends and of everything
   // under it, and where the hint can bring its arrow without leaving the column.
@@ -225,8 +274,8 @@ export function saveHintPlacement(m: SaveHintMeasure): SaveHintPlacement {
     const nearest = Math.min(piece.right, Math.max(piece.left, centre));
     if (tip === null || Math.abs(nearest - centre) < Math.abs(tip - centre)) tip = nearest;
   }
-  if (tip === null) return { left: rightmost, width, arrow: null };
+  if (tip === null) return { left: rightmost, arrow: null };
 
   const left = Math.max(lo, Math.min(rightmost, tip - SAVE_HINT_ARROW_INSET));
-  return { left, width, arrow: tip - left };
+  return { left, arrow: tip - left };
 }
