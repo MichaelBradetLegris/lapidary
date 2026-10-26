@@ -132,11 +132,15 @@ describe('the Mode select', () => {
 });
 
 describe("Full edit's box", () => {
+  /* App gives the foot the scroller's press, which closes an open drawer
+     (columns.test.ts); a static render draws no handler. */
+  const FOOT_PROPS = { onPointerDown: () => undefined };
+
   it('holds the body as the page reads it, with the frontmatter above it and Cancel and Done below', () => {
     storeWith({ drafts: whole() });
     const html = renderToStaticMarkup(createElement(FullEdit, { review: REVIEW }));
     // rr.7: the foot is drawn under the scroller, by App, not in the sheet's column.
-    const foot = renderToStaticMarkup(createElement(FullEditFoot));
+    const foot = renderToStaticMarkup(createElement(FullEditFoot, FOOT_PROPS));
     expect(html).not.toContain('fulledit__foot');
     expect(html).toContain(
       '<pre class="frontmatter fulledit__frontmatter" title="Frontmatter, which Full edit leaves as it is">---\ntitle: The Flood\n---</pre>'
@@ -162,12 +166,12 @@ describe("Full edit's box", () => {
 
   it('says Ctrl+Enter applies once something is typed, and draws nothing with Full edit closed', () => {
     storeWith({ drafts: whole(`${BODY} More.`) });
-    expect(renderToStaticMarkup(createElement(FullEditFoot))).toContain(
+    expect(renderToStaticMarkup(createElement(FullEditFoot, FOOT_PROPS))).toContain(
       '<span class="fulledit__hint">Ctrl+Enter applies, Esc cancels</span>'
     );
     storeWith({ drafts: {} });
     expect(renderToStaticMarkup(createElement(FullEdit, { review: REVIEW }))).toBe('');
-    expect(renderToStaticMarkup(createElement(FullEditFoot))).toBe('');
+    expect(renderToStaticMarkup(createElement(FullEditFoot, FOOT_PROPS))).toBe('');
   });
 });
 

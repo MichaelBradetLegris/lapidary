@@ -679,9 +679,10 @@ describe('the pieces in the page (source checks)', () => {
     );
     expect(app).toContain("{review && mode === 'main' ? <FindBar /> : null}");
     expect(app).toContain('const mode = useApp(currentMode);');
-    // rr.7: Full edit's foot right after the scroller, outside it, before the cards.
+    // rr.7: Full edit's foot right after the scroller, outside it, before the cards,
+    // with the scroller's press, which closes an open drawer (columns.test.ts).
     expect(app).toMatch(
-      /<\/main>\s*\{\/\*[^}]*\*\/\}\s*\{review && mode === 'edit' \? <FullEditFoot \/> : null\}\s*<NotificationCards/
+      /<\/main>\s*\{\/\*[^}]*\*\/\}\s*\{review && mode === 'edit' \? <FullEditFoot onPointerDown=\{closeDrawerOnPress\} \/> : null\}\s*<NotificationCards/
     );
     // Ctrl+S from Done or Cancel says what it says from inside the text, as from a paragraph box's.
     expect(read('renderer/state/keyboard.ts')).toContain(
@@ -725,6 +726,38 @@ describe('the pieces in the page (source checks)', () => {
     expect(box).toMatch(/event\.key === 'Escape'[\s\S]*void cancelFullEdit\(\)/);
     expect(box).toMatch(
       /event\.key === 'Enter' && \(event\.ctrlKey \|\| event\.metaKey\)[\s\S]*finishFullEdit\(\)/
+    );
+  });
+
+  /* rr.7 review: the text area grows and the column scrolls, so the browser's
+     own scroll at Ctrl+Home stopped with the sheet's top margin and the
+     frontmatter above the column, and at Ctrl+End with the sheet's foot below
+     it. The keys are `fullEditEndKey` and the end `fullEditPageEnd`, both
+     tested in test/shared/modes.test.ts; the window checked the scroll. */
+  it("takes the column to the page's top or end after Ctrl+Home, Ctrl+End and the page keys at either end", () => {
+    const box = read('renderer/components/FullEdit.tsx');
+    expect(box).toMatch(
+      /\} else if \(fullEditEndKey\(event\)\) \{\s*showPageEnd\(event\.currentTarget\);\s*\}/
+    );
+    const show = box.slice(box.indexOf('function showPageEnd('), box.indexOf('export function FullEdit('));
+    // The column that scrolls, in the next frame, after the browser's own scroll to the caret.
+    expect(show).toContain("const column = area.closest('.center');");
+    expect(show).toContain('requestAnimationFrame(() => {');
+    // The caret's moving end decides, so Shift with the key, which selects, goes there too.
+    expect(show).toContain(
+      "const caret = area.selectionDirection === 'backward' ? area.selectionStart : area.selectionEnd;"
+    );
+    expect(show).toContain('const end = fullEditPageEnd(caret, area.value.length);');
+    expect(show).toContain('if (end === null) return;');
+    expect(show).toMatch(
+      /if \(end === 'end'\) \{\s*column\.scrollTop = column\.scrollHeight;\s*return;\s*\}/
+    );
+    // The top, short of it only to keep the first line in a column a few lines tall.
+    expect(show).toContain(
+      'const firstLineBottom = areaTop + parseFloat(style.paddingTop) + parseFloat(style.lineHeight);'
+    );
+    expect(show).toContain(
+      'column.scrollTop = fullEditTopPlace(firstLineBottom, column.clientHeight, room);'
     );
   });
 
@@ -899,13 +932,20 @@ describe('the CSS of the three modes', () => {
   it('draws the foot under the scroller, its row as wide as the sheet and under it (rr.7)', () => {
     const foot = decls('.fulledit__foot');
     expect(foot.has('position')).toBe(false);
-    // A little room round the caret's line as it runs past the column's edges, and no more:
-    // nothing stands over the scroller to keep the caret clear of.
+    // A little room round the caret's line as it runs past the column's edges: nothing stands
+    // over the scroller to keep the caret clear of. Under it (rr.7 review) the sheet's bottom
+    // margin, its edge and the column's padding, so the sheet's foot shows with the caret on
+    // the last line, and at most a quarter of a column a few lines tall.
     expect([...decls('.center--edit')]).toEqual([
       ['display', 'block'],
       ['scrollbar-gutter', 'stable'],
-      ['scroll-padding-block', '16px']
+      ['scroll-padding-block', '16px min(49px, 25%)']
     ]);
+    const under =
+      Number.parseFloat(padding('.fulledit__area')[2] ?? '') +
+      Number.parseFloat(decls('.fulledit__page').get('border') ?? '') +
+      Number.parseFloat(padding('.fulledit')[2] ?? '');
+    expect(under).toBe(49);
     expect(foot.get('flex')).toBe('0 0 auto');
     expect(foot.get('background')).toBe('var(--bg)');
     // The row: Preview's page's width at most, in the prose's typeface as the sheet's is counted.

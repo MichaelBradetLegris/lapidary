@@ -174,9 +174,20 @@ describe('how a drawer closes (ui.3)', () => {
     // the mode, and it keeps each mode's place (`useModePlaces`, its ref and
     // onScroll spread onto it).
     expect(APP).toMatch(
-      /<main\s+\{\.\.\.modePlaces\}\s+className=\{`center center--\$\{mode\}`\}\s+onPointerDown=\{\(\) => \{\s*if \(useDrawer\.getState\(\)\.open !== null\) useDrawer\.getState\(\)\.setOpen\(null\);\s*\}\}\s*>/
+      /<main\s+\{\.\.\.modePlaces\}\s+className=\{`center center--\$\{mode\}`\}\s+onPointerDown=\{closeDrawerOnPress\}\s*>/
     );
     expect(APP).toContain('const modePlaces = useModePlaces(mode, review?.sourcePath ?? null);');
+    expect(HOOK).toMatch(
+      /export function closeDrawerOnPress\(\): void \{\s*if \(useDrawer\.getState\(\)\.open !== null\) useDrawer\.getState\(\)\.setOpen\(null\);\s*\}/
+    );
+  });
+
+  it("and on Full edit's foot under the scroller, which was in it until rr.7 (rr.7 review)", () => {
+    // Done and Cancel close the drawer as well as doing their own work, as they did in the scroller.
+    expect(APP).toContain('<FullEditFoot onPointerDown={closeDrawerOnPress} />');
+    expect(read('components/FullEdit.tsx')).toMatch(
+      /export function FullEditFoot\(\{ onPointerDown \}: \{ onPointerDown: \(\) => void \}\)[\s\S]*?<div className="fulledit__foot" onPointerDown=\{onPointerDown\}>/
+    );
   });
 
   it('once a chapter is chosen from the list, or made with its +', () => {

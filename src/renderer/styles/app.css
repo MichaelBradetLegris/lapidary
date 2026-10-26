@@ -4243,8 +4243,14 @@ button.help {
   scrollbar-gutter: stable;
   /* As the caret runs past the column's top or foot, the column brings its
      whole line into view with a little room beside it, where Chromium would
-     stop with the caret itself at the edge and its line cut. */
-  scroll-padding-block: 16px;
+     stop with the caret itself at the edge and its line cut. Under it the
+     room is the sheet's bottom margin, its edge and the column's padding (32,
+     1 and 16 px), so the sheet's foot shows with the caret on the last line,
+     as when typing at the end; at most a quarter of the column, so one a few
+     lines tall still has room for the caret's line. Ctrl+Home and Ctrl+End,
+     and Page Up and Page Down at the start or the end of the text, go the
+     rest of the way to the page's ends (showPageEnd in FullEdit.tsx). */
+  scroll-padding-block: 16px min(49px, 25%);
 }
 
 /* The frontmatter and the sheet: Preview's page's width, at most 66ch of the

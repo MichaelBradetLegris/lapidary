@@ -76,6 +76,17 @@ export function closeDrawer(column?: Column): void {
   if (focusInside) document.querySelector<HTMLElement>(`button.strip--${open}`)?.focus();
 }
 
+/**
+ * A press in the prose closes an open drawer, as a click outside a menu
+ * closes it, and goes on to do what it would anyway (ui.3). App gives it to
+ * the scroller that holds every mode and to Full edit's foot under it, which
+ * was inside the scroller until rr.7 drew it after: without it, Done went back
+ * to Main with the chapter list's drawer still open over the prose.
+ */
+export function closeDrawerOnPress(): void {
+  if (useDrawer.getState().open !== null) useDrawer.getState().setOpen(null);
+}
+
 export interface Columns {
   layout: ColumnLayout;
   /**

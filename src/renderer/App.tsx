@@ -68,7 +68,7 @@ import { ApiError, call, errorMessage } from './state/client';
 import { installCloseGuard, prepareToLeaveApp, type CloseGuardDeps } from './state/closeGuard';
 import { flushDraftWrites, installDraftPersistence, type DraftIo } from './state/drafts';
 import { useColumnHandle } from './state/columnHandles';
-import { closeDrawer, drawerId, useColumns, useDrawer } from './state/columns';
+import { closeDrawer, closeDrawerOnPress, drawerId, useColumns } from './state/columns';
 import { holdToLeave, installFocusMode } from './state/focusMode';
 import { installFullScreen, useFocusOverlay, useFullScreen } from './state/fullScreen';
 import { dismissHint, type HintIo } from './state/hints';
@@ -1585,13 +1585,7 @@ export function App(): React.JSX.Element {
               {review && mode === 'main' ? <FindBar /> : null}
               {/* A press in the prose closes an open drawer, as a click
                   outside a menu closes it (ui.3), and does what it would anyway. */}
-              <main
-                {...modePlaces}
-                className={`center center--${mode}`}
-                onPointerDown={() => {
-                  if (useDrawer.getState().open !== null) useDrawer.getState().setOpen(null);
-                }}
-              >
+              <main {...modePlaces} className={`center center--${mode}`} onPointerDown={closeDrawerOnPress}>
                 {review ? (
                   mode === 'edit' ? (
                     <FullEdit review={review} />
@@ -1613,8 +1607,9 @@ export function App(): React.JSX.Element {
               </main>
               {/* Full edit's hint, Cancel and Done, under the scroller rather
                   than in it, so they never scroll away and taking the focus
-                  scrolls nothing (rr.7). */}
-              {review && mode === 'edit' ? <FullEditFoot /> : null}
+                  scrolls nothing (rr.7). A press on them closes an open
+                  drawer, as one in the scroller does, where they were before. */}
+              {review && mode === 'edit' ? <FullEditFoot onPointerDown={closeDrawerOnPress} /> : null}
               <NotificationCards onAction={onCardAction} />
               <LockCard label={progressLabel} onCancel={ai.cancel} />
             </div>
