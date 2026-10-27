@@ -95,11 +95,12 @@ describe('the notes under the rows', () => {
     );
   });
 
-  /* focus.2: the row reads as one sentence for every time the list offers, 10 seconds, the default, first seen. */
-  it('read as one sentence around each hold time, the default 10 seconds', () => {
+  /* focus.2: the row reads as one sentence for every time the list offers, the default first seen:
+     5 seconds since focus.3. */
+  it('read as one sentence around each hold time, the default 5 seconds', () => {
     const row = (seconds: FocusHoldSeconds): string =>
       `${FOCUS_HOLD_BEFORE} ${focusHoldLabel(seconds)} ${FOCUS_HOLD_AFTER}`;
-    expect(row(DEFAULT_FOCUS_HOLD_SECONDS)).toBe('Hold F11 or Esc for 10 seconds to leave');
+    expect(row(DEFAULT_FOCUS_HOLD_SECONDS)).toBe('Hold F11 or Esc for 5 seconds to leave');
     expect(FOCUS_HOLD_SECONDS.map(row)).toEqual([
       'Hold F11 or Esc for 5 seconds to leave',
       'Hold F11 or Esc for 10 seconds to leave',

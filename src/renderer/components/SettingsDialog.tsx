@@ -8,6 +8,7 @@ import { FOCUS_HOLD_SECONDS, focusHoldLabel, normalizeFocusHold } from '../../sh
 import { openedGuidelinesNote } from '../../shared/ui/guidelines';
 import {
   ABOUT_BUTTON_NOTE,
+  APPEARANCE_LABEL,
   APPEARANCE_NOTE,
   BACKUPS_TIP,
   CHATGPT_ACCOUNT_TIP,
@@ -207,7 +208,7 @@ export function SettingsDialog({
           <h3 id={id('app')}>App</h3>
 
           <div className="modal__row">
-            <label htmlFor={id('appearance')}>Appearance</label>
+            <label htmlFor={id('appearance')}>{APPEARANCE_LABEL}</label>
             <select
               id={id('appearance')}
               value={settings.theme}

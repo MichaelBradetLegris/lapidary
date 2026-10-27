@@ -156,8 +156,8 @@ describe('the hold (focus.1)', () => {
     expect(released).toBe(1);
   });
 
-  /* focus.2: the shortest hold and the default, timed by the press as the others are. */
-  it('times the hold by what focus mode was entered with: 5 s, the shortest, and 10 s, the default', async () => {
+  /* focus.2: the two short holds, timed by the press as the others are; 5 s the default since focus.3. */
+  it('times the hold by what focus mode was entered with: 5 s, the shortest and the default, and 10 s', async () => {
     useFullScreen.setState({ on: true, focus: { holdSeconds: 5 } });
     down('F11');
     await vi.advanceTimersByTimeAsync(4_999);

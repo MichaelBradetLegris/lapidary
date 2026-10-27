@@ -179,6 +179,20 @@ describe('the new steps (setup.18)', () => {
     expect(SCREEN).toContain('rowNotes={rowNotes}');
   });
 
+  it("the look step's rows save each change as Settings does, a refusal standing under them (setup.20)", () => {
+    // settings:set, whose handler switches the theme as it saves (main/ipc.ts),
+    // then App's applySavedSettings, so Settings shows the choice afterwards.
+    expect(SCREEN).toMatch(
+      /const choose = \(patch: Partial<WelcomeLook>\): void => \{\s*setLookNote\(null\);\s*call\('settings:set', patch\)\s*\.then\(\(next\) => onApply\?\.\(next\)\)\s*\.catch\(\(err: unknown\) => setLookNote\(errorMessage\(err\)\)\);\s*\};/
+    );
+    expect(SCREEN).toContain('lookNote={lookNote}');
+    expect(SCREEN).toContain('onChoose={choose}');
+    // The rows show the settings as they stand, from App's store.
+    expect(SCREEN).toMatch(
+      /look: \{\s*theme: settings\.theme,\s*focusMode: settings\.focusMode,\s*focusHoldSeconds: settings\.focusHoldSeconds\s*\}/
+    );
+  });
+
   it('hands main the settings it saved, and reads the chapter list again, as Settings does', () => {
     // noteSavedSettings puts them in the store, and withdraws Choose folder's
     // card when either folder changed (setup.18 review, manuscriptFolder.test.ts).

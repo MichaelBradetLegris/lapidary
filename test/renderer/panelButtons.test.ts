@@ -233,7 +233,7 @@ describe('the toolbar and the columns in app.css', () => {
     // whatever that line holds (in the window: the eye's own device pixel rows
     // at every zoom, and the select's middle with Review on the second row).
     expect(bar.get('align-items')).toBe('baseline');
-    expect(bar.get('gap')).toBe('8px');
+    expect(bar.get('gap')).toBe('var(--toolbar-gap)');
     expect(Object.fromEntries(declsFor('.toolbar__main'))).toMatchObject({
       flex: '1 1 auto',
       'min-width': '0',
@@ -241,7 +241,7 @@ describe('the toolbar and the columns in app.css', () => {
       'flex-wrap': 'wrap',
       'justify-content': 'flex-end',
       'align-items': 'center',
-      gap: '6px 8px'
+      gap: '6px var(--toolbar-gap)'
     });
     expect(Object.fromEntries(declsFor('.toolbar__end'))).toEqual({
       flex: 'none',
@@ -258,7 +258,41 @@ describe('the toolbar and the columns in app.css', () => {
     expect(strut.get('border-block')).toBe('1px solid');
     expect(declsFor('button').get('border')).toBe('1px solid var(--border)');
     expect(strut.get('visibility')).toBe('hidden');
-    expect(declsFor('.toolbar__end > button + button').get('margin-left')).toBe('8px');
+    expect(declsFor('.toolbar__end > button + button').get('margin-left')).toBe('var(--toolbar-gap)');
+  });
+
+  /* polish.31: the author found the panel buttons farther from the window's
+     edge (12 px) than from their neighbours (8), and asked for both the same
+     and a little nearer. One gap, 6 px, between the row's items, between the
+     row and the ends, between an end's two buttons and from each end to the
+     edge, in one custom property, so 2 px, the other reading of his words,
+     is one line (C.123). The status bar's sides follow, keeping the (?) and
+     the zoom control in line with the ends; the rows stay 6 px apart and the
+     toolbar's padding above and below stays 7 px. The distances measured in
+     the window are in PLAN (polish.31). */
+  it('keeps one gap, 6 px, on the toolbar and at its sides, in one place (polish.31)', () => {
+    expect(CSS.match(/--toolbar-gap:/g)).toHaveLength(1);
+    expect(declsFor('.app-shell').get('--toolbar-gap')).toBe('6px');
+    expect(declsFor('.toolbar').get('padding')).toBe('7px var(--toolbar-gap)');
+    expect(declsFor('.statusbar').get('padding')).toBe('5px var(--toolbar-gap)');
+    // Every rule that reads it, and what each sets with it.
+    const readers = [...CSS.matchAll(/([^{}]+)\{([^{}]*var\(--toolbar-gap\)[^{}]*)\}/g)].map((m) =>
+      (m[1] ?? '').trim()
+    );
+    expect(readers).toEqual(['.toolbar', '.toolbar__main', '.toolbar__end > button + button', '.statusbar']);
+    // Nothing else on the row adds room at the ends or between the items:
+    // the ends and the icon buttons set no margin, and the row no padding.
+    for (const rule of ['.toolbar__end', '.toolbar__icon', '.toolbar__main', '.mode-select', '.chips-bar']) {
+      const decls = declsFor(rule);
+      expect(
+        [...decls.keys()].filter((key) => /^(margin|padding)(-inline|-left|-right)?$/.test(key)),
+        rule
+      ).toEqual(rule === '.toolbar__icon' ? ['padding'] : rule === '.mode-select' ? ['margin-right'] : []);
+    }
+    // The chips keep their own room: the eye 4 px from the row, whose 3 px at
+    // each end keep a chip's focus ring in view.
+    expect(declsFor('.chips-bar').get('gap')).toBe('4px');
+    expect(declsFor('.chips').get('padding')).toBe('2px 3px');
   });
 
   it("draws the three icon buttons at the eye's size and in its colour", () => {

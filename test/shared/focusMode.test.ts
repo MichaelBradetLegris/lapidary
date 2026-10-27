@@ -48,10 +48,11 @@ const NOTHING: EscapeTakers = {
 const MODIFIERS = ['ctrlKey', 'altKey', 'shiftKey', 'metaKey'] as const;
 
 describe('the hold times', () => {
-  /* focus.2: 5 and 10 seconds added, 10 the default (30 until then). */
-  it('are 5, 10, 15, 30 and 60 seconds, shortest first, 10 by default', () => {
+  /* focus.2: 5 and 10 seconds added, 10 the default (30 until then); focus.3: 5 the default. */
+  it('are 5, 10, 15, 30 and 60 seconds, shortest first, 5 by default', () => {
     expect(FOCUS_HOLD_SECONDS).toEqual([5, 10, 15, 30, 60]);
-    expect(DEFAULT_FOCUS_HOLD_SECONDS).toBe(10);
+    expect(DEFAULT_FOCUS_HOLD_SECONDS).toBe(5);
+    expect(DEFAULT_FOCUS_HOLD_SECONDS).toBe(FOCUS_HOLD_SECONDS[0]);
     expect(FOCUS_HOLD_SECONDS.map(focusHoldLabel)).toEqual([
       '5 seconds',
       '10 seconds',
@@ -65,13 +66,17 @@ describe('the hold times', () => {
     for (const seconds of FOCUS_HOLD_SECONDS) expect(normalizeFocusHold(seconds)).toBe(seconds);
     const others: unknown[] = [0, 1, 4, 6, 9, 11, 20, 29, 31, 45, 90, -5, -10, 5.5, 10.5, NaN, Infinity];
     others.push('5', '10', true, null, undefined, {}, [10], [5]);
-    others.forEach((other, i) => expect(normalizeFocusHold(other), `others[${i}]`).toBe(10));
+    others.forEach((other, i) => expect(normalizeFocusHold(other), `others[${i}]`).toBe(5));
   });
 
   it('keep the times focus.1 offered, 30, its default, among them, rather than take the new default', () => {
     expect(normalizeFocusHold(15)).toBe(15);
     expect(normalizeFocusHold(30)).toBe(30);
     expect(normalizeFocusHold(60)).toBe(60);
+  });
+
+  it("keep 10, focus.2's default, rather than take focus.3's 5", () => {
+    expect(normalizeFocusHold(10)).toBe(10);
   });
 });
 

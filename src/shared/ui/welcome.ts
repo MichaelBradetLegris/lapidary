@@ -1,6 +1,6 @@
 /**
  * The welcome guide (setup.11, PLAN section 7), decided without React: when it
- * shows, what each of its three steps says and offers, and what Start says.
+ * shows, what each of its four steps says and offers, and what Start says.
  *
  * A fresh install has no settings file, so `onboardingDone` is false and the
  * guide takes the place of the chapter list, the prose and the side panel, as
@@ -8,15 +8,17 @@
  * Show the welcome guide again. Since setup.18 the steps are: 1 the
  * manuscript folder, the one Start needs, with two optional rows under it,
  * where reviews and backups are kept; 2 the AI agents, optional, with a
- * section each for Claude and ChatGPT; 3 the style sheet, optional too. Each
- * says where it stands from what the app already knows, and so follows it as
- * it changes: the folders in the settings and `settings:effective`, Claude's
- * check in the Setup screen's own words (`setupStatus`, setup.7), the ChatGPT
- * sign-in in its view's words (`chatGptSetupStatus`, codex.2), and the
- * guidelines file's status (`guidelines:status`, setup.10), which the screen
- * reads again whenever the window gets the focus back. The style sheet's
- * buttons are Review with AI's, Open and Open folder (polish.3), worded for a
- * file that may not be there yet.
+ * section each for Claude and ChatGPT; 3 since setup.20, how the app looks,
+ * Appearance and Focus mode, a choice that is never undone; 4 the style sheet,
+ * optional too. Each says where it stands from what the app already knows,
+ * and so follows it as it changes: the folders and the look in the settings
+ * and `settings:effective`, Claude's check in the Setup screen's own words
+ * (`setupStatus`, setup.7), the ChatGPT sign-in in its view's words
+ * (`chatGptSetupStatus`, codex.2), and the guidelines file's status
+ * (`guidelines:status`, setup.10), which the screen reads again whenever the
+ * window gets the focus back. The style sheet's buttons are Review with AI's,
+ * Open and Open folder (polish.3), worded for a file that may not be there
+ * yet.
  *
  * Pure (CLAUDE.md rule 4).
  */
@@ -24,7 +26,7 @@
 import { PRO_PRESELECT_HINT } from '../ai/claudeModels';
 import { APP_NAME } from '../branding';
 import type { ChatGptStatus, EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../ipc';
-import type { Provider, Settings } from '../types';
+import { DEFAULT_SETTINGS, type Provider, type Settings } from '../types';
 import { SIGN_IN_BUTTON, chatGptSetupStatus } from './chatgpt';
 import {
   OPEN_FOLDER,
@@ -36,6 +38,7 @@ import {
 } from './guidelines';
 import { withHint } from './saveHint';
 import { setupStatus, setupView, type LastFailure, type SetupFor } from './setup';
+import type { Theme } from './theme';
 
 /**
  * Whether the guide shows: once the settings are in, until Start or Skip.
@@ -75,9 +78,9 @@ export const SHOW_WELCOME_AGAIN = 'Show the welcome guide again';
 
 /** Its tooltip and description at the foot of Settings (polish.4; a note under its row before). */
 export const WELCOME_GUIDE_NOTE =
-  'The first-start steps: the manuscript folder, the AI agents and the style sheet.';
+  'The first-start steps: manuscript folder, AI agents, appearance and style sheet.';
 
-export const WELCOME_INTRO = `Three steps get ${APP_NAME} ready to review your chapters, and only the first is needed to start. Each one says when it is done, and you can do them in any order. Skip leaves the guide; Settings has ${SHOW_WELCOME_AGAIN}.`;
+export const WELCOME_INTRO = `Four steps get ${APP_NAME} ready to review your chapters, and only the first is needed to start. Each one says when it is done, and you can do them in any order. Skip leaves the guide; Settings has ${SHOW_WELCOME_AGAIN}.`;
 
 export const WELCOME_START = 'Start';
 export const WELCOME_SKIP = 'Skip';
@@ -94,7 +97,7 @@ export const SET_UP_CLAUDE = 'Set up Claude';
  */
 export const SET_UP_CHATGPT = 'Set up ChatGPT';
 
-export type WelcomeStepId = 'folder' | 'agents' | 'style-sheet';
+export type WelcomeStepId = 'folder' | 'agents' | 'look' | 'style-sheet';
 
 /** What a button does; the screen maps each to its call. */
 export type WelcomeActionId =
@@ -133,6 +136,13 @@ export interface WelcomeFolderRow {
   actions: WelcomeAction[];
 }
 
+/**
+ * Step 3's two rows as the settings stand (setup.20): Appearance, and Focus
+ * mode with its hold time, the settings Settings' App section shows, which the
+ * guide writes as Settings does.
+ */
+export type WelcomeLook = Pick<Settings, 'theme' | 'focusMode' | 'focusHoldSeconds'>;
+
 /** One of step 2's two sections, an AI agent (setup.18). */
 export interface WelcomeSection {
   id: SetupFor;
@@ -162,6 +172,8 @@ export interface WelcomeStep {
   rows: WelcomeFolderRow[];
   /** step 2's sections, Claude and ChatGPT; none elsewhere */
   sections: WelcomeSection[];
+  /** step 3's settings, Appearance and Focus mode (setup.20); null elsewhere */
+  look: WelcomeLook | null;
 }
 
 export interface WelcomeInput {
@@ -187,6 +199,8 @@ export interface WelcomeInput {
   guidelines: GuidelinesStatus | null;
   /** why `guidelines:status` could not be read, in main's words, or null */
   guidelinesProblem?: string | null;
+  /** the theme and focus mode settings, for step 3 (setup.20); a fresh install's when left out */
+  look?: WelcomeLook;
 }
 
 /* ---------------- 1. Connect your manuscript folder ---------------- */
@@ -210,7 +224,7 @@ export const FOLDER_SAVES = `It changes a chapter file only when you press Save 
 /** The third fact: the one file the app adds, or the guidelines file chosen in Settings. */
 export function folderGuidelinesFact(guidelinesSetting: string | null): string {
   if (guidelinesSetting === null) {
-    return `It adds one file of its own to the folder, GUIDELINES.md, from a template the first time it needs it: the guidelines the reviewer follows, with your style sheet (step 3). It never changes that file after that.`;
+    return `It adds one file of its own to the folder, GUIDELINES.md, from a template the first time it needs it: the guidelines the reviewer follows, with your style sheet (step 4). It never changes that file after that.`;
   }
   return `Its guidelines file is the one chosen in Settings, ${guidelinesSetting}. It creates that file from a template only if it is missing, and never changes it after that.`;
 }
@@ -301,7 +315,8 @@ function folderStep(input: WelcomeInput): WelcomeStep {
         paths ? { folder: paths.backupsFolder, isDefault: paths.backupsFolderIsDefault } : null
       )
     ],
-    sections: []
+    sections: [],
+    look: null
   };
 }
 
@@ -406,7 +421,8 @@ function agentsStep(input: WelcomeInput): WelcomeStep {
     actions: [],
     rows: [],
     // Either will do, so the step's blue buttons go once one can review.
-    sections: [claudeSection(input, done), chatGptSection(input, done)]
+    sections: [claudeSection(input, done), chatGptSection(input, done)],
+    look: null
   };
 }
 
@@ -425,7 +441,60 @@ export function welcomeProviderFor(section: SetupFor, input: WelcomeInput): Prov
   return otherConnected ? null : section;
 }
 
-/* ---------------- 3. Fill in your style sheet ---------------- */
+/* ---------------- 3. Choose appearance and focus mode ---------------- */
+
+export const LOOK_STEP_TITLE = 'Choose appearance and focus mode';
+
+/**
+ * The step's line. Ticking the box changes nothing straight away: focus mode
+ * starts only as the window goes full screen (section 7, Focus mode), so the
+ * line says how to go full screen, as Settings' (?) does (the setup.20 review).
+ */
+export const LOOK_STEP_TEXT = `How ${APP_NAME} looks, and focus mode, which, once you go full screen with F11 or the arrows after Settings, keeps it there until you hold F11 or Esc. You can change both later in Settings, under App.`;
+
+/** The theme as the step's own line says it, the first of its two sentences. */
+const LOOK_THEME_WORDS: Readonly<Record<Theme, string>> = {
+  system: 'Matching your system',
+  light: 'Always light',
+  dark: 'Always dark'
+};
+
+/**
+ * Step 3's line under its title: what is chosen now, the theme, then focus
+ * mode ("Matching your system. Focus mode off.", setup.20).
+ */
+export function lookStatus(look: WelcomeLook): string {
+  const focus = look.focusMode
+    ? `Focus mode on, with a ${look.focusHoldSeconds}-second hold`
+    : 'Focus mode off';
+  return `${LOOK_THEME_WORDS[look.theme]}. ${focus}.`;
+}
+
+/**
+ * Step 3 (setup.20): a choice, not a job. Whatever is chosen will do, the
+ * defaults included, so the step is never undone: it is done from the start,
+ * with its tick, and Start's line never names it. Its rows are controls, not
+ * buttons, so it has no blue button either.
+ */
+function lookStep(input: WelcomeInput): WelcomeStep {
+  const { theme, focusMode, focusHoldSeconds } = input.look ?? DEFAULT_SETTINGS;
+  const look: WelcomeLook = { theme, focusMode, focusHoldSeconds };
+  return {
+    id: 'look',
+    title: LOOK_STEP_TITLE,
+    optional: true,
+    done: true,
+    status: lookStatus(look),
+    lines: [LOOK_STEP_TEXT],
+    facts: [],
+    actions: [],
+    rows: [],
+    sections: [],
+    look
+  };
+}
+
+/* ---------------- 4. Fill in your style sheet ---------------- */
 
 export const STYLE_SHEET_STEP_TITLE = 'Fill in your style sheet';
 
@@ -532,7 +601,8 @@ function styleSheetStep(input: WelcomeInput): WelcomeStep {
       }
     ],
     rows: [],
-    sections: []
+    sections: [],
+    look: null
   };
 }
 
@@ -542,9 +612,9 @@ function titled(title: string | undefined): { title?: string } {
 
 /* ---------------- the guide ---------------- */
 
-/** The three steps, in order, each as the app finds it now. */
+/** The four steps, in order, each as the app finds it now. */
 export function welcomeSteps(input: WelcomeInput): WelcomeStep[] {
-  return [folderStep(input), agentsStep(input), styleSheetStep(input)];
+  return [folderStep(input), agentsStep(input), lookStep(input), styleSheetStep(input)];
 }
 
 /** Every button of a step, its own and its rows' and sections', in the order the guide draws them. */

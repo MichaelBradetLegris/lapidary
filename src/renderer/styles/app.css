@@ -67,10 +67,6 @@
   --warn-border: #e5d49a;
   --danger-bg: #fdeceb;
   --editor-bg: #fbfaff;
-  /* Full edit's sheet while its text has the focus (rr.7): the edge in a
-     faint blue, --accent three quarters of the way from the sheet, 3:1 on the
-     column and on the sheet, where Preview's sheet keeps --border. */
-  --sheet-focus: #6c84e3;
 
   /* Selected text (polish.1): a turquoise laid over whatever the text sits
      on, translucent, so what lies under the text shows through it. Two
@@ -193,8 +189,6 @@
     --warn-border: #5c4a22;
     --danger-bg: #3a1f1c;
     --editor-bg: #20222b;
-    /* --accent a little over halfway from the sheet, 3:1 on the column and the sheet */
-    --sheet-focus: #67719a;
 
     /* deep turquoises of the icon's dots' hue: #0d4e51 over the page, and the
        prose's faint band #162725 */
@@ -549,7 +543,15 @@ input[type='text'] {
 
 /* ---------- layout ---------- */
 
+/* `--toolbar-gap` is the one gap on the toolbar's row (polish.31): between its
+   items, between the row and its ends, between the two buttons of an end, and
+   from each end to the window's edge, so a panel button stands as far from the
+   edge as from the button beside it. The status bar's side padding takes it
+   too, so the (?) and the zoom control stay in line with the toolbar's ends.
+   The author was shown 8, 6 and 2 (C.123): 2px here is the whole change for
+   2. */
 .app-shell {
+  --toolbar-gap: 6px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -574,12 +576,14 @@ input[type='text'] {
    (polish.28), and between them the row that does (.toolbar__main). The ends
    stand beside the row's first line, on its words' baseline: the row's
    baseline is its first item's, the Mode select's or Review's, whose words
-   stand where a button's do (rr.8), and an end's is its strut's, below. */
+   stand where a button's do (rr.8), and an end's is its strut's, below. One
+   gap everywhere on the row and at its sides (`--toolbar-gap`, .app-shell);
+   12 px at the sides and 8 between until polish.31. */
 .toolbar {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding: 7px 12px;
+  gap: var(--toolbar-gap);
+  padding: 7px var(--toolbar-gap);
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
@@ -593,7 +597,8 @@ input[type='text'] {
    narrow window, its last buttons, Settings first, move to a second row on
    the right rather than running out of the window (apply.4). The chips
    themselves never wrap. With no chips the buttons keep the right end and the
-   Mode select the left. */
+   Mode select the left. Its rows stand 6 px apart, whatever the gap between
+   its items. */
 .toolbar__main {
   flex: 1 1 auto;
   min-width: 0;
@@ -601,7 +606,7 @@ input[type='text'] {
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  gap: 6px 8px;
+  gap: 6px var(--toolbar-gap);
 }
 
 /* An end of the toolbar (polish.28): the chapter list's button at the left;
@@ -628,7 +633,7 @@ input[type='text'] {
 }
 
 .toolbar__end > button + button {
-  margin-left: 8px;
+  margin-left: var(--toolbar-gap);
 }
 
 /* No button label breaks in two. The progress label is left free to wrap: the
@@ -1034,14 +1039,17 @@ input[type='text'] {
 
 /* Zoomed in, the bar can run out of room. Each item stays on one line and the
    bar wraps onto a second row, rather than every item breaking in two
-   ("6 / pending") as it did at 150% (round 5). */
+   ("6 / pending") as it did at 150% (round 5). Its sides are the toolbar's
+   (`--toolbar-gap`, polish.31), so the (?) stays in line with the chapter
+   list's button above it and the zoom control with the side panel's, as both
+   were at 12 px. */
 .statusbar {
   flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
   gap: 2px 14px;
   align-items: center;
-  padding: 5px 12px;
+  padding: 5px var(--toolbar-gap);
   border-top: 1px solid var(--border);
   background: var(--panel);
   color: var(--ink-soft);
@@ -3427,17 +3435,20 @@ button.help {
   color: var(--ink-soft);
 }
 
-/* Step 1's two folder rows and step 2's two sections (setup.18), under the
-   step's own lines and buttons, each parted from what is above by a line. */
+/* Step 1's two folder rows and step 2's two sections (setup.18), and step
+   3's two rows (setup.20), under the step's own lines and buttons, each parted
+   from what is above by a line. */
 .welcome__row,
-.welcome__section {
+.welcome__section,
+.welcome__choice {
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }
 
 .welcome__row h3,
-.welcome__section h3 {
+.welcome__section h3,
+.welcome__choice h3 {
   margin: 0 0 2px;
   font-size: 13px;
 }
@@ -3478,6 +3489,34 @@ button.help {
 
 .welcome__section--done .welcome__section-status {
   color: var(--accept);
+}
+
+/* Step 3's rows (setup.20): the name, with its control beside it as in
+   Settings' App section, both controls starting at one edge, and the note
+   under them in the soft ink. In a narrow column the control wraps under the
+   name, and the focus row's words wrap round its list. */
+.welcome__choice-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.welcome__choice .welcome__choice-head h3 {
+  min-width: 7em;
+  margin: 0;
+}
+
+.welcome__focus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+
+.setup .welcome__choice-note {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
 }
 
 .welcome__foot {
@@ -4308,14 +4347,6 @@ button.help {
   background: var(--panel);
 }
 
-/* The focus is the caret and the sheet's edge, a faint blue at 3:1 on the
-   column and on the sheet, rather than the browser's ring, which round a
-   field that fills the sheet would be the bordered box rr.7 took away
-   (CLAUDE.md's exceptions to the ring; themeContrast.test.ts). */
-.fulledit__page:focus-within {
-  border-color: var(--sheet-focus);
-}
-
 /* The sheet's paper, so no box shows inside it. It grows with the text and
    never has anything to scroll, but it stays a scroller as a text area is
    by default: Chromium moves the caret a page at Page Down and Page Up only
@@ -4340,6 +4371,11 @@ button.help {
   field-sizing: content;
 }
 
+/* The focus is the caret alone, as on a page in Google Docs: the sheet looks
+   the same focused or not, its edge Preview's --border (rr.9, at the author's
+   ask; from rr.7 it turned a faint blue). No ring either, which round a field
+   that fills the sheet would be the bordered box rr.7 took away (CLAUDE.md's
+   exceptions to the ring). */
 .fulledit__area:focus {
   outline: none;
 }
