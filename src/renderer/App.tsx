@@ -32,14 +32,13 @@ import {
 import { usageLimitCard } from '../shared/ui/usage';
 import { welcomeNotKept, welcomeShown } from '../shared/ui/welcome';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
-import { bodyClassName, columnClassName, columnInert } from '../shared/ui/columns';
+import { bodyClassName, columnClassName, columnInert, nothingOpenLead } from '../shared/ui/columns';
 import { focusReturnTarget, shellInert } from '../shared/ui/dialog';
 import type { UpdateAction } from '../shared/ui/update';
 import type { ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
 import { PROVIDER_NAMES, type Provider, type Review, type Settings } from '../shared/types';
 import { AboutDialog } from './components/AboutDialog';
 import { ChatGptSetup } from './components/ChatGptSetup';
-import { ColumnCaret } from './components/ColumnCaret';
 import { ColumnStrip } from './components/ColumnStrip';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { DiagnosticsDialog } from './components/DiagnosticsDialog';
@@ -460,11 +459,14 @@ export function App(): React.JSX.Element {
      zooming in makes: they shrink, then fold to strips that open them as
      drawers over the edge of the prose (ui.3, state/columns.ts). Each has a
      handle on its inner edge while it is drawn in place, which sets its width
-     (polish.5, state/columnHandles.ts), and a caret at the handle's top that
-     folds it away (polish.26). */
+     (polish.5, state/columnHandles.ts), and hides it when dragged to the
+     window's edge, the column faded while a release would (polish.27); its
+     button at an end of the toolbar hides it and brings it back (polish.28,
+     components/PanelButton.tsx). */
   const {
     layout,
     setLive: setLiveWidths,
+    snapping,
     shown,
     measure: measureBody,
     style: columnStyle,
@@ -1192,7 +1194,7 @@ export function App(): React.JSX.Element {
   const runtimeLabel = labelForRuntime(activeRuntime, activeLastFailure) ?? undefined;
 
   // The first-use hint hangs over the prose when the side panel is folded
-  // (ui.3) or folded away (polish.26); the Setup screen and the welcome guide
+  // (ui.3) or hidden (polish.28); the Setup screen and the welcome guide
   // have no side panel, folded or not, and while either is up the hint
   // waits, since it would hang over their own buttons (setup.11 review).
   const singleScreen = setupOpen || welcomeOpen;
@@ -1546,18 +1548,17 @@ export function App(): React.JSX.Element {
             a closed drawer is hidden and inert. A column in place has a handle
             on its inner edge, after it in the Tab order for the chapter list
             and before it for the side panel, laid over the edge rather than
-            given a grid column of its own (polish.5), with a caret at its top
-            just before it, which folds the column away to the edge strip in
-            its place, whose caret brings it back (polish.26); folded away,
-            the column's wrapper is a drawer that never opens. */}
+            given a grid column of its own (polish.5). A column hidden by its
+            button in the toolbar, or snapped closed by its handle, is drawn
+            as nothing, its grid column 0 px wide, and its wrapper is a drawer
+            that never opens (polish.28, polish.27). */}
         <div className={bodyClassName(layout)} style={columnStyle} ref={measureBody}>
           {layout.files === 'strip' ? (
             <ColumnStrip column="files" open={shown === 'files'} onToggle={() => toggleDrawer('files')} />
           ) : null}
-          {layout.files === 'hidden' ? <ColumnCaret column="files" hidden /> : null}
           <div
             id={drawerId('files')}
-            className={columnClassName('files', layout, shown)}
+            className={columnClassName('files', layout, shown, snapping)}
             inert={columnInert('files', layout, shown)}
           >
             <FileList
@@ -1573,7 +1574,6 @@ export function App(): React.JSX.Element {
               onNewChapter={() => setNewChapterOpen(true)}
             />
           </div>
-          {layout.files === 'full' ? <ColumnCaret column="files" hidden={false} /> : null}
           {filesHandle ? <div {...filesHandle} /> : null}
 
           {/* The centre column: the manuscript pane, from the toolbar's foot,
@@ -1602,12 +1602,14 @@ export function App(): React.JSX.Element {
                     <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
                   )
                 ) : (
+                  // With the chapter list hidden, nothing is at the left: the
+                  // first sentence names its button (polish.28 review).
                   <div className="empty">
                     <h1>Nothing open</h1>
                     <p>
-                      Pick a chapter on the left, or start one with the + beside Chapters. In the Review menu,
-                      Claude or ChatGPT asks for suggestions, and Manual turns a corrected copy into the same
-                      kind of list. You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
+                      {nothingOpenLead(layout.files === 'hidden')} In the Review menu, Claude or ChatGPT asks
+                      for suggestions, and Manual turns a corrected copy into the same kind of list. You
+                      accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
                     </p>
                   </div>
                 )}
@@ -1621,10 +1623,8 @@ export function App(): React.JSX.Element {
               <LockCard label={progressLabel} onCancel={ai.cancel} />
             </div>
           </div>
-          {layout.side === 'full' ? <ColumnCaret column="side" hidden={false} /> : null}
           {sideHandle ? <div {...sideHandle} /> : null}
 
-          {layout.side === 'hidden' ? <ColumnCaret column="side" hidden /> : null}
           {layout.side === 'strip' ? (
             review ? (
               <ColumnStrip column="side" open={shown === 'side'} onToggle={() => toggleDrawer('side')} />
@@ -1635,7 +1635,7 @@ export function App(): React.JSX.Element {
           ) : null}
           <div
             id={drawerId('side')}
-            className={columnClassName('side', layout, shown)}
+            className={columnClassName('side', layout, shown, snapping)}
             inert={columnInert('side', layout, shown)}
           >
             {review ? (

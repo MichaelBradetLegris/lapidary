@@ -23,6 +23,8 @@ import { hintDismissedThisSession, useSaveHintAside } from '../state/hints';
 import { changedParagraphCount, fullEditDraft, isLocked, useApp } from '../state/store';
 import { FilterChips } from './FilterChips';
 import { IconFullScreen, IconLeaveFullScreen } from './icons';
+import { ModeSelect } from './ModeSelect';
+import { PanelButton } from './PanelButton';
 import { SaveHint } from './SaveHint';
 import { ToolbarMenu, type MenuItem } from './ToolbarMenu';
 
@@ -56,17 +58,23 @@ interface Props {
 /**
  * One row, the only bar at the top (polish.10), in the order the author reads
  * it: what can be shown, what can act on it, then what writes it out. Since
- * `rr.6` it starts with the Mode select (Main, Full edit or Preview), which
- * stood above the prose from `rr.2`: the mode is the window's since `rr.5`,
- * so it sits with the window's controls, and the select shrinks with the
- * chips, which is why FilterChips draws it. The
- * chapter's name and its unsaved dot are in the window's title since
- * `polish.10` (`windowTitle`, set by App), and the category chips took their
- * place, after the eye that shows or hides them all (polish.11): they take
- * the room the buttons leave and give way first, shrinking in steps and then
- * scrolling sideways once they do not fit (FilterChips); once they are down
- * to about 8em, the last buttons move to a second row instead (app.css,
- * `.toolbar`).
+ * `polish.28` its two ends are the side columns' buttons, Obsidian's way: the
+ * chapter list's first, before the Mode select, and the side panel's last,
+ * after Settings and full screen, each hiding its column or bringing it back
+ * (`PanelButton`); they and full screen stand outside the row that wraps
+ * (`.toolbar__main`), so they never leave the first row, and they are not
+ * drawn over the Setup screen or the welcome guide, which stand in the
+ * columns' place. Since `rr.6` the row starts with the Mode select (Main,
+ * Full edit or Preview), which stood above the prose from `rr.2`: the mode is
+ * the window's since `rr.5`, so it sits with the window's controls. Since
+ * `rr.8` it reads "Mode: Main" and so on, with no label beside it, at the
+ * eye's size. The chapter's name and its unsaved dot are in the window's
+ * title since `polish.10` (`windowTitle`, set by App), and the category chips
+ * took their place, after the eye that shows or hides them all (polish.11):
+ * they take the room the buttons leave and give way first, shrinking in
+ * steps and then scrolling sideways once they do not fit (FilterChips); once
+ * they are down to about 8em, the last buttons of the row, Settings first,
+ * move to a second row instead (app.css, `.toolbar__main`).
  * Model and effort moved into the review dialog, where they are chosen once
  * per review rather than sitting in the way all day (item 6). While the Setup
  * screen or the welcome guide stands in place of the chapter, there are no
@@ -82,11 +90,12 @@ interface Props {
  * was last on, while it has not left the toolbar (`useChipFocus`,
  * `watchToolbarFocus`), and since `polish.11` Show all categories and Hide all
  * categories, as the eye before the chips does; Save to chapter; and Settings
- * (`ToolbarMenu`). Since `polish.23` an icon button before Settings puts the
- * window in full screen and back, as F11 does: two arrows out to the corners,
- * or back in from them in full screen, its name and tooltip saying which
- * (`fullScreenButton`). In focus mode (focus.1) it shows the hold instead,
- * and its tooltip says to hold F11 or Esc.
+ * (`ToolbarMenu`). Since `polish.23` an icon button puts the window in full
+ * screen and back, as F11 does: two arrows out to the corners, or back in
+ * from them in full screen, its name and tooltip saying which
+ * (`fullScreenButton`); before Settings until `polish.28` moved it after,
+ * beside the side panel's button. In focus mode (focus.1) it shows the hold
+ * instead, and its tooltip says to hold F11 or Esc.
  * While a review runs, its progress and Cancel come before Review, whose
  * providers' items wait until it ends.
  *
@@ -170,6 +179,9 @@ export function Toolbar({
   );
   const lastChip = useChipFocus((s) => s.category);
   const chipShown = review !== null && !singleScreen;
+  // The columns' buttons, wherever the columns are: not over the Setup screen
+  // or the welcome guide, which stand in their place (polish.28).
+  const panels = !singleScreen;
   const focusedChip =
     chipShown && lastChip !== null && chips.includes(lastChip) ? suggestionChip(lastChip) : null;
   /* The chip is forgotten once the focus leaves the toolbar: `onBlur` below,
@@ -233,92 +245,113 @@ export function Toolbar({
         );
       }}
     >
-      {/* The Mode select (rr.6), then the eye and the chips, where the
-          chapter's name was (polish.10): the name is in the window's title.
-          FilterChips draws the select too, as it shrinks with the chips. */}
-      {chipShown ? <FilterChips review={review} bulkOff={bulkOff} bulkTitle={bulkTitle} /> : null}
-
-      {running ? (
-        <>
-          <span className="progress" aria-live="polite">
-            {progressLabel}
-          </span>
-          <button type="button" onClick={onCancelReview}>
-            Cancel
-          </button>
-        </>
+      {/* The chapter list's button, the toolbar's first item (polish.28),
+          outside the row that wraps, so it never leaves the first row. */}
+      {panels ? (
+        <span className="toolbar__end">
+          <PanelButton column="files" />
+        </span>
       ) : null}
 
-      {/* Where the focus goes when Review with AI or Submit manual review
-          closes (REVIEW_BUTTON_SELECTOR, ui.4). */}
-      <ToolbarMenu
-        label={REVIEW_MENU.label}
-        opens="review"
-        disabled={!review?.sourcePath || locked}
-        items={[
-          ...PROVIDERS.map((provider): MenuItem => ({
-            label: reviewMenuLabel(provider),
-            onSelect: () => onReviewWith(provider),
-            // One review at a time: one of another chapter is running.
-            disabled: running,
-            title: running
-              ? 'Wait until the review that is running ends, or cancel it'
-              : REVIEW_WITH_TITLES[provider]
-          })),
-          {
-            label: REVIEW_MENU.manual,
-            onSelect: onManualReview,
-            title: 'Paste a corrected version of this chapter and turn the differences into suggestions',
-            // A line between the providers and the corrected copy.
-            separated: true
-          }
-        ]}
-      />
+      <div className="toolbar__main">
+        {/* The Mode select (rr.6), outside the chips' bar, so it stays in reach
+            while a review of the chapter runs and the bar is inert; then the eye
+            and the chips, where the chapter's name was (polish.10): the name is
+            in the window's title. */}
+        {chipShown ? (
+          <>
+            <ModeSelect />
+            <FilterChips review={review} bulkOff={bulkOff} bulkTitle={bulkTitle} />
+          </>
+        ) : null}
 
-      <ToolbarMenu
-        label={ACTIONS_MENU}
-        disabled={!review}
-        items={[
-          { label: 'Accept all', onSelect: () => runBulk('accept'), disabled: bulkOff, title: bulkTitle },
-          { label: 'Dismiss all', onSelect: () => runBulk('dismiss'), disabled: bulkOff, title: bulkTitle },
-          { label: 'Reset', onSelect: () => runBulk('reset'), disabled: bulkOff, title: bulkTitle },
-          ...chipItems,
-          ...categoryItems,
-          { label: 'Copy result', onSelect: onCopyResult, separated: true },
-          { label: EXPORT_HTML, onSelect: onExportHtml, title: EXPORT_HTML_TITLE },
-          { label: SHOW_BACKUPS, onSelect: onShowBackups, title: SHOW_BACKUPS_TITLE }
-        ]}
-      />
+        {running ? (
+          <>
+            <span className="progress" aria-live="polite">
+              {progressLabel}
+            </span>
+            <button type="button" onClick={onCancelReview}>
+              Cancel
+            </button>
+          </>
+        ) : null}
 
-      {/* Primary, in the turquoise, only while changes are waiting or saving (polish.9). */}
-      <button
-        ref={saveRef}
-        type="button"
-        className={save.primary ? 'primary' : undefined}
-        disabled={save.disabled}
-        title={save.title}
-        onClick={onSaveChapter}
-      >
-        {save.label}
-      </button>
+        {/* Where the focus goes when Review with AI or Submit manual review
+            closes (REVIEW_BUTTON_SELECTOR, ui.4). */}
+        <ToolbarMenu
+          label={REVIEW_MENU.label}
+          opens="review"
+          disabled={!review?.sourcePath || locked}
+          items={[
+            ...PROVIDERS.map((provider): MenuItem => ({
+              label: reviewMenuLabel(provider),
+              onSelect: () => onReviewWith(provider),
+              // One review at a time: one of another chapter is running.
+              disabled: running,
+              title: running
+                ? 'Wait until the review that is running ends, or cancel it'
+                : REVIEW_WITH_TITLES[provider]
+            })),
+            {
+              label: REVIEW_MENU.manual,
+              onSelect: onManualReview,
+              title: 'Paste a corrected version of this chapter and turn the differences into suggestions',
+              // A line between the providers and the corrected copy.
+              separated: true
+            }
+          ]}
+        />
 
-      {/* The window's full screen, as F11 (polish.23); main decides, and the
-          icon and the words follow what it says. */}
-      <button
-        type="button"
-        className="toolbar__full-screen"
-        aria-label={fullScreenWords.label}
-        aria-keyshortcuts={FULL_SCREEN_KEY}
-        title={fullScreenWords.title}
-        onClick={toggleFullScreen}
-      >
-        {fullScreen ? <IconLeaveFullScreen /> : <IconFullScreen />}
-      </button>
+        <ToolbarMenu
+          label={ACTIONS_MENU}
+          disabled={!review}
+          items={[
+            { label: 'Accept all', onSelect: () => runBulk('accept'), disabled: bulkOff, title: bulkTitle },
+            { label: 'Dismiss all', onSelect: () => runBulk('dismiss'), disabled: bulkOff, title: bulkTitle },
+            { label: 'Reset', onSelect: () => runBulk('reset'), disabled: bulkOff, title: bulkTitle },
+            ...chipItems,
+            ...categoryItems,
+            { label: 'Copy result', onSelect: onCopyResult, separated: true },
+            { label: EXPORT_HTML, onSelect: onExportHtml, title: EXPORT_HTML_TITLE },
+            { label: SHOW_BACKUPS, onSelect: onShowBackups, title: SHOW_BACKUPS_TITLE }
+          ]}
+        />
 
-      {/* Where the focus goes when Settings closes (SETTINGS_BUTTON_SELECTOR, ui.1). */}
-      <button type="button" data-opens="settings" onClick={onSettings}>
-        Settings
-      </button>
+        {/* Primary, in the turquoise, only while changes are waiting or saving (polish.9). */}
+        <button
+          ref={saveRef}
+          type="button"
+          className={save.primary ? 'primary' : undefined}
+          disabled={save.disabled}
+          title={save.title}
+          onClick={onSaveChapter}
+        >
+          {save.label}
+        </button>
+
+        {/* Where the focus goes when Settings closes (SETTINGS_BUTTON_SELECTOR, ui.1). */}
+        <button type="button" data-opens="settings" onClick={onSettings}>
+          Settings
+        </button>
+      </div>
+
+      {/* After Settings, outside the row that wraps (polish.28): the
+          window's full screen, as F11 (polish.23), whose icon and words
+          follow what main says; then the side panel's button, the toolbar's
+          last item. */}
+      <span className="toolbar__end">
+        <button
+          type="button"
+          className="toolbar__icon toolbar__full-screen"
+          aria-label={fullScreenWords.label}
+          aria-keyshortcuts={FULL_SCREEN_KEY}
+          title={fullScreenWords.title}
+          onClick={toggleFullScreen}
+        >
+          {fullScreen ? <IconLeaveFullScreen /> : <IconFullScreen />}
+        </button>
+        {panels ? <PanelButton column="side" /> : null}
+      </span>
 
       {hint && review ? (
         <SaveHint

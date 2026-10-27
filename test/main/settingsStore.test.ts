@@ -139,6 +139,57 @@ describe('createSettingsStore', () => {
   });
 });
 
+/* focus.2: focus mode's hold time through settings.json, as Settings saves it
+   and main reads it at the next start: 5 and 10 seconds added, 10 the default,
+   and a time a file kept from focus.1 staying what it was. */
+describe("focus mode's hold time on disk (focus.2)", () => {
+  const onDisk = (dir: string): Settings =>
+    JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')) as Settings;
+
+  it('saves each time Settings offers and reads it back in a new start', async () => {
+    for (const seconds of [5, 10, 15, 30, 60] as const) {
+      const dir = scratch();
+      await createSettingsStore({ dir, sleep: noWait }).save({ focusMode: true, focusHoldSeconds: seconds });
+      expect(onDisk(dir).focusHoldSeconds).toBe(seconds);
+      const loaded = await createSettingsStore({ dir, sleep: noWait }).load();
+      expect(loaded.focusHoldSeconds).toBe(seconds);
+      expect(loaded.focusMode).toBe(true);
+    }
+  });
+
+  it('takes 10 seconds for a file with no hold time, and writes it at the next save', async () => {
+    const dir = scratch();
+    writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify({ manuscriptFolder: 'C:/Novel' }));
+    const store = createSettingsStore({ dir, sleep: noWait });
+    expect((await store.load()).focusHoldSeconds).toBe(10);
+    await store.save({ zoom: 1.25 });
+    expect(onDisk(dir).focusHoldSeconds).toBe(10);
+  });
+
+  it('keeps a file written since focus.1, 30 seconds included, through a save of anything else', async () => {
+    for (const kept of [15, 30, 60]) {
+      const dir = scratch();
+      writeFileSync(
+        path.join(dir, SETTINGS_FILE),
+        JSON.stringify({ ...DEFAULT_SETTINGS, manuscriptFolder: 'C:/Novel', focusHoldSeconds: kept })
+      );
+      const store = createSettingsStore({ dir, sleep: noWait });
+      expect((await store.load()).focusHoldSeconds).toBe(kept);
+      await store.save({ theme: 'dark' });
+      expect(onDisk(dir).focusHoldSeconds).toBe(kept);
+    }
+  });
+
+  it('takes 10 seconds for a time Settings does not offer, and writes it at the next save', async () => {
+    const dir = scratch();
+    writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify({ focusMode: true, focusHoldSeconds: 20 }));
+    const store = createSettingsStore({ dir, sleep: noWait });
+    expect((await store.load()).focusHoldSeconds).toBe(10);
+    await store.save({ zoom: 1.1 });
+    expect(onDisk(dir).focusHoldSeconds).toBe(10);
+  });
+});
+
 /* hardening.8 review: the normaliser drops a folder or guidelines file it
    cannot use from a settings.json read from disk, but a save that names one is
    refused, and what was chosen before stays. */

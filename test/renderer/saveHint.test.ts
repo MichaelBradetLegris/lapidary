@@ -82,9 +82,10 @@ describe('the toolbar shows the hint (apply.12)', () => {
   it('keeps it to the side panel column and its arrow off the buttons under Save to chapter', () => {
     expect(HINT).toContain("const side = document.querySelector('.body .side')?.getBoundingClientRect();");
     expect(HINT).toContain('column: side && side.width > 0 ? span(side) : null,');
-    // The toolbar's items on later rows than Save's, the hint itself left out.
+    // The toolbar's items on later rows than Save's, the hint itself left out:
+    // those of the row that wraps, and its ends (polish.28).
     expect(HINT).toMatch(
-      /\[\.\.\.bar\.children\]\s*\.filter\(\(item\) => item !== hint && item\.getClientRects\(\)\.length > 0\)/
+      /\[\.\.\.bar\.children\]\s*\.flatMap\(\(item\) => \(item\.classList\.contains\('toolbar__main'\) \? \[\.\.\.item\.children\] : \[item\]\)\)\s*\.filter\(\(item\) => item !== hint && item\.getClientRects\(\)\.length > 0\)/
     );
     expect(HINT).toContain('.filter((r) => r.top >= s.bottom - 1)');
     expect(HINT).toMatch(

@@ -21,13 +21,13 @@
  * change where the columns are drawn, never where they fold: a column folds
  * at the window width it folded at before, whatever its width was set to.
  *
- * The author can also fold either column away with the caret at the top of
- * its inner edge (polish.26, the `filesHidden` and `sideHidden` flags of
- * `columnWidths`). A column folded away is drawn as the edge strip, as wide
- * as the edge's handle, whose caret brings it back at the width it had, and
- * the prose takes its room. That applies only where the column would be drawn
- * in place: where a narrow window folds it to a strip and a drawer, it folds
- * there as before, folded away or not, so the two never meet.
+ * The author can also hide either column with its button at an end of the
+ * toolbar (polish.28; the `filesHidden` and `sideHidden` flags of
+ * `columnWidths`, which polish.26 added for the carets the buttons replaced).
+ * A hidden column is drawn as nothing, in place or where a narrow window
+ * would fold it to a strip, and the prose takes its room; its button brings
+ * it back at the width it had. Hiding one never moves the window widths at
+ * which either column folds.
  *
  * `src/renderer/state/columns.ts` measures the width and applies it; the
  * edges' rules are in `columnHandle.ts`.
@@ -42,13 +42,6 @@ export const PROSE_MIN = 480;
 
 /** The width of a folded column: one button, the height of the column. */
 export const STRIP_WIDTH = 32;
-
-/**
- * The width of a column the author folded away (polish.26): the edge strip,
- * one button the height of the column with the caret that brings it back, as
- * wide as the handle on a column's inner edge (`.column-handle` in app.css).
- */
-export const EDGE_STRIP_WIDTH = 7;
 
 /** What an open drawer leaves of the centre column, at the least, to click back into. */
 export const DRAWER_MARGIN = 48;
@@ -115,9 +108,44 @@ export function normalizeColumnWidths(value: unknown): ColumnShares {
   };
 }
 
+/** Whether `column` is hidden by its button in the toolbar (polish.28), as `columnWidths` keeps it. */
+export function columnHidden(kept: ColumnShares, column: Column): boolean {
+  return column === 'files' ? kept.filesHidden : kept.sideHidden;
+}
+
+/** A column's name in the words of its handle and its button. */
+export const COLUMN_NAMES: Readonly<Record<Column, string>> = Object.freeze({
+  files: 'chapter list',
+  side: 'side panel'
+});
+
+/**
+ * What a column's button at an end of the toolbar says (polish.28), as its
+ * accessible name and its tooltip: "Hide the chapter list" while the column
+ * shows, "Show the chapter list" while it is hidden ("the side panel" for
+ * the other), what a press does.
+ */
+export function panelButtonText(column: Column, hidden: boolean): string {
+  return `${hidden ? 'Show' : 'Hide'} the ${COLUMN_NAMES[column]}`;
+}
+
+/**
+ * The first sentence of the page shown while nothing is open, "Nothing open":
+ * where to find a chapter. A hidden chapter list leaves nothing at the
+ * window's left, and the flag outlives a restart, which always starts with
+ * nothing open, so with the list hidden the sentence starts with the button
+ * that shows it, in that button's own words (the polish.28 review).
+ */
+export function nothingOpenLead(listHidden: boolean): string {
+  if (!listHidden) return 'Pick a chapter on the left, or start one with the + beside Chapters.';
+  return `${panelButtonText('files', true)} with the button at the left end of the toolbar, then pick a chapter, or start one with the + beside Chapters.`;
+}
+
 /**
  * A side column drawn in place, folded to a strip and a drawer by a narrow
- * window (ui.3), or folded away by the author to the edge strip (polish.26).
+ * window (ui.3), or hidden by the author with its button in the toolbar,
+ * drawn as nothing (polish.28; folded away to a 7 px edge strip by a caret
+ * on its handle from polish.26).
  */
 export type ColumnMode = 'full' | 'strip' | 'hidden';
 
@@ -126,7 +154,7 @@ export interface ColumnLayout {
   width: number;
   files: ColumnMode;
   side: ColumnMode;
-  /** the chapter list's grid column, in CSS pixels: its width, the strip's or the edge strip's */
+  /** the chapter list's grid column, in CSS pixels: its width, the strip's, or 0 while it is hidden */
   filesWidth: number;
   /** the side panel's grid column */
   sideWidth: number;
@@ -175,11 +203,11 @@ export function keptWidth(spec: ColumnWidths, share: number | null, width: numbe
  * below the width that leaves its floor, the panel's and `PROSE_MIN`, and the
  * panel below the strip's, its floor and `PROSE_MIN`, whatever was set.
  *
- * A column the author folded away (`filesHidden`, `sideHidden`, polish.26) is
- * drawn as the edge strip wherever these steps would draw it in place, and
- * the prose takes its room; in steps 1 and 2 only the columns shown give way.
- * Where a step folds it to a strip, it is that strip, as for any column, so
- * folding one away never moves the window widths at which either folds.
+ * A column the author hid (`filesHidden`, `sideHidden`, polish.28) is drawn
+ * as nothing, 0 px wide, at every step, in place of the column or its strip,
+ * and the prose takes its room; in steps 1 and 2 only the columns shown give
+ * way, the side panel in step 3 too. The steps are chosen as for the columns
+ * shown, so hiding one never moves the window widths at which either folds.
  *
  * Column widths are whole pixels, rounded down where a column gives way, so
  * the centre column gets the fractions and never ends up a pixel short.
@@ -204,40 +232,47 @@ export function columnLayout(width: number, kept: ColumnShares = USUAL_COLUMN_WI
     };
   };
 
-  // Steps 1 and 2: both columns in place, or at the edge where folded away.
+  // Steps 1 and 2: both columns in place, or nothing where hidden.
   if (w - FILES_WIDTHS.floor - SIDE_WIDTHS.floor >= PROSE_MIN) {
     const filesMode: ColumnMode = kept.filesHidden ? 'hidden' : 'full';
     const sideMode: ColumnMode = kept.sideHidden ? 'hidden' : 'full';
-    const fw = kept.filesHidden ? EDGE_STRIP_WIDTH : files;
-    const sw = kept.sideHidden ? EDGE_STRIP_WIDTH : side;
+    const fw = kept.filesHidden ? 0 : files;
+    const sw = kept.sideHidden ? 0 : side;
     if (w - fw - sw >= PROSE_MIN) return make(filesMode, fw, sideMode, sw);
 
     // Each column shown gives in proportion to what it can, so neither reaches
     // its floor first. They can always give enough: the steps' own width
-    // leaves the prose its 480 px with both at their floors, and the edge
-    // strip is narrower than either floor. The share is held to 1 so that
-    // rounding at that width never takes a column a pixel under its floor.
+    // leaves the prose its 480 px with both at their floors. The share is held
+    // to 1 so that rounding at that width never takes a column a pixel under
+    // its floor.
     const need = PROSE_MIN - (w - fw - sw);
     const filesGives = kept.filesHidden ? 0 : files - FILES_WIDTHS.floor;
     const sideGives = kept.sideHidden ? 0 : side - SIDE_WIDTHS.floor;
     const share = Math.min(1, need / (filesGives + sideGives));
     return make(
       filesMode,
-      kept.filesHidden ? EDGE_STRIP_WIDTH : Math.floor(files - filesGives * share),
+      kept.filesHidden ? 0 : Math.floor(files - filesGives * share),
       sideMode,
-      kept.sideHidden ? EDGE_STRIP_WIDTH : Math.floor(side - sideGives * share)
+      kept.sideHidden ? 0 : Math.floor(side - sideGives * share)
     );
   }
 
-  // Step 3: the list folded to its strip; the panel in place, or at the edge.
-  const room = w - STRIP_WIDTH - PROSE_MIN;
-  if (room >= SIDE_WIDTHS.floor) {
-    if (kept.sideHidden) return make('strip', STRIP_WIDTH, 'hidden', EDGE_STRIP_WIDTH);
-    return make('strip', STRIP_WIDTH, 'full', Math.min(side, Math.floor(room)));
+  // Steps 3 and 4 fold a column to its strip; a hidden one is nothing there too.
+  const folded = (hidden: boolean): [ColumnMode, number] => (hidden ? ['hidden', 0] : ['strip', STRIP_WIDTH]);
+  const [filesMode, fw] = folded(kept.filesHidden);
+
+  // Step 3: the list folded to its strip; the panel in place. Whether it
+  // is is the strip's room alone, so hiding the list never keeps the panel in
+  // place longer; but beside a hidden list the panel may take the strip's
+  // 32 px too, as far as its width goes, as its handle allows (`columnRoom`).
+  if (w - STRIP_WIDTH - PROSE_MIN >= SIDE_WIDTHS.floor) {
+    if (kept.sideHidden) return make(filesMode, fw, 'hidden', 0);
+    return make(filesMode, fw, 'full', Math.min(side, Math.floor(w - fw - PROSE_MIN)));
   }
 
   // Step 4.
-  return make('strip', STRIP_WIDTH, 'strip', STRIP_WIDTH);
+  const [sideMode, sw] = folded(kept.sideHidden);
+  return make(filesMode, fw, sideMode, sw);
 }
 
 /**
@@ -254,9 +289,9 @@ function drawerWidth(kept: number, beside: number): number {
 
 /**
  * The drawer shown, of the one the author opened: none when that column is
- * drawn in place, or folded away at the edge (polish.26), as after the window
- * widened or the zoom went down, and none for the side panel while no
- * chapter is open, since it has nothing to show.
+ * drawn in place, as after the window widened or the zoom went down, or
+ * hidden (polish.28), and none for the side panel while no chapter is open,
+ * since it has nothing to show.
  */
 export function shownDrawer(
   open: Column | null,
@@ -284,18 +319,23 @@ export function bodyClassName(layout: Pick<ColumnLayout, 'files' | 'side' | 'nar
 /**
  * A column's wrapper: `column`, which lays out nothing while the column is
  * drawn in place; `column--drawer` while it is folded, when the wrapper is the
- * drawer; and `column--open` while that drawer is on screen. A column folded
- * away (polish.26) is a drawer that never opens, `column--hidden`: laid out
- * out of sight, so it keeps its state, such as where its lists are scrolled,
- * for when its caret brings it back.
+ * drawer; and `column--open` while that drawer is on screen. A hidden column
+ * (polish.28) is a drawer that never opens, `column--hidden`: laid out out of
+ * sight, so it keeps its state, such as where its lists are scrolled, for
+ * when its button brings it back. A column in place whose handle a drag has
+ * taken past the snap threshold is `column--snapping`, faded until the
+ * release hides it (polish.27); `snapping` is that column, or null.
  */
 export function columnClassName(
   column: Column,
   layout: Pick<ColumnLayout, 'files' | 'side'>,
-  shown: Column | null
+  shown: Column | null,
+  snapping: Column | null = null
 ): string {
   const names = ['column', `column--${column}`];
-  if (layout[column] === 'strip') {
+  if (layout[column] === 'full') {
+    if (snapping === column) names.push('column--snapping');
+  } else if (layout[column] === 'strip') {
     names.push('column--drawer');
     if (shown === column) names.push('column--open');
   } else if (layout[column] === 'hidden') {
@@ -306,8 +346,8 @@ export function columnClassName(
 
 /**
  * Whether a column's wrapper is out of sight and out of reach, `inert`:
- * folded to a strip with its drawer closed (ui.3), or folded away
- * (polish.26), which never opens as a drawer.
+ * folded to a strip with its drawer closed (ui.3), or hidden (polish.28),
+ * which never opens as a drawer.
  */
 export function columnInert(
   column: Column,
@@ -329,13 +369,16 @@ export interface StripText {
   title: string;
 }
 
-/** The strip's name and tooltip, by column and whether its drawer is open. */
+/**
+ * The strip's name and tooltip, by column and whether its drawer is open. The
+ * tooltip says Open or Close, for the drawer, where the column's button at an
+ * end of the toolbar says Show or Hide, for the column (`panelButtonText`; the
+ * polish.28 review): in a narrow window the two are on screen together and do
+ * different things, the strip opening the column over the prose for a while
+ * and the button hiding it, strip and all, until it is shown again.
+ */
 export function stripText(column: Column, open: boolean): StripText {
-  if (column === 'files') {
-    return { label: 'Chapters', title: open ? 'Hide the chapter list' : 'Show the chapter list' };
-  }
-  return {
-    label: 'Suggestions',
-    title: open ? 'Hide suggestions, comments and history' : 'Show suggestions, comments and history'
-  };
+  const verb = open ? 'Close' : 'Open';
+  if (column === 'files') return { label: 'Chapters', title: `${verb} the chapter list` };
+  return { label: 'Suggestions', title: `${verb} suggestions, comments and history` };
 }

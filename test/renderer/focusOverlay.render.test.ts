@@ -74,6 +74,20 @@ describe("the overlay's view (focus.1)", () => {
     expect(text(view(60, 61_000)).startsWith('60 / 60 s ')).toBe(true);
   });
 
+  /* focus.2: the shortest hold, 5 s, fills a fifth of its ring each second. */
+  it('fills the ring and counts at 5 s, the shortest hold', () => {
+    const html = view(5, 2_500);
+    expect(text(html)).toBe(
+      "2 / 5 s You're in focus mode. Are you sure you want to exit? Hold F11 or Esc for 5 seconds to exit. Press any other key or click to resume."
+    );
+    expect(offset(html)).toBeCloseTo(50, 6);
+    expect(html).toContain('aria-valuemax="5" aria-valuenow="2" aria-valuetext="2 of 5 seconds held"');
+    expect(offset(view(5, 1_000))).toBeCloseTo(80, 6);
+    expect(text(view(5, 4_999)).startsWith('4 / 5 s ')).toBe(true);
+    expect(offset(view(5, 5_000))).toBe(0);
+    expect(text(view(5, 6_000)).startsWith('5 / 5 s ')).toBe(true);
+  });
+
   it('gives the ring a name and a value a screen reader reads, the drawing hidden from it', () => {
     const html = view(30, 12_400);
     expect(html).toContain(
@@ -121,6 +135,22 @@ describe('the overlay (focus.1)', () => {
   it('shows the hold time focus mode was entered with', () => {
     drawn({ open: true }, { holdSeconds: 60 });
     expect(text(renderToStaticMarkup(createElement(FocusOverlay)))).toContain('0 / 60 s');
+  });
+
+  /* focus.2: the two short times, 5 s and 10 s, the default, drawn as the others. */
+  it('shows a hold of 5 s and of 10 s in the same count, ring and words', () => {
+    drawn({ open: true }, { holdSeconds: 5 });
+    expect(text(renderToStaticMarkup(createElement(FocusOverlay)))).toBe(
+      "0 / 5 s You're in focus mode. Are you sure you want to exit? Hold F11 or Esc for 5 seconds to exit. Press any other key or click to resume."
+    );
+    drawn({ open: true, holding: 'F11', heldCode: 'F11', since: 0, leaving: true }, { holdSeconds: 5 });
+    const done = renderToStaticMarkup(createElement(FocusOverlay));
+    expect(text(done).startsWith('5 / 5 s ')).toBe(true);
+    expect(offset(done)).toBe(0);
+    drawn({ open: true }, { holdSeconds: 10 });
+    expect(text(renderToStaticMarkup(createElement(FocusOverlay)))).toContain(
+      "0 / 10 s You're in focus mode. Are you sure you want to exit? Hold F11 or Esc for 10 seconds to exit."
+    );
   });
 
   it('shows the ring full once the hold is done and main is asked to leave', () => {

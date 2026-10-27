@@ -110,8 +110,9 @@ describe('the chips are in the toolbar, where the name was (polish.10)', () => {
 
   it('draws them only with a review open and the chapter on screen, not behind Setup or the welcome guide', () => {
     expect(TOOLBAR).toContain('const chipShown = review !== null && !singleScreen;');
-    expect(TOOLBAR).toContain(
-      '{chipShown ? <FilterChips review={review} bulkOff={bulkOff} bulkTitle={bulkTitle} /> : null}'
+    // With the Mode select before them (rr.6, rr.8).
+    expect(TOOLBAR).toMatch(
+      /\{chipShown \? \(\s*<>\s*<ModeSelect \/>\s*<FilterChips review=\{review\} bulkOff=\{bulkOff\} bulkTitle=\{bulkTitle\} \/>\s*<\/>\s*\) : null\}/
     );
   });
 
@@ -186,13 +187,10 @@ describe('the chips keep their old size, and shrink in steps only to fit (polish
   it('decides the step from the row and a copy of the chips at every step, out of sight', () => {
     expect(CHIPS).toContain('const [step, setStep] = useState(0);');
     expect(CHIPS).toMatch(
-      /const room = row\.getBoundingClientRect\(\)\.width - CHIPS_ROW_PADDING;\s*setStep\(chipsStep\(room, naturalWidths\(copyRef\.current\), modeBeside\(modeRef\.current, copyRef\.current\)\)\);/
+      /const room = row\.getBoundingClientRect\(\)\.width - CHIPS_ROW_PADDING;\s*setStep\(chipsStep\(room, naturalWidths\(copyRef\.current\)\)\);/
     );
-    // The chips' widths from the copy's rows alone, the Mode select's from its copies (rr.6).
+    // The chips' widths from the copy's rows.
     expect(CHIPS).toContain("return [...copy.querySelectorAll(':scope > .chips__measure-row')].map((row) =>");
-    expect(CHIPS).toMatch(
-      /drawn: drawn\.getBoundingClientRect\(\)\.width,\s*steps: \[\.\.\.copy\.querySelectorAll\(':scope > \.mode-select'\)\]\.map\(\s*\(mode\) => mode\.getBoundingClientRect\(\)\.width\s*\)/
-    );
     expect(CHIPS).toMatch(/className="chips"\s+data-chip-step=\{step\}/);
     // One row of the copy for each step, its chips as the row's, with their words.
     expect(CHIPS).toMatch(
@@ -212,66 +210,83 @@ describe('the chips keep their old size, and shrink in steps only to fit (polish
   });
 });
 
-/* rr.6: the Mode select is the toolbar's first item, before the eye, and
-   shrinks with the chips: FilterChips draws it at their step, measures it at
-   every step from its copies beside theirs, and takes its width out of their
-   room (`chipsStep`'s `beside`, tested in test/shared/chips.test.ts). */
-describe('the Mode select shrinks with the chips (rr.6)', () => {
-  it('is drawn by FilterChips first, at the chips step, outside the bar a review makes inert', () => {
-    const select = CHIPS.indexOf('<ModeSelect step={step} boxRef={modeRef} />');
-    const bar = CHIPS.indexOf('<div className={`chips-bar');
-    expect(select).toBeGreaterThan(0);
-    expect(bar).toBeGreaterThan(select);
-    expect(CHIPS.slice(select, bar)).not.toContain('inert');
-    // With no chips, alone at the largest step.
-    expect(CHIPS).toContain('if (chips.length === 0) return <ModeSelect step={0} />;');
-    // Its copy at every step, after the chips' rows in the copy out of sight.
-    expect(CHIPS).toMatch(
-      /<\/div>\s*\)\)\}\s*\{CHIP_STEPS\.map\(\(_, at\) => \(\s*<ModeSelectCopy key=\{`mode-\$\{at\}`\} step=\{at\} \/>\s*\)\)\}\s*<\/div>/
+/* rr.6: the Mode select is the toolbar's first item, before the eye. From
+   rr.6 it shrank with the chips, drawn by FilterChips at their step and
+   measured at every step from copies beside theirs; since rr.8 its options
+   carry its name, no label stands beside it, and it is the eye's size at
+   every width, so the Toolbar draws it and the chips' room no longer depends
+   on it. */
+describe("the Mode select is the eye's size (rr.8)", () => {
+  it('is drawn by the Toolbar before FilterChips, outside the bar a review makes inert, with no copy', () => {
+    const header = TOOLBAR.indexOf('<header');
+    const select = TOOLBAR.indexOf('<ModeSelect />');
+    const chips = TOOLBAR.indexOf('<FilterChips ');
+    const row = TOOLBAR.indexOf('<div className="toolbar__main">');
+    expect(row).toBeGreaterThan(header);
+    expect(select).toBeGreaterThan(row);
+    expect(chips).toBeGreaterThan(select);
+    // Nothing before it in the row that wraps, and nothing round it that a
+    // review of the chapter makes inert; before the row, only the chapter
+    // list's button, at the toolbar's left end (polish.28).
+    expect(TOOLBAR.slice(row + '<div className="toolbar__main">'.length, select)).not.toMatch(
+      /<button|<select|<div|inert/
     );
+    expect(TOOLBAR.slice(header, row)).not.toMatch(/<button|<select|inert/);
+    expect(TOOLBAR.slice(header, row)).toContain('<PanelButton column="files" />');
+    // FilterChips draws no select, nor a copy of one, and nothing with no chips.
+    expect(CHIPS).not.toContain('ModeSelect');
+    expect(CHIPS).not.toContain('mode-select');
+    expect(CHIPS).toContain('if (chips.length === 0) return null;');
     // In the toolbar, nowhere in the columns.
     expect(APP).not.toContain('ModeSelect');
     expect(APP).not.toContain('ModeBar');
   });
 
-  it("gives it the chips' type, gap, padding and height at every step", () => {
-    CHIP_STEPS.forEach((step, at) => {
-      const box = declsFor(`.mode-select[data-chip-step='${at}']`);
-      expect(Object.fromEntries(box), `step ${at}`).toEqual({ 'font-size': `${step.fontSize}px` });
-      // The gap between the label and the select is the chips' own rule's.
-      expect(declsFor(`[data-chip-step='${at}']`).get('gap'), `step ${at}`).toBe(`${step.gap}px`);
-      /* A chip is its line, its padding and its 1 px border above and below.
-         Chromium draws a select on a normal line, so the height is set: the
-         select's own normal line (1lh), in the chips' type, where theirs is
-         normal, and their line in pixels where it is not. */
-      const vertical = parseFloat(step.padding);
-      const edges = 2 * vertical + 2;
-      const height =
-        step.lineHeight === 'normal' ? `calc(1lh + ${edges}px)` : `${parseFloat(step.lineHeight) + edges}px`;
-      expect(
-        Object.fromEntries(declsFor(`.mode-select[data-chip-step='${at}'] .mode-select__field`)),
-        `step ${at}`
-      ).toEqual({
-        height,
-        padding: step.padding
-      });
-    });
-    expect(declsFor(`.mode-select[data-chip-step='${CHIP_STEPS.length}']`).size).toBe(0);
-    // The select's border is the chips' 1 px, from the rule every select has.
-    expect(declsFor('select').get('border')).toBe('1px solid var(--border)');
-    expect(declsFor('.chip').get('border')).toBe('1px solid var(--border)');
-  });
-
-  it('keeps its width whole, at the left end with no chips, and its words in --ink-soft', () => {
+  /* The eye's height as a content box and the border, rather than 26 px
+     overall: Chromium draws a 1 px border as one device pixel, so from 125%
+     to 175% the eye is a little under 26 CSS px, and a select of 26 stood a
+     device pixel or two taller (the window, rr.8). The eye's padding is in
+     the select's box, not its padding: a 16 px box with 4 px of padding,
+     shorter than the select's line, had its words 2 px below the middle,
+     under the arrow and the buttons' words, which a 24 px box with none
+     puts level with them (the window, the rr.8 review). */
+  it("has the eye's height, as its content box, its type, and none of the chips' steps", () => {
+    // The eye: its 16 px icon, its padding above and below, and its border.
+    const icons = read('components/icons.tsx');
+    expect(icons).toContain('export function IconEye({ size = 16 }');
+    expect(icons).toContain('export function IconEyeClosed({ size = 16 }');
+    expect(CHIPS).toContain('{allShown ? <IconEye /> : <IconEyeClosed />}');
+    const eye = declsFor('.chips__eye');
+    expect(eye.get('display')).toBe('inline-flex');
+    const [vertical = ''] = (eye.get('padding') ?? '').split(' ');
+    expect(vertical).toBe('4px');
     expect(Object.fromEntries(declsFor('.mode-select'))).toEqual({
       flex: 'none',
-      display: 'flex',
-      'align-items': 'center',
-      width: 'max-content',
-      'margin-right': 'auto',
-      'white-space': 'nowrap'
+      'box-sizing': 'content-box',
+      // The icon and the padding above and below it: 24 px.
+      height: `${16 + 2 * parseFloat(vertical)}px`,
+      'padding-block': '0',
+      'margin-right': 'auto'
     });
-    expect(declsFor('.mode-select__label').get('color')).toBe('var(--ink-soft)');
+    // Nothing else sets the select's height or its box.
+    expect(declsFor('select').has('height')).toBe(false);
+    expect(declsFor('select').has('box-sizing')).toBe(false);
+    // The same 1 px border, from the rule every select has and every button's.
+    expect(declsFor('select').get('border')).toBe('1px solid var(--border)');
+    expect(declsFor('button').get('border')).toBe('1px solid var(--border)');
+    // The same type: both inherit the toolbar's, which sets none of its own.
+    expect(declsFor('select').get('font')).toBe('inherit');
+    expect(declsFor('button').get('font')).toBe('inherit');
+    for (const rule of ['.chips__eye', '.toolbar', '.toolbar button', '.mode-select']) {
+      const decls = declsFor(rule);
+      expect(
+        [...decls.keys()].filter((p) => p.startsWith('font')),
+        rule
+      ).toEqual([]);
+    }
+    // No step's rules reach it, and there is no label.
+    expect(CSS).not.toMatch(/\.mode-select\[data-chip-step/);
+    expect(CSS).not.toContain('.mode-select__');
   });
 });
 

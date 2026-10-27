@@ -61,7 +61,7 @@ describe("the toolbar's button toggles full screen (polish.23)", () => {
   it('asks main to toggle when clicked, as F11 does', () => {
     expect(code).toMatch(/import \{[^}]*\btoggleFullScreen\b[^}]*\} from '\.\.\/state\/fullScreen';/);
     const buttons = [...code.matchAll(/<button\b[\s\S]*?<\/button>/g)].map((m) => m[0]);
-    const button = buttons.filter((b) => b.includes('className="toolbar__full-screen"'));
+    const button = buttons.filter((b) => b.includes('className="toolbar__icon toolbar__full-screen"'));
     expect(button).toHaveLength(1);
     expect(button[0]).toContain('onClick={toggleFullScreen}');
     expect(button[0]?.match(/onClick=/g)).toHaveLength(1);

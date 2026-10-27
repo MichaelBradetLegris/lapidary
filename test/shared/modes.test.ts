@@ -31,7 +31,9 @@ import {
   fullEditTopPlace,
   leaveFullEditPrompt,
   modeOf,
+  modeOfLetter,
   modePlace,
+  modeSelectTyped,
   previewImageText,
   previewLabel,
   type ModePlaces
@@ -44,13 +46,18 @@ import { NOTHING_UNTIL_SAVE } from '../../src/shared/ui/saveHint';
 const lines = (body: string): string[] => body.split('\n');
 
 describe('the Mode select', () => {
-  it('offers Main, Full edit and Preview in that order, under the name Mode', () => {
+  /* rr.8: the options carry the select's name, and no label stands beside it. */
+  it('offers Main, Full edit and Preview in that order, each option reading "Mode: " and its name', () => {
     expect(MODES).toEqual([
-      { value: 'main', label: 'Main' },
-      { value: 'edit', label: 'Full edit' },
-      { value: 'preview', label: 'Preview' }
+      { value: 'main', name: 'Main', label: 'Mode: Main' },
+      { value: 'edit', name: 'Full edit', label: 'Mode: Full edit' },
+      { value: 'preview', name: 'Preview', label: 'Mode: Preview' }
     ]);
     expect(MODE_LABEL).toBe('Mode');
+    for (const mode of MODES) expect(mode.label).toBe(`${MODE_LABEL}: ${mode.name}`);
+    // The names the questions use are the select's.
+    expect(leaveFullEditPrompt('preview').title).toBe('Leave Full edit for Preview?');
+    expect(leaveFullEditPrompt('main').title).toBe('Leave Full edit for Main?');
     expect(MODE_TITLE).toBe(
       'Main reviews the suggestions. Full edit edits the whole chapter in one box. Preview shows the chapter as Royal Road will.'
     );
@@ -61,7 +68,59 @@ describe('the Mode select', () => {
     expect(modeOf('edit')).toBe('edit');
     expect(modeOf('preview')).toBe('preview');
     expect(modeOf('Full edit')).toBeNull();
+    expect(modeOf('Mode: Main')).toBeNull();
     expect(modeOf('')).toBeNull();
+  });
+
+  /* rr.8: every option starts "Mode: ", so the browser's type-ahead would
+     match all three at m and none at f or p; the select holds a typed
+     character back from it and picks a mode by its name's first letter. */
+  const key = (k: string, held: Partial<Record<'altKey' | 'ctrlKey' | 'metaKey', boolean>> = {}) => ({
+    key: k,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    ...held
+  });
+
+  it('holds back every character typed on it from the browser, but Space, which opens its list', () => {
+    for (const k of ['m', 'f', 'p', 'M', 'F', 'P', 'x', 'o', ':', '1', 'é']) {
+      expect(modeSelectTyped(key(k)), k).toBe(true);
+    }
+    expect(modeSelectTyped(key(' '))).toBe(false);
+    for (const k of [
+      'ArrowDown',
+      'ArrowUp',
+      'Home',
+      'End',
+      'PageDown',
+      'Enter',
+      'Escape',
+      'Tab',
+      'F4',
+      'Shift',
+      ''
+    ]) {
+      expect(modeSelectTyped(key(k)), k).toBe(false);
+    }
+    // Held with Ctrl, Alt or the Windows key, a letter is a shortcut, not typing.
+    for (const held of ['altKey', 'ctrlKey', 'metaKey'] as const) {
+      expect(modeSelectTyped(key('p', { [held]: true })), held).toBe(false);
+    }
+  });
+
+  it('picks Main at m, Full edit at f and Preview at p, in either case, and nothing at any other key', () => {
+    expect(modeOfLetter('m')).toBe('main');
+    expect(modeOfLetter('M')).toBe('main');
+    expect(modeOfLetter('f')).toBe('edit');
+    expect(modeOfLetter('F')).toBe('edit');
+    expect(modeOfLetter('p')).toBe('preview');
+    expect(modeOfLetter('P')).toBe('preview');
+    for (const k of ['o', 'd', 'e', 'x', ':', ' ', '', 'Main', 'mo', 'ArrowDown']) {
+      expect(modeOfLetter(k), JSON.stringify(k)).toBeNull();
+    }
+    // Each mode has a letter of its own.
+    expect(MODES.map((m) => modeOfLetter(m.name.charAt(0)))).toEqual(MODES.map((m) => m.value));
   });
 });
 

@@ -48,17 +48,30 @@ const NOTHING: EscapeTakers = {
 const MODIFIERS = ['ctrlKey', 'altKey', 'shiftKey', 'metaKey'] as const;
 
 describe('the hold times', () => {
-  it('are 15, 30 and 60 seconds, 30 by default', () => {
-    expect(FOCUS_HOLD_SECONDS).toEqual([15, 30, 60]);
-    expect(DEFAULT_FOCUS_HOLD_SECONDS).toBe(30);
-    expect(FOCUS_HOLD_SECONDS.map(focusHoldLabel)).toEqual(['15 seconds', '30 seconds', '60 seconds']);
+  /* focus.2: 5 and 10 seconds added, 10 the default (30 until then). */
+  it('are 5, 10, 15, 30 and 60 seconds, shortest first, 10 by default', () => {
+    expect(FOCUS_HOLD_SECONDS).toEqual([5, 10, 15, 30, 60]);
+    expect(DEFAULT_FOCUS_HOLD_SECONDS).toBe(10);
+    expect(FOCUS_HOLD_SECONDS.map(focusHoldLabel)).toEqual([
+      '5 seconds',
+      '10 seconds',
+      '15 seconds',
+      '30 seconds',
+      '60 seconds'
+    ]);
   });
 
   it('keep a time Settings offers, and take the default for anything else', () => {
     for (const seconds of FOCUS_HOLD_SECONDS) expect(normalizeFocusHold(seconds)).toBe(seconds);
-    for (const other of [0, 10, 29, 31, 45, 90, -30, 30.5, '30', null, undefined, NaN, {}, [30]]) {
-      expect(normalizeFocusHold(other), JSON.stringify(other)).toBe(30);
-    }
+    const others: unknown[] = [0, 1, 4, 6, 9, 11, 20, 29, 31, 45, 90, -5, -10, 5.5, 10.5, NaN, Infinity];
+    others.push('5', '10', true, null, undefined, {}, [10], [5]);
+    others.forEach((other, i) => expect(normalizeFocusHold(other), `others[${i}]`).toBe(10));
+  });
+
+  it('keep the times focus.1 offered, 30, its default, among them, rather than take the new default', () => {
+    expect(normalizeFocusHold(15)).toBe(15);
+    expect(normalizeFocusHold(30)).toBe(30);
+    expect(normalizeFocusHold(60)).toBe(60);
   });
 });
 
@@ -69,6 +82,29 @@ describe("the overlay's words", () => {
     );
     expect(focusOverlayLines(15)[1]).toBe('Hold F11 or Esc for 15 seconds to exit.');
     expect(focusOverlayLines(60)[1]).toBe('Hold F11 or Esc for 60 seconds to exit.');
+    // focus.2: the two short times, in the same words.
+    expect(focusOverlayLines(5)[1]).toBe('Hold F11 or Esc for 5 seconds to exit.');
+    expect(focusOverlayLines(10)[1]).toBe('Hold F11 or Esc for 10 seconds to exit.');
+    for (const seconds of FOCUS_HOLD_SECONDS) {
+      expect(focusOverlayLines(seconds)).toEqual([
+        'Are you sure you want to exit?',
+        `Hold F11 or Esc for ${focusHoldLabel(seconds)} to exit.`,
+        'Press any other key or click to resume.'
+      ]);
+    }
+  });
+
+  it('count, fill and speak the two short times as the others (focus.2)', () => {
+    expect(focusCount(0, 5)).toBe('0 / 5 s');
+    expect(focusCount(4_999, 5)).toBe('4 / 5 s');
+    expect(focusCount(5_000, 5)).toBe('5 / 5 s');
+    expect(focusCount(9_000, 5)).toBe('5 / 5 s');
+    expect(focusCount(7_500, 10)).toBe('7 / 10 s');
+    expect(holdProgress(2_500, 5)).toBe(0.5);
+    expect(holdProgress(5_000, 5)).toBe(1);
+    expect(holdProgress(2_500, 10)).toBe(0.25);
+    expect(focusCountSpoken(3_200, 5)).toBe('3 of 5 seconds held');
+    expect(focusCountSpoken(12_000, 10)).toBe('10 of 10 seconds held');
   });
 
   it('count whole seconds held, of the time set, as "12 / 30 s"', () => {

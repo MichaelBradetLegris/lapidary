@@ -25,15 +25,20 @@ export type Mode = 'main' | 'edit' | 'preview';
 /** The views besides Full edit, which the window shows while Full edit is not open. */
 export type ViewMode = Exclude<Mode, 'edit'>;
 
-/** The select's options, in its order. */
-export const MODES: readonly { value: Mode; label: string }[] = [
-  { value: 'main', label: 'Main' },
-  { value: 'edit', label: 'Full edit' },
-  { value: 'preview', label: 'Preview' }
-];
+/** Each mode's name, as the select and the questions say it. */
+const MODE_NAMES: Record<Mode, string> = { main: 'Main', edit: 'Full edit', preview: 'Preview' };
 
-/** The select's label, which is its accessible name. */
+/**
+ * The select's accessible name, which each of its options starts with since
+ * `rr.8` ("Mode: Main"), so the closed select names the control and the mode
+ * in one; until then a label "Mode" stood beside it.
+ */
 export const MODE_LABEL = 'Mode';
+
+/** The select's options, in its order: each mode, its name, and the words the select shows for it. */
+export const MODES: readonly { value: Mode; name: string; label: string }[] = (
+  ['main', 'edit', 'preview'] as const
+).map((value) => ({ value, name: MODE_NAMES[value], label: `${MODE_LABEL}: ${MODE_NAMES[value]}` }));
 
 /** Its tooltip, which says what each mode is. */
 export const MODE_TITLE =
@@ -42,6 +47,37 @@ export const MODE_TITLE =
 /** A value the select may hold, or null for anything else. */
 export function modeOf(value: string): Mode | null {
   return MODES.some((m) => m.value === value) ? (value as Mode) : null;
+}
+
+/**
+ * Whether a key pressed on the select is a character typed, which the select
+ * keeps from the browser's own type-ahead (rr.8): one character, Space aside,
+ * as Space opens the list, with neither Ctrl, Alt nor the Windows key held.
+ * The type-ahead matches an option's words from their start, and since every
+ * option starts "Mode: " it would step through all three at each m and find
+ * nothing for f or p; `modeOfLetter` picks instead, as the names alone let
+ * the browser do before.
+ */
+export function modeSelectTyped(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+}): boolean {
+  return (
+    !event.altKey && !event.ctrlKey && !event.metaKey && [...event.key].length === 1 && event.key !== ' '
+  );
+}
+
+/**
+ * The mode a letter typed on the select picks (rr.8): the one whose name
+ * starts with it, in either case, so m for Main, f for Full edit and p for
+ * Preview; null for any other key.
+ */
+export function modeOfLetter(key: string): Mode | null {
+  if ([...key].length !== 1) return null;
+  const letter = key.toLowerCase();
+  return MODES.find((m) => m.name.toLowerCase().startsWith(letter))?.value ?? null;
 }
 
 /**
@@ -239,8 +275,6 @@ export function discardFullEditPrompt(): ConfirmSpec {
 /* ------------------------------------------------------------------ */
 /* Switching mode with something typed                                   */
 /* ------------------------------------------------------------------ */
-
-const MODE_NAMES: Record<Mode, string> = { main: 'Main', edit: 'Full edit', preview: 'Preview' };
 
 /**
  * Leaving a Full edit whose text changed for Main or Preview. Apply first

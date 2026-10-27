@@ -169,7 +169,12 @@ describe('the handles on the page', () => {
     expect(COLUMNS).toContain(
       'const saved = useApp((s) => s.settings?.columnWidths ?? USUAL_COLUMN_WIDTHS);'
     );
-    expect(COLUMNS).toContain('const [live, setLive] = useState<ColumnShares | null>(null);');
+    expect(COLUMNS).toContain('const [live, setLiveShares] = useState<ColumnShares | null>(null);');
+    // The column a release would snap closed comes with the widths, and goes with them (polish.27).
+    expect(COLUMNS).toMatch(
+      /const setLive = useCallback\(\(shares: ColumnShares \| null, snap: Column \| null = null\) => \{\s*setLiveShares\(shares\);\s*setSnapping\(snap\);\s*\}, \[\]\);/
+    );
+    expect(COLUMNS).toContain('return { layout, setLive, snapping, shown, measure, style, toggle };');
     expect(APP).toContain("const filesHandle = useColumnHandle('files', layout, setLiveWidths);");
     expect(APP).toContain("const sideHandle = useColumnHandle('side', layout, setLiveWidths);");
   });
@@ -212,12 +217,11 @@ describe('the handles on the page', () => {
     expect(HANDLES).toMatch(
       /onPointerDown:[\s\S]*?event\.preventDefault\(\);\s*const dragRoom = movableRoom\(\);\s*if \(!dragRoom\) return;[\s\S]*?setPointerCapture\(event\.pointerId\)/
     );
+    expect(HANDLES).toMatch(/onPointerMove:[\s\S]*?d\.dx = event\.clientX - d\.startX;\s*showLive\(d\);/);
+    // The other column stays as set while one is dragged (`columnLiveShares`),
+    // and the dragged one fades while a release would snap it closed (polish.27).
     expect(HANDLES).toMatch(
-      /onPointerMove:[\s\S]*?showLive\(columnDragShare\(d\.room, event\.clientX - d\.startX\)\);/
-    );
-    // The other column stays as set while one is dragged (`columnLiveShares`).
-    expect(HANDLES).toMatch(
-      /const showLive = \(share: number \| null\): void => \{\s*liveShare\.current = share;\s*const saved = useApp\.getState\(\)\.settings\?\.columnWidths \?\? USUAL_COLUMN_WIDTHS;\s*setLive\(columnLiveShares\(saved, column, share\)\);/
+      /const showLive = \(d: Drag\): void => \{\s*const saved = useApp\.getState\(\)\.settings\?\.columnWidths \?\? USUAL_COLUMN_WIDTHS;\s*const snapping = columnDragSnaps\(d\.room, d\.dx\) \? column : null;\s*setLive\(columnLiveShares\(saved, column, columnDragShare\(d\.room, d\.dx\)\), snapping\);/
     );
     expect(HANDLES).toContain(
       'onPointerUp: (event: PointerEvent<HTMLDivElement>) => finish(event.pointerId, true)'
@@ -227,7 +231,7 @@ describe('the handles on the page', () => {
       'onPointerCancel: (event: PointerEvent<HTMLDivElement>) => finish(event.pointerId, false)'
     );
     expect(HANDLES).toMatch(
-      /const last = liveShare\.current;\s*liveShare\.current = null;\s*if \(keep && last !== null\) void saveColumnWidth\(column, last, COLUMN_IO\);/
+      /const write = keep \? columnDragWrite\(d\.room, d\.dx, d\.before\) : null;[\s\S]*?if \(write\) void saveColumnWidth\(column, write\.share, COLUMN_IO\);\s*settle\(\);/
     );
     expect(HANDLES).toContain("setSettings: (patch) => call('settings:set', patch)");
     expect(HANDLES).toMatch(
@@ -239,9 +243,9 @@ describe('the handles on the page', () => {
     expect(HANDLES).toMatch(
       /onDoubleClick: \(\) => \{\s*if \(movableRoom\(\)\) void saveColumnWidth\(column, null, COLUMN_IO\);/
     );
-    // Enter and the moves write what `columnKeyWrite` says, for the column it names.
+    // Enter and the moves write what `columnKeyPress` says, for the column it names.
     expect(HANDLES).toMatch(
-      /onKeyDown:[\s\S]*?const keyRoom = movableRoom\(\);\s*if \(!keyRoom\) return;\s*const action = columnKeyAction\(event, keyRoom\);\s*if \(!action\) return;\s*event\.preventDefault\(\);\s*const write = columnKeyWrite\(action, keyRoom\);\s*if \(write\) void saveColumnWidth\(write\.column, write\.share, COLUMN_IO\);\s*\}/
+      /onKeyDown:[\s\S]*?const keyRoom = movableRoom\(\);\s*if \(!keyRoom\) return;\s*const action = columnKeyAction\(event, keyRoom\);\s*if \(!action\) return;\s*event\.preventDefault\(\);\s*const press = columnKeyPress\(action, keyRoom, savedShare\(column\), keyRun\.current\);\s*keyRun\.current = press\.run;\s*const write = press\.write;\s*if \(write\?\.hide\) snapColumnClosed\(column, write\.share, \(\) => undefined\);\s*else if \(write\) void saveColumnWidth\(write\.column, write\.share, COLUMN_IO\);\s*\}/
     );
     expect(HANDLES).toContain(
       'const movableRoom = (): ColumnRoom | null => (columnMovable(room) ? room : null);'
@@ -250,9 +254,71 @@ describe('the handles on the page', () => {
 
   it('ends a drag whose handle a fold takes away, at the release, keeping nothing', () => {
     expect(HANDLES).toMatch(
-      /if \(!d \|\| d\.pointerId !== event\.pointerId \|\| d\.element\.isConnected\) return;\s*drag\.current = null;\s*liveShare\.current = null;\s*setDragging\(false\);\s*setLive\(null\);/
+      /if \(!d \|\| d\.pointerId !== event\.pointerId \|\| d\.element\.isConnected\) return;\s*drag\.current = null;\s*setDragging\(false\);\s*setLive\(null\);/
     );
     expect(HANDLES).toContain("window.addEventListener('pointerup', release);");
+  });
+});
+
+describe('snapping a column closed at the edge (polish.27)', () => {
+  it("writes the flag with the width the column keeps, in one write through the widths' writer", async () => {
+    useApp.setState({ settings: withWidths(set({ files: 0.217697, side: 0.3 })) });
+    const main = mainSettings(withWidths(set({ files: 0.217697, side: 0.3 })));
+    const writes = createColumnWrites();
+    // A drag: the width before it is the one in settings, so only the flag changes.
+    await writes.snap('files', 0.217697, main.io);
+    expect(main.patches).toEqual([{ columnWidths: set({ files: 0.217697, side: 0.3, filesHidden: true }) }]);
+    // The keys: their presses wrote narrower widths on the way, and the snap puts back the first.
+    await writes.save('side', 0.2, main.io);
+    await writes.save('side', 0.140449, main.io);
+    await writes.snap('side', 0.3, main.io);
+    expect(main.disk().columnWidths).toEqual(
+      set({ files: 0.217697, side: 0.3, filesHidden: true, sideHidden: true })
+    );
+    expect(useApp.getState().settings?.columnWidths).toEqual(main.disk().columnWidths);
+    // A usual width stays usual.
+    await writes.hide('side', false, main.io);
+    await writes.save('side', null, main.io);
+    await writes.snap('side', null, main.io);
+    expect(main.disk().columnWidths).toEqual(set({ files: 0.217697, filesHidden: true, sideHidden: true }));
+  });
+
+  it("keeps the drag's width from its start, and fades the column while a release would hide it", () => {
+    expect(HANDLES).toMatch(
+      /drag\.current = \{\s*pointerId: event\.pointerId,\s*startX: event\.clientX,\s*room: dragRoom,\s*element: event\.currentTarget,\s*before: savedShare\(column\),\s*dx: 0\s*\};/
+    );
+    expect(HANDLES).toMatch(
+      /function savedShare\(column: Column\): number \| null \{\s*return \(useApp\.getState\(\)\.settings\?\.columnWidths \?\? USUAL_COLUMN_WIDTHS\)\[column\];\s*\}/
+    );
+    for (const column of ['files', 'side']) {
+      expect(APP).toContain(`className={columnClassName('${column}', layout, shown, snapping)}`);
+    }
+    expect(APP).toMatch(/const \{\s*layout,\s*setLive: setLiveWidths,\s*snapping,/);
+  });
+
+  it('hides the column on the release past the threshold, ending the drag in the same render', () => {
+    expect(HANDLES).toMatch(
+      /const settle = \(\): void => \{\s*setDragging\(false\);\s*setLive\(null\);\s*\};\s*const write = keep \? columnDragWrite\(d\.room, d\.dx, d\.before\) : null;\s*if \(write\?\.hide\) \{\s*snapColumnClosed\(column, write\.share, settle\);\s*return;\s*\}/
+    );
+    expect(HANDLES).toMatch(
+      /function snapColumnClosed\(column: Column, share: number \| null, settle: \(\) => void\): void \{\s*hideColumn\(column, true, \(\) => \{\s*settle\(\);\s*void saveColumnSnap\(column, share, COLUMN_IO\);\s*\}\);\s*\}/
+    );
+    // A cancelled drag snaps nothing.
+    expect(HANDLES).toContain(
+      'onPointerCancel: (event: PointerEvent<HTMLDivElement>) => finish(event.pointerId, false)'
+    );
+  });
+
+  it("fades the column's own box in place, further than the side panel's fade while a review runs", () => {
+    expect(declsFor('.column.column--snapping > *').get('opacity')).toBe('0.35');
+    expect(Number(declsFor('.side--locked').get('opacity'))).toBeGreaterThan(0.35);
+    // In place the wrapper lays out nothing, so it cannot fade itself.
+    expect(declsFor('.column').get('display')).toBe('contents');
+  });
+
+  it('ends a run of arrow presses when the focus leaves the handle or the pointer takes it', () => {
+    expect(HANDLES).toMatch(/onBlur: \(\) => \{\s*keyRun\.current = null;\s*\}/);
+    expect(HANDLES).toMatch(/if \(!dragRoom\) return;\s*keyRun\.current = null;\s*drag\.current = \{/);
   });
 });
 

@@ -13,22 +13,39 @@
  * is drawn. In a window too narrow for the widths set, the columns give way
  * and fold as `columnLayout` says (ui.3); a folded column has no handle, and
  * one that could move less than an arrow step is no control, as the split's
- * is not (C.59). A column folded away by the caret at the top of its handle
- * (polish.26) has no handle either, and the other column has the room it
- * left; what the carets say and which way they point are here too
- * (`columnCaretText`, `columnCaretPoints`).
+ * is not (C.59). A column hidden by its button in the toolbar (polish.28) has
+ * no handle either, and the other column has the room it left.
+ *
+ * A drag that would leave the column `COLUMN_SNAP_PX` wide or less, pressed on
+ * past its floor toward the window's edge, snaps it closed when the button
+ * comes up (polish.27): the column is hidden as its button hides it, and keeps
+ * the width it had before the drag for the next show. Until the release the
+ * column stays at its floor, and the page fades it while a release would hide
+ * it. The arrow keys snap it at the same width: a run of presses toward the
+ * edge goes on past the floor a step a press, as the pointer does, and the
+ * press that reaches the threshold hides the column.
  *
  * Pure (CLAUDE.md rule 4). The page draws the handles and follows the pointer
  * and the keys (`src/renderer/state/columnHandles.ts`); what it draws during a
  * drag and what it writes are decided here (`columnDragShare`,
- * `columnLiveShares`, `columnKeyWrite`), so that they are tested.
+ * `columnDragSnaps`, `columnLiveShares`, `columnDragWrite`, `columnKeyPress`),
+ * so that they are tested.
  */
 
 import type { ColumnShares } from '../types';
-import { COLUMN_WIDTHS, PROSE_MIN, type Column, type ColumnLayout } from './columns';
+import { COLUMN_NAMES, COLUMN_WIDTHS, PROSE_MIN, type Column, type ColumnLayout } from './columns';
 
 /** How far an arrow key moves a handle, in CSS px, as for the split (`SPLIT_STEP_PX`). */
 export const COLUMN_STEP_PX = 24;
+
+/**
+ * How narrow a drag, or a run of arrow presses, has to make a column to snap
+ * it closed (polish.27), in CSS px: the column as it would be, at this width
+ * or less, is hidden; at a pixel more it stays at its floor. The author's own
+ * figure: "if you drag a side panel all the way to the side (like within 50px
+ * ish?) it snaps closed".
+ */
+export const COLUMN_SNAP_PX = 50;
 
 /** Where a handle is and how far it may go, in CSS px. */
 export interface ColumnRoom {
@@ -103,10 +120,66 @@ export function columnShare(width: number, windowWidth: number): number {
  * The share a drag `dx` CSS px to the right of where it started gives the
  * column, or null while the handle would not move from where the drag found
  * it: back where it started, or pressed on past a limit it was already at.
+ * This is what the page draws during the drag, a drag past the threshold
+ * included, which leaves the column at its floor until the release.
  */
 export function columnDragShare(room: ColumnRoom, dx: number): number | null {
   const next = columnMove(room, columnDragTarget(room, dx));
   return next === null ? null : columnShare(next, room.width);
+}
+
+/**
+ * Whether a column `width` CSS px wide, as a drag or a run of arrow presses
+ * would make it, past its floor or not, snaps closed (polish.27): at
+ * `COLUMN_SNAP_PX` or less.
+ */
+export function columnSnaps(width: number): boolean {
+  return width <= COLUMN_SNAP_PX;
+}
+
+/**
+ * Whether a release now, the drag `dx` CSS px to the right of where it
+ * started, would snap the column closed (polish.27): what the page shows by
+ * fading the column while the pointer is there.
+ */
+export function columnDragSnaps(room: ColumnRoom, dx: number): boolean {
+  return columnSnaps(columnDragTarget(room, dx));
+}
+
+/**
+ * A width to keep: the column, and its share of the window's width, null for
+ * its usual width; or, with `hide`, the column snapped closed (polish.27),
+ * hidden as its button hides it, with `share` the width it keeps for the next
+ * show, the one it had before the drag.
+ */
+export interface ColumnWrite {
+  column: Column;
+  share: number | null;
+  hide?: true;
+}
+
+/**
+ * What a drag or a run of arrow presses that would make the column `target`
+ * CSS px wide writes: the column snapped closed, keeping `before`, its share
+ * in settings before the drag, at `COLUMN_SNAP_PX` or less (polish.27);
+ * otherwise its new share, kept between its limits, or nothing where the
+ * handle would not move (`columnMove`).
+ */
+function columnTargetWrite(room: ColumnRoom, target: number, before: number | null): ColumnWrite | null {
+  if (columnSnaps(target)) return { column: room.column, share: before, hide: true };
+  const next = columnMove(room, target);
+  return next === null ? null : { column: room.column, share: columnShare(next, room.width) };
+}
+
+/**
+ * What a drag's release writes, the button coming up `dx` CSS px to the right
+ * of where it went down: the column snapped closed where the drag would leave
+ * it `COLUMN_SNAP_PX` wide or less, keeping `before`, its share in settings as
+ * the drag started (polish.27); otherwise the share the drag reached
+ * (`columnDragShare`), or nothing back where it started.
+ */
+export function columnDragWrite(room: ColumnRoom, dx: number, before: number | null): ColumnWrite | null {
+  return columnTargetWrite(room, columnDragTarget(room, dx), before);
 }
 
 /**
@@ -123,7 +196,13 @@ export function columnLiveShares(
   return share === null ? null : { ...saved, [column]: share };
 }
 
-export type ColumnKeyAction = { kind: 'move'; target: number } | { kind: 'reset' };
+/**
+ * A key the handle takes: an arrow's step, `by` CSS px on the column's width
+ * (narrower where negative); Home's or End's move to a limit; or Enter's
+ * usual width.
+ */
+export type ColumnKeyAction =
+  { kind: 'step'; by: number } | { kind: 'move'; target: number } | { kind: 'reset' };
 
 /**
  * What a key does with the focus on a handle: the left and right arrows move
@@ -141,9 +220,9 @@ export function columnKeyAction(
   if (event.ctrlKey || event.altKey || event.metaKey) return null;
   switch (event.key) {
     case 'ArrowLeft':
-      return { kind: 'move', target: columnDragTarget(room, -COLUMN_STEP_PX) };
+      return { kind: 'step', by: columnDragTarget(room, -COLUMN_STEP_PX) - room.current };
     case 'ArrowRight':
-      return { kind: 'move', target: columnDragTarget(room, COLUMN_STEP_PX) };
+      return { kind: 'step', by: columnDragTarget(room, COLUMN_STEP_PX) - room.current };
     case 'Home':
       return { kind: 'move', target: Number.NEGATIVE_INFINITY };
     case 'End':
@@ -155,28 +234,63 @@ export function columnKeyAction(
   }
 }
 
-/** A width to keep: the column, and its share of the window's width, null for its usual width. */
-export interface ColumnWrite {
+/**
+ * A run of arrow presses that narrow the column, the keyboard's drag toward
+ * the window's edge (polish.27): the column's share in settings before the
+ * run's first press, which a snap keeps, and the width the run has reached,
+ * which goes on past the floor a step a press, as a pointer goes on past it,
+ * while the column stays drawn at its floor.
+ */
+export interface ColumnKeyRun {
   column: Column;
-  share: number | null;
+  before: number | null;
+  reach: number;
+}
+
+/** What a key the handle takes writes, and the run of narrowing presses after it. */
+export interface ColumnKeyPress {
+  write: ColumnWrite | null;
+  /** the run this press leaves under way, null once it has ended */
+  run: ColumnKeyRun | null;
 }
 
 /**
- * What a key the handle takes (`columnKeyAction`) writes: the column's new
- * share for a move, and its usual width for Enter. Null when there is nothing
- * to write, the column being at the limit the key moves it toward already.
+ * What a key the handle takes (`columnKeyAction`) writes, with `before` the
+ * column's share in settings now and `run` the narrowing presses just before
+ * it: the column's new share for an arrow, Home or End, and its usual width
+ * for Enter; nothing when the column is at the limit the key moves it toward
+ * already.
+ *
+ * An arrow toward the window's edge carries on the run before it (polish.27):
+ * while the column is drawn at its floor, from the width the run has reached,
+ * so that presses past the floor go on toward the edge, the column held at
+ * its floor, as a pointer does; otherwise from the width drawn. The press
+ * that reaches `COLUMN_SNAP_PX` or less snaps the column closed, keeping its
+ * share from before the run's first press, as a drag's release does. Any
+ * other key ends the run, and so does the page when the focus leaves the
+ * handle or the pointer takes it.
  */
-export function columnKeyWrite(action: ColumnKeyAction, room: ColumnRoom): ColumnWrite | null {
-  if (action.kind === 'reset') return { column: room.column, share: null };
-  const next = columnMove(room, action.target);
-  return next === null ? null : { column: room.column, share: columnShare(next, room.width) };
+export function columnKeyPress(
+  action: ColumnKeyAction,
+  room: ColumnRoom,
+  before: number | null,
+  run: ColumnKeyRun | null
+): ColumnKeyPress {
+  const column = room.column;
+  if (action.kind === 'reset') return { write: { column, share: null }, run: null };
+  if (action.kind === 'move') {
+    const next = columnMove(room, action.target);
+    return { write: next === null ? null : { column, share: columnShare(next, room.width) }, run: null };
+  }
+  if (action.by >= 0) return { write: columnTargetWrite(room, room.current + action.by, before), run: null };
+  const going = run !== null && run.column === column ? run : null;
+  const from =
+    going !== null && room.current <= room.min ? Math.min(going.reach, room.current) : room.current;
+  const reach = from + action.by;
+  const kept = going !== null ? going.before : before;
+  const write = columnTargetWrite(room, reach, kept);
+  return { write, run: write?.hide ? null : { column, before: kept, reach } };
 }
-
-/** The column's name in a handle's words. */
-const COLUMN_NAMES: Readonly<Record<Column, string>> = Object.freeze({
-  files: 'chapter list',
-  side: 'side panel'
-});
 
 /** What a handle says: its spoken name and its tooltip. */
 export interface ColumnHandleText {
@@ -187,27 +301,6 @@ export interface ColumnHandleText {
 /** The tooltip of a handle that cannot move an arrow step (`columnMovable`). */
 export const COLUMN_TITLE_STILL =
   'The window is too narrow to move this line. Make the window wider, or zoom out, to give it room.';
-
-/**
- * What a column's caret says (polish.26), as its accessible name and its
- * tooltip: on the handle, which folds the column away, "Hide the chapter
- * list"; on the edge strip, which brings it back, "Show the chapter list"
- * ("the side panel" for the other).
- */
-export function columnCaretText(column: Column, hidden: boolean): string {
-  return `${hidden ? 'Show' : 'Hide'} the ${COLUMN_NAMES[column]}`;
-}
-
-/**
- * Which way a column's caret points: at the window's edge on the handle,
- * where it folds the column away, and in from it on the edge strip, where it
- * brings the column back.
- */
-export function columnCaretPoints(column: Column, hidden: boolean): 'left' | 'right' {
-  const outward = column === 'files' ? 'left' : 'right';
-  if (!hidden) return outward;
-  return outward === 'left' ? 'right' : 'left';
-}
 
 /** A handle's name and tooltip, by column and whether it can move. */
 export function columnHandleText(column: Column, still: boolean): ColumnHandleText {

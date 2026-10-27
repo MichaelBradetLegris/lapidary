@@ -156,6 +156,26 @@ describe('the hold (focus.1)', () => {
     expect(released).toBe(1);
   });
 
+  /* focus.2: the shortest hold and the default, timed by the press as the others are. */
+  it('times the hold by what focus mode was entered with: 5 s, the shortest, and 10 s, the default', async () => {
+    useFullScreen.setState({ on: true, focus: { holdSeconds: 5 } });
+    down('F11');
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(released).toBe(0);
+    expect(overlay().holding).toBe('F11');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(released).toBe(1);
+    await mainLeaves();
+    expect(up('F11')).toBe(true);
+    useFullScreen.setState({ on: true, focus: { holdSeconds: 10 } });
+    down('Escape');
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(released).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(released).toBe(2);
+    expect(reached).toEqual([]);
+  });
+
   it('closes when the key is let go early, and starts the count over next time', async () => {
     down('F11');
     await vi.advanceTimersByTimeAsync(5000);
