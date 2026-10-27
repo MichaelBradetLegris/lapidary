@@ -445,7 +445,12 @@ export function welcomeProviderFor(section: SetupFor, input: WelcomeInput): Prov
 
 export const LOOK_STEP_TITLE = 'Choose appearance and focus mode';
 
-export const LOOK_STEP_TEXT = `How ${APP_NAME} looks, and focus mode, which keeps it full screen until you hold F11 or Esc. You can change both later in Settings, under App.`;
+/**
+ * The step's line. Ticking the box changes nothing straight away: focus mode
+ * starts only as the window goes full screen (section 7, Focus mode), so the
+ * line says how to go full screen, as Settings' (?) does (the setup.20 review).
+ */
+export const LOOK_STEP_TEXT = `How ${APP_NAME} looks, and focus mode, which, once you go full screen with F11 or the arrows after Settings, keeps it there until you hold F11 or Esc. You can change both later in Settings, under App.`;
 
 /** The theme as the step's own line says it, the first of its two sentences. */
 const LOOK_THEME_WORDS: Readonly<Record<Theme, string>> = {

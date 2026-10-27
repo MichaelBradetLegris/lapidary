@@ -544,7 +544,7 @@ describe('3. Choose appearance and focus mode (setup.20)', () => {
     expect(s.optional).toBe(true);
     expect(s.lines).toEqual([LOOK_STEP_TEXT]);
     expect(LOOK_STEP_TEXT).toBe(
-      `How ${APP_NAME} looks, and focus mode, which keeps it full screen until you hold F11 or Esc. You can change both later in Settings, under App.`
+      `How ${APP_NAME} looks, and focus mode, which, once you go full screen with F11 or the arrows after Settings, keeps it there until you hold F11 or Esc. You can change both later in Settings, under App.`
     );
     expect(s.facts).toEqual([]);
   });
