@@ -196,15 +196,20 @@ describe('the sections and rows (polish.4)', () => {
   });
 
   /* focus.1: the box, off by default, and the hold time beside it; 5 seconds by default since focus.3
-     (10 from focus.2, 30 before). */
-  it('shows focus mode as the settings have it: the box, and the hold time beside it', () => {
+     (10 from focus.2, 30 before). focus.4: the box is a switch, the checkbox with the switch role and
+     app.css's .switch, so it keeps its label, its keys and its state. */
+  it('shows focus mode as the settings have it: the switch, and the hold time beside it', () => {
     const off = decode(render());
-    expect(off).toMatch(/<input id="[^"]+" type="checkbox" aria-describedby="[^"]+"\/>/);
+    expect(off).toMatch(
+      /<input id="[^"]+" type="checkbox" role="switch" class="switch" aria-describedby="[^"]+"\/>/
+    );
     expect(off).toContain('<option value="5" selected="">5 seconds</option>');
     expect(off).toContain('<option value="10">10 seconds</option>');
     expect(off).toContain('<option value="30">30 seconds</option>');
     const on = decode(render({ settings: { focusMode: true, focusHoldSeconds: 60 } }));
-    expect(on).toMatch(/<input id="[^"]+" type="checkbox" aria-describedby="[^"]+" checked=""\/>/);
+    expect(on).toMatch(
+      /<input id="[^"]+" type="checkbox" role="switch" class="switch" aria-describedby="[^"]+" checked=""\/>/
+    );
     expect(on).toContain('<option value="60" selected="">60 seconds</option>');
     expect(on).toContain('<option value="15">15 seconds</option>');
     expect(on).toContain('<option value="10">10 seconds</option>');
@@ -287,7 +292,8 @@ describe('the sections and rows (polish.4)', () => {
   it('keeps the title and any message in a head, and the foot buttons in a foot, both outside the sections', () => {
     const html = render();
     expect(html).toMatch(
-      /^<div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Settings"><div class="modal modal--settings" tabindex="-1"><div class="settings__head"><h2>Settings<\/h2><\/div><section /
+      // polish.33: the head's X after the title, the same close as Done.
+      /^<div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Settings"><div class="modal modal--settings" tabindex="-1"><div class="settings__head"><h2>Settings<\/h2><button type="button" class="settings__close" aria-label="Close" title="[^"]+">[\s\S]*?<\/button><\/div><section /
     );
     expect(html).toMatch(
       /<\/section><div class="modal__actions settings__foot"><button [^>]*>[^<]*<\/button><button [^>]*>About<\/button><span class="spacer"><\/span><button type="button" class="primary" [^>]*>Done<\/button><\/div><\/div><\/div>$/
@@ -369,6 +375,7 @@ describe('the (?) of a row (polish.4)', () => {
       .filter((control) => !/\sdisabled=""|\stabindex="-/.test(control.attrs))
       .map((control) => control.name);
     expect(reached).toEqual([
+      'Close', // the head's X (polish.33), first as a dialog's close is
       'Appearance',
       'Focus mode',
       FOCUS_HOLD_BEFORE,

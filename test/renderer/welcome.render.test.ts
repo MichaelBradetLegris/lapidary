@@ -424,10 +424,11 @@ describe("the look step's two rows (setup.20)", () => {
     expect(selected(step3(page(FRESH)), 'welcome-look-appearance')[0]).toBe('system=Match system [selected]');
   });
 
-  it("draw Focus mode in Settings' words: the box, the hold time's list beside it, the note under both", () => {
+  it("draw Focus mode in Settings' words: the switch, the hold time's list beside it, the note under both", () => {
     const html = step3(page({ ...FRESH, look: LOOK }));
+    // focus.4: the switch is Settings' own, the checkbox with the switch role and app.css's .switch.
     expect(html).toContain(
-      `<h3><label for="welcome-look-focus">${FOCUS_MODE_LABEL}</label></h3><span class="welcome__focus"><input id="welcome-look-focus" type="checkbox" aria-describedby="welcome-look-focus-note" checked=""/><label for="welcome-look-focus-hold">${FOCUS_HOLD_BEFORE}</label><select id="welcome-look-focus-hold" aria-describedby="welcome-look-focus-note">`
+      `<h3><label for="welcome-look-focus">${FOCUS_MODE_LABEL}</label></h3><span class="welcome__focus"><input id="welcome-look-focus" type="checkbox" role="switch" class="switch" aria-describedby="welcome-look-focus-note" checked=""/><label for="welcome-look-focus-hold">${FOCUS_HOLD_BEFORE}</label><select id="welcome-look-focus-hold" aria-describedby="welcome-look-focus-note">`
     );
     expect(selected(html, 'welcome-look-focus-hold')).toEqual(
       FOCUS_HOLD_SECONDS.map((n) => `${n}=${n} seconds${n === 30 ? ' [selected]' : ''}`)
@@ -436,10 +437,10 @@ describe("the look step's two rows (setup.20)", () => {
     expect(html).toContain(
       `<p class="welcome__choice-note" id="welcome-look-focus-note">${FOCUS_MODE_NOTE}</p>`
     );
-    // A fresh install's: the box empty, 5 seconds chosen (focus.3).
+    // A fresh install's: the switch off, 5 seconds chosen (focus.3).
     const fresh = step3(page(FRESH));
     expect(fresh).toContain(
-      '<input id="welcome-look-focus" type="checkbox" aria-describedby="welcome-look-focus-note"/>'
+      '<input id="welcome-look-focus" type="checkbox" role="switch" class="switch" aria-describedby="welcome-look-focus-note"/>'
     );
     expect(selected(fresh, 'welcome-look-focus-hold')[0]).toBe('5=5 seconds [selected]');
     expect(text(fresh)).toContain(`${FOCUS_MODE_LABEL} ${FOCUS_HOLD_BEFORE} 5 seconds 10 seconds`);

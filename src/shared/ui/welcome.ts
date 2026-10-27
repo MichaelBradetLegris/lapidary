@@ -446,7 +446,7 @@ export function welcomeProviderFor(section: SetupFor, input: WelcomeInput): Prov
 export const LOOK_STEP_TITLE = 'Choose appearance and focus mode';
 
 /**
- * The step's line. Ticking the box changes nothing straight away: focus mode
+ * The step's line. Turning the switch on changes nothing straight away: focus mode
  * starts only as the window goes full screen (section 7, Focus mode), so the
  * line says how to go full screen, as Settings' (?) does (the setup.20 review).
  */

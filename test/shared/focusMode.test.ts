@@ -42,7 +42,8 @@ const NOTHING: EscapeTakers = {
   find: false,
   editor: false,
   boxes: false,
-  drawer: false
+  drawer: false,
+  list: false
 };
 
 const MODIFIERS = ['ctrlKey', 'altKey', 'shiftKey', 'metaKey'] as const;
@@ -82,8 +83,9 @@ describe('the hold times', () => {
 
 describe("the overlay's words", () => {
   it("are the task's, the time set in the hold line", () => {
+    // focus.4: a last line says where focus mode is turned off or its time changed.
     expect([FOCUS_OVERLAY_TITLE, ...focusOverlayLines(30)].join(' ')).toBe(
-      "You're in focus mode. Are you sure you want to exit? Hold F11 or Esc for 30 seconds to exit. Press any other key or click to resume."
+      "You're in focus mode. Are you sure you want to exit? Hold F11 or Esc for 30 seconds to exit. Press any other key or click to resume. You can turn focus mode off, or change the time, in Settings under App."
     );
     expect(focusOverlayLines(15)[1]).toBe('Hold F11 or Esc for 15 seconds to exit.');
     expect(focusOverlayLines(60)[1]).toBe('Hold F11 or Esc for 60 seconds to exit.');
@@ -94,7 +96,8 @@ describe("the overlay's words", () => {
       expect(focusOverlayLines(seconds)).toEqual([
         'Are you sure you want to exit?',
         `Hold F11 or Esc for ${focusHoldLabel(seconds)} to exit.`,
-        'Press any other key or click to resume.'
+        'Press any other key or click to resume.',
+        'You can turn focus mode off, or change the time, in Settings under App.'
       ]);
     }
   });

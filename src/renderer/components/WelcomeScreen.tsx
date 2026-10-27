@@ -137,6 +137,8 @@ function LookRows({
             <input
               id={lookId('focus')}
               type="checkbox"
+              role="switch"
+              className="switch"
               checked={look.focusMode}
               aria-describedby={lookId('focus-note')}
               onChange={(e) => onChoose({ focusMode: e.target.checked })}

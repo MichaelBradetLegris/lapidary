@@ -54,7 +54,7 @@ describe("the overlay's view (focus.1)", () => {
   it("shows the count in the middle of an empty ring, and the task's words under it, while it waits", () => {
     const html = view(15, 0);
     expect(text(html)).toBe(
-      "0 / 15 s You're in focus mode. Are you sure you want to exit? Hold F11 or Esc for 15 seconds to exit. Press any other key or click to resume."
+      "0 / 15 s You're in focus mode. Are you sure you want to exit? Hold F11 or Esc for 15 seconds to exit. Press any other key or click to resume. You can turn focus mode off, or change the time, in Settings under App."
     );
     // The track alone: no arc until the count starts, which left a sliver at the top.
     expect(html).toContain('class="focus-overlay__track"');
@@ -78,7 +78,7 @@ describe("the overlay's view (focus.1)", () => {
   it('fills the ring and counts at 5 s, the shortest hold', () => {
     const html = view(5, 2_500);
     expect(text(html)).toBe(
-      "2 / 5 s You're in focus mode. Are you sure you want to exit? Hold F11 or Esc for 5 seconds to exit. Press any other key or click to resume."
+      "2 / 5 s You're in focus mode. Are you sure you want to exit? Hold F11 or Esc for 5 seconds to exit. Press any other key or click to resume. You can turn focus mode off, or change the time, in Settings under App."
     );
     expect(offset(html)).toBeCloseTo(50, 6);
     expect(html).toContain('aria-valuemax="5" aria-valuenow="2" aria-valuetext="2 of 5 seconds held"');
@@ -141,7 +141,7 @@ describe('the overlay (focus.1)', () => {
   it('shows a hold of 5 s and of 10 s in the same count, ring and words', () => {
     drawn({ open: true }, { holdSeconds: 5 });
     expect(text(renderToStaticMarkup(createElement(FocusOverlay)))).toBe(
-      "0 / 5 s You're in focus mode. Are you sure you want to exit? Hold F11 or Esc for 5 seconds to exit. Press any other key or click to resume."
+      "0 / 5 s You're in focus mode. Are you sure you want to exit? Hold F11 or Esc for 5 seconds to exit. Press any other key or click to resume. You can turn focus mode off, or change the time, in Settings under App."
     );
     drawn({ open: true, holding: 'F11', heldCode: 'F11', since: 0, leaving: true }, { holdSeconds: 5 });
     const done = renderToStaticMarkup(createElement(FocusOverlay));

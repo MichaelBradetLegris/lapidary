@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { FocusModeState, HoldKey } from '../../shared/ui/focusMode';
 import type { EscapeTakers, FullScreenAction, FullScreenState } from '../../shared/ui/fullScreen';
+import { selectListOpen } from './selectList';
 import { call, errorMessage } from './client';
 import { popupTakesEscape, useDrawer } from './columns';
 import { currentMode, isModalOpen, useApp, type AppState } from './store';
@@ -137,6 +138,7 @@ export function escapeTakers(state: AppState): EscapeTakers {
     find: state.find.open,
     editor: state.editor !== null,
     boxes: mode === 'edit' || (mode === 'main' && Object.keys(state.drafts).length > 0),
-    drawer: useDrawer.getState().open !== null
+    drawer: useDrawer.getState().open !== null,
+    list: selectListOpen()
   };
 }

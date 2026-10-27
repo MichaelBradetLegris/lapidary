@@ -13,6 +13,7 @@ import { saveHintGivesWay } from './hints';
 import { hoverCancel } from './hover';
 import { SAVE_CARD, type SaveOptions, type SaveOutcome } from './saveChapter';
 import { readingRange, scrollToElement } from './scroll';
+import { selectListOpen } from './selectList';
 import { currentMode, isModalOpen, reviewKeysActive, saveShortcutContext, useApp } from './store';
 
 /** A text field, a select or editable text, but not a checkbox (`isTypingField`, polish.12 review). */
@@ -86,6 +87,11 @@ export function useKeyboardBindings(save: (options: SaveOptions) => Promise<Save
         });
         return;
       }
+
+      /* A select's open list takes Escape before everything (theme.13): the
+         app draws the list itself, so the key reaches the page, where the
+         native list took it first. The list closes on it by itself. */
+      if (event.key === 'Escape' && selectListOpen()) return;
 
       /* While a dialog is open Escape is the dialog's: Settings and Review
          with AI close on it (useDialogEscape), a question cancels, and the
