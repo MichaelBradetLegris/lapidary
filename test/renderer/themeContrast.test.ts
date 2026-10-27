@@ -763,7 +763,8 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
   });
 
   it("reads each chip's colour from its own rule, a token per category (polish.16)", () => {
-    expect(CHIPS.map((key) => chipToken(key))).toEqual([...CATEGORIES, '--accent', '--ink-soft']);
+    // theme.13: You keeps its blue as a token of its own, --cat-you, once --accent turned turquoise.
+    expect(CHIPS.map((key) => chipToken(key))).toEqual([...CATEGORIES, '--cat-you', '--ink-soft']);
     // The task's four families, as PLAN's polish.16 names them, of categories that exist, none in two.
     expect(FAMILIES).toEqual([
       ['spelling', 'typo', 'homophone'],

@@ -291,7 +291,8 @@ describe('colour tokens (theme.4)', () => {
   it('keeps a colour token for each of the thirteen categories, in both blocks (polish.16)', () => {
     for (const block of TOKEN_BLOCKS) {
       const categories = definedTokens(block).filter((name) => name.startsWith('--cat-'));
-      expect(categories).toEqual(CHANGE_CATEGORIES.map((category) => `--cat-${category}`));
+      // theme.13: the You chip's blue, --cat-you, after the thirteen, a chip's colour but no category's.
+      expect(categories).toEqual([...CHANGE_CATEGORIES.map((category) => `--cat-${category}`), '--cat-you']);
     }
     expect(TOKEN_BLOCKS).toHaveLength(2);
   });
@@ -684,7 +685,7 @@ const LIGHT_VALUES: Record<string, string> = {
   '--border-strong': '#c6bfb2',
   '--ink': '#23201c',
   '--ink-soft': '#6d675e',
-  '--accent': '#3b5bdb',
+  '--accent': '#127380',
   '--accept': '#2f7a4a',
   '--danger': '#b3261e',
   '--font-ui': "'Segoe UI', system-ui, -apple-system, sans-serif",
@@ -710,7 +711,7 @@ const LIGHT_VALUES: Record<string, string> = {
   '--focus-bg': '#fff3bf',
   '--para-active-bg': '#fff8dd',
   '--para-flash-bg': '#fff6c9',
-  '--selected-bg': '#e7ecff',
+  '--selected-bg': '#e3f1f2',
   '--active-ring': '#f2dd93',
   '--badge-pending-bg': '#fff3bf',
   '--badge-pending-border': '#f0dfa0',
@@ -722,7 +723,7 @@ const LIGHT_VALUES: Record<string, string> = {
   '--warn-bg-strong': '#fdf7e2',
   '--warn-border': '#e5d49a',
   '--danger-bg': '#fdeceb',
-  '--editor-bg': '#fbfaff',
+  '--editor-bg': '#fafdfd',
   '--shadow-rgb': '35 32 28',
   '--backdrop': 'rgb(35 32 28 / 42%)',
   '--modal-shadow': 'rgb(0 0 0 / 22%)',
@@ -770,7 +771,8 @@ const LIGHT_VALUES: Record<string, string> = {
   '--cat-redundancy': '#2e756e',
   '--cat-awkward': '#c11e59',
   '--cat-formatting': '#905f4d',
-  '--cat-other': '#484e70'
+  '--cat-other': '#484e70',
+  '--cat-you': '#3b5bdb'
 };
 
 /**
@@ -789,7 +791,7 @@ const DARK_VALUES: Record<string, string> = {
   '--ink': '#ebe6dc',
   '--ink-soft': '#bdb5a8',
   '--ink-faint': '#968e82',
-  '--accent': '#9db1ff',
+  '--accent': '#4fd8e0',
   // theme.12: the icon's dots and rim under near-black text; they were #4263eb,
   // #3653d6 and #2c45b8 under #ffffff.
   '--accent-fill': '#4fd8e0',
@@ -807,7 +809,7 @@ const DARK_VALUES: Record<string, string> = {
   '--focus-bg': '#4a3f14',
   '--para-active-bg': '#2f2a1a',
   '--para-flash-bg': '#3d3415',
-  '--selected-bg': '#26304f',
+  '--selected-bg': '#263238',
   '--active-ring': '#8a7426',
   '--badge-pending-bg': '#3d3415',
   '--badge-pending-border': '#5c4f1f',
@@ -824,7 +826,7 @@ const DARK_VALUES: Record<string, string> = {
   '--warn-bg-strong': '#33291a',
   '--warn-border': '#5c4a22',
   '--danger-bg': '#3a1f1c',
-  '--editor-bg': '#20222b',
+  '--editor-bg': '#1f2627',
   // polish.1: the selection bands, the dots' hue deep, and the ink.
   '--selection-bg': 'rgb(0 120 128 / 55%)',
   '--selection-prose-bg': 'rgb(0 90 95 / 20%)',
@@ -864,7 +866,8 @@ const DARK_VALUES: Record<string, string> = {
   '--cat-redundancy': '#34b7af',
   '--cat-awkward': '#ff78a8',
   '--cat-formatting': '#f5b89c',
-  '--cat-other': '#a2a0ba'
+  '--cat-other': '#a2a0ba',
+  '--cat-you': '#9db1ff'
 };
 
 describe('token values (theme.4, theme.5)', () => {

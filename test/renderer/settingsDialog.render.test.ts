@@ -292,7 +292,8 @@ describe('the sections and rows (polish.4)', () => {
   it('keeps the title and any message in a head, and the foot buttons in a foot, both outside the sections', () => {
     const html = render();
     expect(html).toMatch(
-      /^<div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Settings"><div class="modal modal--settings" tabindex="-1"><div class="settings__head"><h2>Settings<\/h2><\/div><section /
+      // polish.33: the head's X after the title, the same close as Done.
+      /^<div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Settings"><div class="modal modal--settings" tabindex="-1"><div class="settings__head"><h2>Settings<\/h2><button type="button" class="settings__close" aria-label="Close" title="[^"]+">[\s\S]*?<\/button><\/div><section /
     );
     expect(html).toMatch(
       /<\/section><div class="modal__actions settings__foot"><button [^>]*>[^<]*<\/button><button [^>]*>About<\/button><span class="spacer"><\/span><button type="button" class="primary" [^>]*>Done<\/button><\/div><\/div><\/div>$/
@@ -374,6 +375,7 @@ describe('the (?) of a row (polish.4)', () => {
       .filter((control) => !/\sdisabled=""|\stabindex="-/.test(control.attrs))
       .map((control) => control.name);
     expect(reached).toEqual([
+      'Close', // the head's X (polish.33), first as a dialog's close is
       'Appearance',
       'Focus mode',
       FOCUS_HOLD_BEFORE,

@@ -6,6 +6,7 @@ import {
   focusReturnTarget,
   inOtherDialog
 } from '../../shared/ui/dialog';
+import { selectListOpen } from './selectList';
 import { useApp } from './store';
 
 /**
@@ -40,6 +41,8 @@ export function useDialogEscape(box: RefObject<HTMLElement | null>, onClose: () 
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      // A select's open list takes Escape and closes on it by itself (theme.13).
+      if (event.key === 'Escape' && selectListOpen()) return;
       const { confirmSpec, updateOverlay } = useApp.getState();
       const over = { question: confirmSpec !== null, overlay: updateOverlay };
       if (!dialogTakesEscape(event, over, pressedInOtherDialog(event, box.current))) return;

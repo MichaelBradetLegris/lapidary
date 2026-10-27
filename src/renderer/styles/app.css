@@ -21,9 +21,13 @@
      done. Under the 4.5:1 of text and held to the 3:1 of faint text, by the
      author's choice (themeContrast.test.ts names the exception). */
   --ink-done: #7c756b;
-  /* blue for text, links and small marks: a commented paragraph's number, the
-     information card's edge, the spinner, the open editor's border and glow */
-  --accent: #3b5bdb;
+  /* the icon's turquoise for text, links and small marks: a commented
+     paragraph's number, the information card's edge, the spinner, the focus
+     ring's arc, the open editor's border and glow; a shade deeper than
+     --accent-fill so it holds 4.5:1 as text on every surface and highlight
+     (theme.13; the blue #3b5bdb until then, which the You chip keeps as
+     --cat-you) */
+  --accent: #127380;
   /* the icon's turquoise for filled buttons, the active Setup tab and ticked
      checkboxes, with --on-accent on it (theme.12): the dark end of the icon's
      rim, #178e9c, deepened until white on it holds 5:1 */
@@ -49,7 +53,7 @@
   --focus-bg: #fff3bf;
   --para-active-bg: #fff8dd;
   --para-flash-bg: #fff6c9;
-  --selected-bg: #e7ecff;
+  --selected-bg: #e3f1f2;
   --active-ring: #f2dd93;
   --badge-pending-bg: #fff3bf;
   --badge-pending-border: #f0dfa0;
@@ -66,7 +70,7 @@
   --warn-bg-strong: #fdf7e2;
   --warn-border: #e5d49a;
   --danger-bg: #fdeceb;
-  --editor-bg: #fbfaff;
+  --editor-bg: #fafdfd;
 
   /* Selected text (polish.1): a turquoise laid over whatever the text sits
      on, translucent, so what lies under the text shows through it. Two
@@ -134,6 +138,10 @@
   --cat-consistency: #2f7a4a;
   --cat-formatting: #905f4d;
   --cat-other: #484e70;
+  /* the You chip and the YOU tag (polish.11, polish.12): the blue --accent was
+     until theme.13, kept here as a category colour of its own once the accent
+     turned turquoise, which sits too near grammar's teal in the chips' row */
+  --cat-you: #3b5bdb;
   color-scheme: light;
 }
 
@@ -154,7 +162,7 @@
     --ink-faint: #968e82;
     /* halfway from --ink-soft to --ink-faint, as in light */
     --ink-done: #aaa295;
-    --accent: #9db1ff;
+    --accent: #4fd8e0;
     /* the icon's dots, with near-black text on them (theme.12); hover and
        press take the icon's rim a fifth and half of the way down */
     --accent-fill: #4fd8e0;
@@ -172,7 +180,7 @@
     --focus-bg: #4a3f14;
     --para-active-bg: #2f2a1a;
     --para-flash-bg: #3d3415;
-    --selected-bg: #26304f;
+    --selected-bg: #263238;
     --active-ring: #8a7426;
     --badge-pending-bg: #3d3415;
     --badge-pending-border: #5c4f1f;
@@ -188,7 +196,7 @@
     --warn-bg-strong: #33291a;
     --warn-border: #5c4a22;
     --danger-bg: #3a1f1c;
-    --editor-bg: #20222b;
+    --editor-bg: #1f2627;
 
     /* deep turquoises of the icon's dots' hue: #0d4e51 over the page, and the
        prose's faint band #162725 */
@@ -228,6 +236,7 @@
     --cat-consistency: #6cc28b;
     --cat-formatting: #f5b89c;
     --cat-other: #a2a0ba;
+    --cat-you: #9db1ff;
     color-scheme: dark;
   }
 }
@@ -253,7 +262,7 @@ body {
   overflow: hidden;
 }
 
-/* Links in the app's blue, visited or not, rather than the browser's own link
+/* Links in the app's turquoise, visited or not, rather than the browser's own link
    colours, so they follow the theme like everything else (theme.5). */
 a,
 a:visited {
@@ -537,6 +546,57 @@ input[type='text'] {
   background: var(--panel);
 }
 
+/* A select's list is the app's own (theme.13): Chromium's customizable
+   select, appearance base-select on the select and on its picker, so the
+   list is drawn by the page, in the tokens, with the row under the pointer
+   or the keyboard in the buttons' turquoise. The native list highlighted its
+   row in the system's blue, which no token reaches (the author, 2026-10-27).
+   The select's own box keeps the rules above; the sizes the customizable
+   select would add are taken off, so the Mode select stays the eye's height
+   (rr.8). The list sits on --panel with a shadow, its rows 24 px high as the
+   native list's were, with no tick before the chosen row: the row is lit as
+   the list opens, since it has the focus, and the pointer's row takes the
+   light from it, as in the native list. */
+select,
+select::picker(select) {
+  appearance: base-select;
+}
+
+select {
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+
+select::picker(select) {
+  margin-block: 2px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / 18%);
+}
+
+select option {
+  padding: 0 8px;
+  border-radius: 3px;
+}
+
+select option::checkmark {
+  display: none;
+}
+
+select option:hover,
+select option:focus {
+  background: var(--accent-fill);
+  color: var(--on-accent);
+}
+
+select:has(option:hover) option:focus:not(:hover) {
+  background: var(--panel);
+  color: var(--ink);
+}
+
 .spacer {
   flex: 1 1 auto;
 }
@@ -606,6 +666,13 @@ input[type='text'] {
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
+  /* At the toolbar's top, beside the ends, which stand there on their struts'
+     baseline (theme.13). Aligned by baseline, the row stood on its first
+     item's, the Mode select's, which the customizable select moved 3.5 px up
+     inside the box, and with it the whole row down by as much, below the
+     panel and full-screen buttons. Its first line is a button's height, as
+     the ends are, so their tops meet; a second line only grows it downward. */
+  align-self: flex-start;
   gap: 6px var(--toolbar-gap);
 }
 
@@ -2019,7 +2086,7 @@ input[type='text'] {
 /* The You chip, the author's own edits (polish.11), in the colour the YOU tag
    on their rows had, which since polish.12 takes it from here (.row__cat). */
 .cat-you {
-  --cat: var(--accent);
+  --cat: var(--cat-you);
 }
 /* The comments' chip (polish.13), in the colour of a margin card's head,
    which a comment has unless its category has a colour of its own
@@ -2787,8 +2854,34 @@ input[type='text'] {
   top: 0;
   z-index: 1;
   background: var(--panel);
-  padding: 16px 0 8px;
+  padding: 16px 36px 8px 0;
   border-bottom: 1px solid var(--border);
+}
+
+/* The X at the head's top right (polish.33): the same close as Done, drawn
+   as a 28 px icon button in --ink-soft, lit by the hover overlay, with the
+   browser's own ring. The head's right padding keeps the title and a hint
+   from running under it. */
+.settings__close {
+  position: absolute;
+  top: 12px;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.settings__close:hover {
+  background: var(--hover-overlay);
+  color: var(--ink);
 }
 
 .settings__head .modal__hint {
@@ -3208,7 +3301,7 @@ button.help {
   color: var(--ink-soft);
 }
 
-/* Done, the blue button at the foot of each of the Setup screen's views,
+/* Done, the filled button at the foot of each of the Setup screen's views,
    on the right as the welcome guide's Start is, above the privacy footer and
    the version (setup.19). */
 .setup__foot {
@@ -4234,7 +4327,7 @@ button.help {
   color: var(--ink);
   resize: none;
   overflow: hidden;
-  /* The glow is the border's blue, not the buttons' turquoise, so the box has
+  /* The glow is the border's own colour, --accent, so the box has
      one colour round it (theme.12, PLAN 11.3 e); stronger while it has the focus. */
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }

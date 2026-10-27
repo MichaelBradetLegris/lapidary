@@ -83,7 +83,8 @@ const NOTHING_TAKES_ESCAPE: EscapeTakers = Object.freeze({
   find: false,
   editor: false,
   boxes: false,
-  drawer: false
+  drawer: false,
+  list: false
 });
 
 let deps: FocusModeDeps = PAGE_DEPS;

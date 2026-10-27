@@ -107,6 +107,12 @@ export interface EscapeTakers {
   boxes: boolean;
   /** a drawer open from a folded column */
   drawer: boolean;
+  /**
+   * a select's open list (`selectListOpen`, theme.13): the app draws the
+   * list itself, so the key reaches the page, where the native list took it
+   * first; the list closes on it by itself
+   */
+  list: boolean;
 }
 
 /**
@@ -140,6 +146,7 @@ export function escapeLeavesFullScreen(
     over.find ||
     over.editor ||
     over.boxes ||
-    over.drawer
+    over.drawer ||
+    over.list
   );
 }

@@ -32,6 +32,7 @@ import { normalizeTheme, THEME_LABELS, THEMES } from '../../shared/ui/theme';
 import { SHOW_WELCOME_AGAIN, WELCOME_GUIDE_NOTE } from '../../shared/ui/welcome';
 import { call, errorMessage } from '../state/client';
 import { useDialogEscape, useDialogFocus } from '../state/dialog';
+import { IconX } from './icons';
 import { modelOptions } from '../state/models';
 import { GuidelinesButtons } from './Guidelines';
 import { HelpTip } from './HelpTip';
@@ -72,8 +73,8 @@ interface Props {
  * Four sections, App (Appearance, first since polish.22, and Focus mode since
  * focus.1), Review (Claude model and Effort), Folders and Accounts (Claude,
  * and ChatGPT since codex.2), and at the foot the welcome guide, About and
- * Done (polish.4). The keyboard follows the markup, so Tab reaches Appearance
- * first. A row has at most one short note; the longer explanations are the tooltips
+ * Done (polish.4). The keyboard follows the markup, so Tab reaches the head's
+ * X (polish.33), then Appearance. A row has at most one short note; the longer explanations are the tooltips
  * of the (?) in each row's last cell, after its buttons, so that they stand
  * in one line down the right of the dialog (`HelpTip`, polish.15; Appearance
  * keeps the cell empty), whose words are in `src/shared/ui/settingsDialog.ts`.
@@ -196,6 +197,18 @@ export function SettingsDialog({
         {/* The title and any message stay in view while the box scrolls (polish.4). */}
         <div className="settings__head" ref={headRef}>
           <h2>Settings</h2>
+          {/* The X at the top right (polish.33): the same close as Done and
+              Escape, for whoever looks for one there. First in the tab order,
+              as a dialog's close is. */}
+          <button
+            type="button"
+            className="settings__close"
+            aria-label="Close"
+            title={DONE_NOTE}
+            onClick={onClose}
+          >
+            <IconX size={14} />
+          </button>
           {error ? <p className="modal__hint modal__hint--error">{error}</p> : null}
           {note ? <p className="modal__hint">{note}</p> : null}
         </div>

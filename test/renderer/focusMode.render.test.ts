@@ -31,7 +31,8 @@ const NOTHING: EscapeTakers = {
   find: false,
   editor: false,
   boxes: false,
-  drawer: false
+  drawer: false,
+  list: false
 };
 
 interface Keyed {

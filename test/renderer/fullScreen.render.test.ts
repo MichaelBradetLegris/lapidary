@@ -222,7 +222,8 @@ describe('what takes Escape before full screen (polish.23)', () => {
     find: false,
     editor: false,
     boxes: false,
-    drawer: false
+    drawer: false,
+    list: false
   };
 
   it('is nothing on a plain page, in Main and in Preview', () => {
