@@ -543,7 +543,15 @@ input[type='text'] {
 
 /* ---------- layout ---------- */
 
+/* `--toolbar-gap` is the one gap on the toolbar's row (polish.31): between its
+   items, between the row and its ends, between the two buttons of an end, and
+   from each end to the window's edge, so a panel button stands as far from the
+   edge as from the button beside it. The status bar's side padding takes it
+   too, so the (?) and the zoom control stay in line with the toolbar's ends.
+   The author was shown 8, 6 and 2 (C.123): 2px here is the whole change for
+   2. */
 .app-shell {
+  --toolbar-gap: 6px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -568,12 +576,14 @@ input[type='text'] {
    (polish.28), and between them the row that does (.toolbar__main). The ends
    stand beside the row's first line, on its words' baseline: the row's
    baseline is its first item's, the Mode select's or Review's, whose words
-   stand where a button's do (rr.8), and an end's is its strut's, below. */
+   stand where a button's do (rr.8), and an end's is its strut's, below. One
+   gap everywhere on the row and at its sides (`--toolbar-gap`, .app-shell);
+   12 px at the sides and 8 between until polish.31. */
 .toolbar {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding: 7px 12px;
+  gap: var(--toolbar-gap);
+  padding: 7px var(--toolbar-gap);
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
@@ -587,7 +597,8 @@ input[type='text'] {
    narrow window, its last buttons, Settings first, move to a second row on
    the right rather than running out of the window (apply.4). The chips
    themselves never wrap. With no chips the buttons keep the right end and the
-   Mode select the left. */
+   Mode select the left. Its rows stand 6 px apart, whatever the gap between
+   its items. */
 .toolbar__main {
   flex: 1 1 auto;
   min-width: 0;
@@ -595,7 +606,7 @@ input[type='text'] {
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  gap: 6px 8px;
+  gap: 6px var(--toolbar-gap);
 }
 
 /* An end of the toolbar (polish.28): the chapter list's button at the left;
@@ -622,7 +633,7 @@ input[type='text'] {
 }
 
 .toolbar__end > button + button {
-  margin-left: 8px;
+  margin-left: var(--toolbar-gap);
 }
 
 /* No button label breaks in two. The progress label is left free to wrap: the
@@ -1028,14 +1039,17 @@ input[type='text'] {
 
 /* Zoomed in, the bar can run out of room. Each item stays on one line and the
    bar wraps onto a second row, rather than every item breaking in two
-   ("6 / pending") as it did at 150% (round 5). */
+   ("6 / pending") as it did at 150% (round 5). Its sides are the toolbar's
+   (`--toolbar-gap`, polish.31), so the (?) stays in line with the chapter
+   list's button above it and the zoom control with the side panel's, as both
+   were at 12 px. */
 .statusbar {
   flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
   gap: 2px 14px;
   align-items: center;
-  padding: 5px 12px;
+  padding: 5px var(--toolbar-gap);
   border-top: 1px solid var(--border);
   background: var(--panel);
   color: var(--ink-soft);
