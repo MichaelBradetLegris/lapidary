@@ -16,8 +16,9 @@ import {
  * or Escape for the time set (5, 10, 15, 30 or 60 seconds since focus.2,
  * 5 by default since focus.3). The page shows the hold: an overlay above
  * everything with a count in a filling ring, and the words below; letting go
- * early, any other key or a click closes it, and the count starts over next
- * time. While it shows, no key reaches the page.
+ * early pauses the count and leaves the overlay up, and the next hold carries
+ * on from it (focus.5); any other key or a click closes it, and the count
+ * starts over next time. While it shows, no key reaches the page.
  *
  * Pure (CLAUDE.md rule 4).
  */

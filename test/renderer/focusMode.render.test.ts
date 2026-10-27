@@ -133,7 +133,14 @@ describe('the hold (focus.1)', () => {
   it('opens on a fresh F11, counts from that press, and asks main to release once the time is up', async () => {
     const start = Date.now();
     expect(down('F11')).toBe(true);
-    expect(overlay()).toEqual({ open: true, holding: 'F11', heldCode: 'F11', since: start, leaving: false });
+    expect(overlay()).toEqual({
+      open: true,
+      holding: 'F11',
+      heldCode: 'F11',
+      since: start,
+      held: 0,
+      leaving: false
+    });
     await vi.advanceTimersByTimeAsync(HOLD.holdSeconds * 1000 - 1);
     expect(released).toBe(0);
     // The key repeats while it is held, kept from the page.
@@ -177,21 +184,53 @@ describe('the hold (focus.1)', () => {
     expect(reached).toEqual([]);
   });
 
-  it('closes when the key is let go early, and starts the count over next time', async () => {
+  /* focus.5: letting go pauses the count and leaves the overlay up, and the next hold carries on from it;
+     until then letting go closed the overlay and the count started over (the author tapped F11 on the
+     1.0.0 draft and saw the overlay flicker out). */
+  it('pauses when the key is let go early, keeps the overlay up, and carries the count on from the next hold', async () => {
     down('F11');
     await vi.advanceTimersByTimeAsync(5000);
     expect(up('F11')).toBe(true);
-    expect(overlay()).toEqual(FOCUS_OVERLAY_CLOSED);
+    expect(overlay()).toEqual({
+      open: true,
+      holding: null,
+      heldCode: null,
+      since: null,
+      held: 5000,
+      leaving: false
+    });
     await vi.advanceTimersByTimeAsync(60_000);
+    expect(overlay().open).toBe(true);
+    expect(overlay().held).toBe(5000);
     expect(released).toBe(0);
-    const again = Date.now();
+    // A tap: pressed and let go at once, the overlay stays, with the count where it was.
     down('F11');
-    expect(overlay().since).toBe(again);
-    await vi.advanceTimersByTimeAsync(HOLD.holdSeconds * 1000 - 1);
+    expect(up('F11')).toBe(true);
+    expect(overlay()).toMatchObject({ open: true, holding: null, held: 5000 });
+    // The next hold runs for what is left: 15 s in all, 5 held already.
+    const again = Date.now();
+    down('Escape');
+    expect(overlay()).toMatchObject({ holding: 'Escape', heldCode: 'Escape', since: again, held: 5000 });
+    await vi.advanceTimersByTimeAsync(10_000 - 1);
     expect(released).toBe(0);
     await vi.advanceTimersByTimeAsync(1);
     expect(released).toBe(1);
     expect(reached).toEqual([]);
+  });
+
+  it('starts the count over once another key or a click has closed the overlay', async () => {
+    down('F11');
+    await vi.advanceTimersByTimeAsync(5000);
+    up('F11');
+    expect(overlay().held).toBe(5000);
+    expect(down('a')).toBe(true);
+    expect(overlay()).toEqual(FOCUS_OVERLAY_CLOSED);
+    down('F11');
+    expect(overlay().held).toBe(0);
+    await vi.advanceTimersByTimeAsync(HOLD.holdSeconds * 1000 - 1);
+    expect(released).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(released).toBe(1);
   });
 
   it('closes on any other key, which never reaches the page: its press, its repeats or its release', async () => {
@@ -211,16 +250,31 @@ describe('the hold (focus.1)', () => {
     expect(reached).toEqual(['keydown a']);
   });
 
-  it('closes on a click anywhere and on the window losing the focus', () => {
+  it('closes on a click anywhere, and pauses when the window loses the focus, keeping the overlay up', async () => {
     down('F11');
     resumeFocus();
     expect(overlay()).toEqual(FOCUS_OVERLAY_CLOSED);
     expect(up('F11')).toBe(true);
     down('Escape');
     expect(overlay().holding).toBe('Escape');
+    await vi.advanceTimersByTimeAsync(2000);
+    // The key's release will not be heard once the window has lost the focus (focus.5: paused, not closed).
     target.dispatchEvent(new Event('blur'));
-    expect(overlay()).toEqual(FOCUS_OVERLAY_CLOSED);
+    expect(overlay()).toEqual({
+      open: true,
+      holding: null,
+      heldCode: null,
+      since: null,
+      held: 2000,
+      leaving: false
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(released).toBe(0);
+    expect(overlay().open).toBe(true);
+    // Back in the window, the next hold carries on from the 2 s.
+    down('Escape');
+    await vi.advanceTimersByTimeAsync(HOLD.holdSeconds * 1000 - 2000);
+    expect(released).toBe(1);
   });
 
   it('starts on Escape only when nothing else takes it', () => {

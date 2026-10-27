@@ -89,16 +89,26 @@ export function FocusOverlay(): React.JSX.Element | null {
   const overlay = useFocusOverlay();
   const focus = useFullScreen((s) => s.focus);
   if (!overlay.open || focus === null) return null;
-  return <FocusOverlayBox seconds={focus.holdSeconds} since={overlay.since} leaving={overlay.leaving} />;
+  return (
+    <FocusOverlayBox
+      seconds={focus.holdSeconds}
+      since={overlay.since}
+      held={overlay.held}
+      leaving={overlay.leaving}
+    />
+  );
 }
 
 function FocusOverlayBox({
   seconds,
   since,
+  held,
   leaving
 }: {
   seconds: FocusHoldSeconds;
   since: number | null;
+  /** the time held in earlier holds since the overlay opened (focus.5): the count carries on from it */
+  held: number;
   leaving: boolean;
 }): React.JSX.Element {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -117,7 +127,8 @@ function FocusOverlayBox({
 
   const titleId = useId();
   const textId = useId();
-  const elapsedMs = leaving ? seconds * 1000 : since === null ? 0 : Math.max(0, now - since);
+  // The ring holds its fill while the hold is paused (since null) and fills on from it on the next hold.
+  const elapsedMs = leaving ? seconds * 1000 : held + (since === null ? 0 : Math.max(0, now - since));
   return (
     <div
       className="modal-backdrop modal-backdrop--focus"

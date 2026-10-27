@@ -23,13 +23,16 @@ import { useApp } from './store';
  *   count from that press (`focusModeKey`). While the overlay shows, every
  *   key is kept from the page, so nothing is typed into a box and no
  *   shortcut runs (`overlayKey`): F11 or Escape alone starts the count while
- *   it waits, letting go of the key held before the time is up closes it, and
- *   so does any other key. A key the overlay took keeps its repeats and its
- *   release from the page until it is let go, so an Escape held past the end
- *   of the hold never closes a box.
- * - A click anywhere closes it (`resumeFocus`, from `FocusOverlay`), and so
- *   does the window losing the focus, after which a key's release would never
- *   be heard. The count starts over next time.
+ *   it waits; letting go before the time is up pauses the count, the overlay
+ *   stays up at its count, and the next hold carries on from it (focus.5: a
+ *   tap leaves the message up, where until then letting go closed it and the
+ *   count started over); any other key closes it. A key the overlay took
+ *   keeps its repeats and its release from the page until it is let go, so an
+ *   Escape held past the end of the hold never closes a box.
+ * - A click anywhere closes it (`resumeFocus`, from `FocusOverlay`), and the
+ *   count starts over next time. The window losing the focus pauses the hold
+ *   as letting go does, since the key's release would never be heard, and
+ *   leaves the overlay up.
  * - When the time is up, main is asked to `release`; once it says focus mode
  *   has been left, the overlay goes. Main can also leave on its own (a page
  *   that stopped answering, a crash, a quit), which closes the overlay too.
@@ -120,9 +123,28 @@ function closeOverlay(left: boolean): void {
 }
 
 /**
- * Back to the chapter: a click, any other key, or the window losing the focus
- * closes the overlay, and the count starts over next time. A key still held
- * keeps its repeats and its release from the page.
+ * The key let go, or the window's focus gone, before the time is up (focus.5):
+ * the time held so far is kept, the key is no longer held, and the overlay
+ * stays up at its count until the next hold carries on or something closes
+ * it. Nothing changes while main is being asked to leave, or while the overlay
+ * waits for a key.
+ */
+function pauseHold(): void {
+  const overlay = useFocusOverlay.getState();
+  if (!overlay.open || overlay.leaving || overlay.since === null) return;
+  clearHold();
+  useFocusOverlay.setState({
+    holding: null,
+    heldCode: null,
+    since: null,
+    held: overlay.held + Math.max(0, deps.now() - overlay.since)
+  });
+}
+
+/**
+ * Back to the chapter: a click or any other key closes the overlay, and the
+ * count starts over next time. A key still held keeps its repeats and its
+ * release from the page.
  */
 export function resumeFocus(): void {
   const overlay = useFocusOverlay.getState();
@@ -152,12 +174,18 @@ function complete(): void {
   );
 }
 
+/**
+ * A hold starts, or carries on from the time held in earlier holds since the
+ * overlay opened (`held`, which is 0 when the overlay has just opened): the
+ * timer runs for what is left of the time set.
+ */
 function startHold(key: HoldKey, code: string): void {
   const focus = useFullScreen.getState().focus;
   if (focus === null) return;
   clearHold();
+  const { held } = useFocusOverlay.getState();
   useFocusOverlay.setState({ open: true, holding: key, heldCode: code, since: deps.now(), leaving: false });
-  holdTimer = setTimeout(complete, focus.holdSeconds * 1000);
+  holdTimer = setTimeout(complete, Math.max(0, focus.holdSeconds * 1000 - held));
 }
 
 /** A key pressed: the overlay's while it shows, the hold's when it starts one, else the page's. */
@@ -197,7 +225,7 @@ export function focusKeyDown(event: FocusKeyEvent): void {
   }
 }
 
-/** A key let go: the end of a hold before its time, or one the overlay took. */
+/** A key let go: a hold paused before its time, or a key the overlay took. */
 export function focusKeyUp(event: FocusKeyEvent): void {
   const code = codeOf(event);
   if (draining.delete(code)) {
@@ -207,14 +235,13 @@ export function focusKeyUp(event: FocusKeyEvent): void {
   const overlay = useFocusOverlay.getState();
   if (!overlay.open) return;
   keep(event);
-  if (!overlay.leaving && overlay.heldCode === code) closeOverlay(false);
+  if (overlay.heldCode === code) pauseHold();
 }
 
-/** The window lost the focus: a key's release would not be heard, so the overlay closes. */
+/** The window lost the focus: a key's release would not be heard, so the hold pauses, and the overlay stays. */
 export function focusWindowBlur(): void {
   draining.clear();
-  const overlay = useFocusOverlay.getState();
-  if (overlay.open && !overlay.leaving) closeOverlay(false);
+  pauseHold();
 }
 
 /**

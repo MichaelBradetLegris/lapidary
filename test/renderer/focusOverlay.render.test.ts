@@ -137,6 +137,23 @@ describe('the overlay (focus.1)', () => {
     expect(text(renderToStaticMarkup(createElement(FocusOverlay)))).toContain('0 / 60 s');
   });
 
+  /* focus.5: a paused hold keeps its count and its arc while the overlay waits for the next hold,
+     which fills on from them. */
+  it('keeps the count and the arc of a paused hold, and fills on from them in the next hold', () => {
+    drawn({ open: true, held: 2_500 }, { holdSeconds: 5 });
+    const paused = renderToStaticMarkup(createElement(FocusOverlay));
+    expect(text(paused).startsWith('2 / 5 s ')).toBe(true);
+    expect(offset(paused)).toBeCloseTo(50, 6);
+    drawn(
+      { open: true, holding: 'F11', heldCode: 'F11', since: performance.now() - 1_000, held: 2_500 },
+      { holdSeconds: 5 }
+    );
+    const holding = renderToStaticMarkup(createElement(FocusOverlay));
+    expect(text(holding).startsWith('3 / 5 s ')).toBe(true);
+    expect(offset(holding)).toBeLessThan(31);
+    expect(offset(holding)).toBeGreaterThan(20);
+  });
+
   /* focus.2: the two short times, 5 s, the default since focus.3, and 10 s, drawn as the others. */
   it('shows a hold of 5 s and of 10 s in the same count, ring and words', () => {
     drawn({ open: true }, { holdSeconds: 5 });
