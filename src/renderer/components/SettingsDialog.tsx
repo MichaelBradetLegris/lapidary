@@ -228,15 +228,18 @@ export function SettingsDialog({
             {APPEARANCE_NOTE}
           </p>
 
-          {/* Focus mode (focus.1): the box, and the hold time beside it in
-              the words of the hold. Main reads both as the window goes full
-              screen, so a change applies the next time. */}
+          {/* Focus mode (focus.1): the switch (focus.4; a box until then),
+              and the hold time beside it in the words of the hold. Main reads
+              both as the window goes full screen, so a change applies the
+              next time. */}
           <div className="modal__row">
             <label htmlFor={id('focus')}>{FOCUS_MODE_LABEL}</label>
             <span className="settings__focus">
               <input
                 id={id('focus')}
                 type="checkbox"
+                role="switch"
+                className="switch"
                 checked={settings.focusMode}
                 aria-describedby={`${id('focus-note')} ${id('focus-tip')}`}
                 onChange={(e) => update({ focusMode: e.target.checked })}

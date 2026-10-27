@@ -5157,7 +5157,51 @@ button.help {
   line-height: 1.5;
 }
 
-/* Settings' Focus mode row (focus.1): the box, then the hold time in the
+/* Focus mode's switch (focus.4), in Settings and the welcome guide's step 3:
+   the checkbox drawn as a switch, 34 by 18 px, so it reads as on or off at a
+   glance where the 13 px box went unseen between the row's name and the hold's
+   words (the author, 2026-10-27). It keeps the checkbox's role of switch, its
+   label and its keys. The track is --ink-faint off and --accent-fill on, the
+   turquoise a ticked box has, the knob --bg off and --on-accent on, the
+   filled buttons' pairs (themeContrast.test.ts); the focus ring is the
+   browser's own, round the track. */
+.switch {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 18px;
+  margin: 0;
+  border-radius: 9px;
+  background: var(--ink-faint);
+  cursor: pointer;
+}
+
+.switch::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.switch:checked {
+  background: var(--accent-fill);
+}
+
+.switch:checked:hover {
+  background: var(--accent-hover);
+}
+
+.switch:checked::before {
+  translate: 16px;
+  background: var(--on-accent);
+}
+
+/* Settings' Focus mode row (focus.1): the switch, then the hold time in the
    words of the hold, wrapping in a narrow box rather than overflowing. */
 .settings__focus {
   display: flex;

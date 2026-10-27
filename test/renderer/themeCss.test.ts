@@ -413,6 +413,19 @@ describe('dark block (theme.5)', () => {
     expect(declsFor('body').get('accent-color')).toBe('var(--accent-fill)');
   });
 
+  /* focus.4: the focus mode switch is the checkbox drawn by app.css, in the tokens a ticked box and a
+     filled button use, so its pairs are ones themeContrast.test.ts holds already. */
+  it('draws the focus mode switch in --ink-faint and --bg off, --accent-fill and --on-accent on', () => {
+    expect(declsFor('.switch').get('appearance')).toBe('none');
+    expect(declsFor('.switch').get('background')).toBe('var(--ink-faint)');
+    expect(declsFor('.switch::before').get('background')).toBe('var(--bg)');
+    expect(declsFor('.switch:checked').get('background')).toBe('var(--accent-fill)');
+    expect(declsFor('.switch:checked:hover').get('background')).toBe('var(--accent-hover)');
+    expect(declsFor('.switch:checked::before').get('background')).toBe('var(--on-accent)');
+    // Its focus ring is the browser's own: no outline rule of its own (CLAUDE.md's four exceptions).
+    expect([...declsFor('.switch').keys()].filter((k) => k.startsWith('outline'))).toEqual([]);
+  });
+
   it("has no rule for a password field or the key's input, which went with the OpenAI API key (codex.6)", () => {
     // The key's field was the app's one password field, framed here like the text fields.
     expect(declsFor(":where(input[type='password'])").size).toBe(0);

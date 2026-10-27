@@ -66,16 +66,26 @@ export type HoldKey = 'F11' | 'Escape';
 export const FOCUS_OVERLAY_TITLE = "You're in focus mode.";
 
 /**
+ * The overlay's last line (focus.4): where focus mode is turned off or its
+ * time changed, so the hold never reads as the only way out (the author,
+ * 2026-10-27: "you can remove Focus mode or change the duration in settings").
+ */
+export const FOCUS_OVERLAY_SETTINGS_LINE =
+  'You can turn focus mode off, or change the time, in Settings under App.';
+
+/**
  * The overlay's lines under the heading, in the task's words (focus.1): with
  * the heading they read "You're in focus mode. Are you sure you want to exit?
  * Hold F11 or Esc for 5 seconds to exit. Press any other key or click to
- * resume.", the time set in the hold line.
+ * resume.", the time set in the hold line, and then the Settings line
+ * (focus.4).
  */
 export function focusOverlayLines(seconds: FocusHoldSeconds): string[] {
   return [
     'Are you sure you want to exit?',
     `Hold F11 or Esc for ${seconds} seconds to exit.`,
-    'Press any other key or click to resume.'
+    'Press any other key or click to resume.',
+    FOCUS_OVERLAY_SETTINGS_LINE
   ];
 }
 

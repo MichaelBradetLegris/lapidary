@@ -197,6 +197,13 @@ const FAINT_PAIRS: Pair[] = [
     why: 'a category as a mark: underline, dot, caret'
   })),
   { ink: '--unsaved', on: '--panel', min: 3, why: 'the unsaved dot before the chapter name (apply.4)' },
+  { ink: '--bg', on: '--ink-faint', min: 3, why: "the focus mode switch's knob on its track, off (focus.4)" },
+  {
+    ink: '--on-accent',
+    on: '--accent-fill',
+    min: 3,
+    why: "the focus mode switch's knob on its track, on (focus.4)"
+  },
   ...['--panel-alt', '--selected-bg'].map((on) => ({
     ink: '--unsaved',
     on,
@@ -606,14 +613,15 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
     // polish.24: the decided words' three text pairs went to 3:1 as --ink-done (252 and 110
     // before), and the decided buttons' pairs are on the row's own backgrounds again, the
     // legend's tick on --panel among them. rr.7: Full edit's focus edge on the column
-    // and the sheet (111 before); rr.9 took the edge and its two pairs away (113 before).
+    // and the sheet (111 before); rr.9 took the edge and its two pairs away (113 before); focus.4
+    // added the switch's knob on its track, off and on (111 before).
     expect(CATEGORIES).toHaveLength(13);
     expect([
       TEXT_PAIRS.length,
       FAINT_PAIRS.length,
       SELECTION_TEXT_PAIRS.length,
       SELECTION_FAINT_PAIRS.length
-    ]).toEqual([249, 111, 177, 57]);
+    ]).toEqual([249, 113, 177, 57]);
   });
 
   /* polish.12: the accepted tick "needs to pop a little more" (the author).
