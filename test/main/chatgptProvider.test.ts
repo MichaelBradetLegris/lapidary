@@ -315,7 +315,11 @@ describe('a review on the plan (codex.3)', () => {
     expect(result.rateLimit).toEqual(notice);
     const reset = new Date(notice?.resetsAt ?? '');
     expect(reset.getTime() - Date.now()).toBeGreaterThan(90 * 60 * 1000);
-    expect(describeRateLimit(notice, new Date())).toMatch(/^5-hour limit 85% used, resets \d\d:\d\d$/);
+    // The mock's reset is 90 minutes ahead of the clock, which late in the day is past midnight,
+    // where the words say "tomorrow": the first 1.0.0 release run failed on this at 22:56 UTC.
+    expect(describeRateLimit(notice, new Date())).toMatch(
+      /^5-hour limit 85% used, resets (tomorrow )?\d\d:\d\d$/
+    );
   });
 
   it("takes the scenario from the token's mock_scenario claim, which the sign-in mock puts in its tokens", async () => {
