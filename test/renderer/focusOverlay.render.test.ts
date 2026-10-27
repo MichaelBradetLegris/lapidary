@@ -137,7 +137,7 @@ describe('the overlay (focus.1)', () => {
     expect(text(renderToStaticMarkup(createElement(FocusOverlay)))).toContain('0 / 60 s');
   });
 
-  /* focus.2: the two short times, 5 s and 10 s, the default, drawn as the others. */
+  /* focus.2: the two short times, 5 s, the default since focus.3, and 10 s, drawn as the others. */
   it('shows a hold of 5 s and of 10 s in the same count, ring and words', () => {
     drawn({ open: true }, { holdSeconds: 5 });
     expect(text(renderToStaticMarkup(createElement(FocusOverlay)))).toBe(

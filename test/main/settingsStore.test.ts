@@ -141,8 +141,9 @@ describe('createSettingsStore', () => {
 
 /* focus.2: focus mode's hold time through settings.json, as Settings saves it
    and main reads it at the next start: 5 and 10 seconds added, 10 the default,
-   and a time a file kept from focus.1 staying what it was. */
-describe("focus mode's hold time on disk (focus.2)", () => {
+   and a time a file kept from focus.1 staying what it was. focus.3: 5 the
+   default, and 10, which a file saved since focus.2 holds, kept as 30 is. */
+describe("focus mode's hold time on disk (focus.2, focus.3)", () => {
   const onDisk = (dir: string): Settings =>
     JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')) as Settings;
 
@@ -157,17 +158,26 @@ describe("focus mode's hold time on disk (focus.2)", () => {
     }
   });
 
-  it('takes 10 seconds for a file with no hold time, and writes it at the next save', async () => {
+  it('takes 5 seconds for a file with no hold time, and writes it at the next save', async () => {
     const dir = scratch();
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify({ manuscriptFolder: 'C:/Novel' }));
     const store = createSettingsStore({ dir, sleep: noWait });
-    expect((await store.load()).focusHoldSeconds).toBe(10);
+    expect((await store.load()).focusHoldSeconds).toBe(5);
     await store.save({ zoom: 1.25 });
-    expect(onDisk(dir).focusHoldSeconds).toBe(10);
+    expect(onDisk(dir).focusHoldSeconds).toBe(5);
   });
 
-  it('keeps a file written since focus.1, 30 seconds included, through a save of anything else', async () => {
-    for (const kept of [15, 30, 60]) {
+  it('takes 5 seconds in a new data folder, and writes it at the first save', async () => {
+    const dir = scratch();
+    const store = createSettingsStore({ dir, sleep: noWait });
+    expect((await store.load()).focusHoldSeconds).toBe(5);
+    await store.save({ focusMode: true });
+    expect(onDisk(dir).focusHoldSeconds).toBe(5);
+    expect((await createSettingsStore({ dir, sleep: noWait }).load()).focusHoldSeconds).toBe(5);
+  });
+
+  it('keeps a file written since focus.1 or focus.2, 30 and 10 seconds included, through a save of anything else', async () => {
+    for (const kept of [10, 15, 30, 60]) {
       const dir = scratch();
       writeFileSync(
         path.join(dir, SETTINGS_FILE),
@@ -180,13 +190,13 @@ describe("focus mode's hold time on disk (focus.2)", () => {
     }
   });
 
-  it('takes 10 seconds for a time Settings does not offer, and writes it at the next save', async () => {
+  it('takes 5 seconds for a time Settings does not offer, and writes it at the next save', async () => {
     const dir = scratch();
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify({ focusMode: true, focusHoldSeconds: 20 }));
     const store = createSettingsStore({ dir, sleep: noWait });
-    expect((await store.load()).focusHoldSeconds).toBe(10);
+    expect((await store.load()).focusHoldSeconds).toBe(5);
     await store.save({ zoom: 1.1 });
-    expect(onDisk(dir).focusHoldSeconds).toBe(10);
+    expect(onDisk(dir).focusHoldSeconds).toBe(5);
   });
 });
 

@@ -46,12 +46,13 @@ describe('normalizeSettings', () => {
   });
 
   /* focus.1: off unless the file says true, with a hold time Settings offers;
-     focus.2: 5 and 10 seconds added, 10 the default, a time kept from before staying. */
+     focus.2: 5 and 10 seconds added, 10 the default, a time kept from before staying;
+     focus.3: 5 the default. */
   it('keeps focus mode off unless the file says true, and a hold time of 5, 10, 15, 30 or 60 seconds', () => {
     expect(defaultSettings().focusMode).toBe(false);
-    expect(defaultSettings().focusHoldSeconds).toBe(10);
+    expect(defaultSettings().focusHoldSeconds).toBe(5);
     expect(DEFAULT_SETTINGS.focusHoldSeconds).toBe(DEFAULT_FOCUS_HOLD_SECONDS);
-    expect(normalizeSettings({}).focusHoldSeconds).toBe(10);
+    expect(normalizeSettings({}).focusHoldSeconds).toBe(5);
     expect(normalizeSettings({ focusMode: true }).focusMode).toBe(true);
     for (const other of [false, 'true', 1, 'yes', null, {}]) {
       expect(normalizeSettings({ focusMode: other }).focusMode, JSON.stringify(other)).toBe(false);
@@ -59,14 +60,15 @@ describe('normalizeSettings', () => {
     for (const seconds of [5, 10, 15, 30, 60]) {
       expect(normalizeSettings({ focusHoldSeconds: seconds }).focusHoldSeconds).toBe(seconds);
     }
-    for (const other of [0, 1, 20, 45, 120, '5', '15', null, -15]) {
-      expect(normalizeSettings({ focusHoldSeconds: other }).focusHoldSeconds, JSON.stringify(other)).toBe(10);
+    for (const other of [0, 1, 20, 45, 120, '5', '15', '10', null, -15]) {
+      expect(normalizeSettings({ focusHoldSeconds: other }).focusHoldSeconds, JSON.stringify(other)).toBe(5);
     }
   });
 
-  it('keeps the hold time a settings.json from focus.1 holds, 30 included, and saves it again as it was (focus.2)', () => {
-    // Every save writes the whole settings, so a file saved since focus.1 holds 30 whether or not it was chosen.
-    for (const kept of [15, 30, 60]) {
+  it('keeps the hold time a settings.json from focus.1 or focus.2 holds, 30 and 10 included, and saves it again as it was', () => {
+    // Every save writes the whole settings, so a file saved since focus.1 holds 30, or since focus.2 10,
+    // whether or not it was chosen; focus.2 and focus.3 keep it.
+    for (const kept of [10, 15, 30, 60]) {
       const read = normalizeSettings({
         manuscriptFolder: 'C:/Novel',
         focusMode: true,

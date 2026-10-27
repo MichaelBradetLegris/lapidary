@@ -416,14 +416,14 @@ describe.each([
     expect(fullScreen.act('toggle')).toEqual({ fullScreen: true, focus: null });
   });
 
-  it('enters with the shortest hold, 5 s, and the default, 10 s, as with any other (focus.2)', () => {
-    const { fullScreen, answer } = enter({ focusHoldSeconds: 5 });
-    expect(answer.focus).toEqual({ holdSeconds: 5 });
-    expect(lastFocusLine()).toEqual({ on: true, quiet: false, holdSeconds: 5 });
+  it('enters with 10 s, and with the default, 5 s, the shortest, as with any other (focus.2, focus.3)', () => {
+    const { fullScreen, answer } = enter({ focusHoldSeconds: 10 });
+    expect(answer.focus).toEqual({ holdSeconds: 10 });
+    expect(lastFocusLine()).toEqual({ on: true, quiet: false, holdSeconds: 10 });
     fullScreen.act('release');
     fullScreen.setFocusSettings({ focusMode: true, focusHoldSeconds: DEFAULT_SETTINGS.focusHoldSeconds });
-    expect(fullScreen.act('toggle').focus).toEqual({ holdSeconds: 10 });
-    expect(lastFocusLine()).toEqual({ on: true, quiet: false, holdSeconds: 10 });
+    expect(fullScreen.act('toggle').focus).toEqual({ holdSeconds: 5 });
+    expect(lastFocusLine()).toEqual({ on: true, quiet: false, holdSeconds: 5 });
   });
 
   it('keeps the window as it is on toggle and leave: only the hold leaves', () => {
@@ -713,7 +713,7 @@ describe('the wiring', () => {
     expect(index).toContain('new BrowserWindow({');
     expect(Object.keys(DEFAULT_SETTINGS).filter((k) => /full|screen|kiosk|top/i.test(k))).toEqual([]);
     expect(DEFAULT_SETTINGS.focusMode).toBe(false);
-    expect(DEFAULT_SETTINGS.focusHoldSeconds).toBe(10);
+    expect(DEFAULT_SETTINGS.focusHoldSeconds).toBe(5);
   });
 
   it('puts the window in full screen, kiosk or on top nowhere but src/main/fullScreen.ts, and the page never asks the DOM', () => {

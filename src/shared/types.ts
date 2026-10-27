@@ -295,7 +295,7 @@ export interface Settings {
    * the window goes full screen, so a change takes effect the next time.
    */
   focusMode: boolean;
-  /** how long F11 or Escape must be held to leave focus mode: 5, 10, 15, 30 or 60 seconds (focus.2) */
+  /** how long F11 or Escape must be held to leave focus mode: 5, 10, 15, 30 or 60 seconds (focus.2), 5 by default (focus.3) */
   focusHoldSeconds: FocusHoldSeconds;
   /** the welcome guide has been finished or skipped; settings from before 1.0 count as done when a folder is set */
   onboardingDone: boolean;
@@ -335,7 +335,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   zoom: 1,
   theme: 'system',
   focusMode: false,
-  focusHoldSeconds: 10,
+  focusHoldSeconds: 5,
   onboardingDone: false,
   dismissedHints: Object.freeze([]) as unknown as string[],
   checkForUpdates: true,
