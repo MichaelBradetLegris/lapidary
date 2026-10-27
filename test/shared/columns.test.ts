@@ -252,6 +252,21 @@ describe('class names (ui.3)', () => {
     // A column in place is never "open", whatever was asked.
     expect(columnClassName('side', layout, 'side')).toBe('column column--side');
   });
+
+  it('fades a column in place while a release of its handle would snap it closed (polish.27)', () => {
+    const wide = columnLayout(at(DEFAULT, 1));
+    expect(columnClassName('files', wide, null, 'files')).toBe('column column--files column--snapping');
+    expect(columnClassName('side', wide, null, 'files')).toBe('column column--side');
+    expect(columnClassName('side', wide, null, 'side')).toBe('column column--side column--snapping');
+    expect(columnClassName('side', wide, null, null)).toBe('column column--side');
+    // A strip or a hidden column has no handle to drag, and so never fades.
+    const folded = columnLayout(at(SMALL, 1.1));
+    expect(columnClassName('files', folded, null, 'files')).toBe('column column--files column--drawer');
+    const hidden = columnLayout(at(DEFAULT, 1), set({ sideHidden: true }));
+    expect(columnClassName('side', hidden, null, 'side')).toBe(
+      'column column--side column--drawer column--hidden'
+    );
+  });
 });
 
 describe('stripText (ui.3)', () => {

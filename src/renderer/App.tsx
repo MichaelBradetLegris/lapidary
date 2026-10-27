@@ -459,11 +459,14 @@ export function App(): React.JSX.Element {
      zooming in makes: they shrink, then fold to strips that open them as
      drawers over the edge of the prose (ui.3, state/columns.ts). Each has a
      handle on its inner edge while it is drawn in place, which sets its width
-     (polish.5, state/columnHandles.ts); its button at an end of the toolbar
-     hides it and brings it back (polish.28, components/PanelButton.tsx). */
+     (polish.5, state/columnHandles.ts), and hides it when dragged to the
+     window's edge, the column faded while a release would (polish.27); its
+     button at an end of the toolbar hides it and brings it back (polish.28,
+     components/PanelButton.tsx). */
   const {
     layout,
     setLive: setLiveWidths,
+    snapping,
     shown,
     measure: measureBody,
     style: columnStyle,
@@ -1546,15 +1549,16 @@ export function App(): React.JSX.Element {
             on its inner edge, after it in the Tab order for the chapter list
             and before it for the side panel, laid over the edge rather than
             given a grid column of its own (polish.5). A column hidden by its
-            button in the toolbar is drawn as nothing, its grid column 0 px
-            wide, and its wrapper is a drawer that never opens (polish.28). */}
+            button in the toolbar, or snapped closed by its handle, is drawn
+            as nothing, its grid column 0 px wide, and its wrapper is a drawer
+            that never opens (polish.28, polish.27). */}
         <div className={bodyClassName(layout)} style={columnStyle} ref={measureBody}>
           {layout.files === 'strip' ? (
             <ColumnStrip column="files" open={shown === 'files'} onToggle={() => toggleDrawer('files')} />
           ) : null}
           <div
             id={drawerId('files')}
-            className={columnClassName('files', layout, shown)}
+            className={columnClassName('files', layout, shown, snapping)}
             inert={columnInert('files', layout, shown)}
           >
             <FileList
@@ -1631,7 +1635,7 @@ export function App(): React.JSX.Element {
           ) : null}
           <div
             id={drawerId('side')}
-            className={columnClassName('side', layout, shown)}
+            className={columnClassName('side', layout, shown, snapping)}
             inert={columnInert('side', layout, shown)}
           >
             {review ? (

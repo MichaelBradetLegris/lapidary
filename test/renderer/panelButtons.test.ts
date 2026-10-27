@@ -193,7 +193,11 @@ describe('the buttons in the source', () => {
 
   it('lays the columns out again before the focus follows from the column hidden or from what the layout took away', () => {
     expect(HANDLES).toMatch(
-      /export function setColumnHidden\(column: Column, hidden: boolean\): void \{\s*const active = document\.activeElement;\s*const inColumn = hidden && Boolean\(active && document\.getElementById\(drawerId\(column\)\)\?\.contains\(active\)\);\s*flushSync\(\(\) => \{\s*void saveColumnHidden\(column, hidden, COLUMN_IO\);\s*\}\);\s*const takenAway = active !== null && !active\.isConnected;\s*if \(takenAway \|\| inColumn\) document\.querySelector<HTMLElement>\(panelButtonSelector\(column\)\)\?\.focus\(\);\s*\}/
+      /export function setColumnHidden\(column: Column, hidden: boolean\): void \{\s*hideColumn\(column, hidden, \(\) => \{\s*void saveColumnHidden\(column, hidden, COLUMN_IO\);\s*\}\);\s*\}/
+    );
+    // The press shares its layout and its focus rule with a handle's snap (polish.27).
+    expect(HANDLES).toMatch(
+      /function hideColumn\(column: Column, hidden: boolean, write: \(\) => void\): void \{\s*const active = document\.activeElement;\s*const inColumn = hidden && Boolean\(active && document\.getElementById\(drawerId\(column\)\)\?\.contains\(active\)\);\s*flushSync\(write\);\s*const takenAway = active !== null && !active\.isConnected;\s*if \(takenAway \|\| inColumn\) document\.querySelector<HTMLElement>\(panelButtonSelector\(column\)\)\?\.focus\(\);\s*\}/
     );
     expect(HANDLES).toMatch(/return `button\.toolbar__panel--\$\{column\}`;/);
     // The handle is drawn only while its column is in place, so a hide takes it away.

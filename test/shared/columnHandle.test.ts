@@ -2,20 +2,26 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { ColumnShares } from '../../src/shared/types';
 import {
+  COLUMN_SNAP_PX,
   COLUMN_STEP_PX,
   COLUMN_TITLE_STILL,
   columnAria,
   columnDragShare,
+  columnDragSnaps,
   columnDragTarget,
+  columnDragWrite,
   columnHandleText,
   columnKeyAction,
-  columnKeyWrite,
+  columnKeyPress,
   columnLiveShares,
   columnMovable,
   columnMove,
   columnRoom,
   columnShare,
-  type ColumnRoom
+  columnSnaps,
+  type ColumnKeyRun,
+  type ColumnRoom,
+  type ColumnWrite
 } from '../../src/shared/ui/columnHandle';
 import {
   columnLayout,
@@ -164,11 +170,11 @@ describe('the keys', () => {
   const side = room(DEFAULT, 'side');
 
   it('move the edge a step the way the arrow points', () => {
-    expect(columnKeyAction({ key: 'ArrowRight' }, files)).toEqual({ kind: 'move', target: 254 });
-    expect(columnKeyAction({ key: 'ArrowLeft' }, files)).toEqual({ kind: 'move', target: 206 });
+    expect(columnKeyAction({ key: 'ArrowRight' }, files)).toEqual({ kind: 'step', by: 24 });
+    expect(columnKeyAction({ key: 'ArrowLeft' }, files)).toEqual({ kind: 'step', by: -24 });
     // The side panel's edge going left widens it.
-    expect(columnKeyAction({ key: 'ArrowLeft' }, side)).toEqual({ kind: 'move', target: 344 });
-    expect(columnKeyAction({ key: 'ArrowRight' }, side)).toEqual({ kind: 'move', target: 296 });
+    expect(columnKeyAction({ key: 'ArrowLeft' }, side)).toEqual({ kind: 'step', by: 24 });
+    expect(columnKeyAction({ key: 'ArrowRight' }, side)).toEqual({ kind: 'step', by: -24 });
   });
 
   it('give the column its least width on Home and its most on End, and the usual width on Enter', () => {
@@ -196,7 +202,7 @@ describe('what the page draws during a drag and writes', () => {
   const side = room(DEFAULT, 'side');
   const keyWrite = (key: string, r: ColumnRoom) => {
     const action = columnKeyAction({ key }, r);
-    return action ? columnKeyWrite(action, r) : 'not taken';
+    return action ? columnKeyPress(action, r, null, null).write : 'not taken';
   };
 
   it("writes the key's column, at the width the key moves it to, as its share of the window", () => {
@@ -252,6 +258,171 @@ describe('what the page draws during a drag and writes', () => {
     expect(columnLiveShares(saved, 'files', null)).toBeNull();
     // Settings' own object is left as it is.
     expect(saved).toEqual(set({ side: 0.3 }));
+  });
+});
+
+/** The flag that hides `column` in `columnWidths`. */
+const hiddenKey = (column: Column): 'filesHidden' | 'sideHidden' =>
+  column === 'files' ? 'filesHidden' : 'sideHidden';
+
+/**
+ * `key` pressed `times` times on `column`'s handle as the page presses it:
+ * each write taken into the settings at once, the columns laid out again
+ * from them, and the run of presses carried from one to the next. Stops at a
+ * snap, which leaves the column hidden and its handle gone.
+ */
+function pressKeys(width: number, kept: ColumnShares, column: Column, key: string, times: number) {
+  let shares = kept;
+  let run: ColumnKeyRun | null = null;
+  const writes: (ColumnWrite | null)[] = [];
+  for (let i = 0; i < times; i += 1) {
+    const r = columnRoom(columnLayout(width, shares), column);
+    if (!r) break;
+    const action = columnKeyAction({ key }, r);
+    if (!action) throw new Error(`${key} is not taken`);
+    const press = columnKeyPress(action, r, shares[column], run);
+    writes.push(press.write);
+    run = press.run;
+    if (press.write?.hide) shares = { ...shares, [column]: press.write.share, [hiddenKey(column)]: true };
+    else if (press.write) shares = { ...shares, [column]: press.write.share };
+  }
+  return { writes, shares, run };
+}
+
+describe('snapping a column closed at the edge (polish.27)', () => {
+  const files = room(DEFAULT, 'files');
+  const side = room(DEFAULT, 'side');
+  const snapped = (column: Column, share: number | null): ColumnWrite => ({ column, share, hide: true });
+
+  it('snaps at 50 px or less, as the author asked, and not a pixel more', () => {
+    expect(COLUMN_SNAP_PX).toBe(50);
+    expect(columnSnaps(50)).toBe(true);
+    expect(columnSnaps(50.5)).toBe(false);
+    expect(columnSnaps(51)).toBe(false);
+    expect(columnSnaps(0)).toBe(true);
+    expect(columnSnaps(-300)).toBe(true);
+  });
+
+  it('snaps a drag let go where the column would be 50 px, and keeps it at its floor at 51', () => {
+    // The list's edge from 230 px: 179 px left is 51 px, a near miss that
+    // leaves the list at its floor; 180 px left is 50, and it goes.
+    expect(columnDragSnaps(files, -179)).toBe(false);
+    expect(columnDragWrite(files, -179, null)).toEqual({ column: 'files', share: columnShare(150, DEFAULT) });
+    expect(columnDragSnaps(files, -180)).toBe(true);
+    expect(columnDragWrite(files, -180, null)).toEqual(snapped('files', null));
+    expect(columnDragWrite(files, -900, null)).toEqual(snapped('files', null));
+    // The side panel's edge goes right, toward the window's right edge.
+    expect(columnDragWrite(side, 269, null)).toEqual({ column: 'side', share: columnShare(200, DEFAULT) });
+    expect(columnDragWrite(side, 270, null)).toEqual(snapped('side', null));
+    expect(columnDragSnaps(side, 270)).toBe(true);
+    // Until the release the column is drawn at its floor, faded.
+    expect(columnDragShare(files, -180)).toBe(columnShare(150, DEFAULT));
+    expect(columnDragShare(side, 270)).toBe(columnShare(200, DEFAULT));
+  });
+
+  it('keeps the width set before the drag, for the next show', () => {
+    const set310 = room(DEFAULT, 'files', set({ files: 0.217697 }));
+    expect(set310.current).toBe(310);
+    expect(columnDragWrite(set310, -259, 0.217697)).toEqual({
+      column: 'files',
+      share: columnShare(150, DEFAULT)
+    });
+    expect(columnDragWrite(set310, -260, 0.217697)).toEqual(snapped('files', 0.217697));
+    // From the floor, where the drag draws nothing new, a release past the threshold still snaps.
+    const atFloor = room(DEFAULT, 'files', set({ files: columnShare(150, DEFAULT) }));
+    expect(columnDragShare(atFloor, -100)).toBeNull();
+    expect(columnDragWrite(atFloor, -99, atFloor.current / DEFAULT)).toBeNull();
+    expect(columnDragWrite(atFloor, -100, 0.105337)).toEqual(snapped('files', 0.105337));
+    // Shown again, the column is back at the width it had.
+    const hidden = set({ files: 0.217697, filesHidden: true });
+    expect(columnLayout(DEFAULT, hidden).files).toBe('hidden');
+    expect(columnLayout(DEFAULT, { ...hidden, filesHidden: false }).filesWidth).toBe(310);
+  });
+
+  it('snaps on the arrow press that takes the column to 50 px or less, going on past the floor a step a press', () => {
+    // The list from its usual 230 px: four presses to its floor, three more
+    // past it with nothing to draw, and the eighth, at 38 px, hides it.
+    const list = pressKeys(DEFAULT, USUAL_COLUMN_WIDTHS, 'files', 'ArrowLeft', 9);
+    expect(list.writes).toEqual([
+      { column: 'files', share: columnShare(206, DEFAULT) },
+      { column: 'files', share: columnShare(182, DEFAULT) },
+      { column: 'files', share: columnShare(158, DEFAULT) },
+      { column: 'files', share: columnShare(150, DEFAULT) },
+      null,
+      null,
+      null,
+      snapped('files', null)
+    ]);
+    // Hidden, with the usual width it had before the first press.
+    expect(list.shares).toEqual(set({ filesHidden: true }));
+    expect(columnLayout(DEFAULT, set({})).filesWidth).toBe(230);
+    expect(list.run).toBeNull();
+  });
+
+  it('misses at 51 px from the keys too, and snaps on the next press', () => {
+    // The list at 195 px: the sixth press would make it 51 px, the seventh 27.
+    const at195 = set({ files: columnShare(195, DEFAULT) });
+    expect(room(DEFAULT, 'files', at195).current).toBe(195);
+    const six = pressKeys(DEFAULT, at195, 'files', 'ArrowLeft', 6);
+    expect(six.writes.some((w) => w?.hide)).toBe(false);
+    expect(six.run).toEqual({ column: 'files', before: columnShare(195, DEFAULT), reach: 51 });
+    expect(columnLayout(DEFAULT, six.shares).filesWidth).toBe(150);
+    const seven = pressKeys(DEFAULT, at195, 'files', 'ArrowLeft', 7);
+    expect(seven.writes.at(-1)).toEqual(snapped('files', columnShare(195, DEFAULT)));
+    // The side panel at 219 px narrows on the right arrow: 51 px at the seventh, 27 at the eighth.
+    const at219 = set({ side: columnShare(219, DEFAULT) });
+    const panelSeven = pressKeys(DEFAULT, at219, 'side', 'ArrowRight', 7);
+    expect(panelSeven.run).toMatchObject({ column: 'side', reach: 51 });
+    expect(panelSeven.writes.some((w) => w?.hide)).toBe(false);
+    const panelEight = pressKeys(DEFAULT, at219, 'side', 'ArrowRight', 8);
+    expect(panelEight.writes.at(-1)).toEqual(snapped('side', columnShare(219, DEFAULT)));
+    expect(columnLayout(DEFAULT, panelEight.shares).side).toBe('hidden');
+    expect(columnLayout(DEFAULT, { ...panelEight.shares, sideHidden: false }).sideWidth).toBe(219);
+  });
+
+  it('starts again from the width drawn after any other key, another column or a column off its floor', () => {
+    const atFloor = set({ files: columnShare(150, DEFAULT) });
+    const floor = room(DEFAULT, 'files', atFloor);
+    const left = columnKeyAction({ key: 'ArrowLeft' }, floor);
+    if (!left) throw new Error('ArrowLeft is not taken');
+    const run: ColumnKeyRun = { column: 'files', before: 0.2, reach: 54 };
+    // The run goes on: 30 px, and it snaps, keeping the width from before the run.
+    expect(columnKeyPress(left, floor, columnShare(150, DEFAULT), run).write).toEqual(snapped('files', 0.2));
+    // The right arrow, Home, End and Enter each end it, and none snaps.
+    for (const key of ['ArrowRight', 'Home', 'End', 'Enter']) {
+      const action = columnKeyAction({ key }, floor);
+      if (!action) throw new Error(`${key} is not taken`);
+      const press = columnKeyPress(action, floor, columnShare(150, DEFAULT), run);
+      expect(press.run, key).toBeNull();
+      expect(press.write?.hide, key).toBeUndefined();
+    }
+    // The right arrow moves the edge from where it is drawn, not from 54 px.
+    const right = columnKeyAction({ key: 'ArrowRight' }, floor);
+    if (!right) throw new Error('ArrowRight is not taken');
+    expect(columnKeyPress(right, floor, null, run).write).toEqual({
+      column: 'files',
+      share: columnShare(174, DEFAULT)
+    });
+    // Another column's run, or this one's once the column is off its floor, counts for nothing.
+    const other: ColumnKeyRun = { column: 'side', before: 0.3, reach: 54 };
+    expect(columnKeyPress(left, floor, 0.105337, other)).toEqual({
+      write: null,
+      run: { column: 'files', before: 0.105337, reach: 126 }
+    });
+    expect(columnKeyPress(left, files, null, run)).toEqual({
+      write: { column: 'files', share: columnShare(206, DEFAULT) },
+      run: { column: 'files', before: 0.2, reach: 206 }
+    });
+  });
+
+  it('never snaps on Home, which gives the column its least width', () => {
+    const home = columnKeyAction({ key: 'Home' }, files);
+    expect(home).toEqual({ kind: 'move', target: Number.NEGATIVE_INFINITY });
+    if (!home) throw new Error('Home is not taken');
+    expect(columnKeyPress(home, files, null, null)).toEqual({
+      write: { column: 'files', share: columnShare(150, DEFAULT) },
+      run: null
+    });
   });
 });
 
@@ -346,6 +517,132 @@ describe('properties', () => {
           expect(drawn(after, other)).toBeGreaterThanOrEqual(drawn(layout, other));
         }
       })
+    );
+  });
+
+  // polish.27: the drag and the keys snap the column closed at the same 50 px.
+  const near = fc.oneof(
+    target,
+    fc.integer({ min: 20, max: 80 }),
+    fc.double({ min: 49, max: 52, noNaN: true }),
+    fc.constantFrom(50, 51, 49.5, 50.5)
+  );
+
+  it('snaps a drag never above 50 px, always at or under, and keeps the width from before the drag', () => {
+    fc.assert(
+      fc.property(width, shares, column, near, share, (w, kept, c, t, before) => {
+        const r = columnRoom(columnLayout(w, kept), c);
+        if (!r) return;
+        // The drag that would make the column `t` wide, by the pointer's way.
+        const dx = c === 'files' ? t - r.current : r.current - t;
+        const at = columnDragTarget(r, dx);
+        const write = columnDragWrite(r, dx, before);
+        expect(write?.hide === true).toBe(at <= COLUMN_SNAP_PX);
+        // What the page fades during the drag is what the release does.
+        expect(columnDragSnaps(r, dx)).toBe(write?.hide === true);
+        if (write?.hide) {
+          // The width the column comes back at is the one it had before the drag.
+          expect(write).toEqual({ column: c, share: before, hide: true });
+        } else {
+          // Short of the threshold, the release writes what the drag drew.
+          expect(write === null ? null : write.share).toBe(columnDragShare(r, dx));
+        }
+      })
+    );
+  });
+
+  it('snaps a run of arrow presses at the same 50 px, keeping the width from before its first press', () => {
+    fc.assert(
+      fc.property(width, shares, column, (w, kept, c) => {
+        const layout = columnLayout(w, kept);
+        const first = columnRoom(layout, c);
+        if (!first || !columnMovable(first)) return;
+        const key = c === 'files' ? 'ArrowLeft' : 'ArrowRight';
+        const before = kept[c];
+        let shares = kept;
+        let run: ColumnKeyRun | null = null;
+        // The width the presses would make the column, nothing holding it at
+        // its floor: from the width drawn, and while it is held at its floor
+        // from where the presses had reached.
+        let reach = first.current;
+        let presses = 0;
+        for (;;) {
+          const r = columnRoom(columnLayout(w, shares), c);
+          if (!r) throw new Error('the column went before a snap');
+          const action = columnKeyAction({ key }, r);
+          if (!action) throw new Error(`${key} is not taken`);
+          reach =
+            (presses > 0 && r.current <= r.min ? Math.min(reach, r.current) : r.current) - COLUMN_STEP_PX;
+          const press = columnKeyPress(action, r, shares[c], run);
+          presses += 1;
+          if (press.write?.hide) {
+            // Never above 50 px, and back at the width from before the run.
+            expect(reach).toBeLessThanOrEqual(COLUMN_SNAP_PX);
+            expect(press.write).toEqual({ column: c, share: before, hide: true });
+            break;
+          }
+          // Always at or under: a press that reaches it snaps.
+          expect(reach).toBeGreaterThan(COLUMN_SNAP_PX);
+          expect(press.run).toEqual({ column: c, before, reach });
+          if (press.write) shares = { ...shares, [c]: press.write.share };
+          run = press.run;
+          if (presses > 200) throw new Error('no snap in 200 presses');
+        }
+        // Where the column is drawn as set (the first step, or the panel beside
+        // a folded or hidden list), each press takes 24 px from the width it
+        // started at, so the snap comes at the first that leaves 50 px or less,
+        // as a drag to the same place would.
+        const asSet =
+          layout.files === 'strip' ||
+          ((layout.files === 'hidden' || layout.filesWidth === keptWidth(FILES_WIDTHS, kept.files, w)) &&
+            (layout.side === 'hidden' || layout.sideWidth === keptWidth(SIDE_WIDTHS, kept.side, w)));
+        if (asSet) {
+          expect(presses).toBe(Math.ceil((first.current - COLUMN_SNAP_PX) / COLUMN_STEP_PX));
+          expect(
+            columnDragSnaps(first, c === 'files' ? -presses * COLUMN_STEP_PX : presses * COLUMN_STEP_PX)
+          ).toBe(true);
+          expect(
+            columnDragSnaps(
+              first,
+              c === 'files' ? -(presses - 1) * COLUMN_STEP_PX : (presses - 1) * COLUMN_STEP_PX
+            )
+          ).toBe(false);
+        }
+      })
+    );
+  });
+
+  it('ends a run on any other key, which never snaps', () => {
+    const reach = fc.double({ min: -500, max: 1000, noNaN: true });
+    const key = fc.constantFrom('ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter');
+    fc.assert(
+      fc.property(
+        width,
+        shares,
+        column,
+        column,
+        share,
+        reach,
+        key,
+        (w, kept, c, runColumn, before, at, k) => {
+          const r = columnRoom(columnLayout(w, kept), c);
+          if (!r) return;
+          const action = columnKeyAction({ key: k }, r);
+          if (!action) return;
+          const narrows = action.kind === 'step' && action.by < 0;
+          const press = columnKeyPress(action, r, kept[c], { column: runColumn, before, reach: at });
+          if (!narrows) {
+            expect(press.run).toBeNull();
+            expect(press.write?.hide).toBeUndefined();
+          } else if (press.write?.hide) {
+            // A narrowing arrow snaps only on a run of this column's, the column at its floor.
+            expect(runColumn).toBe(c);
+            expect(r.current).toBeLessThanOrEqual(r.min);
+            expect(Math.min(at, r.current) - COLUMN_STEP_PX).toBeLessThanOrEqual(COLUMN_SNAP_PX);
+            expect(press.write).toEqual({ column: c, share: before, hide: true });
+          }
+        }
+      )
     );
   });
 });

@@ -93,10 +93,13 @@ export interface Columns {
   layout: ColumnLayout;
   /**
    * for the handles (`useColumnHandle`): the widths to lay the columns out
-   * with while a drag is under way, in place of those in settings; null when
-   * none is
+   * with while a drag is under way, in place of those in settings, null when
+   * none is; and the column a release would snap closed, faded until then
+   * (polish.27), null for none
    */
-  setLive: (live: ColumnShares | null) => void;
+  setLive: (live: ColumnShares | null, snapping?: Column | null) => void;
+  /** the column a drag under way would snap closed on its release (polish.27) */
+  snapping: Column | null;
   /** the drawer on screen: the one opened, while its column is folded */
   shown: Column | null;
   /** the ref callback for `.body`, measured as the window, and so the zoom, changes */
@@ -128,7 +131,12 @@ export function useColumns(hasReview: boolean): Columns {
   }, []);
 
   const saved = useApp((s) => s.settings?.columnWidths ?? USUAL_COLUMN_WIDTHS);
-  const [live, setLive] = useState<ColumnShares | null>(null);
+  const [live, setLiveShares] = useState<ColumnShares | null>(null);
+  const [snapping, setSnapping] = useState<Column | null>(null);
+  const setLive = useCallback((shares: ColumnShares | null, snap: Column | null = null) => {
+    setLiveShares(shares);
+    setSnapping(snap);
+  }, []);
   const kept = live ?? saved;
   const layout = useMemo(() => columnLayout(width, kept), [width, kept]);
   const open = useDrawer((s) => s.open);
@@ -158,5 +166,5 @@ export function useColumns(hasReview: boolean): Columns {
     [layout]
   );
 
-  return { layout, setLive, shown, measure, style, toggle };
+  return { layout, setLive, snapping, shown, measure, style, toggle };
 }

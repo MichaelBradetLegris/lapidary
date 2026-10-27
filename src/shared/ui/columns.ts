@@ -322,15 +322,20 @@ export function bodyClassName(layout: Pick<ColumnLayout, 'files' | 'side' | 'nar
  * drawer; and `column--open` while that drawer is on screen. A hidden column
  * (polish.28) is a drawer that never opens, `column--hidden`: laid out out of
  * sight, so it keeps its state, such as where its lists are scrolled, for
- * when its button brings it back.
+ * when its button brings it back. A column in place whose handle a drag has
+ * taken past the snap threshold is `column--snapping`, faded until the
+ * release hides it (polish.27); `snapping` is that column, or null.
  */
 export function columnClassName(
   column: Column,
   layout: Pick<ColumnLayout, 'files' | 'side'>,
-  shown: Column | null
+  shown: Column | null,
+  snapping: Column | null = null
 ): string {
   const names = ['column', `column--${column}`];
-  if (layout[column] === 'strip') {
+  if (layout[column] === 'full') {
+    if (snapping === column) names.push('column--snapping');
+  } else if (layout[column] === 'strip') {
     names.push('column--drawer');
     if (shown === column) names.push('column--open');
   } else if (layout[column] === 'hidden') {

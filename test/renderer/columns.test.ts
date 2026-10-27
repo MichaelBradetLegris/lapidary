@@ -88,7 +88,7 @@ describe('each column is in place, or a strip and a drawer (ui.3)', () => {
     for (const column of ['files', 'side']) {
       expect(APP).toMatch(
         new RegExp(
-          `<div\\s+id=\\{drawerId\\('${column}'\\)\\}\\s+className=\\{columnClassName\\('${column}', layout, shown\\)\\}\\s+inert=\\{columnInert\\('${column}', layout, shown\\)\\}\\s*>`
+          `<div\\s+id=\\{drawerId\\('${column}'\\)\\}\\s+className=\\{columnClassName\\('${column}', layout, shown, snapping\\)\\}\\s+inert=\\{columnInert\\('${column}', layout, shown\\)\\}\\s*>`
         )
       );
     }

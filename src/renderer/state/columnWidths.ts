@@ -13,7 +13,8 @@ import { useApp } from './store';
  * takes a new value at once, a run of key presses ends in one write of the
  * last, and a close waits for the writes (state/pageIo.ts). The widths and
  * the flags go through the one writer, so a fold and a drag never write over
- * each other.
+ * each other, and a handle dragged to the window's edge (polish.27) writes the
+ * flag with the width the column keeps, in one write.
  */
 
 export type ColumnIo = SettingIo;
@@ -29,6 +30,12 @@ export interface ColumnWrites {
    * are. Resolves once written, or could not be; never rejects.
    */
   hide(column: Column, hidden: boolean, io: ColumnIo): Promise<void>;
+  /**
+   * Hide `column`, snapped closed by its handle (polish.27), and keep `share`
+   * as its width, the one it had before the drag, null for its usual width,
+   * in one write. Resolves once written, or could not be; never rejects.
+   */
+  snap(column: Column, share: number | null, io: ColumnIo): Promise<void>;
   /** the writes still under way; never rejects */
   flush(): Promise<void>;
 }
@@ -51,6 +58,11 @@ export function createColumnWrites(): ColumnWrites {
     save: (column, share, io) => change(column === 'files' ? { files: share } : { side: share }, io),
     hide: (column, hidden, io) =>
       change(column === 'files' ? { filesHidden: hidden } : { sideHidden: hidden }, io),
+    snap: (column, share, io) =>
+      change(
+        column === 'files' ? { files: share, filesHidden: true } : { side: share, sideHidden: true },
+        io
+      ),
     flush: () => writes.flush()
   };
 }
@@ -66,6 +78,11 @@ export function saveColumnWidth(column: Column, share: number | null, io: Column
 /** Hide `column`, or bring it back (`ColumnWrites.hide`). */
 export function saveColumnHidden(column: Column, hidden: boolean, io: ColumnIo): Promise<void> {
   return writes.hide(column, hidden, io);
+}
+
+/** Hide `column`, snapped closed, keeping `share` as its width (`ColumnWrites.snap`, polish.27). */
+export function saveColumnSnap(column: Column, share: number | null, io: ColumnIo): Promise<void> {
+  return writes.snap(column, share, io);
 }
 
 /** The width writes under way, for a close to wait for with the other writes (apply.9). */

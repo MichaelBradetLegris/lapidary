@@ -11,18 +11,21 @@ import type { ColumnShares } from '../../shared/types';
 import {
   columnAria,
   columnDragShare,
+  columnDragSnaps,
+  columnDragWrite,
   columnHandleText,
   columnKeyAction,
-  columnKeyWrite,
+  columnKeyPress,
   columnLiveShares,
   columnMovable,
   columnRoom,
+  type ColumnKeyRun,
   type ColumnRoom
 } from '../../shared/ui/columnHandle';
 import { USUAL_COLUMN_WIDTHS, type Column, type ColumnLayout } from '../../shared/ui/columns';
 import { call } from './client';
 import { drawerId } from './columns';
-import { saveColumnHidden, saveColumnWidth, type ColumnIo } from './columnWidths';
+import { saveColumnHidden, saveColumnSnap, saveColumnWidth, type ColumnIo } from './columnWidths';
 import { useApp } from './store';
 
 /*
@@ -38,7 +41,9 @@ import { useApp } from './store';
  * the Tab order, and still to the pointer. Each column's button at an end of
  * the toolbar hides it and brings it back (polish.28,
  * components/PanelButton.tsx), through `setColumnHidden` below; polish.26's
- * carets at the top of the handles did until then.
+ * carets at the top of the handles did until then. A handle dragged to the
+ * window's edge, or moved there by the arrow keys, hides its column too
+ * (polish.27, `snapColumnClosed`), the column faded while a release would.
  */
 
 const COLUMN_IO: ColumnIo = {
@@ -63,13 +68,38 @@ export function panelButtonSelector(column: Column): string {
  * out of sight and inert.
  */
 export function setColumnHidden(column: Column, hidden: boolean): void {
-  const active = document.activeElement;
-  const inColumn = hidden && Boolean(active && document.getElementById(drawerId(column))?.contains(active));
-  flushSync(() => {
+  hideColumn(column, hidden, () => {
     void saveColumnHidden(column, hidden, COLUMN_IO);
   });
+}
+
+/**
+ * Hide `column` or bring it back by `write`, laying the columns out again
+ * before this returns, and follow the focus as `setColumnHidden` says: the
+ * button's press and a handle's snap share it.
+ */
+function hideColumn(column: Column, hidden: boolean, write: () => void): void {
+  const active = document.activeElement;
+  const inColumn = hidden && Boolean(active && document.getElementById(drawerId(column))?.contains(active));
+  flushSync(write);
   const takenAway = active !== null && !active.isConnected;
   if (takenAway || inColumn) document.querySelector<HTMLElement>(panelButtonSelector(column))?.focus();
+}
+
+/**
+ * A handle dragged to the window's edge, or moved there by the arrow keys,
+ * snaps its column closed (polish.27): hidden as its button hides it, keeping
+ * `share`, the width it had before the drag, null for its usual width, for
+ * the next show, in one write. `settle` ends the drag in the same render, so
+ * no frame shows the column back at that width before it goes. The handle
+ * goes with the column, so a snap from the keys hands the focus to the
+ * column's button, where Enter brings the column back.
+ */
+function snapColumnClosed(column: Column, share: number | null, settle: () => void): void {
+  hideColumn(column, true, () => {
+    settle();
+    void saveColumnSnap(column, share, COLUMN_IO);
+  });
 }
 
 export type ColumnHandleProps = HTMLAttributes<HTMLDivElement> & { 'aria-orientation': 'vertical' };
@@ -80,22 +110,32 @@ interface Drag {
   room: ColumnRoom;
   /** the handle, which a fold under the drag takes away */
   element: Element;
+  /** the column's share in settings as the drag started, which a snap keeps (polish.27) */
+  before: number | null;
+  /** how far right of where it started the pointer last moved, in CSS px */
+  dx: number;
+}
+
+/** The column's share in settings now, null for its usual width. */
+function savedShare(column: Column): number | null {
+  return (useApp.getState().settings?.columnWidths ?? USUAL_COLUMN_WIDTHS)[column];
 }
 
 /**
  * The handle on `column`'s inner edge in `layout`, or null while the column
- * is folded to a strip. `setLive` hands `useColumns` the widths to draw while
- * a drag is under way, null when none is or the drag is back where it started.
+ * is folded to a strip or hidden. `setLive` hands `useColumns` the widths to
+ * draw while a drag is under way, null when none is or the drag is back where
+ * it started, and the column while a release would snap it closed (polish.27).
  */
 export function useColumnHandle(
   column: Column,
   layout: ColumnLayout,
-  setLive: (live: ColumnShares | null) => void
+  setLive: (live: ColumnShares | null, snapping?: Column | null) => void
 ): ColumnHandleProps | null {
   const [dragging, setDragging] = useState(false);
   const drag = useRef<Drag | null>(null);
-  /** the share a drag has reached; null when it is back where it started (`columnDragShare`) */
-  const liveShare = useRef<number | null>(null);
+  /** the arrow presses toward the window's edge under way (polish.27), null for none */
+  const keyRun = useRef<ColumnKeyRun | null>(null);
 
   /* While a drag is under way the pointer keeps the col-resize shape wherever
      it goes, and no text is selected (app.css `.column-resizing`). A handle
@@ -110,7 +150,6 @@ export function useColumnHandle(
       const d = drag.current;
       if (!d || d.pointerId !== event.pointerId || d.element.isConnected) return;
       drag.current = null;
-      liveShare.current = null;
       setDragging(false);
       setLive(null);
     };
@@ -132,23 +171,32 @@ export function useColumnHandle(
   /** The room as the columns are drawn, when the handle can move; null when it cannot. */
   const movableRoom = (): ColumnRoom | null => (columnMovable(room) ? room : null);
 
-  // The other column stays as set while this one is dragged.
-  const showLive = (share: number | null): void => {
-    liveShare.current = share;
+  /* The other column stays as set while this one is dragged, and this one
+     fades while a release would snap it closed (polish.27), held at its
+     floor until then. */
+  const showLive = (d: Drag): void => {
     const saved = useApp.getState().settings?.columnWidths ?? USUAL_COLUMN_WIDTHS;
-    setLive(columnLiveShares(saved, column, share));
+    const snapping = columnDragSnaps(d.room, d.dx) ? column : null;
+    setLive(columnLiveShares(saved, column, columnDragShare(d.room, d.dx)), snapping);
   };
 
   const finish = (pointerId: number, keep: boolean): void => {
     const d = drag.current;
     if (!d || d.pointerId !== pointerId) return;
     drag.current = null;
-    setDragging(false);
-    const last = liveShare.current;
-    liveShare.current = null;
+    const settle = (): void => {
+      setDragging(false);
+      setLive(null);
+    };
+    const write = keep ? columnDragWrite(d.room, d.dx, d.before) : null;
+    // Let go past the threshold, the column goes, keeping the width it had.
+    if (write?.hide) {
+      snapColumnClosed(column, write.share, settle);
+      return;
+    }
     // The store takes the width at once, so the edge stays where it was let go.
-    if (keep && last !== null) void saveColumnWidth(column, last, COLUMN_IO);
-    setLive(null);
+    if (write) void saveColumnWidth(column, write.share, COLUMN_IO);
+    settle();
   };
 
   return {
@@ -173,11 +221,14 @@ export function useColumnHandle(
       event.preventDefault();
       const dragRoom = movableRoom();
       if (!dragRoom) return;
+      keyRun.current = null;
       drag.current = {
         pointerId: event.pointerId,
         startX: event.clientX,
         room: dragRoom,
-        element: event.currentTarget
+        element: event.currentTarget,
+        before: savedShare(column),
+        dx: 0
       };
       event.currentTarget.setPointerCapture(event.pointerId);
       setDragging(true);
@@ -185,7 +236,8 @@ export function useColumnHandle(
     onPointerMove: (event: PointerEvent<HTMLDivElement>) => {
       const d = drag.current;
       if (!d || d.pointerId !== event.pointerId) return;
-      showLive(columnDragShare(d.room, event.clientX - d.startX));
+      d.dx = event.clientX - d.startX;
+      showLive(d);
     },
     onPointerUp: (event: PointerEvent<HTMLDivElement>) => finish(event.pointerId, true),
     onPointerCancel: (event: PointerEvent<HTMLDivElement>) => finish(event.pointerId, false),
@@ -200,9 +252,20 @@ export function useColumnHandle(
       const action = columnKeyAction(event, keyRoom);
       if (!action) return;
       event.preventDefault();
-      // Enter writes the usual width; a key at the limit it moves toward, nothing.
-      const write = columnKeyWrite(action, keyRoom);
-      if (write) void saveColumnWidth(write.column, write.share, COLUMN_IO);
+      /* Enter writes the usual width; a key at the limit it moves toward,
+         nothing. An arrow toward the window's edge carries on the presses
+         before it, past the floor too, and the one that takes the column to
+         the threshold snaps it closed, keeping the width it had before the
+         first (polish.27). */
+      const press = columnKeyPress(action, keyRoom, savedShare(column), keyRun.current);
+      keyRun.current = press.run;
+      const write = press.write;
+      if (write?.hide) snapColumnClosed(column, write.share, () => undefined);
+      else if (write) void saveColumnWidth(write.column, write.share, COLUMN_IO);
+    },
+    // The focus gone from the handle ends a run of arrow presses.
+    onBlur: () => {
+      keyRun.current = null;
     }
   };
 }

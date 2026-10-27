@@ -936,6 +936,15 @@ input[type='text'] {
   background: var(--border);
 }
 
+/* A drag of a column's handle toward the window's edge, to where the column
+   would be 50 px wide or less (polish.27): the column, held at its floor,
+   fades, as a release now hides it as its button in the toolbar does; back
+   within, it is as it was. In place the wrapper lays out nothing, so the column's own box
+   fades, further than the side panel's fade while a review runs (0.4). */
+.column.column--snapping > * {
+  opacity: 0.35;
+}
+
 /* While a handle is dragged, the pointer keeps its col-resize shape over
    whatever it crosses, and nothing is selected. */
 :root.column-resizing,
