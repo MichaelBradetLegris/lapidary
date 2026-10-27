@@ -130,6 +130,18 @@ export function panelButtonText(column: Column, hidden: boolean): string {
 }
 
 /**
+ * The first sentence of the page shown while nothing is open, "Nothing open":
+ * where to find a chapter. A hidden chapter list leaves nothing at the
+ * window's left, and the flag outlives a restart, which always starts with
+ * nothing open, so with the list hidden the sentence starts with the button
+ * that shows it, in that button's own words (the polish.28 review).
+ */
+export function nothingOpenLead(listHidden: boolean): string {
+  if (!listHidden) return 'Pick a chapter on the left, or start one with the + beside Chapters.';
+  return `${panelButtonText('files', true)} with the button at the left end of the toolbar, then pick a chapter, or start one with the + beside Chapters.`;
+}
+
+/**
  * A side column drawn in place, folded to a strip and a drawer by a narrow
  * window (ui.3), or hidden by the author with its button in the toolbar,
  * drawn as nothing (polish.28; folded away to a 7 px edge strip by a caret
@@ -352,13 +364,16 @@ export interface StripText {
   title: string;
 }
 
-/** The strip's name and tooltip, by column and whether its drawer is open. */
+/**
+ * The strip's name and tooltip, by column and whether its drawer is open. The
+ * tooltip says Open or Close, for the drawer, where the column's button at an
+ * end of the toolbar says Show or Hide, for the column (`panelButtonText`; the
+ * polish.28 review): in a narrow window the two are on screen together and do
+ * different things, the strip opening the column over the prose for a while
+ * and the button hiding it, strip and all, until it is shown again.
+ */
 export function stripText(column: Column, open: boolean): StripText {
-  if (column === 'files') {
-    return { label: 'Chapters', title: open ? 'Hide the chapter list' : 'Show the chapter list' };
-  }
-  return {
-    label: 'Suggestions',
-    title: open ? 'Hide suggestions, comments and history' : 'Show suggestions, comments and history'
-  };
+  const verb = open ? 'Close' : 'Open';
+  if (column === 'files') return { label: 'Chapters', title: `${verb} the chapter list` };
+  return { label: 'Suggestions', title: `${verb} suggestions, comments and history` };
 }

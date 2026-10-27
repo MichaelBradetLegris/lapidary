@@ -117,7 +117,7 @@ If your Claude plan is Pro, the guide sets the review model to Sonnet the first 
 
 ## Reviewing a chapter
 
-1. Pick a chapter on the left.
+1. Pick a chapter on the left. If you have hidden the chapter list, the button at the left end of the toolbar shows it again.
 2. Click **Review**, then the service to review with: **Claude** or **ChatGPT**. The **Review with AI** dialog shows the chapter's size, the provider, which you can change there too, the model and effort, your guidelines file, and what happened last time. For ChatGPT it also shows your account and, before your first ChatGPT review, the warning about training with its box, and **Start review** stays disabled until you are signed in and have ticked it.
 3. While it runs, a card at the bottom of the page shows progress and a **Cancel review** button. A review usually takes a minute or two. The chapter is read-only until it finishes, because the result replaces the current set of suggestions; you can open other chapters meanwhile. If the page has changes that are not saved to the chapter yet, the dialog says so, because the review reads the chapter file: **Save 3 changes, then review** writes them into the chapter and then starts, so the review sees them (if the save does not go through, nothing is sent and the dialog says why), and **Review without them** asks first, then leaves them in the old review, which you can reopen from History.
 4. When it finishes, each suggestion appears in the text:

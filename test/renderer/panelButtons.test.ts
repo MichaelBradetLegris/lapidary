@@ -27,6 +27,7 @@ const read = (file: string): string => withoutComments(readFileSync(path.join(SR
 
 const APP = read('renderer/App.tsx');
 const BUTTON = read('renderer/components/PanelButton.tsx');
+const STRIP = read('renderer/components/ColumnStrip.tsx');
 const TOOLBAR = read('renderer/components/Toolbar.tsx');
 const HANDLES = read('renderer/state/columnHandles.ts');
 const ICONS = read('renderer/components/icons.tsx');
@@ -198,6 +199,23 @@ describe('the buttons in the source', () => {
     // The handle is drawn only while its column is in place, so a hide takes it away.
     expect(APP).toContain('{filesHandle ? <div {...filesHandle} /> : null}');
     expect(APP).toContain('{sideHandle ? <div {...sideHandle} /> : null}');
+  });
+
+  it("titles a narrow window's strip in its drawer's words, which the button never uses (the review)", () => {
+    // stripText's words, held apart from panelButtonText's in test/shared/columns.test.ts.
+    expect(STRIP).toContain('const text = stripText(column, open);');
+    expect(STRIP).toContain('title={text.title}');
+    expect(STRIP).not.toContain('panelButtonText');
+  });
+
+  it("starts the empty page with the chapter list's button while the list is hidden (the review)", () => {
+    // The flag outlives a restart, which starts with nothing open; the words
+    // of both states are in test/shared/columns.test.ts.
+    const empty = APP.slice(APP.indexOf('<h1>Nothing open</h1>'));
+    expect(empty.slice(0, empty.indexOf('</div>'))).toMatch(
+      /<p>\s*\{nothingOpenLead\(layout\.files === 'hidden'\)\} In the Review menu,/
+    );
+    expect(APP).not.toContain('Pick a chapter on the left');
   });
 });
 

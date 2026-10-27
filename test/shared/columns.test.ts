@@ -15,6 +15,7 @@ import {
   NARROW_PANE_PADDING,
   normalizeColumnShare,
   normalizeColumnWidths,
+  nothingOpenLead,
   panelButtonText,
   preferredWidth,
   PROSE_MIN,
@@ -255,13 +256,33 @@ describe('class names (ui.3)', () => {
 
 describe('stripText (ui.3)', () => {
   it('names each strip after its column and says in the tooltip what a click does', () => {
-    expect(stripText('files', false)).toEqual({ label: 'Chapters', title: 'Show the chapter list' });
-    expect(stripText('files', true)).toEqual({ label: 'Chapters', title: 'Hide the chapter list' });
+    expect(stripText('files', false)).toEqual({ label: 'Chapters', title: 'Open the chapter list' });
+    expect(stripText('files', true)).toEqual({ label: 'Chapters', title: 'Close the chapter list' });
     expect(stripText('side', false)).toEqual({
       label: 'Suggestions',
-      title: 'Show suggestions, comments and history'
+      title: 'Open suggestions, comments and history'
     });
-    expect(stripText('side', true).title).toBe('Hide suggestions, comments and history');
+    expect(stripText('side', true).title).toBe('Close suggestions, comments and history');
+  });
+
+  it("never says what the column's button in the toolbar says (the polish.28 review)", () => {
+    // In a narrow window the strip and the button are on screen together, and
+    // do different things: the strip opens or closes its drawer, the button
+    // hides the column, strip and all, or shows it.
+    const verb = (text: string): string => text.split(' ')[0] ?? '';
+    for (const column of ['files', 'side'] as const) {
+      for (const open of [false, true]) {
+        const strip = stripText(column, open).title;
+        expect(['Open', 'Close']).toContain(verb(strip));
+        for (const other of ['files', 'side'] as const) {
+          for (const hidden of [false, true]) {
+            const button = panelButtonText(other, hidden);
+            expect(strip).not.toBe(button);
+            expect(verb(strip)).not.toBe(verb(button));
+          }
+        }
+      }
+    }
   });
 });
 
@@ -557,6 +578,20 @@ describe('a hidden column (polish.28)', () => {
     expect(panelButtonText('side', true)).toBe('Show the side panel');
     // The handles' names use the same words.
     expect(COLUMN_NAMES).toEqual({ files: 'chapter list', side: 'side panel' });
+  });
+
+  it("starts the empty page with the chapter list's button while the list is hidden (the review)", () => {
+    // The flag outlives a restart, which starts with nothing open, and a
+    // hidden list leaves nothing at the left to pick a chapter from.
+    expect(nothingOpenLead(false)).toBe(
+      'Pick a chapter on the left, or start one with the + beside Chapters.'
+    );
+    expect(nothingOpenLead(true)).toBe(
+      'Show the chapter list with the button at the left end of the toolbar, then pick a chapter, or start one with the + beside Chapters.'
+    );
+    // In the button's own words, its name and tooltip while the list is hidden.
+    expect(nothingOpenLead(true).startsWith(`${panelButtonText('files', true)} `)).toBe(true);
+    expect(nothingOpenLead(true)).not.toContain('on the left');
   });
 
   // Any width, and as often one about the steps' own, where the list folds

@@ -32,7 +32,7 @@ import {
 import { usageLimitCard } from '../shared/ui/usage';
 import { welcomeNotKept, welcomeShown } from '../shared/ui/welcome';
 import { chapterName, createReview, rehomeReview } from '../shared/review';
-import { bodyClassName, columnClassName, columnInert } from '../shared/ui/columns';
+import { bodyClassName, columnClassName, columnInert, nothingOpenLead } from '../shared/ui/columns';
 import { focusReturnTarget, shellInert } from '../shared/ui/dialog';
 import type { UpdateAction } from '../shared/ui/update';
 import type { ChapterFile, LoadedReview, ReviewSummary } from '../shared/ipc';
@@ -1598,12 +1598,14 @@ export function App(): React.JSX.Element {
                     <ReviewPane review={review} onSetCommentStatus={setCommentStatus} />
                   )
                 ) : (
+                  // With the chapter list hidden, nothing is at the left: the
+                  // first sentence names its button (polish.28 review).
                   <div className="empty">
                     <h1>Nothing open</h1>
                     <p>
-                      Pick a chapter on the left, or start one with the + beside Chapters. In the Review menu,
-                      Claude or ChatGPT asks for suggestions, and Manual turns a corrected copy into the same
-                      kind of list. You accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
+                      {nothingOpenLead(layout.files === 'hidden')} In the Review menu, Claude or ChatGPT asks
+                      for suggestions, and Manual turns a corrected copy into the same kind of list. You
+                      accept or dismiss each suggestion here. {NOTHING_UNTIL_SAVE}
                     </p>
                   </div>
                 )}

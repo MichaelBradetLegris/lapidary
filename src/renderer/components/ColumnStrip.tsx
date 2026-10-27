@@ -15,7 +15,8 @@ interface Props {
  * column's name written down it. It opens the column as a drawer over the edge
  * of the prose, and closes it again. Its name is the column's, "Chapters" or
  * "Suggestions", and `aria-expanded` says whether the drawer is open; the
- * tooltip says which it will do (`stripText`).
+ * tooltip says which it will do, Open or Close, never the Show or Hide of the
+ * column's button in the toolbar, which hides the strip too (`stripText`).
  */
 export function ColumnStrip({ column, open, onToggle }: Props): React.JSX.Element {
   const text = stripText(column, open);
