@@ -413,6 +413,25 @@ describe('snapping a column closed at the edge (polish.27)', () => {
       write: { column: 'files', share: columnShare(206, DEFAULT) },
       run: { column: 'files', before: 0.2, reach: 206 }
     });
+    /* A run whose reach is wider than the column now drawn at its floor goes
+       on from the floor and never makes the column wider: one press from
+       230 px reaches 206, and a zoom to 150% (Ctrl+=, which the handle does
+       not take, so the run goes on) draws the 206 px set at its floor, 150
+       of 949. The next left arrow writes nothing and reaches 126. */
+    const zoomed = room(949, 'files', set({ files: columnShare(206, DEFAULT) }));
+    expect(zoomed.current).toBe(150);
+    expect(
+      columnKeyPress(left, floor, columnShare(150, DEFAULT), { column: 'files', before: null, reach: 206 })
+    ).toEqual({
+      write: null,
+      run: { column: 'files', before: null, reach: 126 }
+    });
+    expect(
+      columnKeyPress(left, zoomed, columnShare(206, DEFAULT), { column: 'files', before: null, reach: 206 })
+    ).toEqual({
+      write: null,
+      run: { column: 'files', before: null, reach: 126 }
+    });
   });
 
   it('never snaps on Home, which gives the column its least width', () => {
