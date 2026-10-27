@@ -67,10 +67,6 @@
   --warn-border: #e5d49a;
   --danger-bg: #fdeceb;
   --editor-bg: #fbfaff;
-  /* Full edit's sheet while its text has the focus (rr.7): the edge in a
-     faint blue, --accent three quarters of the way from the sheet, 3:1 on the
-     column and on the sheet, where Preview's sheet keeps --border. */
-  --sheet-focus: #6c84e3;
 
   /* Selected text (polish.1): a turquoise laid over whatever the text sits
      on, translucent, so what lies under the text shows through it. Two
@@ -193,8 +189,6 @@
     --warn-border: #5c4a22;
     --danger-bg: #3a1f1c;
     --editor-bg: #20222b;
-    /* --accent a little over halfway from the sheet, 3:1 on the column and the sheet */
-    --sheet-focus: #67719a;
 
     /* deep turquoises of the icon's dots' hue: #0d4e51 over the page, and the
        prose's faint band #162725 */
@@ -4308,14 +4302,6 @@ button.help {
   background: var(--panel);
 }
 
-/* The focus is the caret and the sheet's edge, a faint blue at 3:1 on the
-   column and on the sheet, rather than the browser's ring, which round a
-   field that fills the sheet would be the bordered box rr.7 took away
-   (CLAUDE.md's exceptions to the ring; themeContrast.test.ts). */
-.fulledit__page:focus-within {
-  border-color: var(--sheet-focus);
-}
-
 /* The sheet's paper, so no box shows inside it. It grows with the text and
    never has anything to scroll, but it stays a scroller as a text area is
    by default: Chromium moves the caret a page at Page Down and Page Up only
@@ -4340,6 +4326,11 @@ button.help {
   field-sizing: content;
 }
 
+/* The focus is the caret alone, as on a page in Google Docs: the sheet looks
+   the same focused or not, its edge Preview's --border (rr.9, at the author's
+   ask; from rr.7 it turned a faint blue). No ring either, which round a field
+   that fills the sheet would be the bordered box rr.7 took away (CLAUDE.md's
+   exceptions to the ring). */
 .fulledit__area:focus {
   outline: none;
 }

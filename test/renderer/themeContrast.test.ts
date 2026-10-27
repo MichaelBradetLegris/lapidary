@@ -226,13 +226,7 @@ const FAINT_PAIRS: Pair[] = [
     on: '--border',
     min: 3,
     why: "a row button under the pointer, a decided row's faded ones among them, which come back there (polish.14)"
-  },
-  ...['--bg', '--panel'].map((on) => ({
-    ink: '--sheet-focus',
-    on,
-    min: 3,
-    why: "Full edit's sheet's edge while its text has the focus, on the column outside it and the sheet inside it: with the caret, the focus's one mark, in place of the browser's ring (rr.7, CLAUDE.md's fourth exception to the ring)"
-  }))
+  }
 ];
 
 /**
@@ -612,14 +606,14 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
     // polish.24: the decided words' three text pairs went to 3:1 as --ink-done (252 and 110
     // before), and the decided buttons' pairs are on the row's own backgrounds again, the
     // legend's tick on --panel among them. rr.7: Full edit's focus edge on the column
-    // and the sheet (111 before).
+    // and the sheet (111 before); rr.9 took the edge and its two pairs away (113 before).
     expect(CATEGORIES).toHaveLength(13);
     expect([
       TEXT_PAIRS.length,
       FAINT_PAIRS.length,
       SELECTION_TEXT_PAIRS.length,
       SELECTION_FAINT_PAIRS.length
-    ]).toEqual([249, 113, 177, 57]);
+    ]).toEqual([249, 111, 177, 57]);
   });
 
   /* polish.12: the accepted tick "needs to pop a little more" (the author).
@@ -684,22 +678,6 @@ describe('contrast (theme.5, PLAN 11.3 e)', () => {
 
     it(`keeps the chips' fifteen colours apart in ${scheme}, a family's further (polish.16)`, () => {
       expect(tooClose(scheme)).toEqual([]);
-    });
-
-    it(`draws Full edit's focus edge a faint blue in ${scheme}: 3:1 as a mark, fainter than --accent, plainer than --border (rr.7)`, () => {
-      // The 3:1 pairs are above. A faint edge rather than the old box's --accent border,
-      // and a plain step from the edge the sheet has without the focus.
-      for (const base of ['--bg', '--panel']) {
-        const on = opaque(scheme, base);
-        const edge = contrastRatio(opaque(scheme, '--sheet-focus'), on);
-        expect(edge, base).toBeLessThan(contrastRatio(opaque(scheme, '--accent'), on));
-        expect(edge, base).toBeGreaterThan(contrastRatio(opaque(scheme, '--border'), on) * 1.5);
-      }
-      // A blue, on --accent's hue within 15 degrees.
-      const hue = ({ r, g, b }: Rgb): number =>
-        (Math.atan2(Math.sqrt(3) * (g - b), 2 * r - g - b) * 180) / Math.PI;
-      const apart = Math.abs(hue(opaque(scheme, '--sheet-focus')) - hue(opaque(scheme, '--accent')));
-      expect(Math.min(apart, 360 - apart)).toBeLessThan(15);
     });
 
     it(`keeps the scrollbar's thumb a shade off its gutter in ${scheme}, a mark under 3:1 (polish.2)`, () => {

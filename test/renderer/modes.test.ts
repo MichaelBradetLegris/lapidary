@@ -931,10 +931,15 @@ describe('the CSS of the three modes', () => {
     expect(CSS).not.toMatch(/\.fulledit__area::-webkit-scrollbar/);
   });
 
-  it("shows Full edit's focus as the caret and the sheet's edge, never a ring round the text (rr.7)", () => {
-    // CLAUDE.md's fourth exception to the browser's ring; themeContrast.test.ts holds the edge to 3:1.
+  it("shows Full edit's focus as the caret alone, with no ring round the text and no edge on the sheet (rr.7, rr.9)", () => {
+    // CLAUDE.md's fourth exception to the browser's ring. From rr.7 the sheet's edge also
+    // turned a faint blue (--sheet-focus) while the text had the focus; the author asked for it
+    // to go (rr.9), so the sheet is the same focused and not, its edge Preview's --border.
     expect([...decls('.fulledit__area:focus')]).toEqual([['outline', 'none']]);
-    expect([...decls('.fulledit__page:focus-within')]).toEqual([['border-color', 'var(--sheet-focus)']]);
+    expect(decls('.fulledit__page').get('border')).toBe(decls('.preview__page').get('border'));
+    expect(CSS).not.toMatch(/fulledit[^{}]*:focus-(within|visible)/);
+    expect(CSS).not.toMatch(/:has\([^)]*fulledit/);
+    expect(CSS).not.toContain('--sheet-focus');
   });
 
   /* The foot is under the scroller, not in it (FullEditFoot, drawn by App

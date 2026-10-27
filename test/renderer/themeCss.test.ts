@@ -350,7 +350,8 @@ describe('colour tokens (theme.4)', () => {
     // Every rule that names an outline, in the order app.css has them: the split
     // handle's ring inside its band; a dialog's box, which takes the focus as it
     // opens, with none; the paragraph box, whose glow strengthens instead; and
-    // Full edit's text area, whose sheet's edge shows it beside the caret (rr.7).
+    // Full edit's text area, whose caret alone shows it (rr.7; the sheet's edge
+    // that showed it too went in rr.9, at the author's ask).
     const outlines = RULES.filter((r) => [...r.decls.keys()].some((k) => k.startsWith('outline'))).map(
       (r) => [r.selectors.join(', '), r.decls.get('outline')]
     );
@@ -361,8 +362,14 @@ describe('colour tokens (theme.4)', () => {
       ['.fulledit__area:focus', 'none']
     ]);
     expect(declsFor('.para-editor__area:focus').get('box-shadow')).toContain('var(--accent) 24%');
+    // The sheet looks the same focused and not: its edge is Preview's --border, and no rule
+    // that names it, or the text area in it, changes with the focus but by the ring (rr.9).
     expect(declsFor('.fulledit__page').get('border')).toBe('1px solid var(--border)');
-    expect([...declsFor('.fulledit__page:focus-within')]).toEqual([['border-color', 'var(--sheet-focus)']]);
+    const focusRules = RULES.filter((r) =>
+      r.selectors.some((s) => s.includes('fulledit') && /:focus/.test(s))
+    ).map((r) => [r.selectors.join(', '), [...r.decls]]);
+    expect(focusRules).toEqual([['.fulledit__area:focus', [['outline', 'none']]]]);
+    expect(CSS).not.toContain('--sheet-focus');
     expect(CSS).not.toContain('--focus-ring');
   });
 });
@@ -737,9 +744,8 @@ const LIGHT_VALUES: Record<string, string> = {
   // since polish.20. polish.20's two tokens, --row-decided-bg (var(--panel-alt)) and
   // --row-decided-hover-bg (#ebe7df), a decided row's shade and its step under the pointer, went.
   '--ink-done': '#7c756b',
-  // Added by rr.7: Full edit's sheet's edge while its text has the focus, where the text was a
-  // box with an --accent border and the browser's ring.
-  '--sheet-focus': '#6c84e3',
+  // rr.7's --sheet-focus (#6c84e3), Full edit's sheet's edge while its text had the focus,
+  // went in rr.9 at the author's ask: the caret alone shows it, and the edge stays --border.
   // polish.16: a colour for each category. Homophone was #a3341c, a red beside
   // spelling's, and other #6d675e, the comments' --ink-soft; typo took spelling's
   // colour, agreement and tense grammar's, redundancy and awkward word-choice's,
@@ -830,8 +836,7 @@ const DARK_VALUES: Record<string, string> = {
   // polish.20's shade went with it: --row-decided-bg (var(--panel-alt)) and
   // --row-decided-hover-bg (#34302b).
   '--ink-done': '#aaa295',
-  // rr.7: Full edit's sheet's edge while its text has the focus, as in light.
-  '--sheet-focus': '#67719a',
+  // rr.7's --sheet-focus (#67719a) went in rr.9, as in light.
   '--cat-spelling': '#ff7b72',
   '--cat-grammar': '#5cc0e0',
   '--cat-punctuation': '#b994f5',
