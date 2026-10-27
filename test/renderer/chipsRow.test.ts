@@ -234,12 +234,15 @@ describe("the Mode select is the eye's size (rr.8)", () => {
     expect(APP).not.toContain('ModeBar');
   });
 
-  /* Built as the eye is, a 16 px box, 4 px above and below and the border,
-     rather than set to 26 px overall: Chromium draws a 1 px border as one
-     device pixel, so from 125% to 175% the eye is a little under 26 CSS px,
-     and a select of 26 stood a device pixel or two taller (the window,
-     rr.8). */
-  it("has the eye's height, built as the eye's is, its type, and none of the chips' steps", () => {
+  /* The eye's height as a content box and the border, rather than 26 px
+     overall: Chromium draws a 1 px border as one device pixel, so from 125%
+     to 175% the eye is a little under 26 CSS px, and a select of 26 stood a
+     device pixel or two taller (the window, rr.8). The eye's padding is in
+     the select's box, not its padding: a 16 px box with 4 px of padding,
+     shorter than the select's line, had its words 2 px below the middle,
+     under the arrow and the buttons' words, which a 24 px box with none
+     puts level with them (the window, the rr.8 review). */
+  it("has the eye's height, as its content box, its type, and none of the chips' steps", () => {
     // The eye: its 16 px icon, its padding above and below, and its border.
     const icons = read('components/icons.tsx');
     expect(icons).toContain('export function IconEye({ size = 16 }');
@@ -247,12 +250,14 @@ describe("the Mode select is the eye's size (rr.8)", () => {
     expect(CHIPS).toContain('{allShown ? <IconEye /> : <IconEyeClosed />}');
     const eye = declsFor('.chips__eye');
     expect(eye.get('display')).toBe('inline-flex');
-    const [vertical] = (eye.get('padding') ?? '').split(' ');
+    const [vertical = ''] = (eye.get('padding') ?? '').split(' ');
+    expect(vertical).toBe('4px');
     expect(Object.fromEntries(declsFor('.mode-select'))).toEqual({
       flex: 'none',
       'box-sizing': 'content-box',
-      height: '16px',
-      'padding-block': vertical,
+      // The icon and the padding above and below it: 24 px.
+      height: `${16 + 2 * parseFloat(vertical)}px`,
+      'padding-block': '0',
       'margin-right': 'auto'
     });
     // Nothing else sets the select's height or its box.

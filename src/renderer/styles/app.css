@@ -1175,21 +1175,26 @@ button.column-edge:hover {
    item, before the eye. Since rr.8 its options carry its name ("Mode:
    Main"), so no label stands beside it, and it is the eye's size at every
    width and zoom: the eye's type, the toolbar's 13 px, from the rule every
-   select has, and the eye's height, built as the eye's is (.chips__eye): a
-   16 px box, the eye's icon, 4 px of padding above and below and the 1 px
-   border. Chromium draws a select on a normal line whatever its line-height,
-   so the box's height is set, and set as the content's, since Chromium draws
-   a 1 px border as one device pixel: a select 26 px tall overall stood a
-   device pixel or two taller than the eye from 125% to 175%. From rr.6 to
-   rr.8 it took the chips' type and height at each of their steps, shrinking
-   with them. With no chips the auto margin keeps it at the left end; beside
-   the chips' bar, which grows into all the room, the margin has none to
-   take. */
+   select has, and the eye's height (.chips__eye), its 16 px icon, its 4 px
+   of padding above and below and the 1 px border: a 24 px box with no
+   padding above or below, and the border. Chromium draws a select on a
+   normal line whatever its line-height, so the box's height is set, and set
+   as the content's, since Chromium draws a 1 px border as one device pixel:
+   a select 26 px tall overall stood a device pixel or two taller than the
+   eye from 125% to 175%. The eye's 8 px of padding are in the select's
+   box, not its padding, since the words stand in the middle of the box:
+   built first as the eye is, a 16 px box with 4 px of padding, shorter than
+   the select's normal line, it had its words about 2 px below the middle,
+   lower than the arrow, the eye's icon and the words of the toolbar's
+   buttons (the rr.8 review). From rr.6 to rr.8 it took the chips' type and
+   height at each of their steps, shrinking with them. With no chips the
+   auto margin keeps it at the left end; beside the chips' bar, which grows
+   into all the room, the margin has none to take. */
 .mode-select {
   flex: none;
   box-sizing: content-box;
-  height: 16px;
-  padding-block: 4px;
+  height: 24px;
+  padding-block: 0;
   margin-right: auto;
 }
 
