@@ -1346,7 +1346,7 @@ Before the cut (agent unless marked):
 Cut:
 
 6. `npm version 1.0.0 -m "Release %s"`; **(author)** approves `git push origin main` then `git push origin v1.0.0` (never `--tags` or `--all`). (2026-10-27: the CHANGELOG dated and `npm version 1.0.0` run on `main`, the tag `v1.0.0` on the Release 1.0.0 commit; `release:check -- v1.0.0` passes and `release:notes` renders with no placeholder left; the push is the author's.)
-7. The workflow creates a draft with exactly 4 assets; check `SHA256SUMS.txt` against the files.
+7. The workflow creates a draft with exactly 4 assets; check `SHA256SUMS.txt` against the files. (2026-10-27: the second run on the tag, 40601084955 on eec95fb, built and verified the installer and made the draft "Lapidary 1.0.0" with exactly four files: `Lapidary-Setup-1.0.0.exe` (114,854,520 bytes), its `.blockmap`, `latest.yml` and `SHA256SUMS.txt`, whose three lines name the installer, `latest.yml` and the `.blockmap`; the first run, on the first tag, failed at `npm test` on the clock (`release.13`), and between the two the tag on GitHub came back over the moved local tag twice through a background fetch of tags, until the deletion, the tag and the push were run in one line.)
 
 Smoke test, sitting D **(author)**, on a new local standard account (Settings > Accounts > Other users > "Add a user without a Microsoft account") with no Claude Code, no `.claude` folder and no Node; record this PC's Smart App Control state:
 
