@@ -88,7 +88,7 @@ describe('claudeUpdateAdvice', () => {
   it('says nothing for a current or unknown version', () => {
     // The pin: the one line the Claude Code check of each release moves with
     // the constant (docs/RELEASING.md). Every other test reads the constant.
-    expect(RECOMMENDED_CLAUDE_CODE).toBe('2.1.283');
+    expect(RECOMMENDED_CLAUDE_CODE).toBe('2.1.312');
     expect(claudeUpdateAdvice(RECOMMENDED_CLAUDE_CODE, 'C:/x/claude.exe', true)).toBeNull();
     expect(claudeUpdateAdvice(nextMinor(RECOMMENDED_CLAUDE_CODE), 'C:/x/claude.exe', true)).toBeNull();
     expect(claudeUpdateAdvice(undefined, 'C:/x/claude.exe', true)).toBeNull();

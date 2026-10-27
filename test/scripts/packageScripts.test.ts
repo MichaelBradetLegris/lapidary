@@ -43,9 +43,9 @@ const scripts = pkg.scripts ?? {};
  * bump edits PLAN 11.1 (CLAUDE.md rule 7) and raises the floor here with it.
  */
 const EXACT_PINS: Record<string, string> = {
-  electron: '44.9.3',
-  'electron-builder': '26.17.0',
-  'electron-updater': '6.8.10'
+  electron: '44.10.0',
+  'electron-builder': '26.18.1',
+  'electron-updater': '6.8.12'
 };
 
 /** Compares two x.y.z versions part by part as numbers: negative, zero or positive. */
@@ -107,7 +107,7 @@ describe('exact pins (release.2)', () => {
   it('pins electron-updater, release.8b, among them, as a dependency the asar ships', () => {
     // The updater runs in the installed app, so it must be in `dependencies`:
     // electron-builder leaves devDependencies out of the asar.
-    expect(EXACT_PINS['electron-updater']).toBe('6.8.10');
+    expect(EXACT_PINS['electron-updater']).toBe('6.8.12');
     expect(pkg.dependencies?.['electron-updater']).toBeDefined();
     expect(pkg.devDependencies?.['electron-updater']).toBeUndefined();
     expect(lock.packages['']?.dependencies?.['electron-updater']).toBe(

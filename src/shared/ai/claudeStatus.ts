@@ -88,7 +88,7 @@ export function isUsageNotice(text: string): boolean {
  * check of each release (docs/RELEASING.md, `release.10`) moves it to the
  * current version after a live review.
  */
-export const RECOMMENDED_CLAUDE_CODE = '2.1.283';
+export const RECOMMENDED_CLAUDE_CODE = '2.1.312';
 
 export const CLAUDE_UPDATE_COMMAND = 'claude update';
 
