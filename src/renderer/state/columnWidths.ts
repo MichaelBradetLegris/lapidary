@@ -7,7 +7,8 @@ import { useApp } from './store';
  * The side columns' widths kept in settings (polish.5, PLAN 11.3 d):
  * `columnWidths`, the chapter list's and the side panel's shares of the
  * window's width, null for either at its usual width, and whether either is
- * folded away by its caret (polish.26, `filesHidden` and `sideHidden`).
+ * hidden by its button at an end of the toolbar (polish.28; `filesHidden` and
+ * `sideHidden`, which polish.26's carets set).
  * Written as the side panel's split is (state/settingWrites.ts): the page
  * takes a new value at once, a run of key presses ends in one write of the
  * last, and a close waits for the writes (state/pageIo.ts). The widths and
@@ -24,8 +25,8 @@ export interface ColumnWrites {
    */
   save(column: Column, share: number | null, io: ColumnIo): Promise<void>;
   /**
-   * Fold `column` away, or bring it back (polish.26), keeping both widths as
-   * they are. Resolves once written, or could not be; never rejects.
+   * Hide `column`, or bring it back (polish.28), keeping both widths as they
+   * are. Resolves once written, or could not be; never rejects.
    */
   hide(column: Column, hidden: boolean, io: ColumnIo): Promise<void>;
   /** the writes still under way; never rejects */
@@ -62,7 +63,7 @@ export function saveColumnWidth(column: Column, share: number | null, io: Column
   return writes.save(column, share, io);
 }
 
-/** Fold `column` away, or bring it back (`ColumnWrites.hide`). */
+/** Hide `column`, or bring it back (`ColumnWrites.hide`). */
 export function saveColumnHidden(column: Column, hidden: boolean, io: ColumnIo): Promise<void> {
   return writes.hide(column, hidden, io);
 }

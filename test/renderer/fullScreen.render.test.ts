@@ -21,8 +21,8 @@ import type { FullScreenState } from '../../src/shared/ui/fullScreen';
 import { WHOLE_DRAFT_KEY } from '../../src/shared/ui/drafts';
 import type { Review } from '../../src/shared/types';
 
-/* polish.23: the page's half of full screen. The toolbar's button before
-   Settings, its words, icon and key; the legend's words; F11 and Escape in the
+/* polish.23: the page's half of full screen. The toolbar's button (after
+   Settings since polish.28), its words, icon and key; the legend's words; F11 and Escape in the
    keyboard bindings, what the button does when clicked and the page's class,
    checked in their source in fullScreen.test.ts since the tests run without a
    DOM; what takes Escape
@@ -103,14 +103,19 @@ const ENTER_ICON = 'M9.5 2.5h4v4M13.5 2.5 9.3 6.7M6.5 13.5h-4v-4M2.5 13.5l4.2-4.
 const LEAVE_ICON = 'M13.5 2.5 9.5 6.5M9.5 2.5v4h4M2.5 13.5l4-4M2.5 9.5h4v4';
 
 describe("the toolbar's full-screen button (polish.23)", () => {
-  it('stands at the right end, after Save to chapter and just before Settings', () => {
+  it("stands at the right end, after Settings and just before the side panel's button (polish.28)", () => {
     appInitial.review = REVIEW;
     const html = renderToolbar(REVIEW);
     const all = buttons(html);
     const button = fullScreenButton(html);
     expect(button.index).toBe(button.count - 2);
-    expect(all[button.index - 1]?.inner).toContain('Save to chapter');
-    expect(all[button.index + 1]?.attrs).toContain('data-opens="settings"');
+    expect(all[button.index - 1]?.attrs).toContain('data-opens="settings"');
+    expect(all[button.index + 1]?.attrs).toContain('aria-label="Hide the side panel"');
+    // Outside the row that wraps, so it never leaves the first row.
+    const from = html.indexOf('class="toolbar__main"');
+    const main = html.slice(from, html.indexOf('class="toolbar__end"', from));
+    expect(main).toContain('data-opens="settings"');
+    expect(main).not.toContain('toolbar__full-screen');
   });
 
   it('says Full screen with F11 in its tooltip, draws the arrows out, and is never disabled', () => {
@@ -149,7 +154,7 @@ describe("the toolbar's full-screen button (polish.23)", () => {
     expect(inner).toContain(`d="${LEAVE_ICON}"`);
   });
 
-  it('is there with no chapter open, and over the Setup screen and the welcome guide', () => {
+  it('is there with no chapter open, and over the Setup screen and the welcome guide, last there', () => {
     for (const [review, single] of [
       [null, false],
       [REVIEW, true],
@@ -157,7 +162,10 @@ describe("the toolbar's full-screen button (polish.23)", () => {
     ] as const) {
       const html = renderToolbar(review, single);
       const button = fullScreenButton(html);
-      expect(button.index).toBe(button.count - 2);
+      // Before the side panel's button where the columns are; the last
+      // thing in the toolbar over the Setup screen and the welcome guide,
+      // which have no columns and so no columns' buttons (polish.28).
+      expect(button.index).toBe(button.count - (single ? 1 : 2));
       expect(button.attrs).not.toContain('disabled');
     }
   });
@@ -168,7 +176,7 @@ describe('the legend names F11 and Escape (polish.23), held in focus mode (focus
     const html = renderToStaticMarkup(createElement(Legend, { onClose: noop }));
     const text = html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ');
     expect(text).toContain(
-      'F11, or the two arrows before Settings, puts the window in full screen and back. Escape leaves full screen too, unless something else is open, such as a dialog, a menu, the find bar or a box you are typing in. With focus mode on in Settings, leaving full screen takes holding F11 or Escape.'
+      'F11, or the two arrows after Settings, puts the window in full screen and back. Escape leaves full screen too, unless something else is open, such as a dialog, a menu, the find bar or a box you are typing in. With focus mode on in Settings, leaving full screen takes holding F11 or Escape.'
     );
     expect(html.match(/class="legend__foot"/g)).toHaveLength(2);
   });

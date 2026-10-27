@@ -177,7 +177,7 @@ describe('the tooltips keep what the long notes said', () => {
   /* focus.1: how focus mode is entered and left, what it cannot stop, that it
      ends by itself when the app stops responding, and when a change applies. */
   it('says how focus mode is entered and left, what it cannot stop, and when a change applies', () => {
-    expect(FOCUS_MODE_TIP).toContain('going full screen (F11, or the arrows before Settings)');
+    expect(FOCUS_MODE_TIP).toContain('going full screen (F11, or the arrows after Settings)');
     expect(FOCUS_MODE_TIP).toContain(`keeps ${APP_NAME} in front`);
     expect(FOCUS_MODE_TIP).toContain('takes holding F11 or Esc for the time set');
     expect(FOCUS_MODE_TIP).toContain('any other key or a click goes back to your chapter');

@@ -221,10 +221,18 @@ describe("the Mode select is the eye's size (rr.8)", () => {
     const header = TOOLBAR.indexOf('<header');
     const select = TOOLBAR.indexOf('<ModeSelect />');
     const chips = TOOLBAR.indexOf('<FilterChips ');
-    expect(select).toBeGreaterThan(header);
+    const row = TOOLBAR.indexOf('<div className="toolbar__main">');
+    expect(row).toBeGreaterThan(header);
+    expect(select).toBeGreaterThan(row);
     expect(chips).toBeGreaterThan(select);
-    // Nothing before it, and nothing round it that a review of the chapter makes inert.
-    expect(TOOLBAR.slice(header, select)).not.toMatch(/<button|<select|<div|inert/);
+    // Nothing before it in the row that wraps, and nothing round it that a
+    // review of the chapter makes inert; before the row, only the chapter
+    // list's button, at the toolbar's left end (polish.28).
+    expect(TOOLBAR.slice(row + '<div className="toolbar__main">'.length, select)).not.toMatch(
+      /<button|<select|<div|inert/
+    );
+    expect(TOOLBAR.slice(header, row)).not.toMatch(/<button|<select|inert/);
+    expect(TOOLBAR.slice(header, row)).toContain('<PanelButton column="files" />');
     // FilterChips draws no select, nor a copy of one, and nothing with no chips.
     expect(CHIPS).not.toContain('ModeSelect');
     expect(CHIPS).not.toContain('mode-select');

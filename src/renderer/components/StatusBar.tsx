@@ -142,7 +142,7 @@ export function Legend({ onClose }: { onClose: () => void }): React.JSX.Element 
         edit the paragraph itself. Nothing reaches the chapter until you press Save to chapter or Ctrl+S.
       </p>
       <p className="legend__foot">
-        F11, or the two arrows before Settings, puts the window in full screen and back. Escape leaves full
+        F11, or the two arrows after Settings, puts the window in full screen and back. Escape leaves full
         screen too, unless something else is open, such as a dialog, a menu, the find bar or a box you are
         typing in. With focus mode on in Settings, leaving full screen takes holding F11 or Escape.
       </p>

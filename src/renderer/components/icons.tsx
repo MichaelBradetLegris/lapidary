@@ -140,26 +140,35 @@ export function IconChevronLeft({ size = 12 }: IconProps = {}): React.JSX.Elemen
   );
 }
 
+interface PanelIconProps extends IconProps {
+  /** the pane filled, while its column shows; hollow while it is hidden */
+  filled: boolean;
+}
+
 /**
- * The caret that folds a side column away and brings it back (polish.26):
- * a chevron narrow enough for the 6 px beside a column's edge, where its
- * handle and its edge strip are 7 px wide.
+ * The chapter list's button at the toolbar's left end (polish.28): a window
+ * with its left pane marked off, the pane filled while the list shows and
+ * hollow while it is hidden, as Obsidian's and VS Code's side bar buttons
+ * draw it. The filled pane is a shape of its own under the outline, in the
+ * same colour, its outer corners the outline's.
  */
-export function IconColumnCaret({ points }: { points: 'left' | 'right' }): React.JSX.Element {
+export function IconPanelLeft({ size = 16, filled }: PanelIconProps): React.JSX.Element {
   return (
-    <svg
-      width={6}
-      height={10}
-      viewBox="0 0 6 10"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      focusable="false"
-    >
-      <path d={points === 'left' ? 'M4.5 1 1.5 5l3 4' : 'M1.5 1 4.5 5l-3 4'} />
+    <svg {...svgProps(size)}>
+      {filled ? <path d="M3.5 2.5H6v11H3.5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z" fill="currentColor" /> : null}
+      <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
+      <path d="M6 2.5v11" />
+    </svg>
+  );
+}
+
+/** The side panel's button at the toolbar's right end (polish.28): the same window, its right pane marked off. */
+export function IconPanelRight({ size = 16, filled }: PanelIconProps): React.JSX.Element {
+  return (
+    <svg {...svgProps(size)}>
+      {filled ? <path d="M10 2.5h2.5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H10z" fill="currentColor" /> : null}
+      <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
+      <path d="M10 2.5v11" />
     </svg>
   );
 }

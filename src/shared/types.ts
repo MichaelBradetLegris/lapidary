@@ -243,17 +243,18 @@ export const PROVIDER_NAMES: Record<GeneratorProvider, string> = {
  * The side columns' widths the author set by moving their inner edges
  * (polish.5): each a share of the window's width, strictly between 0 and 1,
  * or null for the column's usual width (shared/ui/columns.ts). And whether
- * the author folded either away with the caret at the top of its edge
- * (polish.26), which keeps its width for when it comes back.
+ * the author hid either with its button at an end of the toolbar (polish.28;
+ * a caret on its edge from polish.26), which keeps its width for when it
+ * comes back.
  */
 export interface ColumnShares {
   /** the chapter list */
   files: number | null;
   /** the side panel */
   side: number | null;
-  /** the chapter list is folded away to the strip at the window's left edge */
+  /** the chapter list is hidden, drawn as nothing, by the button at the toolbar's left end */
   filesHidden: boolean;
-  /** the side panel is folded away to the strip at the window's right edge */
+  /** the side panel is hidden, drawn as nothing, by the button at the toolbar's right end */
   sideHidden: boolean;
 }
 

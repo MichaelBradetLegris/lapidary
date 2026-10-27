@@ -570,25 +570,65 @@ input[type='text'] {
   display: contents;
 }
 
-/* The one bar at the top (polish.10). The row wraps, as the status bar does:
-   when the Mode select (rr.6), the buttons and the category chips at their
-   narrowest (.chips-bar) do not fit, zoomed in or with a review's progress
-   showing in a narrow window, the last buttons move to a second row on the
-   right rather than running out of the window (apply.4). The chips
-   themselves never wrap. With no chips the buttons keep the right end and
-   the Mode select the left. */
+/* The one bar at the top (polish.10): its two ends, which never wrap
+   (polish.28), and between them the row that does (.toolbar__main). The ends
+   stand beside the row's first line, on its words' baseline: the row's
+   baseline is its first item's, the Mode select's or Review's, whose words
+   stand where a button's do (rr.8), and an end's is its strut's, below. */
 .toolbar {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 6px 8px;
+  align-items: baseline;
+  gap: 8px;
   padding: 7px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
   /* The first-use hint hangs from it (apply.12, .save-hint). */
   position: relative;
+}
+
+/* The row between the ends. It wraps, as the status bar does: when the Mode
+   select (rr.6), the buttons and the category chips at their narrowest
+   (.chips-bar) do not fit, zoomed in or with a review's progress showing in a
+   narrow window, its last buttons, Settings first, move to a second row on
+   the right rather than running out of the window (apply.4). The chips
+   themselves never wrap. With no chips the buttons keep the right end and the
+   Mode select the left. */
+.toolbar__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+/* An end of the toolbar (polish.28): the chapter list's button at the left;
+   full screen and the side panel's button at the right. It never wraps; it
+   is as tall as a button with words, and stands where one would on the row's
+   first line, so the buttons in it stand on that line's middle however many
+   rows the row takes, and whatever the line holds. */
+.toolbar__end {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+/* What makes an end as tall as a button with words, and gives it a button's
+   baseline: an unseen strut, the end's first item, with a button's line, its
+   padding above and below and its border, in the same type, so the two match
+   at every zoom, where the 1 px borders are a device pixel each. */
+.toolbar__end::before {
+  content: '\200b';
+  width: 0;
+  padding-block: 4px;
+  border-block: 1px solid;
+  visibility: hidden;
+}
+
+.toolbar__end > button + button {
+  margin-left: 8px;
 }
 
 /* No button label breaks in two. The progress label is left free to wrap: the
@@ -599,9 +639,10 @@ input[type='text'] {
   white-space: nowrap;
 }
 
-/* Full screen, before Settings (polish.23): an icon button the eye's size,
-   round a 16 px pair of arrows, 30 by 26 CSS px at 100%. */
-.toolbar__full-screen {
+/* The icon buttons at the toolbar's ends (polish.28): full screen (polish.23)
+   and the side columns' buttons, each the eye's size round a 16 px icon, 30
+   by 26 CSS px at 100%, in the eye's colour. */
+.toolbar__icon {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -610,7 +651,7 @@ input[type='text'] {
   color: var(--ink-soft);
 }
 
-.toolbar__full-screen svg {
+.toolbar__icon svg {
   display: block;
 }
 
@@ -895,77 +936,6 @@ input[type='text'] {
   background: var(--border);
 }
 
-/* The caret at the top of each handle (polish.26): a button the band's own
-   width and 24 px tall, 8 px from the column's top, beside the first row of
-   the list and the panel, with a chevron pointing at the window's edge that
-   folds the column away. Like the band, it lies over the column's border and
-   the 6 px beside it with no scrollbar, the prose's top left for the chapter
-   list and the side panel's padding for the panel, and draws its chevron in
-   those 6 px in the faint grey of the grip. Under the pointer the line
-   darkens as the band's does, beside a shade of the hovered button's. Above
-   the band (1), so it takes the press, and under the drawers (10). */
-.column-caret {
-  position: absolute;
-  top: 8px;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 7px;
-  height: 24px;
-  padding: 0 0 0 1px;
-  border: none;
-  border-radius: 0;
-  background: none;
-  color: var(--ink-faint);
-}
-
-.column-caret--files {
-  left: calc(var(--files-col) - 1px);
-}
-
-.column-caret--side {
-  right: calc(var(--side-col) - 7px);
-}
-
-button.column-caret:hover {
-  border-left: 1px solid var(--border-strong);
-  padding-left: 0;
-  background: var(--panel-alt);
-  color: var(--ink-soft);
-}
-
-/* A column folded away (polish.26): the edge strip, one button the height of
-   the column and as wide as the handle, in the column's own colours with its
-   border on the inner side, and the caret at the top where the handle had
-   it, pointing in. The whole strip brings the column back. */
-.column-edge {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 0;
-  min-height: 0;
-  padding: 15px 0 0;
-  overflow: hidden;
-  border: none;
-  border-radius: 0;
-  background: var(--panel);
-  color: var(--ink-faint);
-}
-
-.column-edge--files {
-  border-right: 1px solid var(--border);
-}
-
-.column-edge--side {
-  border-left: 1px solid var(--border);
-}
-
-button.column-edge:hover {
-  background: var(--panel-alt);
-  color: var(--ink-soft);
-}
-
 /* While a handle is dragged, the pointer keeps its col-resize shape over
    whatever it crosses, and nothing is selected. */
 :root.column-resizing,
@@ -1015,8 +985,11 @@ button.column-edge:hover {
 /* The centre column of the grid: the manuscript pane. From polish.6 the
    category chips were at its top, and before that a row across the whole
    window under the toolbar; since polish.10 they are in the toolbar's row,
-   so all three columns start at its foot. */
+   so all three columns start at its foot. Its grid column is named, as a
+   hidden chapter list leaves nothing in the first (polish.28), where the
+   grid would otherwise place it, 0 px wide. */
 .center-col {
+  grid-column: 2;
   min-width: 0;
   min-height: 0;
   display: flex;

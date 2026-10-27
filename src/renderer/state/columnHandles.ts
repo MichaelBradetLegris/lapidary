@@ -33,47 +33,43 @@ import { useApp } from './store';
  * lasts hands its widths to `useColumns` (its `setLive`, which App passes on),
  * which lays the columns out with them, so the edge follows the pointer and
  * the other column stays put. The width reaches settings when the drag ends, or
- * at once from the keys. A folded column has no handle, nor one folded away;
- * one that cannot move an arrow step is the border it lies on: disabled, out
- * of the Tab order, and still to the pointer. At the top of each handle is the
- * caret that folds its column away (polish.26, components/ColumnCaret.tsx),
- * which `setColumnHidden` below presses, as it does the edge strip's that
- * brings the column back; that one stays a control where the handle cannot
- * move.
+ * at once from the keys. A folded column has no handle, nor a hidden one; one
+ * that cannot move an arrow step is the border it lies on: disabled, out of
+ * the Tab order, and still to the pointer. Each column's button at an end of
+ * the toolbar hides it and brings it back (polish.28,
+ * components/PanelButton.tsx), through `setColumnHidden` below; polish.26's
+ * carets at the top of the handles did until then.
  */
 
 const COLUMN_IO: ColumnIo = {
   setSettings: (patch) => call('settings:set', patch)
 };
 
-/** The selector of a column's caret: on its handle, or, folded away, its edge strip (polish.26). */
-export function caretSelector(column: Column, hidden: boolean): string {
-  return hidden ? `button.column-edge--${column}` : `button.column-caret--${column}`;
+/** The selector of a column's button at an end of the toolbar (polish.28). */
+export function panelButtonSelector(column: Column): string {
+  return `button.toolbar__panel--${column}`;
 }
 
 /**
- * A column's caret pressed (polish.26): fold the column away to its edge
- * strip, or bring it back at the width it had, and keep the setting for the
- * next start. The page takes it at once, before it is written, and lays the
- * columns out again before this returns, so the focus can follow: when it was
- * on the caret pressed, from the keyboard, it goes to the caret that takes its
- * place, the edge strip's or the handle's; and when it was inside the column
- * folded away or on its handle, which a press by the pointer leaves where it
- * was, to the edge strip, as a drawer closing hands it to its strip
- * (`closeDrawer`), rather than being lost with the column. The handle goes
- * with the column, so the test after the layout is whether the focus was on
- * something the layout took away; the column's wrapper stays, out of sight.
+ * A column's button in the toolbar pressed (polish.28): hide the column, or
+ * bring it back at the width it had, and keep the setting for the next start.
+ * The page takes it at once, before it is written, and lays the columns out
+ * again before this returns, so the focus can follow. A press, by the pointer
+ * or the keys, leaves it on the button, which stays where it is; but should it
+ * have been inside the column hidden, or on something the layout took away
+ * (the column's handle, or its strip in a narrow window), it goes to the
+ * column's button rather than being lost to the page's body, as a closing
+ * drawer hands it to its strip (`closeDrawer`). The column's wrapper stays,
+ * out of sight and inert.
  */
-export function setColumnHidden(column: Column, hidden: boolean, pressed: Element): void {
+export function setColumnHidden(column: Column, hidden: boolean): void {
   const active = document.activeElement;
   const inColumn = hidden && Boolean(active && document.getElementById(drawerId(column))?.contains(active));
   flushSync(() => {
     void saveColumnHidden(column, hidden, COLUMN_IO);
   });
   const takenAway = active !== null && !active.isConnected;
-  if (active === pressed || takenAway || inColumn) {
-    document.querySelector<HTMLElement>(caretSelector(column, hidden))?.focus();
-  }
+  if (takenAway || inColumn) document.querySelector<HTMLElement>(panelButtonSelector(column))?.focus();
 }
 
 export type ColumnHandleProps = HTMLAttributes<HTMLDivElement> & { 'aria-orientation': 'vertical' };

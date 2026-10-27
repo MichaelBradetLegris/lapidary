@@ -5,8 +5,6 @@ import {
   COLUMN_STEP_PX,
   COLUMN_TITLE_STILL,
   columnAria,
-  columnCaretPoints,
-  columnCaretText,
   columnDragShare,
   columnDragTarget,
   columnHandleText,
@@ -21,7 +19,6 @@ import {
 } from '../../src/shared/ui/columnHandle';
 import {
   columnLayout,
-  EDGE_STRIP_WIDTH,
   FILES_WIDTHS,
   keptWidth,
   PROSE_MIN,
@@ -85,22 +82,30 @@ describe('the room a handle has', () => {
     expect(columnMovable(side)).toBe(true);
   });
 
-  it('has none for a column folded away, and the other column has the room it left (polish.26)', () => {
+  it('has none for a hidden column, and the other column has all the room it left (polish.28)', () => {
     expect(columnRoom(columnLayout(DEFAULT, set({ filesHidden: true })), 'files')).toBeNull();
     expect(columnRoom(columnLayout(DEFAULT, set({ sideHidden: true })), 'side')).toBeNull();
-    // Beside the panel's 7 px edge strip, the list may take all but the prose's 480 px.
+    // Beside the hidden panel, which leaves nothing at the edge, the list may
+    // take all but the prose's 480 px: 944 in the default window (937 beside
+    // polish.26's 7 px edge strip).
     expect(room(DEFAULT, 'files', set({ sideHidden: true }))).toEqual({
       column: 'files',
       width: DEFAULT,
       current: 230,
       min: 150,
-      max: DEFAULT - PROSE_MIN - EDGE_STRIP_WIDTH
+      max: DEFAULT - PROSE_MIN
     });
-    // In the smallest window at 100% the list folded away leaves the panel its
+    // In the smallest window at 100% the list hidden leaves the panel its
     // usual 240 px, and room to move: neither had to give way.
     const side = room(SMALL, 'side', set({ filesHidden: true }));
-    expect(side).toMatchObject({ current: 240, min: 200, max: SMALL - PROSE_MIN - EDGE_STRIP_WIDTH });
+    expect(side).toMatchObject({ current: 240, min: 200, max: SMALL - PROSE_MIN });
     expect(columnMovable(side)).toBe(true);
+    // Where a narrow window folds the list to its strip, 900 by 600 at 110%,
+    // the hidden list leaves the panel the strip's 32 px more to move into.
+    const narrow = SMALL / 1.1;
+    const beside = room(narrow, 'side');
+    expect(beside).toMatchObject({ current: 240, min: 200, max: 291 });
+    expect(room(narrow, 'side', set({ filesHidden: true }))).toEqual({ ...beside, max: 323 });
   });
 
   it('moves in the steps the split moves in, and is a control only where it can move one', () => {
@@ -247,22 +252,6 @@ describe('what the page draws during a drag and writes', () => {
     expect(columnLiveShares(saved, 'files', null)).toBeNull();
     // Settings' own object is left as it is.
     expect(saved).toEqual(set({ side: 0.3 }));
-  });
-});
-
-describe('what a caret says, and which way it points (polish.26)', () => {
-  it('folds a column away from its handle and brings it back from the edge strip, in the plan words', () => {
-    expect(columnCaretText('files', false)).toBe('Hide the chapter list');
-    expect(columnCaretText('side', false)).toBe('Hide the side panel');
-    expect(columnCaretText('files', true)).toBe('Show the chapter list');
-    expect(columnCaretText('side', true)).toBe('Show the side panel');
-  });
-
-  it("points at the window's edge on the handle, and in from it on the edge strip", () => {
-    expect(columnCaretPoints('files', false)).toBe('left');
-    expect(columnCaretPoints('side', false)).toBe('right');
-    expect(columnCaretPoints('files', true)).toBe('right');
-    expect(columnCaretPoints('side', true)).toBe('left');
   });
 });
 

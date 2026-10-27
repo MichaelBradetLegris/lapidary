@@ -24,8 +24,10 @@ interface Props {
  * cards, the find bar and the chapter's text, all in the column beside it, stay
  * in the clear. In a narrow window, with the panel folded to a strip, that is
  * where the panel's drawer opens, beside the strip, over the edge of the prose
- * (ui.3), so the strip stays in the clear, and so too with the panel folded
- * away to its edge strip (polish.26). The notification cards are pinned to the
+ * (ui.3), so the strip stays in the clear, and so too with the panel hidden
+ * by its button in the toolbar (polish.28; folded away to an edge strip from
+ * polish.26), when that is at the window's edge. The notification cards are
+ * pinned to the
  * prose's top right, where the hint then hangs, so where it would meet them it
  * hangs below them, without its arrow. What it may cover is the top of the
  * side panel, and the find bar's last buttons when a centre column too narrow
@@ -80,8 +82,11 @@ export function SaveHint({ anchor, text, overProse, onGotIt }: Props): React.JSX
       // open or not, beside the strip (ui.3). The Setup screen and the welcome
       // guide have none, but the hint waits while they are up (`saveHintVisible`).
       const side = document.querySelector('.body .side')?.getBoundingClientRect();
-      // The toolbar's items on rows below Save to chapter's.
+      // The toolbar's items on rows below Save to chapter's: those of the row
+      // that wraps (`.toolbar__main`), and its ends, which never leave the
+      // first row (polish.28).
       const below = [...bar.children]
+        .flatMap((item) => (item.classList.contains('toolbar__main') ? [...item.children] : [item]))
         .filter((item) => item !== hint && item.getClientRects().length > 0)
         .map((item) => item.getBoundingClientRect())
         .filter((r) => r.top >= s.bottom - 1)

@@ -90,16 +90,18 @@ const byText = (html: string, text: string): string => {
   return found?.attrs ?? '';
 };
 
-describe('the toolbar holds Review, Actions, Save to chapter, Full screen and Settings (polish.7, polish.23)', () => {
+describe('the toolbar holds Review, Actions, Save to chapter, Settings and Full screen (polish.7, polish.23, polish.28)', () => {
   it('in that order, with no button of the old names', () => {
     storeWith({ review: REVIEW });
     const html = render(REVIEW);
     expect(buttons(html).map((b) => b.text)).toEqual([
+      'Hide the chapter list',
       'Review',
       'Actions',
       'Save to chapter',
+      'Settings',
       'Full screen',
-      'Settings'
+      'Hide the side panel'
     ]);
     for (const gone of [
       'Review with AI',
@@ -151,12 +153,14 @@ describe('the toolbar holds Review, Actions, Save to chapter, Full screen and Se
     storeWith({ review: REVIEW, aiBusyPath: 'C:/vault/Chapter 02.md' });
     let html = render(REVIEW, true);
     expect(buttons(html).map((b) => b.text)).toEqual([
+      'Hide the chapter list',
       'Cancel',
       'Review',
       'Actions',
       'Save to chapter',
+      'Settings',
       'Full screen',
-      'Settings'
+      'Hide the side panel'
     ]);
     expect(html).toContain('<span class="progress" aria-live="polite">Waiting for the model (12s)</span>');
     // Another chapter's review is running: Manual can still be used, so Review is on.
@@ -298,14 +302,16 @@ describe('the category chips lead the toolbar (polish.10, polish.11)', () => {
     storeWith({ review: CHIPPED });
     const html = render(CHIPPED);
     expect(buttons(html).map((b) => b.text)).toEqual([
+      'Hide the chapter list',
       'Hide all categories',
       'grammar 2',
       'punctuation 1',
       'Review',
       'Actions',
       'Save to chapter',
+      'Settings',
       'Full screen',
-      'Settings'
+      'Hide the side panel'
     ]);
     expect(html).toContain('role="group" aria-label="Filter suggestions by category"');
     expect(html).not.toContain('Chapter 01');
@@ -349,6 +355,7 @@ describe('the category chips lead the toolbar (polish.10, polish.11)', () => {
     storeWith({ review: EDITED });
     const html = render(EDITED);
     expect(buttons(html).map((b) => b.text)).toEqual([
+      'Hide the chapter list',
       'Hide all categories',
       'grammar 1',
       'punctuation 1',
@@ -356,8 +363,9 @@ describe('the category chips lead the toolbar (polish.10, polish.11)', () => {
       'Review',
       'Actions',
       'Save 1 change to chapter',
+      'Settings',
       'Full screen',
-      'Settings'
+      'Hide the side panel'
     ]);
     expect(html).toContain('class="chip cat-you"');
     expect(html).not.toContain('class="chip cat-other');
@@ -429,18 +437,18 @@ describe('the Mode select leads the toolbar (rr.6)', () => {
 
   const SELECT = '<select id="mode-select" class="mode-select" aria-label="Mode"';
 
-  it('is the first thing in the toolbar, before the eye, the chips and Review, and the first Tab stop', () => {
+  it("is the first thing in the toolbar's row, before the eye, the chips and Review, after the chapter list's button", () => {
     storeWith({ review: TWO, viewMode: 'main', drafts: {} });
     const html = render(TWO);
     expect(html).toMatch(
-      /^<header class="toolbar"><select id="mode-select" class="mode-select" aria-label="Mode" title="Main reviews the suggestions\./
+      /^<header class="toolbar"><span class="toolbar__end"><button [^>]*aria-label="Hide the chapter list"[^>]*>[\s\S]*?<\/button><\/span><div class="toolbar__main"><select id="mode-select" class="mode-select" aria-label="Mode" title="Main reviews the suggestions\./
     );
     const select = html.indexOf(SELECT);
     expect(select).toBeLessThan(html.indexOf('<div class="chips-bar'));
     expect(select).toBeLessThan(html.indexOf('chips__eye'));
     expect(select).toBeLessThan(html.indexOf('>Review'));
-    // Nothing before it takes the focus.
-    expect(html.slice(0, select)).not.toMatch(/<button|<select|<input|tabindex="0"/);
+    // Only the chapter list's button before it takes the focus (polish.28), so it is the second Tab stop.
+    expect(html.slice(0, select).match(/<button|<select|<input|tabindex="0"/g)).toEqual(['<button']);
     // One select, of the window's mode, with no label beside it.
     expect(html.match(/<select/g)).toHaveLength(1);
     expect(html).not.toContain('<label');
@@ -454,7 +462,7 @@ describe('the Mode select leads the toolbar (rr.6)', () => {
   it('stands at the left alone with no chips, before Review', () => {
     storeWith({ review: REVIEW, viewMode: 'main', drafts: {} });
     const html = render(REVIEW);
-    expect(html.startsWith(`<header class="toolbar">${SELECT}`)).toBe(true);
+    expect(html).toContain(`<div class="toolbar__main">${SELECT}`);
     expect(html).not.toContain('chips-bar');
     expect(html.match(/<select/g)).toHaveLength(1);
     expect(html.indexOf(SELECT)).toBeLessThan(html.indexOf('>Review'));
@@ -465,7 +473,7 @@ describe('the Mode select leads the toolbar (rr.6)', () => {
     const html = render(TWO, true);
     const bar = html.indexOf('<div class="chips-bar chips--locked" inert="">');
     expect(bar).toBeGreaterThan(0);
-    const mode = html.slice(0, bar);
+    const mode = html.slice(html.indexOf('<div class="toolbar__main">'), bar);
     expect(mode).toContain(SELECT);
     expect(mode).toMatch(/<\/select>$/);
     expect(mode).not.toContain('inert');

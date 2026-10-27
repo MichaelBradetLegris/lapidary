@@ -4,16 +4,18 @@ import type { ColumnShares } from '../../src/shared/types';
 import {
   bodyClassName,
   columnClassName,
+  columnHidden,
   columnInert,
   columnLayout,
+  COLUMN_NAMES,
   COLUMN_WIDTHS,
   DRAWER_MARGIN,
-  EDGE_STRIP_WIDTH,
   FILES_WIDTHS,
   keptWidth,
   NARROW_PANE_PADDING,
   normalizeColumnShare,
   normalizeColumnWidths,
+  panelButtonText,
   preferredWidth,
   PROSE_MIN,
   shownDrawer,
@@ -268,7 +270,7 @@ describe('stripText (ui.3)', () => {
    before anything gives way. The handles' rules are in
    test/shared/columnHandle.test.ts. */
 
-/** The `columnWidths` setting with these widths, neither column folded away unless named. */
+/** The `columnWidths` setting with these widths, neither column hidden unless named. */
 const set = (patch: Partial<ColumnShares>): ColumnShares => ({ ...USUAL_COLUMN_WIDTHS, ...patch });
 
 /** The shares the handles write for the default window's limits (1424 px, PLAN 7 "Column widths"). */
@@ -346,7 +348,7 @@ describe('the widths set (polish.5)', () => {
 describe('columnLayout properties with the widths set (polish.5)', () => {
   const width = fc.double({ min: 0, max: 4000, noNaN: true });
   const share = fc.option(fc.double({ min: 0.000001, max: 0.999999, noNaN: true }), { nil: null });
-  // Folded away or not (polish.26): none of these properties may depend on it.
+  // Hidden or not (polish.28): none of these properties may depend on it.
   const shares: fc.Arbitrary<ColumnShares> = fc.record({
     files: share,
     side: share,
@@ -354,26 +356,31 @@ describe('columnLayout properties with the widths set (polish.5)', () => {
     sideHidden: fc.boolean()
   });
 
-  it('splits the whole width, and leaves the centre PROSE_MIN unless both columns are folded', () => {
+  it('splits the whole width, and leaves the centre PROSE_MIN unless the window is too narrow for the strips', () => {
     fc.assert(
       fc.property(width, shares, (w, kept) => {
         const l = columnLayout(w, kept);
         expect(l.width).toBe(w);
         expect(l.filesWidth + l.centre + l.sideWidth).toBeCloseTo(w, 6);
         expect(Number.isInteger(l.filesWidth) && Number.isInteger(l.sideWidth)).toBe(true);
-        if (l.files !== 'strip' || l.side !== 'strip') expect(l.centre).toBeGreaterThanOrEqual(PROSE_MIN);
+        // Below both strips and the prose's width, with neither column in
+        // place, the centre has what is left; above it, at least PROSE_MIN.
+        if (w >= 2 * STRIP_WIDTH + PROSE_MIN || l.files === 'full' || l.side === 'full') {
+          expect(l.centre).toBeGreaterThanOrEqual(PROSE_MIN);
+        }
         expect(l.narrow).toBe(l.centre < PROSE_MIN);
       })
     );
   });
 
-  it('folds a column at the window width it folds at with the usual widths, whatever was set or folded away', () => {
+  it('folds a column at the window width it folds at with the usual widths, whatever was set or hidden', () => {
     fc.assert(
       fc.property(width, shares, (w, kept) => {
         const set = columnLayout(w, kept);
         const usual = columnLayout(w);
-        expect(set.files === 'strip').toBe(usual.files === 'strip');
-        expect(set.side === 'strip').toBe(usual.side === 'strip');
+        // In place or a strip exactly as with the usual widths, unless hidden (polish.28).
+        expect(set.files).toBe(kept.filesHidden ? 'hidden' : usual.files);
+        expect(set.side).toBe(kept.sideHidden ? 'hidden' : usual.side);
       })
     );
   });
@@ -385,12 +392,12 @@ describe('columnLayout properties with the widths set (polish.5)', () => {
         const files = keptWidth(FILES_WIDTHS, kept.files, w);
         const side = keptWidth(SIDE_WIDTHS, kept.side, w);
         if (w - files - side >= PROSE_MIN) {
-          // Each at the width set, or at the edge where folded away (polish.26).
+          // Each at the width set, or nothing where hidden (polish.28).
           expect([l.files, l.filesWidth, l.side, l.sideWidth]).toEqual([
             kept.filesHidden ? 'hidden' : 'full',
-            kept.filesHidden ? EDGE_STRIP_WIDTH : files,
+            kept.filesHidden ? 0 : files,
             kept.sideHidden ? 'hidden' : 'full',
-            kept.sideHidden ? EDGE_STRIP_WIDTH : side
+            kept.sideHidden ? 0 : side
           ]);
         }
         // A column in place is between its floor and the width set.
@@ -423,58 +430,81 @@ describe('columnLayout properties with the widths set (polish.5)', () => {
   });
 });
 
-/* polish.26: a column folded away by the caret at the top of its edge is
-   drawn as the edge strip, as wide as the handle, and the prose takes its
-   room; only where the column would be drawn in place, so the narrow
-   window's strips and drawers fold as before. The caret's words are in
-   test/shared/columnHandle.test.ts, the page's in
-   test/renderer/columnCarets.test.ts. */
+/* polish.28: a column hidden by its button at an end of the toolbar is drawn
+   as nothing, 0 px wide, at every width: in place of the column, and in place
+   of its strip where a narrow window folds it (polish.26 drew a 7 px edge
+   strip, and only where the column would be in place). The prose takes its
+   room, and the steps are chosen as for the columns shown, so the window
+   widths at which either folds never move. The button's words are below, the
+   page's in test/renderer/panelButtons.test.ts. */
 
-describe('a column folded away (polish.26)', () => {
-  it('is the edge strip, as wide as the handle, and the prose takes its room', () => {
-    expect(EDGE_STRIP_WIDTH).toBe(7);
-    expect(EDGE_STRIP_WIDTH).toBeLessThan(STRIP_WIDTH);
+describe('a hidden column (polish.28)', () => {
+  it('is nothing, and the prose takes its room', () => {
     expect(summary(columnLayout(at(DEFAULT, 1), set({ filesHidden: true })))).toBe(
-      'hidden 7 | 1097 | full 320'
+      'hidden 0 | 1104 | full 320'
     );
     expect(summary(columnLayout(at(DEFAULT, 1), set({ sideHidden: true })))).toBe(
-      'full 230 | 1187 | hidden 7'
+      'full 230 | 1194 | hidden 0'
     );
     expect(summary(columnLayout(at(DEFAULT, 1), set({ filesHidden: true, sideHidden: true })))).toBe(
-      'hidden 7 | 1410 | hidden 7'
+      'hidden 0 | 1424 | hidden 0'
     );
     // The other column has the width set, which both shown had to give up some of.
     expect(
       summary(columnLayout(at(DEFAULT, 1), set({ files: FILES_MOST, side: SIDE_MOST, filesHidden: true })))
-    ).toBe('hidden 7 | 703 | full 714');
+    ).toBe('hidden 0 | 710 | full 714');
     expect(summary(columnLayout(at(DEFAULT, 1), set({ files: FILES_MOST, side: SIDE_MOST })))).toBe(
       'full 434 | 481 | full 509'
     );
   });
 
   it('lets the column shown keep the width the two had to give up in a small window', () => {
-    // 900 by 600 at 100%: both shrink a little, but with either folded away the other has room.
+    // 900 by 600 at 100%: both shrink a little, but with either hidden the other has room.
     expect(summary(columnLayout(at(SMALL, 1)))).toBe('full 168 | 480 | full 236');
-    expect(summary(columnLayout(at(SMALL, 1), set({ filesHidden: true })))).toBe('hidden 7 | 637 | full 240');
-    expect(summary(columnLayout(at(SMALL, 1), set({ sideHidden: true })))).toBe('full 170 | 707 | hidden 7');
+    expect(summary(columnLayout(at(SMALL, 1), set({ filesHidden: true })))).toBe('hidden 0 | 644 | full 240');
+    expect(summary(columnLayout(at(SMALL, 1), set({ sideHidden: true })))).toBe('full 170 | 714 | hidden 0');
     // A column set wider than the window allows still gives way, alone.
     expect(summary(columnLayout(at(DEFAULT, 1), set({ side: 0.8, filesHidden: true })))).toBe(
-      'hidden 7 | 480 | full 937'
+      'hidden 0 | 480 | full 944'
     );
   });
 
-  it('folds to the strip and the drawer as before where a narrow window folds it, so the two never meet', () => {
-    const both = set({ filesHidden: true, sideHidden: true });
-    // The default window at 175%: the list folds to its strip whether folded away or not.
+  it('is nothing where a narrow window folds it, too, and the other column folds where it did', () => {
+    // The default window at 175%: the list, a strip when shown, is nothing hidden.
+    expect(summary(columnLayout(at(DEFAULT, 1.75)))).toBe('strip 32 | 542 | full 240');
     expect(summary(columnLayout(at(DEFAULT, 1.75), set({ filesHidden: true })))).toBe(
-      'strip 32 | 542 | full 240'
+      'hidden 0 | 574 | full 240'
     );
-    expect(summary(columnLayout(at(DEFAULT, 1.75), both))).toBe('strip 32 | 775 | hidden 7');
-    // 900 by 600 at 110%: the list folded, the panel folded away beside it.
-    expect(summary(columnLayout(at(SMALL, 1.1), both))).toBe('strip 32 | 765 | hidden 7');
-    // From 125% both fold to strips, folded away or not.
-    expect(columnLayout(at(SMALL, 1.25), both)).toEqual(columnLayout(at(SMALL, 1.25)));
-    expect(columnLayout(at(SMALL, 2), both)).toEqual(columnLayout(at(SMALL, 2)));
+    expect(summary(columnLayout(at(DEFAULT, 1.75), set({ sideHidden: true })))).toBe(
+      'strip 32 | 782 | hidden 0'
+    );
+    // 900 by 600 at 110%: the list folded, the panel in place, or nothing.
+    expect(summary(columnLayout(at(SMALL, 1.1), set({ sideHidden: true })))).toBe(
+      'strip 32 | 772 | hidden 0'
+    );
+    expect(summary(columnLayout(at(SMALL, 1.1), set({ filesHidden: true, sideHidden: true })))).toBe(
+      'hidden 0 | 804 | hidden 0'
+    );
+    // From 125% both fold to strips; either hidden is nothing beside the other's strip.
+    expect(summary(columnLayout(at(SMALL, 1.25), set({ filesHidden: true })))).toBe(
+      'hidden 0 | 675 | strip 32'
+    );
+    expect(summary(columnLayout(at(SMALL, 1.25), set({ sideHidden: true })))).toBe(
+      'strip 32 | 675 | hidden 0'
+    );
+    // At 200% even both hidden leave the prose under its 480 px.
+    expect(summary(columnLayout(at(SMALL, 2), set({ filesHidden: true, sideHidden: true })))).toBe(
+      'hidden 0 | 442 | hidden 0 narrow'
+    );
+  });
+
+  it('gives the side panel the strip it no longer stands beside, as far as its width goes', () => {
+    // 900 by 600 at 110% with the panel set to half the default window: 291
+    // px beside the list's strip, 323 beside nothing.
+    expect(summary(columnLayout(at(SMALL, 1.1), set({ side: SIDE_MOST })))).toBe('strip 32 | 481 | full 291');
+    expect(summary(columnLayout(at(SMALL, 1.1), set({ side: SIDE_MOST, filesHidden: true })))).toBe(
+      'hidden 0 | 481 | full 323'
+    );
   });
 
   it('is no drawer: none shows, and its wrapper is laid out out of sight, inert', () => {
@@ -487,11 +517,20 @@ describe('a column folded away (polish.26)', () => {
     expect(columnInert('files', layout, null)).toBe(true);
     expect(columnInert('files', layout, 'files')).toBe(true);
     expect(columnInert('side', layout, null)).toBe(false);
-    // A drawer folded by a narrow window is inert only while closed, as before.
-    const narrow = columnLayout(at(SMALL, 1.1));
-    expect(columnInert('files', narrow, null)).toBe(true);
-    expect(columnInert('files', narrow, shownDrawer('files', narrow, true))).toBe(false);
     expect(bodyClassName(layout)).toBe('body');
+    // Where a narrow window would fold it to a strip, it has no strip and no drawer.
+    const narrow = columnLayout(at(SMALL, 1.25), set({ filesHidden: true }));
+    expect(shownDrawer('files', narrow, true)).toBeNull();
+    expect(shownDrawer('side', narrow, true)).toBe('side');
+    expect(columnClassName('files', narrow, 'files')).toBe(
+      'column column--files column--drawer column--hidden'
+    );
+    expect(columnInert('files', narrow, 'files')).toBe(true);
+    expect(bodyClassName(narrow)).toBe('body body--side-strip');
+    // A drawer folded by a narrow window is inert only while closed, as before.
+    const shown = columnLayout(at(SMALL, 1.1));
+    expect(columnInert('files', shown, null)).toBe(true);
+    expect(columnInert('files', shown, shownDrawer('files', shown, true))).toBe(false);
   });
 
   it('reads the two flags from settings.json as true only for a JSON true', () => {
@@ -505,6 +544,19 @@ describe('a column folded away (polish.26)', () => {
     for (const bad of ['true', 1, null, {}, [true]]) {
       expect(normalizeColumnWidths({ filesHidden: bad, sideHidden: bad })).toEqual(USUAL_COLUMN_WIDTHS);
     }
+    expect(columnHidden(set({ filesHidden: true }), 'files')).toBe(true);
+    expect(columnHidden(set({ filesHidden: true }), 'side')).toBe(false);
+    expect(columnHidden(set({ sideHidden: true }), 'side')).toBe(true);
+    expect(columnHidden(USUAL_COLUMN_WIDTHS, 'files')).toBe(false);
+  });
+
+  it("names each column's button for what a press does, in the plan's words", () => {
+    expect(panelButtonText('files', false)).toBe('Hide the chapter list');
+    expect(panelButtonText('side', false)).toBe('Hide the side panel');
+    expect(panelButtonText('files', true)).toBe('Show the chapter list');
+    expect(panelButtonText('side', true)).toBe('Show the side panel');
+    // The handles' names use the same words.
+    expect(COLUMN_NAMES).toEqual({ files: 'chapter list', side: 'side panel' });
   });
 
   // Any width, and as often one about the steps' own, where the list folds
@@ -522,26 +574,32 @@ describe('a column folded away (polish.26)', () => {
   });
   const shown = (kept: ColumnShares): ColumnShares => ({ ...kept, filesHidden: false, sideHidden: false });
 
-  it('draws a column at the edge exactly where it is folded away and would otherwise be in place', () => {
+  it('draws a column as nothing exactly where it is hidden, and the other as it would be drawn', () => {
     fc.assert(
       fc.property(width, shares, (w, kept) => {
         const l = columnLayout(w, kept);
         const open = columnLayout(w, shown(kept));
-        expect(l.files === 'hidden').toBe(kept.filesHidden && open.files === 'full');
-        expect(l.side === 'hidden').toBe(kept.sideHidden && open.side === 'full');
-        if (l.files === 'hidden') expect(l.filesWidth).toBe(EDGE_STRIP_WIDTH);
-        if (l.side === 'hidden') expect(l.sideWidth).toBe(EDGE_STRIP_WIDTH);
-        // Where neither is at the edge, the flags change nothing.
-        if (l.files !== 'hidden' && l.side !== 'hidden') expect(l).toEqual(open);
+        expect(l.files === 'hidden').toBe(kept.filesHidden);
+        expect(l.side === 'hidden').toBe(kept.sideHidden);
+        // Nothing at the edge, at every width.
+        if (kept.filesHidden) expect(l.filesWidth).toBe(0);
+        else expect(l.files).toBe(open.files);
+        if (kept.sideHidden) expect(l.sideWidth).toBe(0);
+        else expect(l.side).toBe(open.side);
+        // Where neither is hidden, the flags change nothing.
+        if (!kept.filesHidden && !kept.sideHidden) expect(l).toEqual(open);
+        // No drawer for a hidden column, whichever the author had open.
+        if (kept.filesHidden) expect(shownDrawer('files', l, true)).toBeNull();
+        if (kept.sideHidden) expect(shownDrawer('side', l, true)).toBeNull();
       })
     );
   });
 
-  it('never narrows the other column by folding one away, nor the prose under PROSE_MIN or by more than a pixel', () => {
+  it('never narrows the other column by hiding one, nor the prose under PROSE_MIN or by more than a pixel', () => {
     // Step 2 rounds both columns down, which can leave the prose a pixel more
-    // than its 480 with both shown; with one folded away, step 1 can leave it
-    // just its 480. The columns' widths are whole either way, so the prose has
-    // the window's fraction in both, and that pixel is the most a fold takes.
+    // than its 480 with both shown; with one hidden, the other gives way to
+    // exactly what the prose leaves it, and the prose has the window's
+    // fraction. That pixel is the most a hide takes from it.
     fc.assert(
       fc.property(width, shares, (w, kept) => {
         const l = columnLayout(w, kept);
@@ -552,7 +610,8 @@ describe('a column folded away (polish.26)', () => {
         if (l.side === open.side) expect(l.sideWidth).toBeGreaterThanOrEqual(open.sideWidth);
       }),
       {
-        // Found by earlier runs: the rounding pixel step 2 gave the prose, which a fold takes back.
+        // Found by earlier runs against polish.26's edge strip: the rounding
+        // pixel step 2 gave the prose, which a fold took back.
         examples: [
           [891, set({ side: 0.45286195286195285, filesHidden: true })],
           [831, set({ files: 0.41335740072202165, sideHidden: true })],
@@ -562,16 +621,16 @@ describe('a column folded away (polish.26)', () => {
     );
   });
 
-  it('takes back the rounding pixel step 2 gave the prose, and no more', () => {
+  it('gives the prose what the hidden column had, where the other has its width set', () => {
     // 891 px: the list 170 and the panel set to 404 give way to 155 and 255,
-    // floored, leaving the prose 481; with the list folded away the panel has
-    // its 404 again, which leaves exactly 480.
+    // floored, leaving the prose 481; with the list hidden the panel has its
+    // 404 again and the prose the rest, 487 (480 beside polish.26's 7 px strip).
     const side = set({ side: 0.45286195286195285 });
     expect(summary(columnLayout(891, side))).toBe('full 155 | 481 | full 255');
-    expect(summary(columnLayout(891, { ...side, filesHidden: true }))).toBe('hidden 7 | 480 | full 404');
+    expect(summary(columnLayout(891, { ...side, filesHidden: true }))).toBe('hidden 0 | 487 | full 404');
     // 831 px: the list set to 344 gives way to its floor beside the panel's, the same way.
     const files = set({ files: 0.41335740072202165 });
     expect(summary(columnLayout(831, files))).toBe('full 150 | 481 | full 200');
-    expect(summary(columnLayout(831, { ...files, sideHidden: true }))).toBe('full 344 | 480 | hidden 7');
+    expect(summary(columnLayout(831, { ...files, sideHidden: true }))).toBe('full 344 | 487 | hidden 0');
   });
 });

@@ -92,11 +92,13 @@ describe('the Save button and the dot (apply.4)', () => {
     expect(declsFor('.toolbar button').get('white-space')).toBe('nowrap');
     // Zoomed in, or with a review's progress showing, the last buttons move to
     // a second row on the right instead of running out of the window; the
-    // chips' bar grows into the room a spacer used to take.
-    expect(Object.fromEntries(declsFor('.toolbar'))).toMatchObject({
+    // chips' bar grows into the room a spacer used to take. Since polish.28
+    // the row that wraps is between the toolbar's ends, which never do.
+    expect(Object.fromEntries(declsFor('.toolbar__main'))).toMatchObject({
       'flex-wrap': 'wrap',
       'justify-content': 'flex-end'
     });
+    expect(declsFor('.toolbar').has('flex-wrap')).toBe(false);
     expect(TOOLBAR).not.toContain('className="spacer"');
   });
 
