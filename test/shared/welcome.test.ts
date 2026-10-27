@@ -4,9 +4,12 @@ import { PRO_PRESELECT_HINT } from '../../src/shared/ai/claudeModels';
 import { APP_NAME } from '../../src/shared/branding';
 import type { ChatGptStatus, EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../../src/shared/ipc';
 import { normalizeSettings } from '../../src/shared/settings';
+import { DEFAULT_SETTINGS } from '../../src/shared/types';
 import { SIGN_IN_BUTTON, chatGptSetupStatus } from '../../src/shared/ui/chatgpt';
+import { FOCUS_HOLD_SECONDS } from '../../src/shared/ui/focusMode';
 import { STYLE_SHEET_EMPTY, openFolderTitle, openGuidelinesTitle } from '../../src/shared/ui/guidelines';
 import { setupStatus, setupView, type LastFailure } from '../../src/shared/ui/setup';
+import { THEMES } from '../../src/shared/ui/theme';
 import {
   AGENTS_STEP_TEXT,
   CHATGPT_SECTION_SET_UP_TEXT,
@@ -16,12 +19,15 @@ import {
   FOLDER_LISTS,
   FOLDER_SAVES,
   IN_DATA_FOLDER,
+  LOOK_STEP_TEXT,
+  LOOK_STEP_TITLE,
   SET_UP_CHATGPT,
   SHOW_WELCOME_AGAIN,
   WELCOME_BACKUPS_NOTE,
   WELCOME_INTRO,
   WELCOME_REVIEWS_NOTE,
   folderGuidelinesFact,
+  lookStatus,
   stepActions,
   welcomeAgainPatch,
   welcomeNotKept,
@@ -30,14 +36,16 @@ import {
   welcomeStart,
   welcomeSteps,
   type WelcomeInput,
+  type WelcomeLook,
   type WelcomeSection,
   type WelcomeStep
 } from '../../src/shared/ui/welcome';
 
-/* setup.11, and setup.18's new order: the welcome guide's three steps, the
+/* setup.11, and setup.18's new order: the welcome guide's steps, the
    manuscript folder with its two optional folder rows, the AI agents with a
-   section each for Claude and ChatGPT, and the style sheet; what each says
-   and offers, and when Start can be pressed. The screen draws exactly these
+   section each for Claude and ChatGPT, since setup.20 the app's appearance
+   and focus mode, and the style sheet; what each says and offers, and when
+   Start can be pressed. The screen draws exactly these
    (test/renderer/welcome.render.test.ts). */
 
 const FOLDER = 'C:\\Novel'; // check-public: allow
@@ -154,30 +162,37 @@ describe('welcomeAgainPatch (setup.11 review)', () => {
   });
 });
 
-describe('the three steps (setup.18)', () => {
-  it('come in the order of the task: the folder, then the AI agents and the style sheet, both optional', () => {
+describe('the four steps (setup.18, setup.20)', () => {
+  it('come in the order of the tasks: the folder, the AI agents, the look and the style sheet, all optional but the first', () => {
     expect(welcomeSteps(FRESH).map((s) => [s.id, s.title, s.optional])).toEqual([
       ['folder', 'Connect your manuscript folder', false],
       ['agents', 'Connect AI agents', true],
+      ['look', 'Choose appearance and focus mode', true],
       ['style-sheet', 'Fill in your style sheet', true]
     ]);
   });
 
-  it('say in the intro that only the first is needed to start', () => {
+  it('say in the intro that there are four, and only the first is needed to start', () => {
     expect(WELCOME_INTRO).toBe(
-      `Three steps get ${APP_NAME} ready to review your chapters, and only the first is needed to start. Each one says when it is done, and you can do them in any order. Skip leaves the guide; Settings has ${SHOW_WELCOME_AGAIN}.`
+      `Four steps get ${APP_NAME} ready to review your chapters, and only the first is needed to start. Each one says when it is done, and you can do them in any order. Skip leaves the guide; Settings has ${SHOW_WELCOME_AGAIN}.`
     );
   });
 
-  it('give the folder step its rows, the agents step its sections, and no other step either', () => {
-    const [folder, agents, styleSheet] = welcomeSteps(READY);
+  it('give the folder step its rows, the agents step its sections, the look step its settings, and no other step any', () => {
+    const [folder, agents, look, styleSheet] = welcomeSteps(READY);
     expect(folder?.rows.map((r) => r.id)).toEqual(['reviews', 'backups']);
     expect(folder?.sections).toEqual([]);
+    expect(folder?.look).toBeNull();
     expect(agents?.rows).toEqual([]);
     expect(agents?.sections.map((s) => s.id)).toEqual(['claude', 'chatgpt']);
     expect(agents?.actions).toEqual([]);
+    expect(agents?.look).toBeNull();
+    expect(look?.rows).toEqual([]);
+    expect(look?.sections).toEqual([]);
+    expect(look?.look).not.toBeNull();
     expect(styleSheet?.rows).toEqual([]);
     expect(styleSheet?.sections).toEqual([]);
+    expect(styleSheet?.look).toBeNull();
   });
 });
 
@@ -219,7 +234,7 @@ describe('1. Connect your manuscript folder', () => {
 
   it('names the guidelines file chosen in Settings in place of the one it adds', () => {
     expect(folderGuidelinesFact(null)).toBe(
-      'It adds one file of its own to the folder, GUIDELINES.md, from a template the first time it needs it: the guidelines the reviewer follows, with your style sheet (step 3). It never changes that file after that.'
+      'It adds one file of its own to the folder, GUIDELINES.md, from a template the first time it needs it: the guidelines the reviewer follows, with your style sheet (step 4). It never changes that file after that.'
     );
     const own = 'D:\\Notes\\style.md'; // check-public: allow
     expect(folderGuidelinesFact(own)).toBe(
@@ -519,7 +534,66 @@ describe('welcomeProviderFor (setup.18)', () => {
   });
 });
 
-describe('3. Fill in your style sheet', () => {
+describe('3. Choose appearance and focus mode (setup.20)', () => {
+  const at = (look?: WelcomeLook): WelcomeStep => step(look ? { ...FRESH, look } : FRESH, 'look');
+
+  it('is optional, says what it is for, and names Settings for later', () => {
+    const s = at();
+    expect(s.title).toBe(LOOK_STEP_TITLE);
+    expect(LOOK_STEP_TITLE).toBe('Choose appearance and focus mode');
+    expect(s.optional).toBe(true);
+    expect(s.lines).toEqual([LOOK_STEP_TEXT]);
+    expect(LOOK_STEP_TEXT).toBe(
+      `How ${APP_NAME} looks, and focus mode, which keeps it full screen until you hold F11 or Esc. You can change both later in Settings, under App.`
+    );
+    expect(s.facts).toEqual([]);
+  });
+
+  it('is a choice, not a job: done from the start, whatever is chosen, with no button of its own', () => {
+    for (const look of [
+      undefined,
+      { theme: 'dark', focusMode: true, focusHoldSeconds: 60 } as const,
+      { theme: 'light', focusMode: false, focusHoldSeconds: 10 } as const
+    ]) {
+      const s = at(look);
+      expect(s.done).toBe(true);
+      expect(stepActions(s)).toEqual([]);
+    }
+  });
+
+  it('says what is chosen now, the theme and then focus mode', () => {
+    expect(at().status).toBe('Matching your system. Focus mode off.');
+    expect(at({ theme: 'light', focusMode: false, focusHoldSeconds: 5 }).status).toBe(
+      'Always light. Focus mode off.'
+    );
+    expect(at({ theme: 'dark', focusMode: true, focusHoldSeconds: 5 }).status).toBe(
+      'Always dark. Focus mode on, with a 5-second hold.'
+    );
+    expect(at({ theme: 'system', focusMode: true, focusHoldSeconds: 30 }).status).toBe(
+      'Matching your system. Focus mode on, with a 30-second hold.'
+    );
+    // While focus mode is off, the hold time is left to its row's list.
+    expect(lookStatus({ theme: 'system', focusMode: false, focusHoldSeconds: 60 })).toBe(
+      'Matching your system. Focus mode off.'
+    );
+  });
+
+  it("carries the settings as they stand to its rows, and a fresh install's when the input names none", () => {
+    const chosen: WelcomeLook = { theme: 'dark', focusMode: true, focusHoldSeconds: 15 };
+    expect(at(chosen).look).toEqual(chosen);
+    expect(at().look).toEqual({
+      theme: DEFAULT_SETTINGS.theme,
+      focusMode: DEFAULT_SETTINGS.focusMode,
+      focusHoldSeconds: DEFAULT_SETTINGS.focusHoldSeconds
+    });
+    expect(at().look).toEqual({ theme: 'system', focusMode: false, focusHoldSeconds: 5 });
+    // Only the three settings, whatever else an input's look object holds.
+    const wider = { ...chosen, manuscriptFolder: FOLDER } as WelcomeLook;
+    expect(Object.keys(at(wider).look ?? {}).sort()).toEqual(['focusHoldSeconds', 'focusMode', 'theme']);
+  });
+});
+
+describe('4. Fill in your style sheet', () => {
   const at = (patch: Partial<WelcomeInput>): WelcomeStep =>
     step({ ...READY, guidelines: null, ...patch }, 'style-sheet');
 
@@ -614,7 +688,8 @@ describe('Start', () => {
       manuscriptFolder: FOLDER,
       claude: claude({ state: 'missing-binary' })
     });
-    expect(steps.map((s) => s.done)).toEqual([true, false, false]);
+    // The look step is never undone (setup.20), so the line never names it.
+    expect(steps.map((s) => s.done)).toEqual([true, false, true, false]);
     expect(welcomeStart(steps)).toEqual({
       disabled: false,
       note: `Optional steps not done yet: Connect AI agents, Fill in your style sheet. You can start now and come back to them with ${SHOW_WELCOME_AGAIN}, in Settings.`
@@ -708,15 +783,23 @@ describe('whatever the app finds', () => {
       }),
       { nil: null }
     ),
-    guidelinesProblem: fc.option(fc.constant('Could not read it.'), { nil: null })
+    guidelinesProblem: fc.option(fc.constant('Could not read it.'), { nil: null }),
+    look: fc.option(
+      fc.record({
+        theme: fc.constantFrom(...THEMES),
+        focusMode: fc.boolean(),
+        focusHoldSeconds: fc.constantFrom(...FOCUS_HOLD_SECONDS)
+      }),
+      { nil: undefined }
+    )
   });
 
-  it('gives three steps, Start with the folder alone, blue buttons only for what is left, and no sign-in to Claude', () => {
+  it('gives four steps, Start with the folder alone, blue buttons only for what is left, and no sign-in to Claude', () => {
     fc.assert(
       fc.property(inputArb, (input) => {
         const steps = welcomeSteps(input);
-        expect(steps.map((s) => s.id)).toEqual(['folder', 'agents', 'style-sheet']);
-        expect(steps.map((s) => s.optional)).toEqual([false, true, true]);
+        expect(steps.map((s) => s.id)).toEqual(['folder', 'agents', 'look', 'style-sheet']);
+        expect(steps.map((s) => s.optional)).toEqual([false, true, true, true]);
         // Start needs the folder alone (setup.18).
         expect(welcomeStart(steps).disabled).toBe(input.manuscriptFolder === null);
         // Both agents, whichever is the provider, and never an OpenAI key (codex.6).
@@ -753,8 +836,17 @@ describe('whatever the app finds', () => {
         expect(
           steps[0]?.rows.map((r) => r.actions.map((a) => [a.id, a.primary ?? false, a.disabled ?? false]))
         ).toEqual([[['change-reviews-folder', false, false]], [['change-backups-folder', false, false]]]);
+        // The look step is never undone, never named beside Start, and shows the settings as they stand (setup.20).
+        const lookStep = steps[2];
+        expect(lookStep?.done).toBe(true);
+        expect(lookStep?.look).toEqual(
+          input.look ?? { theme: 'system', focusMode: false, focusHoldSeconds: 5 }
+        );
+        expect(welcomeStart(steps).note ?? '').not.toContain(LOOK_STEP_TITLE);
+        // Only the look step has settings to show.
+        expect(steps.filter((s) => s.look !== null).map((s) => s.id)).toEqual(['look']);
         // The style sheet is done exactly when the file is there and its style sheet filled in.
-        const sheetStep = steps[2];
+        const sheetStep = steps[3];
         const path = input.guidelines?.path ?? input.paths?.guidelinesPath ?? null;
         expect(sheetStep?.done).toBe(
           path !== null &&

@@ -465,7 +465,7 @@ describe('the notes under the rows (polish.4)', () => {
     const html = decode(render());
     expect(html).not.toContain('Welcome guide</span>');
     expect(html).toContain(
-      `title="The first-start steps: the manuscript folder, the AI agents and the style sheet.">${SHOW_WELCOME_AGAIN}</button>`
+      `title="The first-start steps: manuscript folder, AI agents, appearance and style sheet.">${SHOW_WELCOME_AGAIN}</button>`
     );
   });
 });

@@ -33,6 +33,9 @@ export function helpButtonLabel(topic: string): string {
 
 /* ---------- App ---------- */
 
+/** The row's name (theme.7), which the welcome guide's step 3 uses too (setup.20). */
+export const APPEARANCE_LABEL = 'Appearance';
+
 /** The note under Appearance (theme.7), unchanged. */
 export const APPEARANCE_NOTE = "Match system follows your computer's light or dark setting.";
 

@@ -3421,17 +3421,20 @@ button.help {
   color: var(--ink-soft);
 }
 
-/* Step 1's two folder rows and step 2's two sections (setup.18), under the
-   step's own lines and buttons, each parted from what is above by a line. */
+/* Step 1's two folder rows and step 2's two sections (setup.18), and step
+   3's two rows (setup.20), under the step's own lines and buttons, each parted
+   from what is above by a line. */
 .welcome__row,
-.welcome__section {
+.welcome__section,
+.welcome__choice {
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }
 
 .welcome__row h3,
-.welcome__section h3 {
+.welcome__section h3,
+.welcome__choice h3 {
   margin: 0 0 2px;
   font-size: 13px;
 }
@@ -3472,6 +3475,34 @@ button.help {
 
 .welcome__section--done .welcome__section-status {
   color: var(--accept);
+}
+
+/* Step 3's rows (setup.20): the name, with its control beside it as in
+   Settings' App section, both controls starting at one edge, and the note
+   under them in the soft ink. In a narrow column the control wraps under the
+   name, and the focus row's words wrap round its list. */
+.welcome__choice-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.welcome__choice .welcome__choice-head h3 {
+  min-width: 7em;
+  margin: 0;
+}
+
+.welcome__focus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+
+.setup .welcome__choice-note {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
 }
 
 .welcome__foot {

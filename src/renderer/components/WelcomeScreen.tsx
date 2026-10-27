@@ -1,8 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatGptStatus, EffectivePaths, GuidelinesStatus, RuntimeStatus } from '../../shared/ipc';
 import type { Provider, Settings } from '../../shared/types';
+import { FOCUS_HOLD_SECONDS, focusHoldLabel, normalizeFocusHold } from '../../shared/ui/focusMode';
 import { openedGuidelinesNote } from '../../shared/ui/guidelines';
+import {
+  APPEARANCE_LABEL,
+  APPEARANCE_NOTE,
+  FOCUS_HOLD_AFTER,
+  FOCUS_HOLD_BEFORE,
+  FOCUS_MODE_LABEL,
+  FOCUS_MODE_NOTE
+} from '../../shared/ui/settingsDialog';
 import type { LastFailure, SetupFor } from '../../shared/ui/setup';
+import { normalizeTheme, THEME_LABELS, THEMES } from '../../shared/ui/theme';
 import {
   FOLDER_PICKER_TITLES,
   FOLDER_SETTINGS,
@@ -20,6 +30,7 @@ import {
   type WelcomeActionId,
   type WelcomeFolderId,
   type WelcomeInput,
+  type WelcomeLook,
   type WelcomeStep
 } from '../../shared/ui/welcome';
 import { call, errorMessage } from '../state/client';
@@ -37,7 +48,11 @@ interface PageProps {
   note?: WelcomeNote | null;
   /** under a folder row: why its Change was refused, as main put it (setup.18) */
   rowNotes?: Partial<Record<WelcomeFolderId, string>>;
+  /** under step 3's rows: why a change there was refused, as main put it (setup.20) */
+  lookNote?: string | null;
   onAction: (id: WelcomeActionId) => void;
+  /** a change in step 3's rows: the one setting it writes, as Settings writes it (setup.20) */
+  onChoose: (patch: Partial<WelcomeLook>) => void;
   onStart: () => void;
   onSkip: () => void;
 }
@@ -73,19 +88,98 @@ function Buttons({
   );
 }
 
+/** Step 3's ids: one guide at a time, and Settings, which can open over it, takes its ids from useId. */
+const lookId = (part: string): string => `welcome-look-${part}`;
+
+/**
+ * Step 3's two rows (setup.20): Appearance and Focus mode, each with the
+ * control and the note Settings' App section has, in the same words, the
+ * row's name labelling the list or the box as it does there. A change writes
+ * its setting at once. No hooks, so the tests can call it as a function.
+ */
+function LookRows({
+  look,
+  onChoose
+}: {
+  look: WelcomeLook;
+  onChoose: (patch: Partial<WelcomeLook>) => void;
+}): React.JSX.Element {
+  return (
+    <div className="welcome__choices">
+      <div className="welcome__choice" data-choice="appearance">
+        <div className="welcome__choice-head">
+          <h3>
+            <label htmlFor={lookId('appearance')}>{APPEARANCE_LABEL}</label>
+          </h3>
+          <select
+            id={lookId('appearance')}
+            value={look.theme}
+            aria-describedby={lookId('appearance-note')}
+            onChange={(e) => onChoose({ theme: normalizeTheme(e.target.value) })}
+          >
+            {THEMES.map((theme) => (
+              <option key={theme} value={theme}>
+                {THEME_LABELS[theme]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="welcome__choice-note" id={lookId('appearance-note')}>
+          {APPEARANCE_NOTE}
+        </p>
+      </div>
+      <div className="welcome__choice" data-choice="focus-mode">
+        <div className="welcome__choice-head">
+          <h3>
+            <label htmlFor={lookId('focus')}>{FOCUS_MODE_LABEL}</label>
+          </h3>
+          <span className="welcome__focus">
+            <input
+              id={lookId('focus')}
+              type="checkbox"
+              checked={look.focusMode}
+              aria-describedby={lookId('focus-note')}
+              onChange={(e) => onChoose({ focusMode: e.target.checked })}
+            />
+            <label htmlFor={lookId('focus-hold')}>{FOCUS_HOLD_BEFORE}</label>
+            <select
+              id={lookId('focus-hold')}
+              value={look.focusHoldSeconds}
+              aria-describedby={lookId('focus-note')}
+              onChange={(e) => onChoose({ focusHoldSeconds: normalizeFocusHold(Number(e.target.value)) })}
+            >
+              {FOCUS_HOLD_SECONDS.map((seconds) => (
+                <option key={seconds} value={seconds}>
+                  {focusHoldLabel(seconds)}
+                </option>
+              ))}
+            </select>
+            <span>{FOCUS_HOLD_AFTER}</span>
+          </span>
+        </div>
+        <p className="welcome__choice-note" id={lookId('focus-note')}>
+          {FOCUS_MODE_NOTE}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /**
  * The welcome guide as it is drawn, from its steps (`welcomeSteps`): a title
- * with Skip, the three steps, each with where it stands and its buttons, the
- * first with its two folder rows and the second with its two sections
- * (setup.18), and Start under them. It uses the Setup screen's scroller and
- * centred column (`.setup`, `.setup__page`), so it scrolls across the window
- * as Setup does.
+ * with Skip, the four steps, each with where it stands and its buttons, the
+ * first with its two folder rows, the second with its two sections
+ * (setup.18) and the third with Appearance and Focus mode (setup.20), and
+ * Start under them. It uses the Setup screen's scroller and centred column
+ * (`.setup`, `.setup__page`), so it scrolls across the window as Setup does.
  */
 export function WelcomePage({
   steps,
   note = null,
   rowNotes = {},
+  lookNote = null,
   onAction,
+  onChoose,
   onStart,
   onSkip
 }: PageProps): React.JSX.Element {
@@ -188,6 +282,14 @@ export function WelcomePage({
                     ))}
                   </div>
                 ) : null}
+                {/* Appearance and Focus mode, as Settings' App section has
+                    them (setup.20); main's refusal of a change under them. */}
+                {step.look ? <LookRows look={step.look} onChoose={onChoose} /> : null}
+                {step.id === 'look' && lookNote ? (
+                  <p className="welcome__note welcome__note--error" role="alert">
+                    {lookNote}
+                  </p>
+                ) : null}
                 {step.id === 'style-sheet' && note ? (
                   <p
                     className={`welcome__note welcome__note--${note.tone}`}
@@ -256,9 +358,12 @@ interface Props {
  * returns from filling the style sheet in; the AI agents' sections follow
  * App's checks of Claude and ChatGPT. The folder rows' Change picks a folder
  * and saves it as Settings does, showing main's refusal under the row
- * (setup.18). The style sheet's buttons, Open and Open folder, go through
- * `guidelines:open` and `shell:reveal`, as Settings' do (polish.3), each
- * creating the file from the template first when it is missing.
+ * (setup.18). Step 3's Appearance and Focus mode save each change as
+ * Settings' App section does, so main switches the theme as it answers and
+ * Settings shows the choice (setup.20). The style sheet's buttons, Open and
+ * Open folder, go through `guidelines:open` and `shell:reveal`, as Settings'
+ * do (polish.3), each creating the file from the template first when it is
+ * missing.
  */
 export function WelcomeScreen({
   settings,
@@ -281,6 +386,7 @@ export function WelcomeScreen({
   const [problem, setProblem] = useState<string | null>(null);
   const [note, setNote] = useState<WelcomeNote | null>(null);
   const [rowNotes, setRowNotes] = useState<Partial<Record<WelcomeFolderId, string>>>({});
+  const [lookNote, setLookNote] = useState<string | null>(null);
   /* Only the newest answer of each read counts, so a slow one cannot put
      back what a later one, after the folder changed, has replaced. */
   const pathsSeq = useRef(0);
@@ -361,6 +467,17 @@ export function WelcomeScreen({
       .catch((err: unknown) => setRowNotes((notes) => ({ ...notes, [row]: errorMessage(err) })));
   };
 
+  /* Step 3's rows (setup.20): each change writes its one setting through
+     settings:set, as Settings' App section does, so main switches the theme
+     as it answers and Settings shows the choice. A refusal stands under the
+     rows until the next change. */
+  const choose = (patch: Partial<WelcomeLook>): void => {
+    setLookNote(null);
+    call('settings:set', patch)
+      .then((next) => onApply?.(next))
+      .catch((err: unknown) => setLookNote(errorMessage(err)));
+  };
+
   const input: WelcomeInput = {
     provider: settings.provider,
     claude,
@@ -373,7 +490,12 @@ export function WelcomeScreen({
     guidelinesSetting: guidelinesPath,
     paths,
     guidelines,
-    guidelinesProblem: problem
+    guidelinesProblem: problem,
+    look: {
+      theme: settings.theme,
+      focusMode: settings.focusMode,
+      focusHoldSeconds: settings.focusHoldSeconds
+    }
   };
 
   /* A section's button makes its agent the provider Review with AI starts
@@ -434,7 +556,9 @@ export function WelcomeScreen({
       steps={steps}
       note={note}
       rowNotes={rowNotes}
+      lookNote={lookNote}
       onAction={onAction}
+      onChoose={choose}
       onStart={onStart}
       onSkip={onSkip}
     />
