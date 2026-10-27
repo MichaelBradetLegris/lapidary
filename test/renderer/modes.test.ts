@@ -692,9 +692,22 @@ describe('the pieces in the page (source checks)', () => {
 
   it('goes through chooseMode from the select, holding back the keys that would switch at every press', () => {
     const bar = read('renderer/components/ModeSelect.tsx');
-    expect(bar).toContain('if (pickerHoldsKey(event)) event.preventDefault();');
+    expect(bar).toContain('if (typed || pickerHoldsKey(event)) event.preventDefault();');
     expect(bar).toContain('void chooseMode(target).then((switched) => {');
     expect(bar).toContain('value={mode}');
+    expect(bar).toMatch(
+      /onChange=\{\(event\) => \{\s*const target = modeOf\(event\.currentTarget\.value\);\s*if \(target\) choose\(event\.currentTarget, target\);/
+    );
+  });
+
+  /* rr.8: each option starts "Mode: ", which the browser's type-ahead would
+     match at every m, so a typed character is the select's own: m, f or p
+     picks a mode by its name, through chooseMode, and only another mode. */
+  it('picks a mode by the first letter of its name, held back from the browser', () => {
+    const bar = read('renderer/components/ModeSelect.tsx');
+    expect(bar).toMatch(
+      /const typed = modeSelectTyped\(event\);\s*if \(typed \|\| pickerHoldsKey\(event\)\) event\.preventDefault\(\);\s*const target = typed \? modeOfLetter\(event\.key\) : null;\s*if \(target !== null && target !== mode\) choose\(event\.currentTarget, target\);/
+    );
   });
 
   it("keeps each mode's place in the one scroller, put back before the frame is painted and held as it grows", () => {
@@ -807,12 +820,13 @@ describe('the CSS of the three modes', () => {
 
   /* rr.6: the select left the strip above the prose for the toolbar's left,
      so the column has no strip and the prose starts at its top again. Where
-     it stands in the toolbar is in toolbarMenu.render.test.ts, and its steps
-     in chipsRow.test.ts. */
+     it stands in the toolbar is in toolbarMenu.render.test.ts, and its size,
+     the eye's since rr.8, in chipsRow.test.ts. */
   it('draws no strip above the prose: the select is in the toolbar', () => {
     expect(CSS).not.toContain('.modebar');
     expect(rule('.mode-select')).toContain('flex: none;');
-    expect(rule('.mode-select__label')).toContain('color: var(--ink-soft);');
+    // No label beside it since rr.8.
+    expect(CSS).not.toContain('.mode-select__');
   });
 
   /** A rule's own declarations, by property, its comments left out. */

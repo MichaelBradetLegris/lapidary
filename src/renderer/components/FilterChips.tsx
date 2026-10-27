@@ -21,7 +21,6 @@ import {
   sameChipsView,
   showOnlyHidden,
   suggestionChip,
-  type ChipsBeside,
   type ChipsView,
   type RowChip
 } from '../../shared/ui/chips';
@@ -32,7 +31,6 @@ import { scrollContainerTo } from '../state/scroll';
 import { isLocked, useApp } from '../state/store';
 import { IconChevronLeft, IconChevronRight, IconEye, IconEyeClosed } from './icons';
 import { MenuList } from './MenuList';
-import { ModeSelect, ModeSelectCopy } from './ModeSelect';
 import { useMenu, type MenuItem } from './useMenu';
 
 interface Props {
@@ -92,20 +90,6 @@ function naturalWidths(copy: HTMLDivElement | null): number[][] {
   return [...copy.querySelectorAll(':scope > .chips__measure-row')].map((row) =>
     [...row.children].map((chip) => chip.getBoundingClientRect().width)
   );
-}
-
-/**
- * The Mode select beside the chips (rr.6): its width as drawn, and at every
- * step from its copies out of sight, after the chips' rows in the copy.
- */
-function modeBeside(drawn: HTMLDivElement | null, copy: HTMLDivElement | null): ChipsBeside | undefined {
-  if (!drawn || !copy) return undefined;
-  return {
-    drawn: drawn.getBoundingClientRect().width,
-    steps: [...copy.querySelectorAll(':scope > .mode-select')].map(
-      (mode) => mode.getBoundingClientRect().width
-    )
-  };
 }
 
 /** Accept all and Dismiss all on a chip of suggestions: what they would move, and running them. */
@@ -286,14 +270,13 @@ function Chip({
  * The row draws no scrollbar; a 2 px line under it shows where it is while
  * the chips overflow.
  *
- * Since `rr.6` the Mode select comes first, before the bar, drawn here
- * because it shrinks with the chips: at their step, its width at every step
- * measured from its copies beside the chips' (`ModeSelectCopy`), and taken
- * out of their room at each (`chipsStep`'s `beside`). It is outside the bar,
- * which a review of the chapter makes inert, and with no chips it is drawn
- * alone, at the largest step.
+ * The Mode select before the bar is the Toolbar's (rr.6). From `rr.6` to
+ * `rr.8` it was drawn here, at the chips' step, and its width at every step
+ * was measured from copies of it beside the chips' and taken out of their
+ * room; since `rr.8` it keeps the eye's size at every step, so the room the
+ * bar has no longer depends on the step drawn.
  */
-export function FilterChips({ review, bulkOff, bulkTitle }: Props): React.JSX.Element {
+export function FilterChips({ review, bulkOff, bulkTitle }: Props): React.JSX.Element | null {
   const hidden = useApp((s) => s.hiddenCategories);
   const toggleCategory = useApp((s) => s.toggleCategory);
   const setHiddenCategories = useApp((s) => s.setHiddenCategories);
@@ -302,7 +285,6 @@ export function FilterChips({ review, bulkOff, bulkTitle }: Props): React.JSX.El
   const runBulk = useBulkAction();
   const rowRef = useRef<HTMLDivElement | null>(null);
   const copyRef = useRef<HTMLDivElement>(null);
-  const modeRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<ChipsView>(CHIPS_FIT);
   const [step, setStep] = useState(0);
 
@@ -334,10 +316,10 @@ export function FilterChips({ review, bulkOff, bulkTitle }: Props): React.JSX.El
     const next = chipsView(row);
     setView((prev) => (sameChipsView(prev, next) ? prev : next));
     /* The room the row has for its chips, which no step of theirs changes
-       (app.css); the Mode select's step does, by the select's own width, so
-       that is given too (rr.6, `chipsStep`). */
+       (app.css), nor the Mode select before the bar, which keeps its size at
+       every step (rr.8). */
     const room = row.getBoundingClientRect().width - CHIPS_ROW_PADDING;
-    setStep(chipsStep(room, naturalWidths(copyRef.current), modeBeside(modeRef.current, copyRef.current)));
+    setStep(chipsStep(room, naturalWidths(copyRef.current)));
   }, []);
 
   /* The row as drawn, after every render (a chip's count can change its
@@ -379,117 +361,107 @@ export function FilterChips({ review, bulkOff, bulkTitle }: Props): React.JSX.El
     if (left !== null) scrollContainerTo(row, left, 'left');
   };
 
-  // No chips: the select alone, at the largest step.
-  if (chips.length === 0) return <ModeSelect step={0} />;
+  if (chips.length === 0) return null;
 
   return (
-    <>
-      {/* The Mode select first, outside the bar, so it stays in reach while a
-          review of the chapter runs and the bar is faded and inert (rr.6). */}
-      <ModeSelect step={step} boxRef={modeRef} />
-      <div className={`chips-bar${locked ? ' chips--locked' : ''}`} inert={locked}>
-        {/* Open while every chip is shown, when it hides them all; closed
-            otherwise, when it shows them all. Its name says what it does. */}
-        <button
-          type="button"
-          className="chips__eye"
-          aria-label={eye}
-          title={eye}
-          onClick={() => (allShown ? setHiddenCategories(keys) : clearCategoryFilter())}
+    <div className={`chips-bar${locked ? ' chips--locked' : ''}`} inert={locked}>
+      {/* Open while every chip is shown, when it hides them all; closed
+          otherwise, when it shows them all. Its name says what it does. */}
+      <button
+        type="button"
+        className="chips__eye"
+        aria-label={eye}
+        title={eye}
+        onClick={() => (allShown ? setHiddenCategories(keys) : clearCategoryFilter())}
+      >
+        {allShown ? <IconEye /> : <IconEyeClosed />}
+      </button>
+      <div className="chips-view">
+        <div
+          ref={attachRow}
+          onFocus={revealChip}
+          className="chips"
+          data-chip-step={step}
+          role="group"
+          aria-label="Filter suggestions by category"
         >
-          {allShown ? <IconEye /> : <IconEyeClosed />}
-        </button>
-        <div className="chips-view">
-          <div
-            ref={attachRow}
-            onFocus={revealChip}
-            className="chips"
-            data-chip-step={step}
-            role="group"
-            aria-label="Filter suggestions by category"
+          {chips.map(([key, count]) => {
+            const suggestions = suggestionChip(key);
+            const plan = suggestions === null ? undefined : plans.get(suggestions);
+            return (
+              <Chip
+                key={key}
+                chip={key}
+                count={count}
+                off={hidden.includes(key)}
+                bulk={
+                  suggestions === null
+                    ? null
+                    : {
+                        pending: plan?.accept.count ?? 0,
+                        emptyNotes: {
+                          accept: plan?.accept.emptyNote ?? '',
+                          dismiss: plan?.dismiss.emptyNote ?? ''
+                        },
+                        run: (action) => runBulk(action, suggestions)
+                      }
+                }
+                locked={locked}
+                bulkOff={bulkOff}
+                bulkTitle={bulkTitle}
+                onToggle={() => toggleCategory(key)}
+                onShowOnly={() => setHiddenCategories(showOnlyHidden(keys, key))}
+                row={rowRef}
+              />
+            );
+          })}
+        </div>
+        {/* Pointer conveniences, laid over the row's ends: a press on one leaves
+            the focus where it is, and the keyboard has Tab. */}
+        {view.start ? (
+          <button
+            type="button"
+            className="chips__arrow chips__arrow--start"
+            tabIndex={-1}
+            aria-label="Scroll the categories left"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => page(-1)}
           >
-            {chips.map(([key, count]) => {
-              const suggestions = suggestionChip(key);
-              const plan = suggestions === null ? undefined : plans.get(suggestions);
-              return (
-                <Chip
-                  key={key}
-                  chip={key}
-                  count={count}
-                  off={hidden.includes(key)}
-                  bulk={
-                    suggestions === null
-                      ? null
-                      : {
-                          pending: plan?.accept.count ?? 0,
-                          emptyNotes: {
-                            accept: plan?.accept.emptyNote ?? '',
-                            dismiss: plan?.dismiss.emptyNote ?? ''
-                          },
-                          run: (action) => runBulk(action, suggestions)
-                        }
-                  }
-                  locked={locked}
-                  bulkOff={bulkOff}
-                  bulkTitle={bulkTitle}
-                  onToggle={() => toggleCategory(key)}
-                  onShowOnly={() => setHiddenCategories(showOnlyHidden(keys, key))}
-                  row={rowRef}
-                />
-              );
-            })}
+            <IconChevronLeft size={12} />
+          </button>
+        ) : null}
+        {view.end ? (
+          <button
+            type="button"
+            className="chips__arrow chips__arrow--end"
+            tabIndex={-1}
+            aria-label="Scroll the categories right"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => page(1)}
+          >
+            <IconChevronRight size={12} />
+          </button>
+        ) : null}
+        {view.thumb ? (
+          <div className="chips__line" aria-hidden="true">
+            <div className="chips__thumb" style={{ left: view.thumb.left, width: view.thumb.width }} />
           </div>
-          {/* Pointer conveniences, laid over the row's ends: a press on one leaves
-              the focus where it is, and the keyboard has Tab. */}
-          {view.start ? (
-            <button
-              type="button"
-              className="chips__arrow chips__arrow--start"
-              tabIndex={-1}
-              aria-label="Scroll the categories left"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => page(-1)}
-            >
-              <IconChevronLeft size={12} />
-            </button>
-          ) : null}
-          {view.end ? (
-            <button
-              type="button"
-              className="chips__arrow chips__arrow--end"
-              tabIndex={-1}
-              aria-label="Scroll the categories right"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => page(1)}
-            >
-              <IconChevronRight size={12} />
-            </button>
-          ) : null}
-          {view.thumb ? (
-            <div className="chips__line" aria-hidden="true">
-              <div className="chips__thumb" style={{ left: view.thumb.left, width: view.thumb.width }} />
-            </div>
-          ) : null}
-          {/* The chips again at every step, out of sight, for their widths
-              there, and after them the Mode select at every step (rr.6). */}
-          <div ref={copyRef} className="chips__measure" aria-hidden="true">
-            {CHIP_STEPS.map((_, at) => (
-              <div key={at} className="chips__measure-row" data-chip-step={at}>
-                {chips.map(([key, count]) => (
-                  <span key={key} className={`chip cat-${key}`}>
-                    <span className="chip__button">
-                      {chipName(key)} <span className="chip__count">{count}</span>
-                    </span>
+        ) : null}
+        {/* The chips again at every step, out of sight, for their widths there. */}
+        <div ref={copyRef} className="chips__measure" aria-hidden="true">
+          {CHIP_STEPS.map((_, at) => (
+            <div key={at} className="chips__measure-row" data-chip-step={at}>
+              {chips.map(([key, count]) => (
+                <span key={key} className={`chip cat-${key}`}>
+                  <span className="chip__button">
+                    {chipName(key)} <span className="chip__count">{count}</span>
                   </span>
-                ))}
-              </div>
-            ))}
-            {CHIP_STEPS.map((_, at) => (
-              <ModeSelectCopy key={`mode-${at}`} step={at} />
-            ))}
-          </div>
+                </span>
+              ))}
+            </div>
+          ))}
         </div>
       </div>
-    </>
+    </div>
   );
 }

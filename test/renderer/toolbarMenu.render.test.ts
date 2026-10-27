@@ -405,12 +405,12 @@ describe('the category chips lead the toolbar (polish.10, polish.11)', () => {
 });
 
 /* rr.6: the Mode select left its strip above the prose for the toolbar's
-   left, before the eye. It is drawn while a chapter is on screen, at the
-   chips' step (the largest until the window has measured them, and with no
-   chips), outside the chips' bar, which a review of the chapter makes inert,
-   and its copy at every step is in the chips' copy out of sight. What it
-   does on a choice and with the keys is in modes.test.ts and
-   modes.render.test.ts; its steps' CSS in chipsRow.test.ts. */
+   left, before the eye. It is drawn while a chapter is on screen, outside
+   the chips' bar, which a review of the chapter makes inert. Since rr.8 it
+   has no label beside it, its options reading "Mode: Main" and so on, and
+   the eye's size at every step, so the chips' copy out of sight holds no
+   copy of it. What it does on a choice and with the keys is in modes.test.ts
+   and modes.render.test.ts; its CSS in chipsRow.test.ts. */
 describe('the Mode select leads the toolbar (rr.6)', () => {
   /** Two suggestions, grammar and punctuation. */
   const TWO: Review = (() => {
@@ -427,13 +427,13 @@ describe('the Mode select leads the toolbar (rr.6)', () => {
     };
   })();
 
-  const SELECT = '<select id="mode-select" class="mode-select__field"';
+  const SELECT = '<select id="mode-select" class="mode-select" aria-label="Mode"';
 
   it('is the first thing in the toolbar, before the eye, the chips and Review, and the first Tab stop', () => {
     storeWith({ review: TWO, viewMode: 'main', drafts: {} });
     const html = render(TWO);
     expect(html).toMatch(
-      /^<header class="toolbar"><div class="mode-select" data-chip-step="0"><label class="mode-select__label" for="mode-select">Mode<\/label><select id="mode-select" class="mode-select__field" title="Main reviews the suggestions\./
+      /^<header class="toolbar"><select id="mode-select" class="mode-select" aria-label="Mode" title="Main reviews the suggestions\./
     );
     const select = html.indexOf(SELECT);
     expect(select).toBeLessThan(html.indexOf('<div class="chips-bar'));
@@ -441,19 +441,20 @@ describe('the Mode select leads the toolbar (rr.6)', () => {
     expect(select).toBeLessThan(html.indexOf('>Review'));
     // Nothing before it takes the focus.
     expect(html.slice(0, select)).not.toMatch(/<button|<select|<input|tabindex="0"/);
-    // One select of the window's mode; the copies have no id.
-    expect(html.split('id="mode-select"')).toHaveLength(2);
+    // One select, of the window's mode, with no label beside it.
+    expect(html.match(/<select/g)).toHaveLength(1);
+    expect(html).not.toContain('<label');
   });
 
   it('shows the mode of the window', () => {
     storeWith({ review: TWO, viewMode: 'preview', drafts: {} });
-    expect(render(TWO)).toMatch(/<option value="preview" selected="">Preview<\/option>/);
+    expect(render(TWO)).toMatch(/<option value="preview" selected="">Mode: Preview<\/option>/);
   });
 
-  it('stands at the left alone with no chips, at the largest step, before Review', () => {
+  it('stands at the left alone with no chips, before Review', () => {
     storeWith({ review: REVIEW, viewMode: 'main', drafts: {} });
     const html = render(REVIEW);
-    expect(html).toMatch(/^<header class="toolbar"><div class="mode-select" data-chip-step="0">/);
+    expect(html.startsWith(`<header class="toolbar">${SELECT}`)).toBe(true);
     expect(html).not.toContain('chips-bar');
     expect(html.match(/<select/g)).toHaveLength(1);
     expect(html.indexOf(SELECT)).toBeLessThan(html.indexOf('>Review'));
@@ -466,28 +467,18 @@ describe('the Mode select leads the toolbar (rr.6)', () => {
     expect(bar).toBeGreaterThan(0);
     const mode = html.slice(0, bar);
     expect(mode).toContain(SELECT);
-    expect(mode).toMatch(/<\/select><\/div>$/);
+    expect(mode).toMatch(/<\/select>$/);
     expect(mode).not.toContain('inert');
     expect(mode).not.toContain('disabled');
   });
 
-  it('has its copy at every step after the chips in the copy out of sight, with no id and out of the Tab order', () => {
+  it("has no copy in the chips' copy out of sight, as it keeps its size at every step", () => {
     storeWith({ review: TWO, viewMode: 'main', drafts: {} });
     const html = render(TWO);
     const copy = html.slice(html.indexOf('class="chips__measure"'), html.indexOf('<span class="menu">'));
-    expect(
-      copy.match(
-        /<div class="mode-select" data-chip-step="\d"><span class="mode-select__label">Mode<\/span>/g
-      )
-    ).toEqual(
-      [0, 1, 2, 3].map(
-        (at) => `<div class="mode-select" data-chip-step="${at}"><span class="mode-select__label">Mode</span>`
-      )
-    );
-    expect(copy.lastIndexOf('chips__measure-row')).toBeLessThan(copy.indexOf('<div class="mode-select"'));
-    expect(copy.match(/<select class="mode-select__field" tabindex="-1">/g)).toHaveLength(4);
-    expect(copy).not.toContain('id="mode-select"');
-    expect(copy).not.toContain('<label');
+    expect(copy.match(/chips__measure-row/g)).toHaveLength(4);
+    expect(copy).not.toContain('mode-select');
+    expect(copy).not.toContain('<select');
   });
 
   it('is not drawn behind the Setup screen or the welcome guide, nor with no review open', () => {

@@ -23,6 +23,7 @@ import { hintDismissedThisSession, useSaveHintAside } from '../state/hints';
 import { changedParagraphCount, fullEditDraft, isLocked, useApp } from '../state/store';
 import { FilterChips } from './FilterChips';
 import { IconFullScreen, IconLeaveFullScreen } from './icons';
+import { ModeSelect } from './ModeSelect';
 import { SaveHint } from './SaveHint';
 import { ToolbarMenu, type MenuItem } from './ToolbarMenu';
 
@@ -58,8 +59,8 @@ interface Props {
  * it: what can be shown, what can act on it, then what writes it out. Since
  * `rr.6` it starts with the Mode select (Main, Full edit or Preview), which
  * stood above the prose from `rr.2`: the mode is the window's since `rr.5`,
- * so it sits with the window's controls, and the select shrinks with the
- * chips, which is why FilterChips draws it. The
+ * so it sits with the window's controls. Since `rr.8` it reads "Mode: Main"
+ * and so on, with no label beside it, at the eye's size. The
  * chapter's name and its unsaved dot are in the window's title since
  * `polish.10` (`windowTitle`, set by App), and the category chips took their
  * place, after the eye that shows or hides them all (polish.11): they take
@@ -233,10 +234,16 @@ export function Toolbar({
         );
       }}
     >
-      {/* The Mode select (rr.6), then the eye and the chips, where the
-          chapter's name was (polish.10): the name is in the window's title.
-          FilterChips draws the select too, as it shrinks with the chips. */}
-      {chipShown ? <FilterChips review={review} bulkOff={bulkOff} bulkTitle={bulkTitle} /> : null}
+      {/* The Mode select (rr.6), outside the chips' bar, so it stays in reach
+          while a review of the chapter runs and the bar is inert; then the eye
+          and the chips, where the chapter's name was (polish.10): the name is
+          in the window's title. */}
+      {chipShown ? (
+        <>
+          <ModeSelect />
+          <FilterChips review={review} bulkOff={bulkOff} bulkTitle={bulkTitle} />
+        </>
+      ) : null}
 
       {running ? (
         <>

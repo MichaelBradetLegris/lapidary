@@ -1172,68 +1172,25 @@ button.column-edge:hover {
 /* ---------- filter chips ---------- */
 
 /* The Mode select (rr.6): Main, Full edit or Preview, the toolbar's first
-   item, before the eye. It is drawn at the chips' step: each step's rules
-   give its words the chips' type, the gap between them the chips' gap
-   ([data-chip-step] below), and the select a chip's padding and height, so
-   the two shrink together in a narrow window before the chips' row
-   overflows (`chipsStep`). Its width at every step is measured from its copy
-   beside the chips' (.chips__measure), so it takes its words' width
-   (`max-content`) there as here. With no chips the auto margin keeps it at
-   the left end; beside the chips' bar, which grows into all the room, the
-   margin has none to take. */
+   item, before the eye. Since rr.8 its options carry its name ("Mode:
+   Main"), so no label stands beside it, and it is the eye's size at every
+   width and zoom: the eye's type, the toolbar's 13 px, from the rule every
+   select has, and the eye's height, built as the eye's is (.chips__eye): a
+   16 px box, the eye's icon, 4 px of padding above and below and the 1 px
+   border. Chromium draws a select on a normal line whatever its line-height,
+   so the box's height is set, and set as the content's, since Chromium draws
+   a 1 px border as one device pixel: a select 26 px tall overall stood a
+   device pixel or two taller than the eye from 125% to 175%. From rr.6 to
+   rr.8 it took the chips' type and height at each of their steps, shrinking
+   with them. With no chips the auto margin keeps it at the left end; beside
+   the chips' bar, which grows into all the room, the margin has none to
+   take. */
 .mode-select {
   flex: none;
-  display: flex;
-  align-items: center;
-  width: max-content;
+  box-sizing: content-box;
+  height: 16px;
+  padding-block: 4px;
   margin-right: auto;
-  white-space: nowrap;
-}
-
-.mode-select__label {
-  color: var(--ink-soft);
-}
-
-/* A chip's height is its line, its padding and its 1 px border, above and
-   below. Chromium draws a select on a normal line whatever its line-height,
-   and with a chip's padding it stood 1 or 2 px taller than the chip at every
-   step, so the height is set: on the steps whose chips have a normal line,
-   that line (1lh, the select's own, in the same type) and 6 px; on the two
-   with a 16 px line, 20 px. */
-.mode-select[data-chip-step='0'] {
-  font-size: 13px;
-}
-
-.mode-select[data-chip-step='0'] .mode-select__field {
-  height: calc(1lh + 6px);
-  padding: 2px 8px;
-}
-
-.mode-select[data-chip-step='1'] {
-  font-size: 12.5px;
-}
-
-.mode-select[data-chip-step='1'] .mode-select__field {
-  height: calc(1lh + 6px);
-  padding: 2px 7px;
-}
-
-.mode-select[data-chip-step='2'] {
-  font-size: 12px;
-}
-
-.mode-select[data-chip-step='2'] .mode-select__field {
-  height: 20px;
-  padding: 1px 6px;
-}
-
-.mode-select[data-chip-step='3'] {
-  font-size: 11.5px;
-}
-
-.mode-select[data-chip-step='3'] .mode-select__field {
-  height: 20px;
-  padding: 1px 5px;
 }
 
 /* In the toolbar's row, where the chapter's name was before it moved to the

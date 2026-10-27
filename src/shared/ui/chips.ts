@@ -10,9 +10,9 @@
  * comments have one too, "comments N", before You, whose menu holds Hide or
  * Show and Show only (`COMMENTS_CHIP`, `RowChip`). The chips are drawn at the
  * size they had before `polish.10` and shrink, in steps, only as far as they
- * must to fit (`CHIP_STEPS`, `chipsStep`), and since `rr.6` the Mode select
- * before the eye shrinks with them (`ChipsBeside`); only at the smallest step
- * do they overflow, and the row then scrolls sideways and never wraps. Chromium
+ * must to fit (`CHIP_STEPS`, `chipsStep`); from `rr.6` to `rr.8` the Mode
+ * select before the eye shrank with them. Only at the smallest step do they
+ * overflow, and the row then scrolls sideways and never wraps. Chromium
  * scrolls such a row with a sideways wheel or trackpad and with Shift and the
  * wheel, but an ordinary wheel turned over it did nothing, so
  * `chipsWheelLeft` turns that into a sideways scroll. Tab brought a chip into
@@ -251,18 +251,6 @@ export const CHIP_STEPS: readonly {
 export const CHIPS_ROW_PADDING = 6;
 
 /**
- * What stands in the toolbar's row beside the chips and is drawn at their
- * step (rr.6): the Mode select, before the eye. The row has the room the
- * select leaves, so the select's width at a step comes out of the chips' room
- * at that step. `drawn` is its width as drawn now, at whatever step that is;
- * `steps[step]` its width at each step, measured from its copy out of sight.
- */
-export interface ChipsBeside {
-  drawn: number;
-  steps: readonly number[];
-}
-
-/**
  * The step the chips are drawn at (polish.11): the first, the largest, at
  * which they fit the row, and the last, the compact one, when none does, the
  * row then overflowing to its arrows. `width` is the room the row has for its
@@ -272,24 +260,18 @@ export interface ChipsBeside {
  * between two. The chips at a step take their widths and the step's gap
  * between each two.
  *
- * With `beside` (rr.6), the Mode select shrinks with them: the row's width
- * and the select's together are what neither step changes, so at each step
- * the chips have that, less the select's width at the step. The choice still
- * does not depend on the step drawn: the select drawn at another step gives
- * the row as much less, or more, as it takes.
+ * From `rr.6` to `rr.8` the Mode select shrank with them, and its width at
+ * each step came out of their room there; since `rr.8` it keeps the eye's
+ * size at every step, so nothing beside the row changes with the step and
+ * `width` alone is the room.
  */
-export function chipsStep(
-  width: number,
-  natural: readonly (readonly number[])[],
-  beside?: ChipsBeside
-): number {
+export function chipsStep(width: number, natural: readonly (readonly number[])[]): number {
   const last = CHIP_STEPS.length - 1;
   for (let step = 0; step < last; step += 1) {
     const widths = natural[step] ?? [];
     const gap = CHIP_STEPS[step]?.gap ?? 0;
     const total = widths.reduce((sum, w) => sum + w, 0) + gap * Math.max(0, widths.length - 1);
-    const room = beside ? width + beside.drawn - (beside.steps[step] ?? beside.drawn) : width;
-    if (total <= room) return step;
+    if (total <= width) return step;
   }
   return last;
 }
