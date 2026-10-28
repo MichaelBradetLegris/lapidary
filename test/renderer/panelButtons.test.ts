@@ -282,12 +282,15 @@ describe('the toolbar and the columns in app.css', () => {
     expect(readers).toEqual(['.toolbar', '.toolbar__main', '.toolbar__end > button + button', '.statusbar']);
     // Nothing else on the row adds room at the ends or between the items:
     // the ends and the icon buttons set no margin, and the row no padding.
+    // The Mode select's padding is a button's own (polish.34), inside its box.
     for (const rule of ['.toolbar__end', '.toolbar__icon', '.toolbar__main', '.mode-select', '.chips-bar']) {
       const decls = declsFor(rule);
       expect(
         [...decls.keys()].filter((key) => /^(margin|padding)(-inline|-left|-right)?$/.test(key)),
         rule
-      ).toEqual(rule === '.toolbar__icon' ? ['padding'] : rule === '.mode-select' ? ['margin-right'] : []);
+      ).toEqual(
+        rule === '.toolbar__icon' ? ['padding'] : rule === '.mode-select' ? ['padding', 'margin-right'] : []
+      );
     }
     // The chips keep their own room: the eye 4 px from the row, whose 3 px at
     // each end keep a chip's focus ring in view.
