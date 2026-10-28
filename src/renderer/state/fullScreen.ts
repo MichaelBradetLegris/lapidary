@@ -31,9 +31,14 @@ export const useFullScreen = create<{ on: boolean; focus: FocusModeState | null 
 export interface FocusOverlayState {
   open: boolean;
   holding: HoldKey | null;
-  /** the physical key held (`KeyboardEvent.code`), whose release ends the hold early */
+  /** the physical key held (`KeyboardEvent.code`), whose release pauses the hold */
   heldCode: string | null;
   since: number | null;
+  /**
+   * the time held in earlier holds since the overlay opened, in ms (focus.5):
+   * letting go pauses the count here, and the next hold carries on from it
+   */
+  held: number;
   leaving: boolean;
 }
 
@@ -42,6 +47,7 @@ export const FOCUS_OVERLAY_CLOSED: FocusOverlayState = Object.freeze({
   holding: null,
   heldCode: null,
   since: null,
+  held: 0,
   leaving: false
 });
 
