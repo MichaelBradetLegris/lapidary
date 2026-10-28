@@ -1,6 +1,6 @@
 {
   "name": "manuscript-review",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Review AI-suggested copyedits to novel chapters, one change at a time.",
