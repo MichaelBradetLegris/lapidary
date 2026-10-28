@@ -4,7 +4,7 @@ Download **{installer}** from the assets below and open it. It installs {name} f
 
 {name} is not code-signed, so your browser and Windows may warn you the first time:
 
-1. Edge may say that the file isn't commonly downloaded. Point at the download, click **...** and choose **Keep**, then **Show more** and **Keep anyway**. Other browsers ask in their own words; choose to keep the file.
+1. Edge may say that the file isn't commonly downloaded. In its Downloads panel, point at the download, click **...** and choose **Keep**; in the box that opens, click the arrow beside **Delete** and choose **Keep anyway**. Other browsers ask in their own words; choose to keep the file.
 2. When you open it, Windows may say "Windows protected your PC". Click **More info**, then **Run anyway**.
 
 ### Updates

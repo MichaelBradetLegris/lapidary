@@ -37,7 +37,7 @@ Two services can do the reviewing. You need one of them:
 ## Installing
 
 1. Open the [latest release](https://github.com/MichaelBradetLegris/lapidary/releases/latest) and, under **Assets**, download `Lapidary-Setup-<version>.exe`, such as `Lapidary-Setup-1.0.0.exe`. It is about 110 MB. Lapidary is not code-signed, so your browser and Windows may warn you the first time.
-2. Edge may say that the file isn't commonly downloaded. Point at the download, click **...** and choose **Keep**, then **Show more** and **Keep anyway**. Other browsers ask in their own words; choose to keep the file.
+2. Edge may say that the file isn't commonly downloaded. In its Downloads panel, point at the download, click **...** and choose **Keep**; in the box that opens, click the arrow beside **Delete** and choose **Keep anyway**. Other browsers ask in their own words; choose to keep the file.
 3. When you open it, Windows may say "Windows protected your PC". Click **More info**, then **Run anyway**.
 
 The installer asks no questions and needs no administrator rights. It installs Lapidary for your Windows account, adds a Start menu entry and a desktop shortcut, and starts the app, which opens on its welcome guide ([First run](#first-run)). You download Lapidary only once: after that, updates arrive in the app ([Updates](#updates)).
