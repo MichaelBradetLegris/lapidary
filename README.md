@@ -7,7 +7,7 @@
 ## TLDR
 
 - You point it at a folder of `.txt` and `.md` files, then you can write / edit / preview them.
-- You can generate reviews by AI, either with Claude of ChatGPT, using your own subscription. By default, the reviews are at the proofread level (typos, spelling, tenses, etc.) If desired, you CAN edit the guidelines file (or ask an AI to edit it) so that it can perform line-level edits, although I would not recommend it.
+- You can generate reviews by AI, either with Claude or ChatGPT, using your own subscription. By default, the reviews are at the proofread level (typos, spelling, tenses, etc.) If desired, you CAN edit the guidelines file (or ask an AI to edit it) so that it can perform line-level edits, although I would not recommend it.
 - The AI never edits your text. You must approve every suggestion, and save to chapter when you are done.
 - You can also do manual edits: paste in a manually edited chapter, and it will show you all the changes that you can manually accept.
 - Has a focus mode for focused writing / editing.

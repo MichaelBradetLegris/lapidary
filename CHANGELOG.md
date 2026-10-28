@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-27
+
 ### Changed
 
 - In focus mode, letting go of F11 or Escape before the time is up now pauses the count and leaves the message up where it was, and the next hold carries on from there: a tap shows the message and leaves it, and holding for 2 seconds, letting go and holding for 3 more leaves full screen at the 5. Any other key or a click still goes back to your chapter and starts the count over. Letting go used to close the message at once, so a tap made it flicker.
