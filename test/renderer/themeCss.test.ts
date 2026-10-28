@@ -427,6 +427,20 @@ describe('dark block (theme.5)', () => {
     expect([...declsFor('.switch').keys()].filter((k) => k.startsWith('outline'))).toEqual([]);
   });
 
+  /* polish.34: every list's arrow is the menus' chevron, the one SVG path IconChevronDown draws, as a
+     mask filled with the words' colour, so it needs no colour of its own in either theme. */
+  it("draws every list's arrow as the menus' chevron in the words' colour, through a mask", () => {
+    const icon = declsFor('select::picker-icon');
+    expect(icon.get('background')).toBe('currentColor');
+    expect(icon.get('width')).toBe('10px');
+    expect(icon.get('height')).toBe('10px');
+    const mask = icon.get('mask') ?? '';
+    expect(mask).toContain('data:image/svg+xml');
+    expect(mask).toContain("stroke='currentColor'");
+    expect(mask).toContain("d='M3.5 6 8 10.5 12.5 6'");
+    expect(mask).not.toMatch(/#|rgb|black|white/);
+  });
+
   it("has no rule for a password field or the key's input, which went with the OpenAI API key (codex.6)", () => {
     // The key's field was the app's one password field, framed here like the text fields.
     expect(declsFor(":where(input[type='password'])").size).toBe(0);

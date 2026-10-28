@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The Mode list at the left of the toolbar looks like the Review and Actions buttons beside it: the same box and padding, its words centred, the same small chevron after them, and the same shade under the pointer. Every other list, in Settings and the dialogs, ends in that chevron too, where it showed the browser's triangle.
+
 ## [1.0.1] - 2026-10-27
 
 ### Changed

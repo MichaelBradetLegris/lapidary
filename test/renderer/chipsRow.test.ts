@@ -242,33 +242,26 @@ describe("the Mode select is the eye's size (rr.8)", () => {
     expect(APP).not.toContain('ModeBar');
   });
 
-  /* The eye's height as a content box and the border, rather than 26 px
-     overall: Chromium draws a 1 px border as one device pixel, so from 125%
-     to 175% the eye is a little under 26 CSS px, and a select of 26 stood a
-     device pixel or two taller (the window, rr.8). The eye's padding is in
-     the select's box, not its padding: a 16 px box with 4 px of padding,
-     shorter than the select's line, had its words 2 px below the middle,
-     under the arrow and the buttons' words, which a 24 px box with none
-     puts level with them (the window, the rr.8 review). */
-  it("has the eye's height, as its content box, its type, and none of the chips' steps", () => {
-    // The eye: its 16 px icon, its padding above and below, and its border.
-    const icons = read('components/icons.tsx');
-    expect(icons).toContain('export function IconEye({ size = 16 }');
-    expect(icons).toContain('export function IconEyeClosed({ size = 16 }');
-    expect(CHIPS).toContain('{allShown ? <IconEye /> : <IconEyeClosed />}');
-    const eye = declsFor('.chips__eye');
-    expect(eye.get('display')).toBe('inline-flex');
-    const [vertical = ''] = (eye.get('padding') ?? '').split(' ');
-    expect(vertical).toBe('4px');
+  /* polish.34: a toolbar button's box, not the eye's. From rr.8 until then the select
+     was the eye's 26 px, a content box of 24 with no padding above or below, in which
+     the customizable select (theme.13) stood the words at the top; the author asked
+     for the Review and Actions buttons' look. The button's rule gives it the box, the
+     padding, the border and the type; the Mode select adds the chevron's gap, its hover
+     and its auto margin. */
+  it("is a toolbar button's size and look: the button's padding, the menus' chevron and its hover", () => {
     expect(Object.fromEntries(declsFor('.mode-select'))).toEqual({
       flex: 'none',
-      'box-sizing': 'content-box',
-      // The icon and the padding above and below it: 24 px.
-      height: `${16 + 2 * parseFloat(vertical)}px`,
-      'padding-block': '0',
+      padding: '4px 9px',
+      gap: '4px',
       'margin-right': 'auto'
     });
-    // Nothing else sets the select's height or its box.
+    expect(declsFor('button').get('padding')).toBe('4px 9px');
+    expect(declsFor('.mode-select:hover').get('background')).toBe('var(--panel-alt)');
+    // The button's hover rule, read as text: its selector holds a comma the helper splits on.
+    expect(CSS).toMatch(
+      /button:hover:not\(:disabled, \[aria-disabled='true'\]\) \{\s*background: var\(--panel-alt\);/
+    );
+    // Nothing sets the select's height or its box: the line, the padding and the border make it, as a button's.
     expect(declsFor('select').has('height')).toBe(false);
     expect(declsFor('select').has('box-sizing')).toBe(false);
     // The same 1 px border, from the rule every select has and every button's.
@@ -284,6 +277,10 @@ describe("the Mode select is the eye's size (rr.8)", () => {
         rule
       ).toEqual([]);
     }
+    // The words centred in every select, and the arrow the menus' chevron, 10 px as the buttons'.
+    expect(declsFor('select').get('align-items')).toBe('center');
+    expect(declsFor('select::picker-icon').get('width')).toBe('10px');
+    expect(read('components/ToolbarMenu.tsx')).toContain('{label} <IconChevronDown size={10} />');
     // No step's rules reach it, and there is no label.
     expect(CSS).not.toMatch(/\.mode-select\[data-chip-step/);
     expect(CSS).not.toContain('.mode-select__');

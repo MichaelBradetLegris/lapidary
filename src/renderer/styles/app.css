@@ -565,6 +565,22 @@ select::picker(select) {
 select {
   min-inline-size: 0;
   min-block-size: 0;
+  align-items: center;
+}
+
+/* The arrow of every list is the menus' chevron (polish.34), the
+   IconChevronDown the Review and Actions buttons end in, 10 px, drawn in the
+   words' colour through a mask, where the customizable select drew the
+   browser's triangle; it stands at the right edge, after the words. */
+select::picker-icon {
+  content: '';
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-inline-start: auto;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 6 8 10.5 12.5 6'/%3E%3C/svg%3E")
+    center / contain no-repeat;
 }
 
 select::picker(select) {
@@ -1230,29 +1246,25 @@ select:has(option:hover) option:focus:not(:hover) {
 
 /* The Mode select (rr.6): Main, Full edit or Preview, the toolbar's first
    item, before the eye. Since rr.8 its options carry its name ("Mode:
-   Main"), so no label stands beside it, and it is the eye's size at every
-   width and zoom: the eye's type, the toolbar's 13 px, from the rule every
-   select has, and the eye's height (.chips__eye), its 16 px icon, its 4 px
-   of padding above and below and the 1 px border: a 24 px box with no
-   padding above or below, and the border. Chromium draws a select on a
-   normal line whatever its line-height, so the box's height is set, and set
-   as the content's, since Chromium draws a 1 px border as one device pixel:
-   a select 26 px tall overall stood a device pixel or two taller than the
-   eye from 125% to 175%. The eye's 8 px of padding are in the select's
-   box, not its padding, since the words stand in the middle of the box:
-   built first as the eye is, a 16 px box with 4 px of padding, shorter than
-   the select's normal line, it had its words about 2 px below the middle,
-   lower than the arrow, the eye's icon and the words of the toolbar's
-   buttons (the rr.8 review). From rr.6 to rr.8 it took the chips' type and
-   height at each of their steps, shrinking with them. With no chips the
-   auto margin keeps it at the left end; beside the chips' bar, which grows
-   into all the room, the margin has none to take. */
+   Main"), so no label stands beside it. Since polish.34 it is a toolbar
+   button to the eye: the box, border, type and padding of the Review and
+   Actions buttons beside it (the rule every button has, 4px 9px, 27 px tall
+   at 100%), their chevron after its words (select::picker-icon, above) at
+   their 4 px gap, and their hover. From rr.8 until then it was the eye's
+   26 px, a content box of 24 with no padding above or below, in which the
+   customizable select stood the words at the top; the author asked for the
+   menus' look (2026-10-28). With no chips the auto margin keeps it at the
+   left end; beside the chips' bar, which grows into all the room, the
+   margin has none to take. */
 .mode-select {
   flex: none;
-  box-sizing: content-box;
-  height: 24px;
-  padding-block: 0;
+  padding: 4px 9px;
+  gap: 4px;
   margin-right: auto;
+}
+
+.mode-select:hover {
+  background: var(--panel-alt);
 }
 
 /* In the toolbar's row, where the chapter's name was before it moved to the
